@@ -1,0 +1,7 @@
+{
+  "schema": "caduceus.tests.v1",
+  "children": ["cli-contract"],
+  "metadata": {
+    "description": "Root-level Caduceus test spine."
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "schema": "caduceus.identity.v1",
+  "device": "arch-tv",
+  "profile": "tv",
+  "mode": "tv",
+  "public_surface": true,
+  "harmonia_profile": "/etc/harmonia/profiles/tv/index.json"
+}

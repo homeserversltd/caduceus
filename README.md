@@ -1,2 +1,26 @@
-# caduceus
+# Caduceus
 
+Caduceus is the public Rust appliance-control lever for sovereign HOMESERVER devices.
+
+It gives users a safe local command surface for public device management while the private land organs stay sealed away:
+
+- Fulcrum, Azoth, Kether, Cibation, and Paligenesis remain private.
+- Harmonia performs declared profile convergence.
+- Caduceus routes public appliance intent and writes public-safe receipts.
+- Arcadia and future front ends may call Caduceus instead of duplicating actuator code.
+
+Initial command surface:
+
+```text
+caduceus identity show
+caduceus profile show
+caduceus health
+caduceus update status
+caduceus update now --dry-run
+caduceus update service status
+caduceus update service toggle on --dry-run
+caduceus update service toggle off --dry-run
+caduceus receipts latest
+```
+
+Local profile roots default to `/etc/caduceus` and `/var/lib/caduceus`. For tests and development, set `CADUCEUS_ROOT` to a fixture root containing `etc/caduceus` and `var/lib/caduceus`.
