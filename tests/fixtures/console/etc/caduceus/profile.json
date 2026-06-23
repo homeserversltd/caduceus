@@ -1,0 +1,31 @@
+{
+  "schema": "caduceus.profile.v1",
+  "profile": "console",
+  "mode": "console",
+  "harmonia_profile": "/etc/harmonia/profiles/homeconsole/index.json",
+  "harmonia_routes": {
+    "sync_now": {
+      "bin": "/usr/local/bin/harmonia",
+      "args": [
+        "homeconsole-sync",
+        "/etc/harmonia/profiles/homeconsole/index.json",
+        "--apply",
+        "--receipt-dir",
+        "/var/lib/harmonia/receipts/homeconsole-sync-latest"
+      ],
+      "flags": {
+        "--no-restart": ["--adapter-args", "--no-restart"]
+      }
+    },
+    "update_now": {
+      "bin": "/usr/local/bin/harmonia",
+      "args": [
+        "homeconsole-update",
+        "/etc/harmonia/profiles/homeconsole/index.json",
+        "--apply",
+        "--receipt-dir",
+        "/var/lib/harmonia/receipts/homeconsole-update-latest"
+      ]
+    }
+  }
+}

@@ -10,6 +10,7 @@ fn help_names_public_commands() {
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("caduceus update now"));
+    assert!(text.contains("caduceus sync now"));
     assert!(text.contains("caduceus identity show"));
 }
 
@@ -42,4 +43,30 @@ fn update_toggle_dry_run_is_public_safe() {
     assert!(!text.contains("Fulcrum"));
     assert!(!text.contains("Azoth"));
     assert!(!text.contains("Kether"));
+}
+
+#[test]
+fn console_sync_route_dry_run_is_public_safe() {
+    let out = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/console")
+        .args(["sync", "now", "--dry-run"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("schema=caduceus.harmonia.invoke.v1"));
+    assert!(text.contains("route=sync_now"));
+    assert!(text.contains("mutation=false"));
+}
+
+#[test]
+fn console_sync_status_reads_route() {
+    let out = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/console")
+        .args(["sync", "status"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("route_present=true"));
 }

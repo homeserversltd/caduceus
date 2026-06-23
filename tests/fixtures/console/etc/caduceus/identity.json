@@ -1,0 +1,8 @@
+{
+  "schema": "caduceus.identity.v1",
+  "device": "arch-gaming-console",
+  "profile": "console",
+  "mode": "console",
+  "public_surface": true,
+  "harmonia_profile": "/etc/harmonia/profiles/homeconsole/index.json"
+}

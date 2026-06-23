@@ -1,21 +1,25 @@
-use crate::tools::{config, receipts, systemd};
+use crate::tools::{config, harmonia, receipts, systemd};
 
 pub fn status() -> i32 {
     let profile_ok = config::read_public_file("etc/caduceus/profile.json").is_ok();
     let state = config::read_public_file("var/lib/caduceus/state.json")
         .unwrap_or_else(|_| "{}".to_string());
+    let route_ok = harmonia::route("update_now").is_ok();
     println!("schema=caduceus.update.status.v1");
     println!("profile_present={profile_ok}");
     println!("state_present={}", state != "{}");
+    println!("route_present={route_ok}");
     println!(
         "first_missing_signal={}",
-        if profile_ok {
+        if profile_ok && route_ok {
             "none"
-        } else {
+        } else if !profile_ok {
             "caduceus-profile-missing"
+        } else {
+            "caduceus-harmonia-route-missing:update_now"
         }
     );
-    if profile_ok {
+    if profile_ok && route_ok {
         0
     } else {
         1
@@ -24,28 +28,24 @@ pub fn status() -> i32 {
 
 pub fn now(rest: &[String]) -> i32 {
     let dry_run = rest.iter().any(|arg| arg == "--dry-run");
-    if dry_run {
-        println!("schema=caduceus.update.now.v1");
-        println!("mutation=false");
-        println!("would_invoke=harmonia-profile-command");
-        println!("first_missing_signal=none");
-        return 0;
+    let flags: Vec<String> = rest
+        .iter()
+        .filter(|arg| *arg != "--dry-run")
+        .cloned()
+        .collect();
+    let (code, body) = harmonia::invoke("update_now", &flags, dry_run);
+    if !dry_run {
+        let _ = receipts::write_latest(&body);
     }
-    let body = "schema=caduceus.update.now.v1
-mutation=false
-ok=false
-first_missing_signal=caduceus-harmonia-command-not-yet-wired
-";
-    let _ = receipts::write_latest(body);
-    eprint!("{body}");
-    1
+    print!("{body}");
+    code
 }
 
 pub fn service_status() -> i32 {
     println!("schema=caduceus.update.service.status.v1");
     println!(
         "timer_state={}",
-        systemd::timer_status("harmonia-profile.timer")
+        systemd::timer_status("arch-console-maintenance.timer")
     );
     println!("first_missing_signal=none");
     0
