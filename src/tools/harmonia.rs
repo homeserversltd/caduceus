@@ -77,7 +77,11 @@ pub fn invoke(route_key: &str, rest: &[String], dry_run: bool) -> (i32, String) 
         }
     };
     let (bin, run_args) = argv.split_first().unwrap();
-    let output = Command::new(bin).args(run_args).output();
+    let output = Command::new("sudo")
+        .arg("-n")
+        .arg(bin)
+        .args(run_args)
+        .output();
     match output {
         Ok(result) => {
             let ok = result.status.success();
