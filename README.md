@@ -15,8 +15,11 @@ Initial command surface:
 caduceus identity show
 caduceus profile show
 caduceus health
+caduceus sync status
+caduceus sync now [--no-restart] [--dry-run]
 caduceus update status
 caduceus update now --dry-run
+caduceus help
 caduceus update service status
 caduceus update service toggle on --dry-run
 caduceus update service toggle off --dry-run

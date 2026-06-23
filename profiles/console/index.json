@@ -2,5 +2,61 @@
   "schema": "caduceus.profile.v1",
   "profile": "console",
   "mode": "console",
-  "harmonia_profile": "/etc/harmonia/profiles/homeconsole/index.json"
+  "harmonia_profile": "/etc/harmonia/profiles/homeconsole/index.json",
+  "commands": [
+    "help",
+    "identity show",
+    "profile show",
+    "health",
+    "receipts latest",
+    "sync status",
+    "sync now",
+    "update status",
+    "update now",
+    "update service status",
+    "update service toggle"
+  ],
+  "services": {
+    "update": {
+      "timer": "arch-console-maintenance.timer",
+      "latest_receipt": "/var/lib/harmonia/receipts/homeconsole-update-latest/run.json"
+    },
+    "sync": {
+      "latest_receipt": "/var/lib/harmonia/receipts/homeconsole-sync-latest/run.json"
+    }
+  },
+  "harmonia_routes": {
+    "sync_now": {
+      "bin": "/usr/local/bin/harmonia",
+      "args": [
+        "homeconsole-sync",
+        "/etc/harmonia/profiles/homeconsole/index.json",
+        "--apply",
+        "--receipt-dir",
+        "/var/lib/harmonia/receipts/homeconsole-sync-latest"
+      ],
+      "flags": {
+        "--no-restart": ["--adapter-args", "--no-restart"]
+      }
+    },
+    "update_now": {
+      "bin": "/usr/local/bin/harmonia",
+      "args": [
+        "homeconsole-update",
+        "/etc/harmonia/profiles/homeconsole/index.json",
+        "--apply",
+        "--receipt-dir",
+        "/var/lib/harmonia/receipts/homeconsole-update-latest"
+      ]
+    }
+  },
+  "operator_aliases": {
+    "sync": "caduceus sync now",
+    "sync-no-restart": "caduceus sync now --no-restart",
+    "update": "caduceus update now",
+    "update-check": "caduceus update status",
+    "update-status": "caduceus receipts latest",
+    "health": "caduceus health",
+    "h": "caduceus help"
+  }
 }
