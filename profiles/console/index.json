@@ -31,6 +31,8 @@
       "args": [
         "homeconsole-sync",
         "/etc/harmonia/profiles/homeconsole/index.json",
+        "--module",
+        "/etc/harmonia/profiles/homeconsole/modules/homeconsole-sync-runtime/sidecar.json",
         "--apply",
         "--receipt-dir",
         "/var/lib/harmonia/receipts/homeconsole-sync-latest"
