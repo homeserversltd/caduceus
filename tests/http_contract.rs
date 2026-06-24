@@ -126,6 +126,43 @@ async fn console_sync_now_route_is_profile_allowed() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn console_gui_update_route_is_profile_allowed() {
+    let _guard = use_fixture("tests/fixtures/console");
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/gui/update/now")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let json = body_json(response).await;
+    assert_eq!(json["route"], "gui_update_now");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn console_local_ai_runtime_status_reads_route() {
+    let _guard = use_fixture("tests/fixtures/console");
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/local-ai/runtime/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = body_json(response).await;
+    assert_eq!(json["routePresent"], true);
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn locked_profile_rejects_console_update_now() {
     let _guard = use_fixture("tests/fixtures/locked");
     let app = serve::router();

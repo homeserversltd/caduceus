@@ -1,4 +1,4 @@
-use crate::bands::{health, identity, profile, receipts, sync, update};
+use crate::bands::{gui, health, identity, local_ai, profile, profile_module, receipts, sync, update};
 use crate::tools::policy;
 use axum::{
     extract::Query,
@@ -35,6 +35,13 @@ struct LivenessBody {
 #[serde(rename_all = "camelCase")]
 struct ServiceToggleBody {
     state: String,
+}
+
+#[derive(Deserialize)]
+struct ProfileModuleToggleBody {
+    #[serde(alias = "moduleId")]
+    module_id: String,
+    enabled: bool,
 }
 
 fn api_error(command: &str) -> (StatusCode, Json<ApiErrorBody>) {
@@ -207,6 +214,55 @@ async fn update_service_status_route(
     gated_json("update service status", update::service_status_json).await
 }
 
+async fn gui_update_now_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    gated_mutation("gui update now", || gui::invoke_update_now_json(&[])).await
+}
+
+async fn local_ai_runtime_status_route(
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("local-ai runtime status", local_ai::runtime_status_json).await
+}
+
+async fn local_ai_runtime_check_route(
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("local-ai runtime check", local_ai::runtime_status_json).await
+}
+
+async fn local_ai_runtime_update_route(
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    gated_mutation("local-ai runtime update", || local_ai::invoke_runtime_update_json(&[])).await
+}
+
+async fn profile_module_toggle_route(
+    Json(body): Json<ProfileModuleToggleBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let module_id = body.module_id;
+    match policy::allows_command("profile module toggle") {
+        Ok(true) => match profile_module::toggle_json(&module_id, body.enabled) {
+            Ok(value) => Ok((StatusCode::OK, Json(value))),
+            Err(_) => Err((
+                StatusCode::BAD_REQUEST,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: "profile module toggle".to_string(),
+                    first_missing_signal: "caduceus-profile-module-toggle-failed",
+                }),
+            )),
+        },
+        Ok(false) => Err(api_error("profile module toggle")),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: "profile module toggle".to_string(),
+                first_missing_signal: "caduceus-profile-missing",
+            }),
+        )),
+    }
+}
+
 async fn update_service_toggle_route(
     Json(body): Json<ServiceToggleBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
@@ -246,6 +302,23 @@ pub fn router() -> Router {
         .route(
             "/api/v1/update/service/toggle",
             post(update_service_toggle_route),
+        )
+        .route("/api/v1/gui/update/now", post(gui_update_now_route))
+        .route(
+            "/api/v1/local-ai/runtime/status",
+            get(local_ai_runtime_status_route),
+        )
+        .route(
+            "/api/v1/local-ai/runtime/check",
+            post(local_ai_runtime_check_route),
+        )
+        .route(
+            "/api/v1/local-ai/runtime/update",
+            post(local_ai_runtime_update_route),
+        )
+        .route(
+            "/api/v1/profile/module/toggle",
+            post(profile_module_toggle_route),
         )
 }
 

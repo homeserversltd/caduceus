@@ -1,7 +1,7 @@
 pub mod bands;
 pub mod tools;
 
-use bands::{health, help, identity, profile, receipts, serve, sync, update};
+use bands::{gui, health, help, identity, local_ai, profile, profile_module, receipts, serve, sync, update};
 
 pub fn run<I, S>(args: I) -> i32
 where
@@ -29,6 +29,22 @@ where
         [domain, verb, rest @ ..] if domain == "update" && verb == "check" => update::check(rest),
         [domain, verb] if domain == "sync" && verb == "status" => sync::status(),
         [domain, verb, rest @ ..] if domain == "sync" && verb == "now" => sync::now(rest),
+        [domain, object, verb, rest @ ..] if domain == "gui" && object == "update" && verb == "now" => {
+            gui::update_now(rest)
+        }
+        [domain, object, verb] if domain == "local-ai" && object == "runtime" && verb == "status" => {
+            local_ai::runtime_status()
+        }
+        [domain, object, verb, rest @ ..]
+            if domain == "local-ai" && object == "runtime" && verb == "update" =>
+        {
+            local_ai::runtime_update(rest)
+        }
+        [domain, object, verb, module_id, state]
+            if domain == "profile" && object == "module" && verb == "toggle" =>
+        {
+            profile_module::toggle(module_id, state)
+        }
         [domain, object, verb] if domain == "update" && object == "service" && verb == "status" => {
             update::service_status()
         }
@@ -61,6 +77,10 @@ fn print_help() {
     println!("  caduceus update check [--dry-run]");
     println!("  caduceus update service status");
     println!("  caduceus update service toggle <on|off> [--dry-run]");
+    println!("  caduceus gui update now [--dry-run]");
+    println!("  caduceus local-ai runtime status");
+    println!("  caduceus local-ai runtime update [--dry-run]");
+    println!("  caduceus profile module toggle <module-id> <on|off>");
     println!("  caduceus receipts latest");
     println!("  caduceus serve");
 }

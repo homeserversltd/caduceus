@@ -16,7 +16,12 @@
     "update check",
     "update now",
     "update service status",
-    "update service toggle"
+    "update service toggle",
+    "gui update now",
+    "local-ai runtime status",
+    "local-ai runtime check",
+    "local-ai runtime update",
+    "profile module toggle"
   ],
   "services": {
     "ledger": "/var/lib/harmonia/receipts/homeconsole-ledger.jsonl",
@@ -26,6 +31,12 @@
     },
     "sync": {
       "latest_receipt": "/var/lib/harmonia/receipts/homeconsole-sync-latest/run.json"
+    },
+    "gui": {
+      "latest_receipt": "/var/lib/harmonia/receipts/arcadia-gui-latest/run.json"
+    },
+    "local_ai": {
+      "latest_receipt": "/var/lib/harmonia/receipts/local-ai-runtime-latest/run.json"
     }
   },
   "harmonia_routes": {
@@ -62,6 +73,36 @@
         "--receipt-dir",
         "/var/lib/harmonia/receipts/homeconsole-check-latest"
       ]
+    },
+    "gui_update_now": {
+      "bin": "/usr/local/bin/harmonia",
+      "args": [
+        "homeconsole-arcadia-gui-update",
+        "/etc/harmonia/profiles/homeconsole/index.json",
+        "--repo",
+        "git@git.home.arpa:HOMESERVERSLTD/arcadia.git",
+        "--branch",
+        "main",
+        "--source-dir",
+        "/opt/arcadia/source",
+        "--apply",
+        "--install-bin",
+        "/usr/local/bin/arcadia",
+        "--service",
+        "arcadia.service",
+        "--receipt-dir",
+        "/var/lib/harmonia/receipts/arcadia-gui-latest"
+      ]
+    },
+    "local_ai_update_now": {
+      "bin": "/usr/local/bin/harmonia",
+      "args": [
+        "homeconsole-local-ai-update",
+        "/etc/harmonia/profiles/homeconsole/index.json",
+        "--apply",
+        "--receipt-dir",
+        "/var/lib/harmonia/receipts/local-ai-runtime-latest"
+      ]
     }
   },
   "operator_aliases": {
@@ -70,6 +111,8 @@
     "update": "caduceus update now",
     "update-check": "caduceus update status",
     "update-status": "caduceus receipts latest",
+    "update-gui": "caduceus gui update now",
+    "local-ai-update": "caduceus local-ai runtime update",
     "health": "caduceus health",
     "h": "caduceus help"
   }
