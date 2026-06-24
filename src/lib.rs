@@ -1,7 +1,7 @@
 pub mod bands;
 pub mod tools;
 
-use bands::{health, help, identity, profile, receipts, sync, update};
+use bands::{health, help, identity, profile, receipts, serve, sync, update};
 
 pub fn run<I, S>(args: I) -> i32
 where
@@ -22,6 +22,7 @@ where
         [domain, verb] if domain == "identity" && verb == "show" => identity::show(),
         [domain, verb] if domain == "profile" && verb == "show" => profile::show(),
         [domain] if domain == "health" => health::show(),
+        [domain] if domain == "serve" => serve::run(),
         [domain, verb] if domain == "receipts" && verb == "latest" => receipts::latest(),
         [domain, verb] if domain == "update" && verb == "status" => update::status(),
         [domain, verb, rest @ ..] if domain == "update" && verb == "now" => update::now(rest),
@@ -59,4 +60,5 @@ fn print_help() {
     println!("  caduceus update service status");
     println!("  caduceus update service toggle <on|off> [--dry-run]");
     println!("  caduceus receipts latest");
+    println!("  caduceus serve");
 }
