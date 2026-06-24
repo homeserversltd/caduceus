@@ -18,7 +18,7 @@
   ],
   "services": {
     "update": {
-      "timer": "arch-console-maintenance.timer",
+      "timer": "harmonia-homeconsole.timer",
       "latest_receipt": "/var/lib/harmonia/receipts/homeconsole-update-latest/run.json"
     },
     "sync": {
