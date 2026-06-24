@@ -9,14 +9,17 @@
     "profile show",
     "health",
     "receipts latest",
+    "receipts ledger",
     "sync status",
     "sync now",
     "update status",
+    "update check",
     "update now",
     "update service status",
     "update service toggle"
   ],
   "services": {
+    "ledger": "/var/lib/harmonia/receipts/homeconsole-ledger.jsonl",
     "update": {
       "timer": "harmonia-homeconsole.timer",
       "latest_receipt": "/var/lib/harmonia/receipts/homeconsole-update-latest/run.json"
@@ -49,6 +52,15 @@
         "--apply",
         "--receipt-dir",
         "/var/lib/harmonia/receipts/homeconsole-update-latest"
+      ]
+    },
+    "update_check": {
+      "bin": "/usr/local/bin/harmonia",
+      "args": [
+        "homeconsole-update",
+        "/etc/harmonia/profiles/homeconsole/index.json",
+        "--receipt-dir",
+        "/var/lib/harmonia/receipts/homeconsole-check-latest"
       ]
     }
   },
