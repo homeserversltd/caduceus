@@ -1,5 +1,5 @@
 use crate::tools::config;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::process::Command;
 
 pub const DEFAULT_HARMONIA_BIN: &str = "/usr/local/bin/harmonia";
@@ -49,6 +49,29 @@ pub fn build_argv(route: &Value, rest: &[String]) -> Result<Vec<String>, String>
     let mut argv = vec![bin];
     argv.extend(args);
     Ok(argv)
+}
+
+pub fn invoke_body_to_json(route_key: &str, code: i32, body: &str) -> Value {
+    let mut fields = serde_json::Map::new();
+    for line in body.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        fields.insert(key.to_string(), Value::String(value.to_string()));
+    }
+    let ok = fields
+        .get("ok")
+        .and_then(Value::as_str)
+        .map(|value| value == "true")
+        .unwrap_or(code == 0);
+    json!({
+        "schema": fields.get("schema").and_then(Value::as_str).unwrap_or("caduceus.harmonia.invoke.v1"),
+        "route": route_key,
+        "ok": ok,
+        "exitCode": code,
+        "body": body,
+        "firstMissingSignal": fields.get("first_missing_signal").and_then(Value::as_str).unwrap_or(if ok { "none" } else { "caduceus-harmonia-command-failed" })
+    })
 }
 
 pub fn invoke(route_key: &str, rest: &[String], dry_run: bool) -> (i32, String) {

@@ -1,8 +1,15 @@
-use crate::bands::{health, identity, profile};
+use crate::bands::{health, identity, profile, receipts, sync, update};
 use crate::tools::policy;
-use axum::{http::StatusCode, routing::get, Json, Router};
+use axum::{
+    extract::Query,
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
+use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
@@ -22,6 +29,12 @@ struct LivenessBody {
     schema: &'static str,
     ok: bool,
     service: &'static str,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServiceToggleBody {
+    state: String,
 }
 
 fn api_error(command: &str) -> (StatusCode, Json<ApiErrorBody>) {
@@ -76,6 +89,36 @@ async fn gated_json(
     }
 }
 
+fn mutation_status(value: &Value) -> StatusCode {
+    if value.get("ok").and_then(Value::as_bool) == Some(true) {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    }
+}
+
+async fn gated_mutation(
+    command: &str,
+    run: fn() -> Value,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command(command) {
+        Ok(true) => {
+            let value = run();
+            Ok((mutation_status(&value), Json(value)))
+        }
+        Ok(false) => Err(api_error(command)),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: command.to_string(),
+                first_missing_signal: "caduceus-profile-missing",
+            }),
+        )),
+    }
+}
+
 async fn health_route() -> Json<LivenessBody> {
     Json(LivenessBody {
         schema: "caduceus.liveness.v1",
@@ -96,12 +139,114 @@ async fn health_api_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBod
     gated_json("health", health::read_json).await
 }
 
+async fn update_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("update status", update::read_json).await
+}
+
+async fn update_now_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    gated_mutation("update now", || update::invoke_now_json(&[])).await
+}
+
+async fn update_check_route(
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    gated_mutation("update check", || update::invoke_check_json(&[])).await
+}
+
+async fn sync_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("sync status", sync::read_json).await
+}
+
+async fn sync_now_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    gated_mutation("sync now", || sync::invoke_now_json(&[])).await
+}
+
+async fn receipts_latest_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("receipts latest", receipts::read_latest_json).await
+}
+
+async fn receipts_ledger_route(
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    let page = query
+        .get("page")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(1);
+    let per_page = query
+        .get("per_page")
+        .or_else(|| query.get("perPage"))
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(10);
+    match policy::allows_command("receipts ledger") {
+        Ok(true) => match receipts::read_ledger_json(page, per_page) {
+            Ok(value) => Ok(Json(value)),
+            Err(err) => Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: "receipts ledger".to_string(),
+                    first_missing_signal: missing_signal(&err),
+                }),
+            )),
+        },
+        Ok(false) => Err(api_error("receipts ledger")),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: "receipts ledger".to_string(),
+                first_missing_signal: "caduceus-profile-missing",
+            }),
+        )),
+    }
+}
+
+async fn update_service_status_route(
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("update service status", update::service_status_json).await
+}
+
+async fn update_service_toggle_route(
+    Json(body): Json<ServiceToggleBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let state = body.state;
+    match policy::allows_command("update service toggle") {
+        Ok(true) => match update::service_toggle_json(&state, &[]) {
+            Ok(value) => Ok((StatusCode::OK, Json(value))),
+            Err(_) => Err(api_error("update service toggle")),
+        },
+        Ok(false) => Err(api_error("update service toggle")),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: "update service toggle".to_string(),
+                first_missing_signal: "caduceus-profile-missing",
+            }),
+        )),
+    }
+}
+
 pub fn router() -> Router {
     Router::new()
         .route("/health", get(health_route))
         .route("/api/v1/identity", get(identity_route))
         .route("/api/v1/profile", get(profile_route))
         .route("/api/v1/health", get(health_api_route))
+        .route("/api/v1/update/status", get(update_status_route))
+        .route("/api/v1/update/now", post(update_now_route))
+        .route("/api/v1/update/check", post(update_check_route))
+        .route("/api/v1/sync/status", get(sync_status_route))
+        .route("/api/v1/sync/now", post(sync_now_route))
+        .route("/api/v1/receipts/latest", get(receipts_latest_route))
+        .route("/api/v1/receipts/ledger", get(receipts_ledger_route))
+        .route("/api/v1/update/service/status", get(update_service_status_route))
+        .route(
+            "/api/v1/update/service/toggle",
+            post(update_service_toggle_route),
+        )
 }
 
 pub async fn run_async() -> i32 {

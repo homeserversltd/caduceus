@@ -26,6 +26,7 @@ where
         [domain, verb] if domain == "receipts" && verb == "latest" => receipts::latest(),
         [domain, verb] if domain == "update" && verb == "status" => update::status(),
         [domain, verb, rest @ ..] if domain == "update" && verb == "now" => update::now(rest),
+        [domain, verb, rest @ ..] if domain == "update" && verb == "check" => update::check(rest),
         [domain, verb] if domain == "sync" && verb == "status" => sync::status(),
         [domain, verb, rest @ ..] if domain == "sync" && verb == "now" => sync::now(rest),
         [domain, object, verb] if domain == "update" && object == "service" && verb == "status" => {
@@ -57,6 +58,7 @@ fn print_help() {
     println!("  caduceus sync now [--no-restart] [--dry-run]");
     println!("  caduceus update status");
     println!("  caduceus update now [--dry-run]");
+    println!("  caduceus update check [--dry-run]");
     println!("  caduceus update service status");
     println!("  caduceus update service toggle <on|off> [--dry-run]");
     println!("  caduceus receipts latest");
