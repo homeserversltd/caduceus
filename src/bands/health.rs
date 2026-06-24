@@ -1,15 +1,34 @@
 use crate::tools::config;
+use serde_json::{json, Value};
 
-pub fn show() -> i32 {
+pub fn read_json() -> Result<Value, String> {
     let identity = config::read_public_file("etc/caduceus/identity.json").is_ok();
     let profile = config::read_public_file("etc/caduceus/profile.json").is_ok();
-    println!("schema=caduceus.health.v1");
-    println!("identity_present={identity}");
-    println!("profile_present={profile}");
-    println!("private_land_organs_exposed=false");
-    if identity && profile {
-        0
-    } else {
-        1
+    Ok(json!({
+        "schema": "caduceus.health.v1",
+        "identityPresent": identity,
+        "profilePresent": profile,
+        "privateLandOrgansExposed": false,
+        "ok": identity && profile
+    }))
+}
+
+pub fn show() -> i32 {
+    match read_json() {
+        Ok(value) => {
+            println!("schema=caduceus.health.v1");
+            println!("identity_present={}", value["identityPresent"]);
+            println!("profile_present={}", value["profilePresent"]);
+            println!("private_land_organs_exposed=false");
+            if value["ok"].as_bool() == Some(true) {
+                0
+            } else {
+                1
+            }
+        }
+        Err(err) => {
+            eprintln!("caduceus-health-read-failed: {err}");
+            1
+        }
     }
 }
