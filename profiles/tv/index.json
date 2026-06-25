@@ -2,5 +2,6 @@
   "schema": "caduceus.profile.v1",
   "profile": "tv",
   "mode": "tv",
-  "harmonia_profile": "/etc/harmonia/profiles/tv/index.json"
+  "harmonia_profile": "/etc/harmonia/profiles/tv/index.json",
+  "planned_capabilities": ["pjlink"]
 }
