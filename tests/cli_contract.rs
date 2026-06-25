@@ -11,7 +11,35 @@ fn help_names_public_commands() {
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("caduceus update now"));
     assert!(text.contains("caduceus sync now"));
+    assert!(text.contains("caduceus legacy-sbin list"));
     assert!(text.contains("caduceus identity show"));
+}
+
+#[test]
+fn legacy_sbin_list_exposes_ingested_script_manifest() {
+    let out = Command::new(bin())
+        .args(["legacy-sbin", "list"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("schema=caduceus.legacy_sbin.list.v1"));
+    assert!(text.contains("script=openvpnup-sh"));
+    assert!(text.contains("execution=not-executed-by-caduceus"));
+}
+
+#[test]
+fn legacy_sbin_show_preserves_whole_script_body_without_execution() {
+    let out = Command::new(bin())
+        .args(["legacy-sbin", "show", "openvpnup-sh"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("schema=caduceus.legacy_sbin.show.v1"));
+    assert!(text.contains("execution=not-executed-by-caduceus"));
+    assert!(text.contains("NAMESPACE=\"vpn\""));
+    assert!(text.contains("pgrep -f 'port_forwarding.sh'"));
 }
 
 #[test]

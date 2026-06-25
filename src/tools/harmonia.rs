@@ -5,8 +5,7 @@ use std::process::Command;
 pub const DEFAULT_HARMONIA_BIN: &str = "/usr/local/bin/harmonia";
 
 pub fn load_profile_value() -> Result<Value, String> {
-    let raw = config::read_public_file("etc/caduceus/profile.json")?;
-    serde_json::from_str(&raw).map_err(|err| format!("caduceus-profile-invalid: {err}"))
+    config::read_public_profile_value()
 }
 
 pub fn route(route_key: &str) -> Result<Value, String> {

@@ -85,6 +85,64 @@ async fn console_update_status_route_is_profile_allowed() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn console_legacy_sbin_list_route_is_profile_allowed() {
+    let _guard = use_fixture("tests/fixtures/console");
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/legacy-sbin")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = body_json(response).await;
+    assert_eq!(json["schema"], "caduceus.legacy_sbin.list.v1");
+    assert!(json["count"].as_u64().unwrap_or(0) > 20);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn console_legacy_sbin_show_returns_whole_body() {
+    let _guard = use_fixture("tests/fixtures/console");
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/legacy-sbin/show?id=openvpnup-sh")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = body_json(response).await;
+    assert_eq!(json["schema"], "caduceus.legacy_sbin.show.v1");
+    assert_eq!(json["entry"]["execution"], "not-executed-by-caduceus");
+    assert!(json["entry"]["body"]
+        .as_str()
+        .unwrap_or("")
+        .contains("NAMESPACE=\"vpn\""));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn locked_profile_rejects_legacy_sbin_list() {
+    let _guard = use_fixture("tests/fixtures/locked");
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/legacy-sbin")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn console_update_service_status_reads_profile_timer() {
     let _guard = use_fixture("tests/fixtures/console");
     let app = serve::router();

@@ -4,8 +4,7 @@ use std::path::Path;
 
 const LLAMA_SERVER_BIN: &str = "/usr/local/bin/llama-server";
 const LLAMA_CLI_BIN: &str = "/usr/local/bin/llama-cli";
-const DEFAULT_RUNTIME_RECEIPT: &str =
-    "/var/lib/harmonia/receipts/local-ai-runtime-latest/run.json";
+const DEFAULT_RUNTIME_RECEIPT: &str = "/var/lib/harmonia/receipts/local-ai-runtime-latest/run.json";
 
 fn runtime_receipt_path() -> String {
     harmonia::load_profile_value()
@@ -99,7 +98,10 @@ pub fn runtime_update(rest: &[String]) -> i32 {
     if let Some(body) = value.get("body").and_then(Value::as_str) {
         print!("{body}");
     } else {
-        println!("schema={}", value.get("schema").and_then(Value::as_str).unwrap_or(""));
+        println!(
+            "schema={}",
+            value.get("schema").and_then(Value::as_str).unwrap_or("")
+        );
         if let Some(ok) = value.get("ok") {
             println!("ok={ok}");
         }

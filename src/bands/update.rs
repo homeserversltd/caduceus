@@ -2,7 +2,7 @@ use crate::tools::{config, harmonia, receipts, systemd};
 use serde_json::{json, Value};
 
 pub fn read_json() -> Result<Value, String> {
-    let profile_ok = config::read_public_file("etc/caduceus/profile.json").is_ok();
+    let profile_ok = config::public_profile_present();
     let state = config::read_public_file("var/lib/caduceus/state.json")
         .unwrap_or_else(|_| "{}".to_string());
     let route_ok = harmonia::route("update_now").is_ok();
@@ -168,7 +168,10 @@ fn print_invoke_cli(value: &Value) {
         print!("{body}");
         return;
     }
-    println!("schema={}", value.get("schema").and_then(Value::as_str).unwrap_or(""));
+    println!(
+        "schema={}",
+        value.get("schema").and_then(Value::as_str).unwrap_or("")
+    );
     if let Some(route) = value.get("route").and_then(Value::as_str) {
         println!("route={route}");
     }

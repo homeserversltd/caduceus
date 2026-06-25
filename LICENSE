@@ -1,0 +1,8 @@
+GNU Affero General Public License v3.0 or later
+
+Caduceus is licensed under the GNU Affero General Public License, version 3 or any later version, as declared by the package SPDX identifier AGPL-3.0-or-later.
+
+The authoritative license text is the GNU AGPL version 3, published by the Free Software Foundation:
+https://www.gnu.org/licenses/agpl-3.0.txt
+
+This repository's network-facing appliance lever must preserve the AGPL source-availability covenant for modified versions offered over a network.

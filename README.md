@@ -15,6 +15,8 @@ Initial command surface:
 caduceus identity show
 caduceus profile show
 caduceus health
+caduceus legacy-sbin list
+caduceus legacy-sbin show <script-id>
 caduceus sync status
 caduceus sync now [--no-restart] [--dry-run]
 caduceus update status
@@ -34,11 +36,17 @@ GET /health
 GET /api/v1/identity
 GET /api/v1/profile
 GET /api/v1/health
+GET /api/v1/legacy-sbin
+GET /api/v1/legacy-sbin/show?id=<script-id>
 ```
 
 Default bind: `CADUCEUS_BIND=0.0.0.0:8787`
 
-Local profile roots default to `/etc/caduceus` and `/var/lib/caduceus`. For tests and development, set `CADUCEUS_ROOT` to a fixture root containing `etc/caduceus` and `var/lib/caduceus`.
+Local profile roots default to `/etc/caduceus` and `/var/lib/caduceus`. Caduceus profiles are authored as YAML: `etc/caduceus/profile.yaml` on device roots and `profiles/<name>/index.yaml` in this repository. Installed legacy `profile.json` remains a read-only compatibility fallback after `profile.yaml`/`profile.yml`. For tests and development, set `CADUCEUS_ROOT` to a fixture root containing `etc/caduceus` and `var/lib/caduceus`.
+
+## Legacy sbin ingestion
+
+The first legacy ingestion tranche preserves one-off Serverbox/sbin script bodies under `data/legacy-sbin/manifest.json` and exposes them through read-only Caduceus list/show surfaces. Caduceus does not execute those bodies in this tranche; conversion into typed appliance actions follows from the manifest, one capability at a time.
 
 ## Roadmap
 
