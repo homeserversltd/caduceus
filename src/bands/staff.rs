@@ -155,7 +155,7 @@ pub fn intent_json(
         "classification": class,
         "privileged": privileged,
         "actuatorCount": actuator_count,
-        "authority": "Caduceus staff membrane received the Coronatio legacy button intent",
+        "authority": "Caduceus staff membrane received the Coronatio Rust website route intent",
         "mutationPerformed": false,
         "execution": if privileged { "queued-behind-typed-actuator" } else { "readback-only" },
         "firstMissingSignal": if privileged && actuator_count == 0 { "caduceus-staff-actuator-missing" } else { "none" },
