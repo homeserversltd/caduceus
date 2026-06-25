@@ -30,10 +30,26 @@ where
         [domain, verb] if domain == "homeserver-sbin" && verb == "list" => homeserver_sbin::list(),
         [domain, verb] if domain == "network" && verb == "status" => network::status(),
         [domain, verb] if domain == "pjlink" && verb == "devices" => pjlink::devices(),
+        [domain, verb] if domain == "pjlink" && verb == "known-products" => {
+            pjlink::known_products()
+        }
+        [domain, verb, device_id, rest @ ..] if domain == "pjlink" && verb == "scan" => {
+            pjlink::scan_product(device_id, rest)
+        }
         [domain, object, verb, device_id]
             if domain == "pjlink" && object == "power" && verb == "status" =>
         {
             pjlink::power_status(device_id)
+        }
+        [domain, object, verb, device_id, rest @ ..]
+            if domain == "pjlink" && object == "known" && verb == "add" =>
+        {
+            pjlink::add_known_product(device_id, rest)
+        }
+        [domain, object, verb, entry_id]
+            if domain == "pjlink" && object == "known" && verb == "remove" =>
+        {
+            pjlink::remove_known_product(entry_id)
         }
         [domain, verb] if domain == "staff" && verb == "status" => staff::status(),
         [domain, verb] if domain == "staff" && verb == "actuators" => staff::actuators(),
@@ -105,6 +121,10 @@ fn print_help() {
     println!("  caduceus homeserver-sbin show <script-id>");
     println!("  caduceus network status");
     println!("  caduceus pjlink devices");
+    println!("  caduceus pjlink scan <device-id> [--dry-run]");
+    println!("  caduceus pjlink known-products");
+    println!("  caduceus pjlink known add <device-id> [--dry-run] [--from-profile]");
+    println!("  caduceus pjlink known remove <entry-id>");
     println!("  caduceus pjlink power status <device-id>");
     println!("  caduceus pjlink power set <device-id> <on|off> [--dry-run]");
     println!("  caduceus staff status");

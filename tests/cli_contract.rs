@@ -16,6 +16,10 @@ fn help_names_public_commands() {
     assert!(text.contains("caduceus staff status"));
     assert!(text.contains("caduceus network status"));
     assert!(text.contains("caduceus pjlink devices"));
+    assert!(text.contains("caduceus pjlink scan <device-id> [--dry-run]"));
+    assert!(text.contains("caduceus pjlink known-products"));
+    assert!(text.contains("caduceus pjlink known add <device-id> [--dry-run] [--from-profile]"));
+    assert!(text.contains("caduceus pjlink known remove <entry-id>"));
     assert!(text.contains("caduceus pjlink power set <device-id> <on|off> [--dry-run]"));
     assert!(text.contains("caduceus identity show"));
 }
@@ -108,6 +112,48 @@ fn tv_pjlink_devices_and_power_dry_run_are_native() {
     assert!(text.contains("requested_state=on"));
     assert!(text.contains("mutation=false"));
     assert!(text.contains("dry_run=true"));
+}
+
+#[test]
+fn tv_pjlink_known_product_catalog_is_jsonl_backed() {
+    let known = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/tv")
+        .args(["pjlink", "known-products"])
+        .output()
+        .unwrap();
+    assert!(known.status.success());
+    let text = String::from_utf8(known.stdout).unwrap();
+    assert!(text.contains("schema=caduceus.pjlink.known-products.v1"));
+    assert!(text.contains("entry=living-room-tv:homeserver:living-room-tv"));
+
+    let scan = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/tv")
+        .args(["pjlink", "scan", "living-room-tv", "--dry-run"])
+        .output()
+        .unwrap();
+    assert!(scan.status.success());
+    let text = String::from_utf8(scan.stdout).unwrap();
+    assert!(text.contains("schema=caduceus.pjlink.product-scan.v1"));
+    assert!(text.contains("manufacturer=HOMESERVER"));
+    assert!(text.contains("product=Living Room TV"));
+
+    let add = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/tv")
+        .args([
+            "pjlink",
+            "known",
+            "add",
+            "living-room-tv",
+            "--dry-run",
+            "--from-profile",
+        ])
+        .output()
+        .unwrap();
+    assert!(add.status.success());
+    let text = String::from_utf8(add.stdout).unwrap();
+    assert!(text.contains("schema=caduceus.pjlink.known-product.add.v1"));
+    assert!(text.contains("mutation=false"));
+    assert!(text.contains("entry=living-room-tv:homeserver:living-room-tv"));
 }
 
 #[test]
