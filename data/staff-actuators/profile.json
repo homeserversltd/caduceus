@@ -18,14 +18,15 @@
         "homeserver-backblaze-tab-b2-disaster-recovery.py"
       ],
       "launcher": "/usr/local/sbin/caduceus-backblaze-recover",
-      "libraryEntry": "/var/lib/caduceus/lib/backblaze/recover.py",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/runner.py#backblaze-recover",
       "dependencies": [
         "b2sdk",
         "cryptography"
       ],
       "receiptFamily": "caduceus.backup.b2.recover.v1",
-      "conversionStatus": "staff-profiled",
-      "notes": "B2 disaster recovery moves out of self-bootstrapping quarry into the staff venv."
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "B2 disaster recovery moves out of self-bootstrapping quarry into the staff venv.",
+      "pythonModule": "caduceus_staff.runner:backblaze-recover"
     },
     {
       "id": "backblaze-forgejo-b2-push",
@@ -35,14 +36,15 @@
         "homeserver-forgejo-backup-to-b2.sh"
       ],
       "launcher": "/usr/local/sbin/caduceus-forgejo-backup-b2",
-      "libraryEntry": "/var/lib/caduceus/lib/backblaze/forgejo_backup.py",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/runner.py#forgejo-backup-b2",
       "dependencies": [
         "b2sdk",
         "cryptography"
       ],
       "receiptFamily": "caduceus.backup.forgejo.b2.push.v1",
-      "conversionStatus": "staff-profiled",
-      "notes": "Forgejo backup-to-B2 becomes a staff-owned Python job instead of a www-data systemd-run wrapper."
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Forgejo backup-to-B2 becomes a staff-owned Python job instead of a www-data systemd-run wrapper.",
+      "pythonModule": "caduceus_staff.runner:forgejo-backup-b2"
     },
     {
       "id": "backblaze-forgejo-migrate",
@@ -52,14 +54,15 @@
         "homeserver-forgejo-migrate.py"
       ],
       "launcher": "/usr/local/sbin/caduceus-forgejo-migrate",
-      "libraryEntry": "/var/lib/caduceus/lib/backblaze/forgejo_migrate.py",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/runner.py#forgejo-migrate",
       "dependencies": [
         "b2sdk",
         "cryptography"
       ],
       "receiptFamily": "caduceus.backup.forgejo.migrate.v1",
-      "conversionStatus": "staff-profiled",
-      "notes": "Forgejo migration/restore joins the Backblaze staff Python lane."
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Forgejo migration/restore joins the Backblaze staff Python lane.",
+      "pythonModule": "caduceus_staff.runner:forgejo-migrate"
     },
     {
       "id": "calibre-helper-daemon",
@@ -69,13 +72,14 @@
         "calibreHelperDaemon.sh"
       ],
       "launcher": "/usr/local/sbin/caduceus-calibre-helper",
-      "libraryEntry": "/var/lib/caduceus/lib/calibre/helper.py",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/runner.py#calibre-helper",
       "dependencies": [
         "psutil"
       ],
       "receiptFamily": "caduceus.service.calibre.helper.v1",
-      "conversionStatus": "staff-profiled",
-      "notes": "Calibre helper becomes a typed staff Python service helper instead of a monolithic shell controller."
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Calibre helper becomes a typed staff Python service helper instead of a monolithic shell controller.",
+      "pythonModule": "caduceus_staff.runner:calibre-helper"
     },
     {
       "id": "calibre-watch",
@@ -85,13 +89,14 @@
         "calibreSimpleWatcher.sh"
       ],
       "launcher": "/usr/local/sbin/caduceus-calibre-watch",
-      "libraryEntry": "/var/lib/caduceus/lib/calibre/watch.py",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/runner.py#calibre-watch",
       "dependencies": [
         "psutil"
       ],
       "receiptFamily": "caduceus.service.calibre.watch.v1",
-      "conversionStatus": "staff-profiled",
-      "notes": "Calibre watch loop moves into staff Python with explicit status/receipt posture."
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Calibre watch loop moves into staff Python with explicit status/receipt posture.",
+      "pythonModule": "caduceus_staff.runner:calibre-watch"
     }
   ]
 }
