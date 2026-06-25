@@ -10,3 +10,4 @@ commands:
 - homeserver-sbin show
 - staff status
 - staff actuators
+- staff intent

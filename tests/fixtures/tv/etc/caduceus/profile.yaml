@@ -15,6 +15,7 @@ commands:
 - pjlink known-products
 - pjlink known add
 - pjlink known remove
+- staff intent
 services:
   update:
     timer: harmonia-tv.timer

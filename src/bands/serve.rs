@@ -72,6 +72,14 @@ struct PjlinkRemoveBody {
     id: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StaffIntentBody {
+    method: String,
+    route: String,
+    classification: Option<String>,
+}
+
 fn api_error(command: &str) -> (StatusCode, Json<ApiErrorBody>) {
     (
         StatusCode::FORBIDDEN,
@@ -273,6 +281,37 @@ async fn staff_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorB
 
 async fn staff_actuators_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("staff actuators", staff::actuators_json).await
+}
+
+async fn staff_intent_route(
+    Json(body): Json<StaffIntentBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("staff intent") {
+        Ok(true) => {
+            match staff::intent_json(&body.method, &body.route, body.classification.as_deref()) {
+                Ok(value) => Ok((StatusCode::ACCEPTED, Json(value))),
+                Err(err) => Err((
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: "staff intent".to_string(),
+                        first_missing_signal: missing_signal(&err).to_string(),
+                    }),
+                )),
+            }
+        }
+        Ok(false) => Err(api_error("staff intent")),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: "staff intent".to_string(),
+                first_missing_signal: "caduceus-profile-missing".to_string(),
+            }),
+        )),
+    }
 }
 
 async fn update_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -620,6 +659,7 @@ pub fn router() -> Router {
         .route("/api/v1/pjlink/power", post(pjlink_power_route))
         .route("/api/v1/staff/status", get(staff_status_route))
         .route("/api/v1/staff/actuators", get(staff_actuators_route))
+        .route("/api/v1/staff/intent", post(staff_intent_route))
         .route("/api/v1/update/now", post(update_now_route))
         .route("/api/v1/update/check", post(update_check_route))
         .route("/api/v1/sync/status", get(sync_status_route))

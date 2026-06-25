@@ -12,6 +12,7 @@ commands:
 - pjlink known-products
 - pjlink known add
 - pjlink known remove
+- staff intent
 pjlink:
   catalog_path: var/lib/caduceus/pjlink-known-products.jsonl
   devices:
