@@ -56,7 +56,10 @@ pub fn now(rest: &[String]) -> i32 {
     if let Some(body) = value.get("body").and_then(Value::as_str) {
         print!("{body}");
     } else {
-        println!("schema={}", value.get("schema").and_then(Value::as_str).unwrap_or(""));
+        println!(
+            "schema={}",
+            value.get("schema").and_then(Value::as_str).unwrap_or("")
+        );
         if let Some(route) = value.get("route").and_then(Value::as_str) {
             println!("route={route}");
         }

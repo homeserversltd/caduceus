@@ -15,9 +15,9 @@ fn harmonia_profile_path() -> Result<String, String> {
 fn valid_module_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 96
-        && id.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
-        })
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
 pub fn toggle_json(module_id: &str, enabled: bool) -> Result<Value, String> {
@@ -28,8 +28,8 @@ pub fn toggle_json(module_id: &str, enabled: bool) -> Result<Value, String> {
     let path = Path::new(&profile_path);
     let text = fs::read_to_string(path)
         .map_err(|err| format!("caduceus-harmonia-profile-unreadable:{err}"))?;
-    let mut json_value: Value = serde_json::from_str(&text)
-        .map_err(|_| "caduceus-harmonia-profile-invalid".to_string())?;
+    let mut json_value: Value =
+        serde_json::from_str(&text).map_err(|_| "caduceus-harmonia-profile-invalid".to_string())?;
     let modules = json_value
         .get_mut("modules")
         .and_then(|modules| modules.as_array_mut())

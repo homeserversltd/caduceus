@@ -1,7 +1,10 @@
 pub mod bands;
 pub mod tools;
 
-use bands::{gui, health, help, identity, local_ai, profile, profile_module, receipts, serve, sync, update};
+use bands::{
+    gui, health, help, identity, legacy_sbin, local_ai, profile, profile_module, receipts, serve,
+    sync, update,
+};
 
 pub fn run<I, S>(args: I) -> i32
 where
@@ -23,16 +26,24 @@ where
         [domain, verb] if domain == "profile" && verb == "show" => profile::show(),
         [domain] if domain == "health" => health::show(),
         [domain] if domain == "serve" => serve::run(),
+        [domain, verb] if domain == "legacy-sbin" && verb == "list" => legacy_sbin::list(),
+        [domain, verb, script_id] if domain == "legacy-sbin" && verb == "show" => {
+            legacy_sbin::show(script_id)
+        }
         [domain, verb] if domain == "receipts" && verb == "latest" => receipts::latest(),
         [domain, verb] if domain == "update" && verb == "status" => update::status(),
         [domain, verb, rest @ ..] if domain == "update" && verb == "now" => update::now(rest),
         [domain, verb, rest @ ..] if domain == "update" && verb == "check" => update::check(rest),
         [domain, verb] if domain == "sync" && verb == "status" => sync::status(),
         [domain, verb, rest @ ..] if domain == "sync" && verb == "now" => sync::now(rest),
-        [domain, object, verb, rest @ ..] if domain == "gui" && object == "update" && verb == "now" => {
+        [domain, object, verb, rest @ ..]
+            if domain == "gui" && object == "update" && verb == "now" =>
+        {
             gui::update_now(rest)
         }
-        [domain, object, verb] if domain == "local-ai" && object == "runtime" && verb == "status" => {
+        [domain, object, verb]
+            if domain == "local-ai" && object == "runtime" && verb == "status" =>
+        {
             local_ai::runtime_status()
         }
         [domain, object, verb, rest @ ..]
@@ -70,6 +81,8 @@ fn print_help() {
     println!("  caduceus identity show");
     println!("  caduceus profile show");
     println!("  caduceus health");
+    println!("  caduceus legacy-sbin list");
+    println!("  caduceus legacy-sbin show <script-id>");
     println!("  caduceus sync status");
     println!("  caduceus sync now [--no-restart] [--dry-run]");
     println!("  caduceus update status");

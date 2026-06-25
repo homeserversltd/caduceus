@@ -2,8 +2,7 @@ use crate::tools::config;
 use serde_json::Value;
 
 pub fn read_json() -> Result<Value, String> {
-    let text = config::read_public_file("etc/caduceus/profile.json")?;
-    serde_json::from_str(&text).map_err(|err| format!("caduceus-profile-invalid: {err}"))
+    config::read_public_profile_value()
 }
 
 pub fn show() -> i32 {

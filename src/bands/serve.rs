@@ -1,4 +1,6 @@
-use crate::bands::{gui, health, identity, local_ai, profile, profile_module, receipts, sync, update};
+use crate::bands::{
+    gui, health, identity, legacy_sbin, local_ai, profile, profile_module, receipts, sync, update,
+};
 use crate::tools::policy;
 use axum::{
     extract::Query,
@@ -146,6 +148,52 @@ async fn health_api_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBod
     gated_json("health", health::read_json).await
 }
 
+async fn legacy_sbin_list_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("legacy-sbin list", legacy_sbin::list_json).await
+}
+
+async fn legacy_sbin_show_route(
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("legacy-sbin show") {
+        Ok(true) => {
+            let Some(script_id) = query.get("id") else {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: "legacy-sbin show".to_string(),
+                        first_missing_signal: "caduceus-legacy-sbin-script-id-missing",
+                    }),
+                ));
+            };
+            match legacy_sbin::show_json(script_id) {
+                Ok(value) => Ok(Json(value)),
+                Err(_) => Err((
+                    StatusCode::NOT_FOUND,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: "legacy-sbin show".to_string(),
+                        first_missing_signal: "caduceus-legacy-sbin-script-missing",
+                    }),
+                )),
+            }
+        }
+        Ok(false) => Err(api_error("legacy-sbin show")),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: "legacy-sbin show".to_string(),
+                first_missing_signal: "caduceus-profile-missing",
+            }),
+        )),
+    }
+}
+
 async fn update_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("update status", update::read_json).await
 }
@@ -154,8 +202,8 @@ async fn update_now_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Js
     gated_mutation("update now", || update::invoke_now_json(&[])).await
 }
 
-async fn update_check_route(
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+async fn update_check_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)>
+{
     gated_mutation("update check", || update::invoke_check_json(&[])).await
 }
 
@@ -209,28 +257,29 @@ async fn receipts_ledger_route(
     }
 }
 
-async fn update_service_status_route(
-) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+async fn update_service_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("update service status", update::service_status_json).await
 }
 
-async fn gui_update_now_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+async fn gui_update_now_route(
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     gated_mutation("gui update now", || gui::invoke_update_now_json(&[])).await
 }
 
-async fn local_ai_runtime_status_route(
-) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+async fn local_ai_runtime_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("local-ai runtime status", local_ai::runtime_status_json).await
 }
 
-async fn local_ai_runtime_check_route(
-) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+async fn local_ai_runtime_check_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("local-ai runtime check", local_ai::runtime_status_json).await
 }
 
 async fn local_ai_runtime_update_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation("local-ai runtime update", || local_ai::invoke_runtime_update_json(&[])).await
+    gated_mutation("local-ai runtime update", || {
+        local_ai::invoke_runtime_update_json(&[])
+    })
+    .await
 }
 
 async fn profile_module_toggle_route(
@@ -291,6 +340,8 @@ pub fn router() -> Router {
         .route("/api/v1/identity", get(identity_route))
         .route("/api/v1/profile", get(profile_route))
         .route("/api/v1/health", get(health_api_route))
+        .route("/api/v1/legacy-sbin", get(legacy_sbin_list_route))
+        .route("/api/v1/legacy-sbin/show", get(legacy_sbin_show_route))
         .route("/api/v1/update/status", get(update_status_route))
         .route("/api/v1/update/now", post(update_now_route))
         .route("/api/v1/update/check", post(update_check_route))
@@ -298,7 +349,10 @@ pub fn router() -> Router {
         .route("/api/v1/sync/now", post(sync_now_route))
         .route("/api/v1/receipts/latest", get(receipts_latest_route))
         .route("/api/v1/receipts/ledger", get(receipts_ledger_route))
-        .route("/api/v1/update/service/status", get(update_service_status_route))
+        .route(
+            "/api/v1/update/service/status",
+            get(update_service_status_route),
+        )
         .route(
             "/api/v1/update/service/toggle",
             post(update_service_toggle_route),

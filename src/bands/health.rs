@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 
 pub fn read_json() -> Result<Value, String> {
     let identity = config::read_public_file("etc/caduceus/identity.json").is_ok();
-    let profile = config::read_public_file("etc/caduceus/profile.json").is_ok();
+    let profile = config::public_profile_present();
     Ok(json!({
         "schema": "caduceus.health.v1",
         "identityPresent": identity,
