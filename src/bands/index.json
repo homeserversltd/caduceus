@@ -8,7 +8,8 @@
     "network",
     "update",
     "service",
-    "receipts"
+    "receipts",
+    "staff"
   ],
   "metadata": {
     "description": "Ordered public command bands for Caduceus."

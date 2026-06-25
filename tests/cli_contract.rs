@@ -13,6 +13,7 @@ fn help_names_public_commands() {
     assert!(text.contains("caduceus sync now"));
     assert!(text.contains("caduceus legacy-sbin list"));
     assert!(text.contains("caduceus homeserver-sbin list"));
+    assert!(text.contains("caduceus staff status"));
     assert!(text.contains("caduceus network status"));
     assert!(text.contains("caduceus identity show"));
 }
@@ -157,4 +158,36 @@ fn homeserver_sbin_show_preserves_quarry_without_execution() {
     assert!(text.contains("schema=caduceus.homeserver_sbin.show.v1"));
     assert!(text.contains("execution=not-executed-by-caduceus"));
     assert!(text.contains("createCertBundle"));
+}
+
+#[test]
+fn staff_actuators_list_backblaze_and_calibre_python_lanes() {
+    let out = Command::new(bin())
+        .args(["staff", "actuators"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("schema=caduceus.staff.actuators.v1"));
+    assert!(text.contains("count=5"));
+    assert!(text.contains("actuator=backblaze-b2-recover"));
+    assert!(text.contains("actuator=calibre-helper-daemon"));
+    assert!(text.contains("class=staff-python"));
+    assert!(text.contains("/usr/local/sbin/caduceus-backblaze-recover"));
+}
+
+#[test]
+fn homeserver_sbin_marks_backblaze_and_calibre_staff_profiled() {
+    let out = Command::new(bin())
+        .args(["homeserver-sbin", "list"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("script=calibrehelperdaemon-sh"));
+    assert!(text.contains("script=homeserver-backblaze-tab-b2-disaster-recovery-py"));
+    assert!(text.contains("band=staff-python"));
+    assert!(text.contains("status=staff-profiled"));
+    assert!(!text.contains("fdwebsite"));
+    assert!(!text.to_lowercase().contains("thermaltest"));
 }

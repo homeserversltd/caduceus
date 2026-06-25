@@ -329,3 +329,39 @@ async fn locked_profile_rejects_homeserver_sbin_list() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn homeserver_staff_actuators_route_is_profile_allowed() {
+    let _guard = use_fixture("tests/fixtures/homeserver");
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/staff/actuators")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = body_json(response).await;
+    assert_eq!(json["schema"], "caduceus.staff.actuators.v1");
+    assert_eq!(json["count"], 5);
+    assert_eq!(json["actuators"][0]["actuatorClass"], "staff-python");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn locked_profile_rejects_staff_actuators() {
+    let _guard = use_fixture("tests/fixtures/locked");
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/staff/actuators")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
