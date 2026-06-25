@@ -39,3 +39,7 @@ GET /api/v1/health
 Default bind: `CADUCEUS_BIND=0.0.0.0:8787`
 
 Local profile roots default to `/etc/caduceus` and `/var/lib/caduceus`. For tests and development, set `CADUCEUS_ROOT` to a fixture root containing `etc/caduceus` and `var/lib/caduceus`.
+
+## Roadmap
+
+Caduceus SHALL gain **PJLink** capability — LAN projector and display control (power, input, status) so operator intent can reach TVs and projectors through the public appliance lever. Primary home: `tv` profile; routes and receipts follow the existing band + HTTP contract pattern.
