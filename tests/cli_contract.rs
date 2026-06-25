@@ -12,6 +12,7 @@ fn help_names_public_commands() {
     assert!(text.contains("caduceus update now"));
     assert!(text.contains("caduceus sync now"));
     assert!(text.contains("caduceus legacy-sbin list"));
+    assert!(text.contains("caduceus homeserver-sbin list"));
     assert!(text.contains("caduceus network status"));
     assert!(text.contains("caduceus identity show"));
 }
@@ -127,4 +128,33 @@ fn network_status_cli_reads_typed_fixture() {
     assert!(text.contains("port_forwarding_process_present=true"));
     assert!(text.contains("tailscale_has_address=true"));
     assert!(text.contains("ok=true"));
+}
+
+#[test]
+fn homeserver_sbin_list_exposes_actual_homeserver_quarry() {
+    let out = Command::new(bin())
+        .args(["homeserver-sbin", "list"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("schema=caduceus.homeserver_sbin.list.v1"));
+    assert!(text.contains("script=calibrehelperdaemon-sh"));
+    assert!(text.contains("script=createcertbundle-sh"));
+    assert!(text.contains("script=mountvault-sh"));
+    assert!(text.contains("script=update-kea-dhcp-sh"));
+    assert!(text.contains("execution=not-executed-by-caduceus"));
+}
+
+#[test]
+fn homeserver_sbin_show_preserves_quarry_without_execution() {
+    let out = Command::new(bin())
+        .args(["homeserver-sbin", "show", "createcertbundle-sh"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("schema=caduceus.homeserver_sbin.show.v1"));
+    assert!(text.contains("execution=not-executed-by-caduceus"));
+    assert!(text.contains("createCertBundle"));
 }

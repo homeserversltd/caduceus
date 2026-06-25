@@ -274,3 +274,58 @@ async fn locked_profile_rejects_network_status() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn homeserver_sbin_list_route_is_profile_allowed() {
+    let _guard = use_fixture("tests/fixtures/homeserver");
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/homeserver-sbin")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = body_json(response).await;
+    assert_eq!(json["schema"], "caduceus.homeserver_sbin.list.v1");
+    assert_eq!(json["count"], 20);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn homeserver_sbin_show_route_preserves_body() {
+    let _guard = use_fixture("tests/fixtures/homeserver");
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/homeserver-sbin/show?id=mountvault-sh")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = body_json(response).await;
+    assert_eq!(json["schema"], "caduceus.homeserver_sbin.show.v1");
+    assert_eq!(json["entry"]["execution"], "not-executed-by-caduceus");
+    assert_eq!(json["entry"]["replacementBand"], "vault");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn locked_profile_rejects_homeserver_sbin_list() {
+    let _guard = use_fixture("tests/fixtures/locked");
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/homeserver-sbin")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
