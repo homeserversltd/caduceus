@@ -284,3 +284,16 @@ fn staff_intent_cli_accepts_coronatio_route_shape() {
     assert!(stdout.contains("caduceus.staff.intent.v1"));
     assert!(stdout.contains("/api/admin/system/restart"));
 }
+
+#[test]
+fn staff_intent_cli_marks_upload_route() {
+    let output = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
+        .args(["staff", "intent", "POST", "/api/files/upload"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("caduceus.staff.upload_intent.v1"));
+    assert!(stdout.contains("upload-queued-behind-typed-actuator"));
+}

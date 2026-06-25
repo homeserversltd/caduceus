@@ -78,6 +78,7 @@ struct StaffIntentBody {
     method: String,
     route: String,
     classification: Option<String>,
+    metadata: Option<Value>,
 }
 
 fn api_error(command: &str) -> (StatusCode, Json<ApiErrorBody>) {
@@ -288,7 +289,12 @@ async fn staff_intent_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("staff intent") {
         Ok(true) => {
-            match staff::intent_json(&body.method, &body.route, body.classification.as_deref()) {
+            match staff::intent_json(
+                &body.method,
+                &body.route,
+                body.classification.as_deref(),
+                body.metadata,
+            ) {
                 Ok(value) => Ok((StatusCode::ACCEPTED, Json(value))),
                 Err(err) => Err((
                     StatusCode::SERVICE_UNAVAILABLE,
