@@ -8,6 +8,9 @@ commands:
 - update now
 - update service status
 - update service toggle
+- pjlink devices
+- pjlink power status
+- pjlink power set
 services:
   update:
     timer: harmonia-tv.timer
@@ -21,3 +24,10 @@ harmonia_routes:
     - --apply
     - --receipt-dir
     - /var/lib/harmonia/receipts/tv-latest
+
+pjlink:
+  devices:
+    - id: living-room-tv
+      host: 192.168.123.17
+      port: 4352
+      timeout_ms: 250
