@@ -105,6 +105,8 @@ pub fn invoke(route_key: &str, rest: &[String], dry_run: bool) -> (i32, String) 
         command
             .arg("--quiet")
             .arg("--collect")
+            .arg("--setenv=HOME=/root")
+            .arg("--setenv=GIT_CONFIG_GLOBAL=/root/.gitconfig")
             .arg("--unit")
             .arg(unit)
             .arg(bin)
