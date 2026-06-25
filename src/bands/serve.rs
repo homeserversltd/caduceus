@@ -1,5 +1,5 @@
 use crate::bands::{
-    gui, health, homeserver_sbin, identity, legacy_sbin, local_ai, network, profile,
+    gui, health, homeserver_sbin, identity, legacy_sbin, local_ai, network, pjlink, profile,
     profile_module, receipts, staff, sync, update,
 };
 use crate::tools::policy;
@@ -23,7 +23,7 @@ struct ApiErrorBody {
     schema: &'static str,
     ok: bool,
     command: String,
-    first_missing_signal: &'static str,
+    first_missing_signal: String,
 }
 
 #[derive(Serialize)]
@@ -47,6 +47,15 @@ struct ProfileModuleToggleBody {
     enabled: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PjlinkPowerBody {
+    device_id: String,
+    state: String,
+    #[serde(default)]
+    dry_run: bool,
+}
+
 fn api_error(command: &str) -> (StatusCode, Json<ApiErrorBody>) {
     (
         StatusCode::FORBIDDEN,
@@ -54,7 +63,7 @@ fn api_error(command: &str) -> (StatusCode, Json<ApiErrorBody>) {
             schema: "caduceus.api.error.v1",
             ok: false,
             command: command.to_string(),
-            first_missing_signal: "caduceus-public-action-not-allowed",
+            first_missing_signal: "caduceus-public-action-not-allowed".to_string(),
         }),
     )
 }
@@ -82,7 +91,7 @@ async fn gated_json(
                     schema: "caduceus.api.error.v1",
                     ok: false,
                     command: command.to_string(),
-                    first_missing_signal: missing_signal(&err),
+                    first_missing_signal: missing_signal(&err).to_string(),
                 }),
             )),
         },
@@ -93,7 +102,7 @@ async fn gated_json(
                 schema: "caduceus.api.error.v1",
                 ok: false,
                 command: command.to_string(),
-                first_missing_signal: "caduceus-profile-missing",
+                first_missing_signal: "caduceus-profile-missing".to_string(),
             }),
         )),
     }
@@ -123,7 +132,7 @@ async fn gated_mutation(
                 schema: "caduceus.api.error.v1",
                 ok: false,
                 command: command.to_string(),
-                first_missing_signal: "caduceus-profile-missing",
+                first_missing_signal: "caduceus-profile-missing".to_string(),
             }),
         )),
     }
@@ -165,7 +174,7 @@ async fn legacy_sbin_show_route(
                         schema: "caduceus.api.error.v1",
                         ok: false,
                         command: "legacy-sbin show".to_string(),
-                        first_missing_signal: "caduceus-legacy-sbin-script-id-missing",
+                        first_missing_signal: "caduceus-legacy-sbin-script-id-missing".to_string(),
                     }),
                 ));
             };
@@ -177,7 +186,7 @@ async fn legacy_sbin_show_route(
                         schema: "caduceus.api.error.v1",
                         ok: false,
                         command: "legacy-sbin show".to_string(),
-                        first_missing_signal: "caduceus-legacy-sbin-script-missing",
+                        first_missing_signal: "caduceus-legacy-sbin-script-missing".to_string(),
                     }),
                 )),
             }
@@ -189,7 +198,7 @@ async fn legacy_sbin_show_route(
                 schema: "caduceus.api.error.v1",
                 ok: false,
                 command: "legacy-sbin show".to_string(),
-                first_missing_signal: "caduceus-profile-missing",
+                first_missing_signal: "caduceus-profile-missing".to_string(),
             }),
         )),
     }
@@ -211,7 +220,8 @@ async fn homeserver_sbin_show_route(
                         schema: "caduceus.api.error.v1",
                         ok: false,
                         command: "homeserver-sbin show".to_string(),
-                        first_missing_signal: "caduceus-homeserver-sbin-script-id-missing",
+                        first_missing_signal: "caduceus-homeserver-sbin-script-id-missing"
+                            .to_string(),
                     }),
                 ));
             };
@@ -223,7 +233,7 @@ async fn homeserver_sbin_show_route(
                         schema: "caduceus.api.error.v1",
                         ok: false,
                         command: "homeserver-sbin show".to_string(),
-                        first_missing_signal: "caduceus-homeserver-sbin-script-missing",
+                        first_missing_signal: "caduceus-homeserver-sbin-script-missing".to_string(),
                     }),
                 )),
             }
@@ -235,7 +245,7 @@ async fn homeserver_sbin_show_route(
                 schema: "caduceus.api.error.v1",
                 ok: false,
                 command: "homeserver-sbin show".to_string(),
-                first_missing_signal: "caduceus-profile-missing",
+                first_missing_signal: "caduceus-profile-missing".to_string(),
             }),
         )),
     }
@@ -255,6 +265,82 @@ async fn update_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiError
 
 async fn network_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("network status", network::status_json).await
+}
+
+async fn pjlink_devices_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("pjlink devices", pjlink::devices_json).await
+}
+
+async fn pjlink_power_status_route(
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("pjlink power status") {
+        Ok(true) => {
+            let Some(device_id) = query.get("deviceId").or_else(|| query.get("device_id")) else {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: "pjlink power status".to_string(),
+                        first_missing_signal: "caduceus-pjlink-device-id-missing".to_string(),
+                    }),
+                ));
+            };
+            pjlink::power_status_json(device_id)
+                .map(Json)
+                .map_err(|err| {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(ApiErrorBody {
+                            schema: "caduceus.api.error.v1",
+                            ok: false,
+                            command: "pjlink power status".to_string(),
+                            first_missing_signal: err,
+                        }),
+                    )
+                })
+        }
+        Ok(false) => Err(api_error("pjlink power status")),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: "pjlink power status".to_string(),
+                first_missing_signal: "caduceus-profile-missing".to_string(),
+            }),
+        )),
+    }
+}
+
+async fn pjlink_power_route(
+    Json(body): Json<PjlinkPowerBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("pjlink power set") {
+        Ok(true) => match pjlink::power_json(&body.device_id, &body.state, body.dry_run) {
+            Ok(value) => Ok((mutation_status(&value), Json(value))),
+            Err(err) => Err((
+                StatusCode::BAD_REQUEST,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: "pjlink power set".to_string(),
+                    first_missing_signal: err,
+                }),
+            )),
+        },
+        Ok(false) => Err(api_error("pjlink power set")),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: "pjlink power set".to_string(),
+                first_missing_signal: "caduceus-profile-missing".to_string(),
+            }),
+        )),
+    }
 }
 
 async fn update_now_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
@@ -299,7 +385,7 @@ async fn receipts_ledger_route(
                     schema: "caduceus.api.error.v1",
                     ok: false,
                     command: "receipts ledger".to_string(),
-                    first_missing_signal: missing_signal(&err),
+                    first_missing_signal: missing_signal(&err).to_string(),
                 }),
             )),
         },
@@ -310,7 +396,7 @@ async fn receipts_ledger_route(
                 schema: "caduceus.api.error.v1",
                 ok: false,
                 command: "receipts ledger".to_string(),
-                first_missing_signal: "caduceus-profile-missing",
+                first_missing_signal: "caduceus-profile-missing".to_string(),
             }),
         )),
     }
@@ -354,7 +440,7 @@ async fn profile_module_toggle_route(
                     schema: "caduceus.api.error.v1",
                     ok: false,
                     command: "profile module toggle".to_string(),
-                    first_missing_signal: "caduceus-profile-module-toggle-failed",
+                    first_missing_signal: "caduceus-profile-module-toggle-failed".to_string(),
                 }),
             )),
         },
@@ -365,7 +451,7 @@ async fn profile_module_toggle_route(
                 schema: "caduceus.api.error.v1",
                 ok: false,
                 command: "profile module toggle".to_string(),
-                first_missing_signal: "caduceus-profile-missing",
+                first_missing_signal: "caduceus-profile-missing".to_string(),
             }),
         )),
     }
@@ -387,7 +473,7 @@ async fn update_service_toggle_route(
                 schema: "caduceus.api.error.v1",
                 ok: false,
                 command: "update service toggle".to_string(),
-                first_missing_signal: "caduceus-profile-missing",
+                first_missing_signal: "caduceus-profile-missing".to_string(),
             }),
         )),
     }
@@ -408,6 +494,12 @@ pub fn router() -> Router {
         )
         .route("/api/v1/update/status", get(update_status_route))
         .route("/api/v1/network/status", get(network_status_route))
+        .route("/api/v1/pjlink/devices", get(pjlink_devices_route))
+        .route(
+            "/api/v1/pjlink/power/status",
+            get(pjlink_power_status_route),
+        )
+        .route("/api/v1/pjlink/power", post(pjlink_power_route))
         .route("/api/v1/staff/status", get(staff_status_route))
         .route("/api/v1/staff/actuators", get(staff_actuators_route))
         .route("/api/v1/update/now", post(update_now_route))

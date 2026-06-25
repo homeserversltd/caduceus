@@ -15,6 +15,8 @@ fn help_names_public_commands() {
     assert!(text.contains("caduceus homeserver-sbin list"));
     assert!(text.contains("caduceus staff status"));
     assert!(text.contains("caduceus network status"));
+    assert!(text.contains("caduceus pjlink devices"));
+    assert!(text.contains("caduceus pjlink power set <device-id> <on|off> [--dry-run]"));
     assert!(text.contains("caduceus identity show"));
 }
 
@@ -74,6 +76,38 @@ fn update_toggle_dry_run_is_public_safe() {
     assert!(!text.contains("Fulcrum"));
     assert!(!text.contains("Azoth"));
     assert!(!text.contains("Kether"));
+}
+
+#[test]
+fn tv_pjlink_devices_and_power_dry_run_are_native() {
+    let list = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/tv")
+        .args(["pjlink", "devices"])
+        .output()
+        .unwrap();
+    assert!(list.status.success());
+    let text = String::from_utf8(list.stdout).unwrap();
+    assert!(text.contains("schema=caduceus.pjlink.devices.v1"));
+    assert!(text.contains("device=living-room-tv"));
+
+    let power = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/tv")
+        .args([
+            "pjlink",
+            "power",
+            "set",
+            "living-room-tv",
+            "on",
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+    assert!(power.status.success());
+    let text = String::from_utf8(power.stdout).unwrap();
+    assert!(text.contains("schema=caduceus.pjlink.power.v1"));
+    assert!(text.contains("requested_state=on"));
+    assert!(text.contains("mutation=false"));
+    assert!(text.contains("dry_run=true"));
 }
 
 #[test]

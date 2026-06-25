@@ -6,6 +6,7 @@
     "health",
     "homeserver-sbin",
     "network",
+    "pjlink",
     "update",
     "service",
     "receipts",

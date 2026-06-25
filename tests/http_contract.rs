@@ -50,6 +50,46 @@ async fn tv_identity_route_is_profile_allowed() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn tv_pjlink_http_routes_are_profile_allowed_and_safe() {
+    let _guard = use_fixture("tests/fixtures/tv");
+    let app = serve::router();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/pjlink/devices")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = body_json(response).await;
+    assert_eq!(json["schema"], "caduceus.pjlink.devices.v1");
+    assert_eq!(json["devices"][0]["id"], "living-room-tv");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/pjlink/power")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"deviceId":"living-room-tv","state":"on","dryRun":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = body_json(response).await;
+    assert_eq!(json["schema"], "caduceus.pjlink.power.v1");
+    assert_eq!(json["mutation"], false);
+    assert_eq!(json["dryRun"], true);
+    assert_eq!(json["requestedState"], "on");
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn locked_profile_rejects_disallowed_identity_route() {
     let _guard = use_fixture("tests/fixtures/locked");
     let app = serve::router();

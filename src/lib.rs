@@ -2,7 +2,7 @@ pub mod bands;
 pub mod tools;
 
 use bands::{
-    gui, health, help, homeserver_sbin, identity, legacy_sbin, local_ai, network, profile,
+    gui, health, help, homeserver_sbin, identity, legacy_sbin, local_ai, network, pjlink, profile,
     profile_module, receipts, serve, staff, sync, update,
 };
 
@@ -29,6 +29,12 @@ where
         [domain, verb] if domain == "legacy-sbin" && verb == "list" => legacy_sbin::list(),
         [domain, verb] if domain == "homeserver-sbin" && verb == "list" => homeserver_sbin::list(),
         [domain, verb] if domain == "network" && verb == "status" => network::status(),
+        [domain, verb] if domain == "pjlink" && verb == "devices" => pjlink::devices(),
+        [domain, object, verb, device_id]
+            if domain == "pjlink" && object == "power" && verb == "status" =>
+        {
+            pjlink::power_status(device_id)
+        }
         [domain, verb] if domain == "staff" && verb == "status" => staff::status(),
         [domain, verb] if domain == "staff" && verb == "actuators" => staff::actuators(),
         [domain, verb, script_id] if domain == "legacy-sbin" && verb == "show" => {
@@ -71,6 +77,11 @@ where
         {
             update::service_toggle(state, rest)
         }
+        [domain, object, verb, device_id, state, rest @ ..]
+            if domain == "pjlink" && object == "power" && verb == "set" =>
+        {
+            pjlink::power(device_id, state, rest)
+        }
         _ => {
             eprintln!("caduceus-public-action-not-allowed");
             print_help();
@@ -93,6 +104,9 @@ fn print_help() {
     println!("  caduceus homeserver-sbin list");
     println!("  caduceus homeserver-sbin show <script-id>");
     println!("  caduceus network status");
+    println!("  caduceus pjlink devices");
+    println!("  caduceus pjlink power status <device-id>");
+    println!("  caduceus pjlink power set <device-id> <on|off> [--dry-run]");
     println!("  caduceus staff status");
     println!("  caduceus staff actuators");
     println!("  caduceus sync status");

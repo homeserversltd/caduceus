@@ -6,6 +6,7 @@ pub mod identity;
 pub mod legacy_sbin;
 pub mod local_ai;
 pub mod network;
+pub mod pjlink;
 pub mod profile;
 pub mod profile_module;
 pub mod receipts;

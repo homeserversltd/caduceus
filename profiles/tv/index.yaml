@@ -4,3 +4,13 @@ mode: tv
 harmonia_profile: /etc/harmonia/profiles/tv/index.json
 planned_capabilities:
 - pjlink
+commands:
+- pjlink devices
+- pjlink power status
+- pjlink power set
+pjlink:
+  devices:
+    - id: living-room-tv
+      host: 192.168.123.17
+      port: 4352
+      timeout_ms: 1500
