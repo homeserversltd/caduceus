@@ -1,6 +1,6 @@
 use crate::bands::{
-    gui, health, identity, legacy_sbin, local_ai, network, profile, profile_module, receipts, sync,
-    update,
+    gui, health, homeserver_sbin, identity, legacy_sbin, local_ai, network, profile,
+    profile_module, receipts, sync, update,
 };
 use crate::tools::policy;
 use axum::{
@@ -195,6 +195,52 @@ async fn legacy_sbin_show_route(
     }
 }
 
+async fn homeserver_sbin_list_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("homeserver-sbin list", homeserver_sbin::list_json).await
+}
+
+async fn homeserver_sbin_show_route(
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("homeserver-sbin show") {
+        Ok(true) => {
+            let Some(script_id) = query.get("id") else {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: "homeserver-sbin show".to_string(),
+                        first_missing_signal: "caduceus-homeserver-sbin-script-id-missing",
+                    }),
+                ));
+            };
+            match homeserver_sbin::show_json(script_id) {
+                Ok(value) => Ok(Json(value)),
+                Err(_) => Err((
+                    StatusCode::NOT_FOUND,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: "homeserver-sbin show".to_string(),
+                        first_missing_signal: "caduceus-homeserver-sbin-script-missing",
+                    }),
+                )),
+            }
+        }
+        Ok(false) => Err(api_error("homeserver-sbin show")),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: "homeserver-sbin show".to_string(),
+                first_missing_signal: "caduceus-profile-missing",
+            }),
+        )),
+    }
+}
+
 async fn update_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("update status", update::read_json).await
 }
@@ -347,6 +393,11 @@ pub fn router() -> Router {
         .route("/api/v1/health", get(health_api_route))
         .route("/api/v1/legacy-sbin", get(legacy_sbin_list_route))
         .route("/api/v1/legacy-sbin/show", get(legacy_sbin_show_route))
+        .route("/api/v1/homeserver-sbin", get(homeserver_sbin_list_route))
+        .route(
+            "/api/v1/homeserver-sbin/show",
+            get(homeserver_sbin_show_route),
+        )
         .route("/api/v1/update/status", get(update_status_route))
         .route("/api/v1/network/status", get(network_status_route))
         .route("/api/v1/update/now", post(update_now_route))

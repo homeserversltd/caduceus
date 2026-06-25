@@ -6,8 +6,5 @@ commands:
 - identity show
 - profile show
 - health
-- legacy-sbin list
-- legacy-sbin show
-- network status
 - homeserver-sbin list
 - homeserver-sbin show

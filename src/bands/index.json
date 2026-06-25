@@ -4,6 +4,7 @@
     "identity",
     "profile",
     "health",
+    "homeserver-sbin",
     "network",
     "update",
     "service",
