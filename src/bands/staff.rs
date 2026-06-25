@@ -125,6 +125,7 @@ pub fn intent_json(
     method: &str,
     route: &str,
     classification: Option<&str>,
+    metadata: Option<Value>,
 ) -> Result<Value, String> {
     let profile = profile_json()?;
     let actuator_count = profile
@@ -146,6 +147,21 @@ pub fn intent_json(
     } else {
         "readback"
     });
+    let upload = if route.contains("/api/files/upload") || route.contains("/api/upload/") {
+        json!({
+            "schema": "caduceus.staff.upload_intent.v1",
+            "accepted": true,
+            "metadata": metadata.clone().unwrap_or_else(|| json!({})),
+            "destination": metadata
+                .as_ref()
+                .and_then(|value| value.get("destination"))
+                .cloned()
+                .unwrap_or_else(|| json!("/mnt/nas")),
+            "nextBoundary": "typed upload actuator writes payload and receipt"
+        })
+    } else {
+        Value::Null
+    };
     Ok(json!({
         "schema": "caduceus.staff.intent.v1",
         "ok": true,
@@ -157,14 +173,16 @@ pub fn intent_json(
         "actuatorCount": actuator_count,
         "authority": "Caduceus staff membrane received the Coronatio Rust website route intent",
         "mutationPerformed": false,
-        "execution": if privileged { "queued-behind-typed-actuator" } else { "readback-only" },
+        "upload": upload,
+        "metadata": metadata.unwrap_or_else(|| json!({})),
+        "execution": if route.contains("/api/files/upload") { "upload-queued-behind-typed-actuator" } else if privileged { "queued-behind-typed-actuator" } else { "readback-only" },
         "firstMissingSignal": if privileged && actuator_count == 0 { "caduceus-staff-actuator-missing" } else { "none" },
-        "nextBoundary": if privileged { "typed staff actuator execution receipt" } else { "Coronatio readback route" }
+        "nextBoundary": if route.contains("/api/files/upload") { "typed upload actuator execution receipt" } else if privileged { "typed staff actuator execution receipt" } else { "Coronatio readback route" }
     }))
 }
 
 pub fn intent(method: &str, route: &str) -> i32 {
-    match intent_json(method, route, None) {
+    match intent_json(method, route, None, None) {
         Ok(value) => {
             println!("{}", serde_json::to_string_pretty(&value).unwrap());
             0

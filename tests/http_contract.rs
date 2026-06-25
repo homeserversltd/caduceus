@@ -482,3 +482,28 @@ async fn homeserver_staff_intent_route_accepts_coronatio_button_intent() {
     assert_eq!(json["route"], "/api/admin/system/restart");
     assert_eq!(json["execution"], "queued-behind-typed-actuator");
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn homeserver_staff_intent_route_accepts_upload_metadata() {
+    let _guard = use_fixture("tests/fixtures/homeserver");
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/staff/intent")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"method":"POST","route":"/api/files/upload","classification":"file-ingress","metadata":{"filename":"proof.txt","bytes":5,"destination":"/mnt/nas"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let json = body_json(response).await;
+    assert_eq!(json["schema"], "caduceus.staff.intent.v1");
+    assert_eq!(json["upload"]["schema"], "caduceus.staff.upload_intent.v1");
+    assert_eq!(json["upload"]["metadata"]["filename"], "proof.txt");
+    assert_eq!(json["execution"], "upload-queued-behind-typed-actuator");
+}
