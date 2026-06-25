@@ -9,6 +9,7 @@ commands:
 - health
 - legacy-sbin list
 - legacy-sbin show
+- network status
 - receipts latest
 - receipts ledger
 - sync status

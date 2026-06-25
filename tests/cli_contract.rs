@@ -12,6 +12,7 @@ fn help_names_public_commands() {
     assert!(text.contains("caduceus update now"));
     assert!(text.contains("caduceus sync now"));
     assert!(text.contains("caduceus legacy-sbin list"));
+    assert!(text.contains("caduceus network status"));
     assert!(text.contains("caduceus identity show"));
 }
 
@@ -97,4 +98,33 @@ fn console_sync_status_reads_route() {
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("route_present=true"));
+}
+
+#[test]
+fn legacy_sbin_list_includes_conversion_metadata() {
+    let out = Command::new(bin())
+        .args(["legacy-sbin", "list"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("script=openvpnup-sh"));
+    assert!(text.contains("intent=network-vpn-status"));
+    assert!(text.contains("status=converted"));
+}
+
+#[test]
+fn network_status_cli_reads_typed_fixture() {
+    let out = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/console")
+        .args(["network", "status"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("schema=caduceus.network.status.v1"));
+    assert!(text.contains("openvpn_interface=tun0"));
+    assert!(text.contains("port_forwarding_process_present=true"));
+    assert!(text.contains("tailscale_has_address=true"));
+    assert!(text.contains("ok=true"));
 }

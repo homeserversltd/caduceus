@@ -236,3 +236,41 @@ async fn locked_profile_rejects_console_update_now() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn console_network_status_route_is_profile_allowed() {
+    let _guard = use_fixture("tests/fixtures/console");
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/network/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = body_json(response).await;
+    assert_eq!(json["schema"], "caduceus.network.status.v1");
+    assert_eq!(json["openvpnInterface"], "tun0");
+    assert_eq!(json["portForwardingProcessPresent"], true);
+    assert_eq!(json["tailscaleHasAddress"], true);
+    assert_eq!(json["firstMissingSignal"], "none");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn locked_profile_rejects_network_status() {
+    let _guard = use_fixture("tests/fixtures/locked");
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/network/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
