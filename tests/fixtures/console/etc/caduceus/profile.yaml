@@ -24,6 +24,7 @@ commands:
 - local-ai runtime check
 - local-ai runtime update
 - profile module toggle
+- staff intent
 services:
   ledger: /var/lib/harmonia/receipts/homeconsole-ledger.jsonl
   update:

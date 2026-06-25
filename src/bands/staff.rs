@@ -120,3 +120,58 @@ pub fn actuators() -> i32 {
         }
     }
 }
+
+pub fn intent_json(
+    method: &str,
+    route: &str,
+    classification: Option<&str>,
+) -> Result<Value, String> {
+    let profile = profile_json()?;
+    let actuator_count = profile
+        .get("actuators")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    let mut privileged = method != "GET" && method != "HEAD" && method != "OPTIONS";
+    if route.contains("/admin/")
+        || route.contains("/status/vpn")
+        || route.contains("/status/tailscale")
+        || route.contains("/upload/")
+        || route.contains("/service/control")
+    {
+        privileged = true;
+    }
+    let class = classification.unwrap_or(if privileged {
+        "privileged-mutation"
+    } else {
+        "readback"
+    });
+    Ok(json!({
+        "schema": "caduceus.staff.intent.v1",
+        "ok": true,
+        "accepted": true,
+        "method": method,
+        "route": route,
+        "classification": class,
+        "privileged": privileged,
+        "actuatorCount": actuator_count,
+        "authority": "Caduceus staff membrane received the Coronatio legacy button intent",
+        "mutationPerformed": false,
+        "execution": if privileged { "queued-behind-typed-actuator" } else { "readback-only" },
+        "firstMissingSignal": if privileged && actuator_count == 0 { "caduceus-staff-actuator-missing" } else { "none" },
+        "nextBoundary": if privileged { "typed staff actuator execution receipt" } else { "Coronatio readback route" }
+    }))
+}
+
+pub fn intent(method: &str, route: &str) -> i32 {
+    match intent_json(method, route, None) {
+        Ok(value) => {
+            println!("{}", serde_json::to_string_pretty(&value).unwrap());
+            0
+        }
+        Err(err) => {
+            eprintln!("caduceus-staff-intent-failed: {err}");
+            1
+        }
+    }
+}

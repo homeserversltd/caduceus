@@ -53,6 +53,9 @@ where
         }
         [domain, verb] if domain == "staff" && verb == "status" => staff::status(),
         [domain, verb] if domain == "staff" && verb == "actuators" => staff::actuators(),
+        [domain, verb, method, route] if domain == "staff" && verb == "intent" => {
+            staff::intent(method, route)
+        }
         [domain, verb, script_id] if domain == "legacy-sbin" && verb == "show" => {
             legacy_sbin::show(script_id)
         }
@@ -129,6 +132,7 @@ fn print_help() {
     println!("  caduceus pjlink power set <device-id> <on|off> [--dry-run]");
     println!("  caduceus staff status");
     println!("  caduceus staff actuators");
+    println!("  caduceus staff intent <method> <route>");
     println!("  caduceus sync status");
     println!("  caduceus sync now [--no-restart] [--dry-run]");
     println!("  caduceus update status");

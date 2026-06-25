@@ -271,3 +271,16 @@ fn homeserver_sbin_marks_backblaze_and_calibre_staff_profiled() {
     assert!(!text.contains("fdwebsite"));
     assert!(!text.to_lowercase().contains("thermaltest"));
 }
+
+#[test]
+fn staff_intent_cli_accepts_coronatio_route_shape() {
+    let output = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
+        .args(["staff", "intent", "POST", "/api/admin/system/restart"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("caduceus.staff.intent.v1"));
+    assert!(stdout.contains("/api/admin/system/restart"));
+}
