@@ -11,3 +11,5 @@ commands:
 - network status
 - homeserver-sbin list
 - homeserver-sbin show
+- staff status
+- staff actuators

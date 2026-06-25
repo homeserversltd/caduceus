@@ -3,7 +3,7 @@ pub mod tools;
 
 use bands::{
     gui, health, help, homeserver_sbin, identity, legacy_sbin, local_ai, network, profile,
-    profile_module, receipts, serve, sync, update,
+    profile_module, receipts, serve, staff, sync, update,
 };
 
 pub fn run<I, S>(args: I) -> i32
@@ -29,6 +29,8 @@ where
         [domain, verb] if domain == "legacy-sbin" && verb == "list" => legacy_sbin::list(),
         [domain, verb] if domain == "homeserver-sbin" && verb == "list" => homeserver_sbin::list(),
         [domain, verb] if domain == "network" && verb == "status" => network::status(),
+        [domain, verb] if domain == "staff" && verb == "status" => staff::status(),
+        [domain, verb] if domain == "staff" && verb == "actuators" => staff::actuators(),
         [domain, verb, script_id] if domain == "legacy-sbin" && verb == "show" => {
             legacy_sbin::show(script_id)
         }
@@ -91,6 +93,8 @@ fn print_help() {
     println!("  caduceus homeserver-sbin list");
     println!("  caduceus homeserver-sbin show <script-id>");
     println!("  caduceus network status");
+    println!("  caduceus staff status");
+    println!("  caduceus staff actuators");
     println!("  caduceus sync status");
     println!("  caduceus sync now [--no-restart] [--dry-run]");
     println!("  caduceus update status");

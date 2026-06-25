@@ -1,0 +1,97 @@
+{
+  "schema": "caduceus.staff_actuators.profile.v1",
+  "staff": {
+    "user": "caduceus",
+    "home": "/var/lib/caduceus",
+    "venv": "/var/lib/caduceus/venv",
+    "libRoot": "/var/lib/caduceus/lib",
+    "receiptRoot": "/var/lib/caduceus/receipts",
+    "jobRoot": "/var/lib/caduceus/jobs",
+    "sbinShelf": "/usr/local/sbin"
+  },
+  "actuators": [
+    {
+      "id": "backblaze-b2-recover",
+      "family": "backup",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "homeserver-backblaze-tab-b2-disaster-recovery.py"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-backblaze-recover",
+      "libraryEntry": "/var/lib/caduceus/lib/backblaze/recover.py",
+      "dependencies": [
+        "b2sdk",
+        "cryptography"
+      ],
+      "receiptFamily": "caduceus.backup.b2.recover.v1",
+      "conversionStatus": "staff-profiled",
+      "notes": "B2 disaster recovery moves out of self-bootstrapping quarry into the staff venv."
+    },
+    {
+      "id": "backblaze-forgejo-b2-push",
+      "family": "backup",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "homeserver-forgejo-backup-to-b2.sh"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-forgejo-backup-b2",
+      "libraryEntry": "/var/lib/caduceus/lib/backblaze/forgejo_backup.py",
+      "dependencies": [
+        "b2sdk",
+        "cryptography"
+      ],
+      "receiptFamily": "caduceus.backup.forgejo.b2.push.v1",
+      "conversionStatus": "staff-profiled",
+      "notes": "Forgejo backup-to-B2 becomes a staff-owned Python job instead of a www-data systemd-run wrapper."
+    },
+    {
+      "id": "backblaze-forgejo-migrate",
+      "family": "backup",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "homeserver-forgejo-migrate.py"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-forgejo-migrate",
+      "libraryEntry": "/var/lib/caduceus/lib/backblaze/forgejo_migrate.py",
+      "dependencies": [
+        "b2sdk",
+        "cryptography"
+      ],
+      "receiptFamily": "caduceus.backup.forgejo.migrate.v1",
+      "conversionStatus": "staff-profiled",
+      "notes": "Forgejo migration/restore joins the Backblaze staff Python lane."
+    },
+    {
+      "id": "calibre-helper-daemon",
+      "family": "service",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "calibreHelperDaemon.sh"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-calibre-helper",
+      "libraryEntry": "/var/lib/caduceus/lib/calibre/helper.py",
+      "dependencies": [
+        "psutil"
+      ],
+      "receiptFamily": "caduceus.service.calibre.helper.v1",
+      "conversionStatus": "staff-profiled",
+      "notes": "Calibre helper becomes a typed staff Python service helper instead of a monolithic shell controller."
+    },
+    {
+      "id": "calibre-watch",
+      "family": "service",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "calibreSimpleWatcher.sh"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-calibre-watch",
+      "libraryEntry": "/var/lib/caduceus/lib/calibre/watch.py",
+      "dependencies": [
+        "psutil"
+      ],
+      "receiptFamily": "caduceus.service.calibre.watch.v1",
+      "conversionStatus": "staff-profiled",
+      "notes": "Calibre watch loop moves into staff Python with explicit status/receipt posture."
+    }
+  ]
+}

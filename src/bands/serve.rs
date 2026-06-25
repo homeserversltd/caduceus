@@ -1,6 +1,6 @@
 use crate::bands::{
     gui, health, homeserver_sbin, identity, legacy_sbin, local_ai, network, profile,
-    profile_module, receipts, sync, update,
+    profile_module, receipts, staff, sync, update,
 };
 use crate::tools::policy;
 use axum::{
@@ -241,6 +241,14 @@ async fn homeserver_sbin_show_route(
     }
 }
 
+async fn staff_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("staff status", staff::status_json).await
+}
+
+async fn staff_actuators_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("staff actuators", staff::actuators_json).await
+}
+
 async fn update_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("update status", update::read_json).await
 }
@@ -400,6 +408,8 @@ pub fn router() -> Router {
         )
         .route("/api/v1/update/status", get(update_status_route))
         .route("/api/v1/network/status", get(network_status_route))
+        .route("/api/v1/staff/status", get(staff_status_route))
+        .route("/api/v1/staff/actuators", get(staff_actuators_route))
         .route("/api/v1/update/now", post(update_now_route))
         .route("/api/v1/update/check", post(update_check_route))
         .route("/api/v1/sync/status", get(sync_status_route))
