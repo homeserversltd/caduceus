@@ -87,6 +87,59 @@ async fn tv_pjlink_http_routes_are_profile_allowed_and_safe() {
     assert_eq!(json["mutation"], false);
     assert_eq!(json["dryRun"], true);
     assert_eq!(json["requestedState"], "on");
+
+    let app = serve::router();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/pjlink/known-products")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = body_json(response).await;
+    assert_eq!(json["schema"], "caduceus.pjlink.known-products.v1");
+    assert_eq!(json["entries"][0]["productName"], "Living Room TV");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/pjlink/product/scan")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"deviceId":"living-room-tv","dryRun":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = body_json(response).await;
+    assert_eq!(json["schema"], "caduceus.pjlink.product-scan.v1");
+    assert_eq!(json["product"]["manufacturer"], "HOMESERVER");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/pjlink/known-products")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"deviceId":"living-room-tv","dryRun":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = body_json(response).await;
+    assert_eq!(json["schema"], "caduceus.pjlink.known-product.add.v1");
+    assert_eq!(json["mutation"], false);
+    assert_eq!(
+        json["entry"]["id"],
+        "living-room-tv:homeserver:living-room-tv"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]

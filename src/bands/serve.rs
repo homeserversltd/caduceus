@@ -56,6 +56,22 @@ struct PjlinkPowerBody {
     dry_run: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PjlinkDeviceBody {
+    device_id: String,
+    #[serde(default)]
+    dry_run: bool,
+    #[serde(default)]
+    from_profile: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PjlinkRemoveBody {
+    id: String,
+}
+
 fn api_error(command: &str) -> (StatusCode, Json<ApiErrorBody>) {
     (
         StatusCode::FORBIDDEN,
@@ -269,6 +285,99 @@ async fn network_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErro
 
 async fn pjlink_devices_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("pjlink devices", pjlink::devices_json).await
+}
+
+async fn pjlink_known_products_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("pjlink known-products", pjlink::known_products_json).await
+}
+
+async fn pjlink_scan_route(
+    Json(body): Json<PjlinkDeviceBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("pjlink scan") {
+        Ok(true) => match pjlink::scan_product_json(&body.device_id, body.dry_run) {
+            Ok(value) => Ok((mutation_status(&value), Json(value))),
+            Err(err) => Err((
+                StatusCode::BAD_REQUEST,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: "pjlink scan".to_string(),
+                    first_missing_signal: err,
+                }),
+            )),
+        },
+        Ok(false) => Err(api_error("pjlink scan")),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: "pjlink scan".to_string(),
+                first_missing_signal: "caduceus-profile-missing".to_string(),
+            }),
+        )),
+    }
+}
+
+async fn pjlink_known_add_route(
+    Json(body): Json<PjlinkDeviceBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("pjlink known add") {
+        Ok(true) => {
+            match pjlink::add_known_product_json(&body.device_id, body.dry_run, body.from_profile) {
+                Ok(value) => Ok((StatusCode::OK, Json(value))),
+                Err(err) => Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: "pjlink known add".to_string(),
+                        first_missing_signal: err,
+                    }),
+                )),
+            }
+        }
+        Ok(false) => Err(api_error("pjlink known add")),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: "pjlink known add".to_string(),
+                first_missing_signal: "caduceus-profile-missing".to_string(),
+            }),
+        )),
+    }
+}
+
+async fn pjlink_known_remove_route(
+    Json(body): Json<PjlinkRemoveBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("pjlink known remove") {
+        Ok(true) => match pjlink::remove_known_product_json(&body.id) {
+            Ok(value) => Ok((StatusCode::OK, Json(value))),
+            Err(err) => Err((
+                StatusCode::BAD_REQUEST,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: "pjlink known remove".to_string(),
+                    first_missing_signal: err,
+                }),
+            )),
+        },
+        Ok(false) => Err(api_error("pjlink known remove")),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: "pjlink known remove".to_string(),
+                first_missing_signal: "caduceus-profile-missing".to_string(),
+            }),
+        )),
+    }
 }
 
 async fn pjlink_power_status_route(
@@ -495,6 +604,15 @@ pub fn router() -> Router {
         .route("/api/v1/update/status", get(update_status_route))
         .route("/api/v1/network/status", get(network_status_route))
         .route("/api/v1/pjlink/devices", get(pjlink_devices_route))
+        .route(
+            "/api/v1/pjlink/known-products",
+            get(pjlink_known_products_route).post(pjlink_known_add_route),
+        )
+        .route(
+            "/api/v1/pjlink/known-products/remove",
+            post(pjlink_known_remove_route),
+        )
+        .route("/api/v1/pjlink/product/scan", post(pjlink_scan_route))
         .route(
             "/api/v1/pjlink/power/status",
             get(pjlink_power_status_route),

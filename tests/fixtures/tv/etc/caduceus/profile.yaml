@@ -11,6 +11,10 @@ commands:
 - pjlink devices
 - pjlink power status
 - pjlink power set
+- pjlink scan
+- pjlink known-products
+- pjlink known add
+- pjlink known remove
 services:
   update:
     timer: harmonia-tv.timer
@@ -26,8 +30,14 @@ harmonia_routes:
     - /var/lib/harmonia/receipts/tv-latest
 
 pjlink:
+  catalog_path: var/lib/caduceus/pjlink-known-products.jsonl
   devices:
     - id: living-room-tv
       host: 192.168.123.17
       port: 4352
       timeout_ms: 250
+      known_product:
+        manufacturer: HOMESERVER
+        productName: Living Room TV
+        otherInfo: Fixture PJLink display
+        class: "1"

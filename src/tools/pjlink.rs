@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
@@ -207,6 +208,114 @@ fn authenticated_payload(
     Err("caduceus-pjlink-greeting-invalid".to_string())
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PjlinkProductInfo {
+    pub manufacturer: Option<String>,
+    pub product_name: Option<String>,
+    pub other_info: Option<String>,
+    pub class: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PjlinkProductScanReceipt {
+    pub schema: &'static str,
+    pub ok: bool,
+    pub device_id: String,
+    pub host: String,
+    pub port: u16,
+    pub dry_run: bool,
+    pub product: Option<PjlinkProductInfo>,
+    pub first_missing_signal: String,
+}
+
+pub fn info_commands() -> BTreeMap<&'static str, &'static str> {
+    BTreeMap::from([
+        ("manufacturer", "%1INF1 ?\r"),
+        ("product_name", "%1INF2 ?\r"),
+        ("other_info", "%1INFO ?\r"),
+        ("class", "%1CLSS ?\r"),
+    ])
+}
+
+pub fn run_product_scan(
+    device: &PjlinkDevice,
+    dry_run: bool,
+    dry_run_product: Option<PjlinkProductInfo>,
+) -> PjlinkProductScanReceipt {
+    if dry_run {
+        return PjlinkProductScanReceipt {
+            schema: "caduceus.pjlink.product-scan.v1",
+            ok: true,
+            device_id: device.id.clone(),
+            host: device.host.clone(),
+            port: device.port,
+            dry_run: true,
+            product: dry_run_product,
+            first_missing_signal: "none".to_string(),
+        };
+    }
+    match query_product(device) {
+        Ok(product) => PjlinkProductScanReceipt {
+            schema: "caduceus.pjlink.product-scan.v1",
+            ok: true,
+            device_id: device.id.clone(),
+            host: device.host.clone(),
+            port: device.port,
+            dry_run: false,
+            product: Some(product),
+            first_missing_signal: "none".to_string(),
+        },
+        Err(err) => PjlinkProductScanReceipt {
+            schema: "caduceus.pjlink.product-scan.v1",
+            ok: false,
+            device_id: device.id.clone(),
+            host: device.host.clone(),
+            port: device.port,
+            dry_run: false,
+            product: None,
+            first_missing_signal: err,
+        },
+    }
+}
+
+fn query_product(device: &PjlinkDevice) -> Result<PjlinkProductInfo, String> {
+    let mut manufacturer = None;
+    let mut product_name = None;
+    let mut other_info = None;
+    let mut class = None;
+    for (field, command) in info_commands() {
+        let response = pjlink_exchange(device, command)?;
+        let value = parse_info_response(field, &response)?;
+        match field {
+            "manufacturer" => manufacturer = value,
+            "product_name" => product_name = value,
+            "other_info" => other_info = value,
+            "class" => class = value,
+            _ => {}
+        }
+    }
+    Ok(PjlinkProductInfo {
+        manufacturer,
+        product_name,
+        other_info,
+        class,
+    })
+}
+
+fn parse_info_response(field: &str, response: &str) -> Result<Option<String>, String> {
+    let Some((_, raw)) = response.split_once('=') else {
+        return Err(format!("caduceus-pjlink-{field}-unexpected-response"));
+    };
+    let value = raw.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case("ERR1") {
+        Ok(None)
+    } else {
+        Ok(Some(value.to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,6 +333,18 @@ mod tests {
         assert_eq!(
             authenticated_payload("PJLINK 1 abcd", "%1POWR 1\r", None).unwrap_err(),
             "caduceus-pjlink-password-required"
+        );
+    }
+
+    #[test]
+    fn info_response_parser_extracts_product_fields() {
+        assert_eq!(
+            parse_info_response("manufacturer", "%1INF1=EPSON").unwrap(),
+            Some("EPSON".to_string())
+        );
+        assert_eq!(
+            parse_info_response("other_info", "%1INFO=ERR1").unwrap(),
+            None
         );
     }
 }
