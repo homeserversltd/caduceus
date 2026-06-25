@@ -99,17 +99,31 @@ pub fn invoke(route_key: &str, rest: &[String], dry_run: bool) -> (i32, String) 
         }
     };
     let (bin, run_args) = argv.split_first().unwrap();
-    let output = Command::new("sudo")
-        .arg("-n")
-        .arg(bin)
-        .args(run_args)
-        .output();
+    let output = if route_key == "update_now" {
+        let unit = format!("caduceus-harmonia-update-{}", std::process::id());
+        let mut command = Command::new("systemd-run");
+        command
+            .arg("--quiet")
+            .arg("--collect")
+            .arg("--unit")
+            .arg(unit)
+            .arg(bin)
+            .args(run_args);
+        command.output()
+    } else {
+        Command::new("sudo")
+            .arg("-n")
+            .arg(bin)
+            .args(run_args)
+            .output()
+    };
     match output {
         Ok(result) => {
             let ok = result.status.success();
             let body = format!(
-                "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute={route_key}\nok={ok}\nexit_code={}\ncommand={bin}\nfirst_missing_signal={}\n",
+                "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute={route_key}\nok={ok}\nexit_code={}\ncommand={}\nfirst_missing_signal={}\n",
                 result.status.code().unwrap_or(-1),
+                if route_key == "update_now" { "systemd-run" } else { bin },
                 if ok { "none" } else { "caduceus-harmonia-command-failed" }
             );
             (if ok { 0 } else { 1 }, body)
@@ -120,5 +134,24 @@ pub fn invoke(route_key: &str, rest: &[String], dry_run: bool) -> (i32, String) 
             );
             (1, body)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn build_argv_keeps_harmonia_route_order() {
+        let route = json!({
+            "bin": "/usr/local/bin/harmonia",
+            "args": ["run-profile", "/etc/harmonia/profiles/homeserver/index.json", "--apply"]
+        });
+        let argv = build_argv(&route, &[]).unwrap();
+        assert_eq!(argv[0], "/usr/local/bin/harmonia");
+        assert_eq!(argv[1], "run-profile");
+        assert_eq!(argv[2], "/etc/harmonia/profiles/homeserver/index.json");
+        assert_eq!(argv[3], "--apply");
     }
 }
