@@ -22,7 +22,12 @@ pub fn list_json() -> Result<Value, String> {
                 "language": entry.get("language").cloned().unwrap_or(Value::Null),
                 "sourceDocument": entry.get("sourceDocument").cloned().unwrap_or(Value::Null),
                 "classification": entry.get("classification").cloned().unwrap_or(Value::Null),
-                "execution": entry.get("execution").cloned().unwrap_or(Value::Null)
+                "execution": entry.get("execution").cloned().unwrap_or(Value::Null),
+                "legacyIntent": entry.get("legacyIntent").cloned().unwrap_or(Value::Null),
+                "riskClass": entry.get("riskClass").cloned().unwrap_or(Value::Null),
+                "targetProfile": entry.get("targetProfile").cloned().unwrap_or(Value::Null),
+                "replacementBand": entry.get("replacementBand").cloned().unwrap_or(Value::Null),
+                "conversionStatus": entry.get("conversionStatus").cloned().unwrap_or(Value::Null)
             })
         })
         .collect();
@@ -64,7 +69,7 @@ pub fn list() -> i32 {
             if let Some(entries) = value.get("entries").and_then(Value::as_array) {
                 for entry in entries {
                     println!(
-                        "script={} language={} source={} execution={} name={}",
+                        "script={} language={} source={} execution={} intent={} risk={} target={} band={} status={} name={}",
                         entry.get("id").and_then(Value::as_str).unwrap_or(""),
                         entry.get("language").and_then(Value::as_str).unwrap_or(""),
                         entry
@@ -72,6 +77,11 @@ pub fn list() -> i32 {
                             .and_then(Value::as_str)
                             .unwrap_or(""),
                         entry.get("execution").and_then(Value::as_str).unwrap_or(""),
+                        entry.get("legacyIntent").and_then(Value::as_str).unwrap_or(""),
+                        entry.get("riskClass").and_then(Value::as_str).unwrap_or(""),
+                        entry.get("targetProfile").and_then(Value::as_str).unwrap_or(""),
+                        entry.get("replacementBand").and_then(Value::as_str).unwrap_or(""),
+                        entry.get("conversionStatus").and_then(Value::as_str).unwrap_or(""),
                         entry.get("name").and_then(Value::as_str).unwrap_or("")
                     );
                 }

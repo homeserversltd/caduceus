@@ -8,3 +8,4 @@ commands:
 - health
 - legacy-sbin list
 - legacy-sbin show
+- network status

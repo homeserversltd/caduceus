@@ -1,6 +1,14 @@
 {
   "schema": "caduceus.bands.v1",
-  "children": ["identity", "profile", "health", "update", "service", "receipts"],
+  "children": [
+    "identity",
+    "profile",
+    "health",
+    "network",
+    "update",
+    "service",
+    "receipts"
+  ],
   "metadata": {
     "description": "Ordered public command bands for Caduceus."
   }
