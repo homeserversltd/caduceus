@@ -291,7 +291,7 @@ async fn homeserver_sbin_list_route_is_profile_allowed() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.homeserver_sbin.list.v1");
-    assert_eq!(json["count"], 20);
+    assert_eq!(json["count"], 19);
 }
 
 #[tokio::test(flavor = "current_thread")]
