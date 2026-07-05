@@ -19,9 +19,15 @@ steps:
     commands:
       - |
         set -eu
-        TOK=$(printf '%s' "${FORGEJO_TOKEN:-}" | tr -d '\r\n\t ')
+        TOK=""
+        if [ -r /mnt/keyexchange/FORGEJO_TOKEN ]; then
+          TOK=$(tr -d '\r\n\t ' < /mnt/keyexchange/FORGEJO_TOKEN)
+        fi
         if [ -z "$TOK" ]; then
-          echo "registry-pen-caduceus: FORGEJO_TOKEN is empty; add Forgejo PAT to Woodpecker HOMESERVERSLTD organization secrets."
+          TOK=$(printf '%s' "${FORGEJO_TOKEN:-}" | tr -d '\r\n\t ')
+        fi
+        if [ -z "$TOK" ]; then
+          echo "registry-pen-caduceus: Forgejo token missing; /mnt/keyexchange/FORGEJO_TOKEN is absent or empty and env FORGEJO_TOKEN is empty. Fix: run ./cli.py keyman transmit forgejo-token --to homeserver-ci-agent on homeserver."
           exit 1
         fi
         apk add --no-cache git ca-certificates
