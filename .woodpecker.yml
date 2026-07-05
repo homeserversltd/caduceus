@@ -14,32 +14,51 @@ steps:
       - event: push
         branch: main
     environment:
-      FORGEJO_TOKEN:
-        from_secret: FORGEJO_TOKEN
+      KETHER_URL:
+        from_secret: KETHER_URL
     commands:
       - |
         set -eu
-        TOK=""
-        if [ -r /mnt/keyexchange/FORGEJO_TOKEN ]; then
-          TOK=$(tr -d '\r\n\t ' < /mnt/keyexchange/FORGEJO_TOKEN)
+        KETHER_ENDPOINT="${KETHER_URL:-}"
+        KETHER_ENDPOINT="${KETHER_ENDPOINT%/}"
+        if [ -z "$KETHER_ENDPOINT" ]; then
+          KETHER_ENDPOINT="http://192.168.123.1:7100"
         fi
-        if [ -z "$TOK" ]; then
-          TOK=$(printf '%s' "${FORGEJO_TOKEN:-}" | tr -d '\r\n\t ')
-        fi
-        if [ -z "$TOK" ]; then
-          echo "registry-pen-caduceus: Forgejo token missing; /mnt/keyexchange/FORGEJO_TOKEN is absent or empty and env FORGEJO_TOKEN is empty. Fix: run ./cli.py keyman transmit forgejo-token --to homeserver-ci-agent on homeserver."
-          exit 1
-        fi
-        apk add --no-cache git ca-certificates
-        git config --global http.sslVerify false
-        git config --global credential.helper store
-        printf 'https://oauth2:%s@git.home.arpa\n' "$TOK" > ~/.git-credentials
-        chmod 600 ~/.git-credentials
-        git config --global url."https://git.home.arpa/HOMESERVERSLTD/".insteadOf "git@git.home.arpa:HOMESERVERSLTD/"
-        rm -rf /tmp/fulcrum-registry-pen-src
-        git clone --depth 1 --branch main https://git.home.arpa/HOMESERVERSLTD/fulcrum.git /tmp/fulcrum-registry-pen-src
-        python3 /tmp/fulcrum-registry-pen-src/lib/registry-pen/index.py \
-          --child-repo caduceus \
-          --new-head "${CI_COMMIT_SHA}" \
-          --cause "${CI_PIPELINE_URL}" \
-          --fulcrum-remote https://git.home.arpa/HOMESERVERSLTD/fulcrum.git
+        export KETHER_ENDPOINT
+        python3 - <<'PY'
+        import json
+        import os
+        import sys
+        import urllib.error
+        import urllib.request
+
+        child_repo = "caduceus"
+        endpoint = os.environ["KETHER_ENDPOINT"].rstrip("/")
+        payload = {
+            "child_repo": child_repo,
+            "new_head": os.environ.get("CI_COMMIT_SHA", ""),
+            "cause": os.environ.get("CI_PIPELINE_URL", ""),
+        }
+        request = urllib.request.Request(
+            endpoint + "/v1/registry-pen/stamp",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        print(f"{child_repo} registry-pen: POST {endpoint}/v1/registry-pen/stamp")
+        try:
+            with urllib.request.urlopen(request, timeout=1800) as response:
+                status = response.status
+                raw = response.read()
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            raw = exc.read()
+        print(f"{child_repo} registry-pen: http_status={status}")
+        if raw:
+            print("response_body first 4096 bytes=")
+            sys.stdout.write(raw[:4096].decode("utf-8", errors="replace"))
+            print()
+        if status < 200 or status >= 300:
+            raise SystemExit(f"{child_repo} registry-pen: Kether stamp failed with HTTP {status}")
+        print(f"{child_repo} registry-pen: stamped by Kether/Azoth blood lane")
+        PY
