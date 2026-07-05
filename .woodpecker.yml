@@ -1,0 +1,39 @@
+when:
+  event:
+    - push
+
+skip_clone: true
+
+steps:
+  - name: registry-pen-caduceus
+    image: python:3.12-alpine
+    backend_options:
+      docker:
+        user: "0"
+    when:
+      - event: push
+        branch: main
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: FORGEJO_TOKEN
+    commands:
+      - |
+        set -eu
+        TOK=$(printf '%s' "${FORGEJO_TOKEN:-}" | tr -d '\r\n\t ')
+        if [ -z "$TOK" ]; then
+          echo "registry-pen-caduceus: FORGEJO_TOKEN is empty; add Forgejo PAT to Woodpecker HOMESERVERSLTD organization secrets."
+          exit 1
+        fi
+        apk add --no-cache git ca-certificates
+        git config --global http.sslVerify false
+        git config --global credential.helper store
+        printf 'https://oauth2:%s@git.home.arpa\n' "$TOK" > ~/.git-credentials
+        chmod 600 ~/.git-credentials
+        git config --global url."https://git.home.arpa/HOMESERVERSLTD/".insteadOf "git@git.home.arpa:HOMESERVERSLTD/"
+        rm -rf /tmp/fulcrum-registry-pen-src
+        git clone --depth 1 --branch main https://git.home.arpa/HOMESERVERSLTD/fulcrum.git /tmp/fulcrum-registry-pen-src
+        python3 /tmp/fulcrum-registry-pen-src/lib/registry-pen/index.py \
+          --child-repo caduceus \
+          --new-head "${CI_COMMIT_SHA}" \
+          --cause "${CI_PIPELINE_URL}" \
+          --fulcrum-remote https://git.home.arpa/HOMESERVERSLTD/fulcrum.git
