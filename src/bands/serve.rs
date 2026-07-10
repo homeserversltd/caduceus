@@ -5,7 +5,7 @@ use crate::bands::{
 use crate::tools::policy;
 use axum::{
     extract::Query,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -81,6 +81,18 @@ struct StaffIntentBody {
     metadata: Option<Value>,
 }
 
+fn api_error_signal(command: &str, signal: &str) -> (StatusCode, Json<ApiErrorBody>) {
+    (
+        StatusCode::FORBIDDEN,
+        Json(ApiErrorBody {
+            schema: "caduceus.api.error.v1",
+            ok: false,
+            command: command.to_string(),
+            first_missing_signal: signal.to_string(),
+        }),
+    )
+}
+
 fn api_error(command: &str) -> (StatusCode, Json<ApiErrorBody>) {
     (
         StatusCode::FORBIDDEN,
@@ -141,12 +153,29 @@ fn mutation_status(value: &Value) -> StatusCode {
     }
 }
 
+fn capability_from_headers(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("x-caduceus-capability")
+        .and_then(|value| value.to_str().ok())
+        .or_else(|| {
+            headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Bearer "))
+        })
+}
+
 async fn gated_mutation(
     command: &str,
+    target: &str,
+    token: Option<&str>,
     run: fn() -> Value,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
         Ok(true) => {
+            if let Err(reason) = policy::capability_admits(command, target, token) {
+                return Err(api_error_signal(command, reason.signal()));
+            }
             let value = run();
             Ok((mutation_status(&value), Json(value)))
         }
@@ -285,10 +314,18 @@ async fn staff_actuators_route() -> Result<Json<Value>, (StatusCode, Json<ApiErr
 }
 
 async fn staff_intent_route(
+    headers: HeaderMap,
     Json(body): Json<StaffIntentBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("staff intent") {
         Ok(true) => {
+            if let Err(reason) = policy::capability_admits(
+                "staff intent",
+                &body.route,
+                capability_from_headers(&headers),
+            ) {
+                return Err(api_error_signal("staff intent", reason.signal()));
+            }
             match staff::intent_json(
                 &body.method,
                 &body.route,
@@ -337,21 +374,31 @@ async fn pjlink_known_products_route() -> Result<Json<Value>, (StatusCode, Json<
 }
 
 async fn pjlink_scan_route(
+    headers: HeaderMap,
     Json(body): Json<PjlinkDeviceBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("pjlink scan") {
-        Ok(true) => match pjlink::scan_product_json(&body.device_id, body.dry_run) {
-            Ok(value) => Ok((mutation_status(&value), Json(value))),
-            Err(err) => Err((
-                StatusCode::BAD_REQUEST,
-                Json(ApiErrorBody {
-                    schema: "caduceus.api.error.v1",
-                    ok: false,
-                    command: "pjlink scan".to_string(),
-                    first_missing_signal: err,
-                }),
-            )),
-        },
+        Ok(true) => {
+            if let Err(reason) = policy::capability_admits(
+                "pjlink scan",
+                &body.device_id,
+                capability_from_headers(&headers),
+            ) {
+                return Err(api_error_signal("pjlink scan", reason.signal()));
+            }
+            match pjlink::scan_product_json(&body.device_id, body.dry_run) {
+                Ok(value) => Ok((mutation_status(&value), Json(value))),
+                Err(err) => Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: "pjlink scan".to_string(),
+                        first_missing_signal: err,
+                    }),
+                )),
+            }
+        }
         Ok(false) => Err(api_error("pjlink scan")),
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -366,10 +413,18 @@ async fn pjlink_scan_route(
 }
 
 async fn pjlink_known_add_route(
+    headers: HeaderMap,
     Json(body): Json<PjlinkDeviceBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("pjlink known add") {
         Ok(true) => {
+            if let Err(reason) = policy::capability_admits(
+                "pjlink known add",
+                &body.device_id,
+                capability_from_headers(&headers),
+            ) {
+                return Err(api_error_signal("pjlink known add", reason.signal()));
+            }
             match pjlink::add_known_product_json(&body.device_id, body.dry_run, body.from_profile) {
                 Ok(value) => Ok((StatusCode::OK, Json(value))),
                 Err(err) => Err((
@@ -397,21 +452,31 @@ async fn pjlink_known_add_route(
 }
 
 async fn pjlink_known_remove_route(
+    headers: HeaderMap,
     Json(body): Json<PjlinkRemoveBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("pjlink known remove") {
-        Ok(true) => match pjlink::remove_known_product_json(&body.id) {
-            Ok(value) => Ok((StatusCode::OK, Json(value))),
-            Err(err) => Err((
-                StatusCode::BAD_REQUEST,
-                Json(ApiErrorBody {
-                    schema: "caduceus.api.error.v1",
-                    ok: false,
-                    command: "pjlink known remove".to_string(),
-                    first_missing_signal: err,
-                }),
-            )),
-        },
+        Ok(true) => {
+            if let Err(reason) = policy::capability_admits(
+                "pjlink known remove",
+                &body.id,
+                capability_from_headers(&headers),
+            ) {
+                return Err(api_error_signal("pjlink known remove", reason.signal()));
+            }
+            match pjlink::remove_known_product_json(&body.id) {
+                Ok(value) => Ok((StatusCode::OK, Json(value))),
+                Err(err) => Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: "pjlink known remove".to_string(),
+                        first_missing_signal: err,
+                    }),
+                )),
+            }
+        }
         Ok(false) => Err(api_error("pjlink known remove")),
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -469,21 +534,31 @@ async fn pjlink_power_status_route(
 }
 
 async fn pjlink_power_route(
+    headers: HeaderMap,
     Json(body): Json<PjlinkPowerBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("pjlink power set") {
-        Ok(true) => match pjlink::power_json(&body.device_id, &body.state, body.dry_run) {
-            Ok(value) => Ok((mutation_status(&value), Json(value))),
-            Err(err) => Err((
-                StatusCode::BAD_REQUEST,
-                Json(ApiErrorBody {
-                    schema: "caduceus.api.error.v1",
-                    ok: false,
-                    command: "pjlink power set".to_string(),
-                    first_missing_signal: err,
-                }),
-            )),
-        },
+        Ok(true) => {
+            if let Err(reason) = policy::capability_admits(
+                "pjlink power set",
+                &body.device_id,
+                capability_from_headers(&headers),
+            ) {
+                return Err(api_error_signal("pjlink power set", reason.signal()));
+            }
+            match pjlink::power_json(&body.device_id, &body.state, body.dry_run) {
+                Ok(value) => Ok((mutation_status(&value), Json(value))),
+                Err(err) => Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: "pjlink power set".to_string(),
+                        first_missing_signal: err,
+                    }),
+                )),
+            }
+        }
         Ok(false) => Err(api_error("pjlink power set")),
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -497,21 +572,44 @@ async fn pjlink_power_route(
     }
 }
 
-async fn update_now_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation("update now", || update::invoke_now_json(&[])).await
+async fn update_now_route(
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    gated_mutation(
+        "update now",
+        "local",
+        capability_from_headers(&headers),
+        || update::invoke_now_json(&[]),
+    )
+    .await
 }
 
-async fn update_check_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)>
-{
-    gated_mutation("update check", || update::invoke_check_json(&[])).await
+async fn update_check_route(
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    gated_mutation(
+        "update check",
+        "local",
+        capability_from_headers(&headers),
+        || update::invoke_check_json(&[]),
+    )
+    .await
 }
 
 async fn sync_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("sync status", sync::read_json).await
 }
 
-async fn sync_now_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation("sync now", || sync::invoke_now_json(&[])).await
+async fn sync_now_route(
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    gated_mutation(
+        "sync now",
+        "local",
+        capability_from_headers(&headers),
+        || sync::invoke_now_json(&[]),
+    )
+    .await
 }
 
 async fn receipts_latest_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -561,8 +659,15 @@ async fn update_service_status_route() -> Result<Json<Value>, (StatusCode, Json<
 }
 
 async fn gui_update_now_route(
+    headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation("gui update now", || gui::invoke_update_now_json(&[])).await
+    gated_mutation(
+        "gui update now",
+        "local",
+        capability_from_headers(&headers),
+        || gui::invoke_update_now_json(&[]),
+    )
+    .await
 }
 
 async fn local_ai_runtime_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -574,30 +679,44 @@ async fn local_ai_runtime_check_route() -> Result<Json<Value>, (StatusCode, Json
 }
 
 async fn local_ai_runtime_update_route(
+    headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation("local-ai runtime update", || {
-        local_ai::invoke_runtime_update_json(&[])
-    })
+    gated_mutation(
+        "local-ai runtime update",
+        "local",
+        capability_from_headers(&headers),
+        || local_ai::invoke_runtime_update_json(&[]),
+    )
     .await
 }
 
 async fn profile_module_toggle_route(
+    headers: HeaderMap,
     Json(body): Json<ProfileModuleToggleBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let module_id = body.module_id;
     match policy::allows_command("profile module toggle") {
-        Ok(true) => match profile_module::toggle_json(&module_id, body.enabled) {
-            Ok(value) => Ok((StatusCode::OK, Json(value))),
-            Err(_) => Err((
-                StatusCode::BAD_REQUEST,
-                Json(ApiErrorBody {
-                    schema: "caduceus.api.error.v1",
-                    ok: false,
-                    command: "profile module toggle".to_string(),
-                    first_missing_signal: "caduceus-profile-module-toggle-failed".to_string(),
-                }),
-            )),
-        },
+        Ok(true) => {
+            if let Err(reason) = policy::capability_admits(
+                "profile module toggle",
+                &module_id,
+                capability_from_headers(&headers),
+            ) {
+                return Err(api_error_signal("profile module toggle", reason.signal()));
+            }
+            match profile_module::toggle_json(&module_id, body.enabled) {
+                Ok(value) => Ok((StatusCode::OK, Json(value))),
+                Err(_) => Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: "profile module toggle".to_string(),
+                        first_missing_signal: "caduceus-profile-module-toggle-failed".to_string(),
+                    }),
+                )),
+            }
+        }
         Ok(false) => Err(api_error("profile module toggle")),
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -612,14 +731,24 @@ async fn profile_module_toggle_route(
 }
 
 async fn update_service_toggle_route(
+    headers: HeaderMap,
     Json(body): Json<ServiceToggleBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let state = body.state;
     match policy::allows_command("update service toggle") {
-        Ok(true) => match update::service_toggle_json(&state, &[]) {
-            Ok(value) => Ok((StatusCode::OK, Json(value))),
-            Err(_) => Err(api_error("update service toggle")),
-        },
+        Ok(true) => {
+            if let Err(reason) = policy::capability_admits(
+                "update service toggle",
+                &state,
+                capability_from_headers(&headers),
+            ) {
+                return Err(api_error_signal("update service toggle", reason.signal()));
+            }
+            match update::service_toggle_json(&state, &[]) {
+                Ok(value) => Ok((StatusCode::OK, Json(value))),
+                Err(_) => Err(api_error("update service toggle")),
+            }
+        }
         Ok(false) => Err(api_error("update service toggle")),
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
