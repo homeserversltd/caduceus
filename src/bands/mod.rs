@@ -1,4 +1,5 @@
 pub mod gui;
+pub mod cert;
 pub mod health;
 pub mod help;
 pub mod homeserver_sbin;

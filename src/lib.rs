@@ -3,7 +3,7 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    gui, health, help, homeserver_sbin, identity, legacy_sbin, local_ai, network, pjlink, profile,
+    cert, gui, health, help, homeserver_sbin, identity, legacy_sbin, local_ai, network, pjlink, profile,
     profile_module, receipts, serve, staff, sync, update,
 };
 
@@ -26,6 +26,37 @@ where
         [domain, verb] if domain == "identity" && verb == "show" => identity::show(),
         [domain, verb] if domain == "profile" && verb == "show" => profile::show(),
         [domain] if domain == "health" => health::show(),
+        [domain, verb] if domain == "cert" && verb == "status" => cert::status(),
+        [domain, verb, rest @ ..] if domain == "cert" && verb == "issue-leaf" => {
+            let dry = rest.iter().any(|a| a == "--dry-run");
+            let mut sans = Vec::new();
+            let mut i = 0;
+            while i < rest.len() {
+                if rest[i] == "--sans" && i + 1 < rest.len() {
+                    sans.extend(rest[i + 1].split(',').filter(|s| !s.is_empty()).map(str::to_string));
+                    i += 2;
+                    continue;
+                }
+                i += 1;
+            }
+            cert::issue_leaf(&sans, dry)
+        }
+        [domain, verb, rest @ ..] if domain == "cert" && verb == "rotate-ca" => {
+            let dry = rest.iter().any(|a| a == "--dry-run");
+            let understood = rest.iter().any(|a| a == "--i-understand-clients-reinstall");
+            cert::rotate_ca(dry, understood)
+        }
+        [domain, object, verb, rest @ ..]
+            if domain == "cert" && object == "bundle" && verb == "create" =>
+        {
+            let dry = rest.iter().any(|a| a == "--dry-run");
+            let platform = rest
+                .iter()
+                .find(|a| !a.starts_with('-'))
+                .map(String::as_str)
+                .unwrap_or("linux");
+            cert::bundle_create(platform, dry)
+        }
         [domain] if domain == "serve" => serve::run(),
         [domain, verb] if domain == "legacy-sbin" && verb == "list" => legacy_sbin::list(),
         [domain, verb] if domain == "homeserver-sbin" && verb == "list" => homeserver_sbin::list(),
@@ -215,6 +246,10 @@ fn print_help() {
     println!("  caduceus identity show");
     println!("  caduceus profile show");
     println!("  caduceus health");
+    println!("  caduceus cert status");
+    println!("  caduceus cert issue-leaf [--sans h1,h2] [--dry-run]");
+    println!("  caduceus cert rotate-ca --i-understand-clients-reinstall [--dry-run]");
+    println!("  caduceus cert bundle create [platform] [--dry-run]");
     println!("  caduceus legacy-sbin list");
     println!("  caduceus legacy-sbin show <script-id>");
     println!("  caduceus homeserver-sbin list");
