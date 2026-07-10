@@ -1,8 +1,53 @@
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use caduceus::bands::serve;
+use ed25519_dalek::{Signer, SigningKey};
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tower::ServiceExt;
+
+fn capability(action: &str, target: &str, seconds_from_now: i64) -> String {
+    capability_with_seed(
+        action,
+        target,
+        seconds_from_now,
+        "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    )
+}
+
+fn capability_with_seed(
+    action: &str,
+    target: &str,
+    seconds_from_now: i64,
+    seed_hex: &str,
+) -> String {
+    let seed = hex_bytes(seed_hex);
+    let key = SigningKey::from_bytes(&seed.try_into().unwrap());
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let exp = (now + seconds_from_now).max(0) as u64;
+    let payload = format!(
+        r#"{{"actor":"fixture","action":"{}","target":"{}","exp":{}}}"#,
+        action, target, exp
+    );
+    let signature = key.sign(payload.as_bytes());
+    format!(
+        "{}.{}",
+        URL_SAFE_NO_PAD.encode(payload.as_bytes()),
+        URL_SAFE_NO_PAD.encode(signature.to_bytes())
+    )
+}
+
+fn hex_bytes(text: &str) -> Vec<u8> {
+    text.as_bytes()
+        .chunks_exact(2)
+        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+        .collect()
+}
 
 static FIXTURE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -73,6 +118,10 @@ async fn tv_pjlink_http_routes_are_profile_allowed_and_safe() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/pjlink/power")
+                .header(
+                    "x-caduceus-capability",
+                    capability("pjlink power set", "living-room-tv", 60),
+                )
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"deviceId":"living-room-tv","state":"on","dryRun":true}"#,
@@ -110,6 +159,10 @@ async fn tv_pjlink_http_routes_are_profile_allowed_and_safe() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/pjlink/product/scan")
+                .header(
+                    "x-caduceus-capability",
+                    capability("pjlink scan", "living-room-tv", 60),
+                )
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"deviceId":"living-room-tv","dryRun":true}"#))
                 .unwrap(),
@@ -126,6 +179,10 @@ async fn tv_pjlink_http_routes_are_profile_allowed_and_safe() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/pjlink/known-products")
+                .header(
+                    "x-caduceus-capability",
+                    capability("pjlink known add", "living-room-tv", 60),
+                )
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"deviceId":"living-room-tv","dryRun":true}"#))
                 .unwrap(),
@@ -266,6 +323,7 @@ async fn console_sync_now_route_is_profile_allowed() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/sync/now")
+                .header("x-caduceus-capability", capability("sync now", "local", 60))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -285,6 +343,10 @@ async fn console_gui_update_route_is_profile_allowed() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/gui/update/now")
+                .header(
+                    "x-caduceus-capability",
+                    capability("gui update now", "local", 60),
+                )
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -322,6 +384,10 @@ async fn locked_profile_rejects_console_update_now() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/update/now")
+                .header(
+                    "x-caduceus-capability",
+                    capability("update now", "local", 60),
+                )
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -468,6 +534,7 @@ async fn homeserver_staff_intent_route_accepts_coronatio_button_intent() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/staff/intent")
+                .header("x-caduceus-capability", capability("staff intent", "/api/admin/system/restart", 60))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"method":"POST","route":"/api/admin/system/restart","classification":"crown-legacy"}"#,
@@ -492,6 +559,7 @@ async fn homeserver_staff_intent_route_accepts_upload_metadata() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/staff/intent")
+                .header("x-caduceus-capability", capability("staff intent", "/api/files/upload", 60))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"method":"POST","route":"/api/files/upload","classification":"file-ingress","metadata":{"filename":"proof.txt","bytes":5,"destination":"/mnt/nas"}}"#,
@@ -506,4 +574,123 @@ async fn homeserver_staff_intent_route_accepts_upload_metadata() {
     assert_eq!(json["upload"]["schema"], "caduceus.staff.upload_intent.v1");
     assert_eq!(json["upload"]["metadata"]["filename"], "proof.txt");
     assert_eq!(json["execution"], "upload-queued-behind-typed-actuator");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn http_capability_walls_cover_fresh_expired_scope_tampered_and_missing() {
+    let _guard = use_fixture("tests/fixtures/tv");
+    let app = serve::router();
+
+    let fresh = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/pjlink/power")
+                .header(
+                    "x-caduceus-capability",
+                    capability("pjlink power set", "living-room-tv", 60),
+                )
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"deviceId":"living-room-tv","state":"on","dryRun":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(fresh.status(), StatusCode::OK);
+    assert_eq!(body_json(fresh).await["mutation"], false);
+
+    let expired = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/pjlink/power")
+                .header(
+                    "x-caduceus-capability",
+                    capability("pjlink power set", "living-room-tv", -10),
+                )
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"deviceId":"living-room-tv","state":"on","dryRun":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(expired.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(expired).await["firstMissingSignal"],
+        "caduceus-capability-expired"
+    );
+
+    let scope = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/pjlink/power")
+                .header(
+                    "x-caduceus-capability",
+                    capability("pjlink power set", "other-tv", 60),
+                )
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"deviceId":"living-room-tv","state":"on","dryRun":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(scope.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(scope).await["firstMissingSignal"],
+        "caduceus-capability-scope"
+    );
+
+    let mut token = capability("pjlink power set", "living-room-tv", 60);
+    let replacement = if token.ends_with('A') { 'B' } else { 'A' };
+    token.pop();
+    token.push(replacement);
+    let tampered = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/pjlink/power")
+                .header("x-caduceus-capability", token)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"deviceId":"living-room-tv","state":"on","dryRun":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(tampered.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(tampered).await["firstMissingSignal"],
+        "caduceus-capability-unsigned"
+    );
+
+    let missing = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/pjlink/power")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"deviceId":"living-room-tv","state":"on","dryRun":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(missing).await["firstMissingSignal"],
+        "caduceus-capability-unsigned"
+    );
 }

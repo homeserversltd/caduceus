@@ -1,6 +1,7 @@
 pub mod bands;
 pub mod tools;
 
+use crate::tools::policy;
 use bands::{
     gui, health, help, homeserver_sbin, identity, legacy_sbin, local_ai, network, pjlink, profile,
     profile_module, receipts, serve, staff, sync, update,
@@ -34,7 +35,10 @@ where
             pjlink::known_products()
         }
         [domain, verb, device_id, rest @ ..] if domain == "pjlink" && verb == "scan" => {
-            pjlink::scan_product(device_id, rest)
+            match require_capability("pjlink scan", device_id, rest) {
+                Ok(filtered) => pjlink::scan_product(device_id, &filtered),
+                Err(code) => code,
+            }
         }
         [domain, object, verb, device_id]
             if domain == "pjlink" && object == "power" && verb == "status" =>
@@ -44,17 +48,26 @@ where
         [domain, object, verb, device_id, rest @ ..]
             if domain == "pjlink" && object == "known" && verb == "add" =>
         {
-            pjlink::add_known_product(device_id, rest)
+            match require_capability("pjlink known add", device_id, rest) {
+                Ok(filtered) => pjlink::add_known_product(device_id, &filtered),
+                Err(code) => code,
+            }
         }
-        [domain, object, verb, entry_id]
+        [domain, object, verb, entry_id, rest @ ..]
             if domain == "pjlink" && object == "known" && verb == "remove" =>
         {
-            pjlink::remove_known_product(entry_id)
+            match require_capability("pjlink known remove", entry_id, rest) {
+                Ok(_) => pjlink::remove_known_product(entry_id),
+                Err(code) => code,
+            }
         }
         [domain, verb] if domain == "staff" && verb == "status" => staff::status(),
         [domain, verb] if domain == "staff" && verb == "actuators" => staff::actuators(),
-        [domain, verb, method, route] if domain == "staff" && verb == "intent" => {
-            staff::intent(method, route)
+        [domain, verb, method, route, rest @ ..] if domain == "staff" && verb == "intent" => {
+            match require_capability("staff intent", route, rest) {
+                Ok(_) => staff::intent(method, route),
+                Err(code) => code,
+            }
         }
         [domain, verb, script_id] if domain == "legacy-sbin" && verb == "show" => {
             legacy_sbin::show(script_id)
@@ -64,14 +77,32 @@ where
         }
         [domain, verb] if domain == "receipts" && verb == "latest" => receipts::latest(),
         [domain, verb] if domain == "update" && verb == "status" => update::status(),
-        [domain, verb, rest @ ..] if domain == "update" && verb == "now" => update::now(rest),
-        [domain, verb, rest @ ..] if domain == "update" && verb == "check" => update::check(rest),
+        [domain, verb, rest @ ..] if domain == "update" && verb == "now" => {
+            match require_capability("update now", "local", rest) {
+                Ok(filtered) => update::now(&filtered),
+                Err(code) => code,
+            }
+        }
+        [domain, verb, rest @ ..] if domain == "update" && verb == "check" => {
+            match require_capability("update check", "local", rest) {
+                Ok(filtered) => update::check(&filtered),
+                Err(code) => code,
+            }
+        }
         [domain, verb] if domain == "sync" && verb == "status" => sync::status(),
-        [domain, verb, rest @ ..] if domain == "sync" && verb == "now" => sync::now(rest),
+        [domain, verb, rest @ ..] if domain == "sync" && verb == "now" => {
+            match require_capability("sync now", "local", rest) {
+                Ok(filtered) => sync::now(&filtered),
+                Err(code) => code,
+            }
+        }
         [domain, object, verb, rest @ ..]
             if domain == "gui" && object == "update" && verb == "now" =>
         {
-            gui::update_now(rest)
+            match require_capability("gui update now", "local", rest) {
+                Ok(filtered) => gui::update_now(&filtered),
+                Err(code) => code,
+            }
         }
         [domain, object, verb]
             if domain == "local-ai" && object == "runtime" && verb == "status" =>
@@ -81,12 +112,18 @@ where
         [domain, object, verb, rest @ ..]
             if domain == "local-ai" && object == "runtime" && verb == "update" =>
         {
-            local_ai::runtime_update(rest)
+            match require_capability("local-ai runtime update", "local", rest) {
+                Ok(filtered) => local_ai::runtime_update(&filtered),
+                Err(code) => code,
+            }
         }
-        [domain, object, verb, module_id, state]
+        [domain, object, verb, module_id, state, rest @ ..]
             if domain == "profile" && object == "module" && verb == "toggle" =>
         {
-            profile_module::toggle(module_id, state)
+            match require_capability("profile module toggle", module_id, rest) {
+                Ok(_) => profile_module::toggle(module_id, state),
+                Err(code) => code,
+            }
         }
         [domain, object, verb] if domain == "update" && object == "service" && verb == "status" => {
             update::service_status()
@@ -94,12 +131,18 @@ where
         [domain, object, verb, state, rest @ ..]
             if domain == "update" && object == "service" && verb == "toggle" =>
         {
-            update::service_toggle(state, rest)
+            match require_capability("update service toggle", state, rest) {
+                Ok(filtered) => update::service_toggle(state, &filtered),
+                Err(code) => code,
+            }
         }
         [domain, object, verb, device_id, state, rest @ ..]
             if domain == "pjlink" && object == "power" && verb == "set" =>
         {
-            pjlink::power(device_id, state, rest)
+            match require_capability("pjlink power set", device_id, rest) {
+                Ok(filtered) => pjlink::power(device_id, state, &filtered),
+                Err(code) => code,
+            }
         }
         _ => {
             eprintln!("caduceus-public-action-not-allowed");
@@ -107,6 +150,60 @@ where
             2
         }
     }
+}
+
+fn require_capability(command: &str, target: &str, rest: &[String]) -> Result<Vec<String>, i32> {
+    match policy::allows_command(command) {
+        Ok(true) => {}
+        Ok(false) => {
+            eprintln!("caduceus-public-action-not-allowed");
+            return Err(2);
+        }
+        Err(_) => {
+            eprintln!("caduceus-profile-missing");
+            return Err(1);
+        }
+    }
+    let token = capability_arg(rest);
+    if let Err(reason) = policy::capability_admits(command, target, token) {
+        eprintln!("{}", reason.signal());
+        return Err(2);
+    }
+    Ok(rest_without_capability(rest))
+}
+
+fn capability_arg(rest: &[String]) -> Option<&str> {
+    let mut index = 0;
+    while index < rest.len() {
+        let arg = rest[index].as_str();
+        if arg == "--capability" {
+            return rest.get(index + 1).map(String::as_str);
+        }
+        if let Some(value) = arg.strip_prefix("--capability=") {
+            return Some(value);
+        }
+        index += 1;
+    }
+    None
+}
+
+fn rest_without_capability(rest: &[String]) -> Vec<String> {
+    let mut filtered = Vec::new();
+    let mut index = 0;
+    while index < rest.len() {
+        let arg = &rest[index];
+        if arg == "--capability" {
+            index += 2;
+            continue;
+        }
+        if arg.starts_with("--capability=") {
+            index += 1;
+            continue;
+        }
+        filtered.push(arg.clone());
+        index += 1;
+    }
+    filtered
 }
 
 fn print_help() {
