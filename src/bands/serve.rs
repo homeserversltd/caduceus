@@ -1,5 +1,5 @@
 use crate::bands::{
-    gui, health, homeserver_sbin, identity, legacy_sbin, local_ai, network, pjlink, profile,
+    cert, gui, health, homeserver_sbin, identity, legacy_sbin, local_ai, network, pjlink, profile,
     profile_module, receipts, staff, sync, update,
 };
 use crate::tools::policy;
@@ -364,6 +364,69 @@ async fn update_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiError
 async fn network_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("network status", network::status_json).await
 }
+
+async fn cert_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("cert status", cert::status_json).await
+}
+
+async fn cert_issue_leaf_route(
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("cert issue-leaf") {
+        Ok(true) => {
+            if let Err(reason) =
+                policy::capability_admits("cert issue-leaf", "local", capability_from_headers(&headers))
+            {
+                return Err(api_error_signal("cert issue-leaf", reason.signal()));
+            }
+            let dry = body.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
+            let sans: Vec<String> = body
+                .get("sans")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if dry {
+                return Ok((
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "schema": "caduceus.cert.issue_leaf.v1",
+                        "ok": true,
+                        "dry_run": true,
+                        "client_reinstall_required": false,
+                        "firstMissingSignal": "none"
+                    })),
+                ));
+            }
+            let mut args = vec!["issue-leaf".to_string()];
+            if !sans.is_empty() {
+                args.push("--sans".into());
+                args.push(sans.join(","));
+            }
+            // reuse CLI path via subprocess through public helpers
+            let code = cert::issue_leaf(&sans, false);
+            if code == 0 {
+                match cert::status_json() {
+                    Ok(v) => Ok((StatusCode::OK, Json(v))),
+                    Err(e) => Err(api_error_signal("cert issue-leaf", e.as_str())),
+                }
+            } else {
+                Err(api_error_signal("cert issue-leaf", "caduceus-cert-issue-leaf-failed"))
+            }
+        }
+        Ok(false) => Err(api_error_signal(
+            "cert issue-leaf",
+            "caduceus-public-action-not-allowed",
+        )),
+        Err(reason) => Err(api_error_signal("cert issue-leaf", &reason)),
+    }
+}
+
+
 
 async fn pjlink_devices_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("pjlink devices", pjlink::devices_json).await
@@ -777,6 +840,8 @@ pub fn router() -> Router {
         )
         .route("/api/v1/update/status", get(update_status_route))
         .route("/api/v1/network/status", get(network_status_route))
+        .route("/api/v1/cert/status", get(cert_status_route))
+        .route("/api/v1/cert/issue-leaf", post(cert_issue_leaf_route))
         .route("/api/v1/pjlink/devices", get(pjlink_devices_route))
         .route(
             "/api/v1/pjlink/known-products",
