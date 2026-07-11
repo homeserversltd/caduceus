@@ -1,6 +1,6 @@
 schema=caduceus.harmonia.invoke.v1
 mutation=true
-route=sync_now
+route=gui_update_now
 ok=false
 exit_code=1
 command=/usr/local/bin/harmonia
