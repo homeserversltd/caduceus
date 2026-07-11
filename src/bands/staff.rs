@@ -1,5 +1,5 @@
 use serde_json::{json, Value};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -272,19 +272,94 @@ fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
 }
 
 fn execute_force_permissions(metadata: Value) -> Result<Value, String> {
+    let getent = std::env::var("CADUCEUS_GETENT_BIN").unwrap_or_else(|_| "getent".to_string());
+    let groups = std::env::var("CADUCEUS_GROUPS_BIN").unwrap_or_else(|_| "groups".to_string());
+    let usermod = std::env::var("CADUCEUS_USERMOD_BIN").unwrap_or_else(|_| "usermod".to_string());
+    execute_force_permissions_with(metadata, &getent, &groups, &usermod)
+}
+
+fn execute_force_permissions_with(
+    metadata: Value,
+    getent: &str,
+    groups: &str,
+    usermod: &str,
+) -> Result<Value, String> {
     let destination = admitted_destination(&metadata)?;
     if !destination.is_dir() {
         return Err("caduceus-force-permissions-directory-missing".to_string());
     }
-    let mut permissions = std::fs::metadata(&destination)
-        .map_err(|err| err.to_string())?
-        .permissions();
+
+    let metadata = std::fs::metadata(&destination)
+        .map_err(|err| format!("caduceus-force-permissions-stat-failed: {err}"))?;
+    let gid = metadata.gid().to_string();
+    let group_result = Command::new(getent).args(["group", &gid]).output();
+    let group_update = match group_result {
+        Ok(output) if output.status.success() => {
+            let entry = String::from_utf8_lossy(&output.stdout);
+            match entry.split(':').next().filter(|name| !name.is_empty()) {
+                Some(group_name) => match Command::new(groups).arg("www-data").output() {
+                    Ok(output) if output.status.success() => {
+                        let memberships = String::from_utf8_lossy(&output.stdout);
+                        let already_member = memberships
+                            .split_whitespace()
+                            .map(|item| item.trim_end_matches(':'))
+                            .any(|item| item == group_name);
+                        if already_member {
+                            Ok(())
+                        } else {
+                            match Command::new(usermod)
+                                .args(["-aG", group_name, "www-data"])
+                                .output()
+                            {
+                                Ok(output) if output.status.success() => Ok(()),
+                                Ok(output) => {
+                                    Err(format!("usermod failed: {}", command_error(&output)))
+                                }
+                                Err(err) => Err(format!("usermod failed: {err}")),
+                            }
+                        }
+                    }
+                    Ok(output) => Err(format!("groups failed: {}", command_error(&output))),
+                    Err(err) => Err(format!("groups failed: {err}")),
+                },
+                None => Err(format!("group resolution failed for gid {gid}")),
+            }
+        }
+        Ok(output) => Err(format!(
+            "group resolution failed for gid {gid}: {}",
+            command_error(&output)
+        )),
+        Err(err) => Err(format!("group resolution failed for gid {gid}: {err}")),
+    };
+
+    let mut permissions = metadata.permissions();
     permissions.set_mode(0o775);
-    std::fs::set_permissions(&destination, permissions)
-        .map_err(|err| format!("caduceus-force-permissions-failed: {err}"))?;
+    let writable_update = std::fs::set_permissions(&destination, permissions)
+        .map_err(|err| format!("chmod failed: {err}"));
+
+    let mut errors = Vec::new();
+    if let Err(err) = group_update {
+        errors.push(format!("Group update failed: {err}"));
+    }
+    if let Err(err) = writable_update {
+        errors.push(format!("Permissions update failed: {err}"));
+    }
+    if !errors.is_empty() {
+        return Err(errors.join(" | "));
+    }
+
     Ok(
-        json!({"schema":"caduceus.staff.force_permissions.v1","ok":true,"accepted":true,"classification":"force-permissions","mutationPerformed":true,"execution":"native-rust-force-permissions","path":destination,"firstMissingSignal":"none"}),
+        json!({"schema":"caduceus.staff.force_permissions.v1","ok":true,"success":true,"message":"Permissions updated successfully","accepted":true,"classification":"force-permissions","mutationPerformed":true,"execution":"native-rust-force-permissions","path":destination,"firstMissingSignal":"none"}),
     )
+}
+
+fn command_error(output: &std::process::Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if stderr.is_empty() {
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    } else {
+        stderr
+    }
 }
 
 fn execute_portal_service(metadata: Value) -> Result<Value, String> {
@@ -412,9 +487,13 @@ pub fn intent(method: &str, route: &str) -> i32 {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    use std::sync::Mutex;
+
+    static FILE_INGRESS_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn file_ingress_and_force_permissions_execute_real_mutations() {
+        let _guard = FILE_INGRESS_ENV_LOCK.lock().unwrap();
         let root =
             std::env::temp_dir().join(format!("caduceus-file-ingress-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -425,14 +504,44 @@ mod tests {
             std::fs::read(root.join("test/proof.txt")).unwrap(),
             b"hello"
         );
-        let result = intent_json(
-            "POST",
-            "/api/upload/force-permissions",
-            Some("force-permissions"),
-            Some(json!({"destination":"/mnt/nas/test"})),
+
+        let tools = root.join("tools");
+        std::fs::create_dir_all(&tools).unwrap();
+        let calls = root.join("usermod-calls");
+        let getent = tools.join("getent");
+        let groups = tools.join("groups");
+        let usermod = tools.join("usermod");
+        std::fs::write(
+            &getent,
+            "#!/bin/sh\nprintf 'fixture-group:x:%s:\\n' \"$2\"\n",
+        )
+        .unwrap();
+        std::fs::write(&groups, "#!/bin/sh\nprintf 'www-data : www-data\\n'\n").unwrap();
+        std::fs::write(
+            &usermod,
+            format!("#!/bin/sh\nprintf '%s\\n' \"$*\" > {}\n", calls.display()),
+        )
+        .unwrap();
+        for tool in [&getent, &groups, &usermod] {
+            let mut permissions = std::fs::metadata(tool).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(tool, permissions).unwrap();
+        }
+
+        let result = execute_force_permissions_with(
+            json!({"destination":"/mnt/nas/test"}),
+            getent.to_str().unwrap(),
+            groups.to_str().unwrap(),
+            usermod.to_str().unwrap(),
         )
         .unwrap();
         assert_eq!(result["mutationPerformed"], true);
+        assert_eq!(result["success"], true);
+        assert_eq!(result["message"], "Permissions updated successfully");
+        assert_eq!(
+            std::fs::read_to_string(&calls).unwrap().trim(),
+            "-aG fixture-group www-data"
+        );
         assert_eq!(
             std::fs::metadata(root.join("test"))
                 .unwrap()
@@ -441,6 +550,52 @@ mod tests {
                 & 0o777,
             0o775
         );
+        std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn force_permissions_reports_group_failure_after_writable_mutation() {
+        let _guard = FILE_INGRESS_ENV_LOCK.lock().unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "caduceus-force-permissions-failure-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let destination = root.join("test");
+        std::fs::create_dir_all(&destination).unwrap();
+        let mut permissions = std::fs::metadata(&destination).unwrap().permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&destination, permissions).unwrap();
+        std::env::set_var("CADUCEUS_FILE_INGRESS_ROOT", &root);
+
+        let failed = root.join("failed-command");
+        std::fs::write(
+            &failed,
+            "#!/bin/sh\nprintf 'fixture failure\\n' >&2\nexit 1\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&failed).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&failed, permissions).unwrap();
+
+        let error = execute_force_permissions_with(
+            json!({"destination":"/mnt/nas/test"}),
+            failed.to_str().unwrap(),
+            failed.to_str().unwrap(),
+            failed.to_str().unwrap(),
+        )
+        .unwrap_err();
+        assert!(error.starts_with("Group update failed: group resolution failed"));
+        assert_eq!(
+            std::fs::metadata(&destination)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o775
+        );
+
         std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
         let _ = std::fs::remove_dir_all(root);
     }
