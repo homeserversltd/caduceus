@@ -26,41 +26,110 @@ where
         [domain, verb] if domain == "identity" && verb == "show" => identity::show(),
         [domain, verb] if domain == "profile" && verb == "show" => profile::show(),
         [domain] if domain == "health" => health::show(),
-        [domain, verb] if domain == "cert" && verb == "status" => cert::status(),
-        [domain, verb, rest @ ..] if domain == "cert" && verb == "issue-leaf" => {
-            let dry = rest.iter().any(|a| a == "--dry-run");
-            let mut sans = Vec::new();
-            let mut i = 0;
-            while i < rest.len() {
-                if rest[i] == "--sans" && i + 1 < rest.len() {
-                    sans.extend(
-                        rest[i + 1]
-                            .split(',')
-                            .filter(|s| !s.is_empty())
-                            .map(str::to_string),
-                    );
-                    i += 2;
-                    continue;
-                }
-                i += 1;
-            }
-            cert::issue_leaf(&sans, dry)
+        [domain, verb] if domain == "cert" && verb == "status" => {
+            cert_command("cert status", cert::status)
         }
-        [domain, verb, rest @ ..] if domain == "cert" && verb == "rotate-ca" => {
-            let dry = rest.iter().any(|a| a == "--dry-run");
-            let understood = rest.iter().any(|a| a == "--i-understand-clients-reinstall");
-            cert::rotate_ca(dry, understood)
+        [domain, verb, rest @ ..] if domain == "cert" && verb == "issue-leaf" => {
+            cert_command("cert issue-leaf", || {
+                let dry = rest.iter().any(|a| a == "--dry-run");
+                let sans = option_list(rest, "--sans");
+                let ips = option_list(rest, "--ips");
+                let identity = rest
+                    .iter()
+                    .find(|a| !a.starts_with('-') && !sans.contains(a) && !ips.contains(a))
+                    .map(String::as_str)
+                    .unwrap_or("home.arpa");
+                match cert::issue_leaf_json(identity, &sans, &ips, dry) {
+                    Ok(v) => {
+                        println!("{v}");
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        1
+                    }
+                }
+            })
         }
         [domain, object, verb, rest @ ..]
             if domain == "cert" && object == "bundle" && verb == "create" =>
         {
-            let dry = rest.iter().any(|a| a == "--dry-run");
-            let platform = rest
-                .iter()
-                .find(|a| !a.starts_with('-'))
-                .map(String::as_str)
-                .unwrap_or("linux");
-            cert::bundle_create(platform, dry)
+            cert_command("cert bundle create", || {
+                let dry = rest.iter().any(|a| a == "--dry-run");
+                let platform = rest
+                    .iter()
+                    .find(|a| !a.starts_with('-'))
+                    .map(String::as_str)
+                    .unwrap_or("linux");
+                cert::bundle_create(platform, dry)
+            })
+        }
+        [domain, verb, portal, upstream, certificate, key, rest @ ..]
+            if domain == "cert" && verb == "apply" =>
+        {
+            cert_command("cert apply", || {
+                let result = cert::apply_json(
+                    portal,
+                    upstream,
+                    certificate,
+                    key,
+                    rest.iter().any(|a| a == "--dry-run"),
+                );
+                match result {
+                    Ok(v) => {
+                        println!("{v}");
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        1
+                    }
+                }
+            })
+        }
+        [domain, verb, bundle, rest @ ..] if domain == "cert" && verb == "trust-install" => {
+            cert_command("cert trust-install", || {
+                let platform = option_value(rest, "--platform").unwrap_or("linux");
+                let result = cert::trust_install_json(
+                    bundle,
+                    platform,
+                    rest.iter().any(|a| a == "--dry-run"),
+                );
+                match result {
+                    Ok(v) => {
+                        println!("{v}");
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        1
+                    }
+                }
+            })
+        }
+        [domain, verb, portal, ip, upstream, rest @ ..]
+            if domain == "cert" && verb == "portal-admit" =>
+        {
+            cert_command("cert portal-admit", || {
+                let aliases = option_list(rest, "--aliases");
+                let result = cert::portal_admit_json(
+                    portal,
+                    ip,
+                    upstream,
+                    &aliases,
+                    rest.iter().any(|a| a == "--dry-run"),
+                );
+                match result {
+                    Ok(v) => {
+                        println!("{v}");
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        1
+                    }
+                }
+            })
         }
         [domain] if domain == "serve" => serve::run(),
         [domain, verb] if domain == "legacy-sbin" && verb == "list" => legacy_sbin::list(),
@@ -228,6 +297,38 @@ fn capability_arg(rest: &[String]) -> Option<&str> {
     None
 }
 
+fn cert_command<F: FnOnce() -> i32>(command: &str, run: F) -> i32 {
+    match policy::allows_command(command) {
+        Ok(true) => run(),
+        Ok(false) => {
+            eprintln!("caduceus-public-action-not-allowed");
+            2
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            2
+        }
+    }
+}
+
+fn option_value<'a>(rest: &'a [String], name: &str) -> Option<&'a str> {
+    rest.iter()
+        .position(|v| v == name)
+        .and_then(|i| rest.get(i + 1))
+        .map(String::as_str)
+}
+
+fn option_list(rest: &[String], name: &str) -> Vec<String> {
+    option_value(rest, name)
+        .map(|v| {
+            v.split(',')
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn rest_without_capability(rest: &[String]) -> Vec<String> {
     let mut filtered = Vec::new();
     let mut index = 0;
@@ -257,9 +358,13 @@ fn print_help() {
     println!("  caduceus profile show");
     println!("  caduceus health");
     println!("  caduceus cert status");
-    println!("  caduceus cert issue-leaf [--sans h1,h2] [--dry-run]");
-    println!("  caduceus cert rotate-ca --i-understand-clients-reinstall [--dry-run]");
+    println!("  caduceus cert issue-leaf [identity] [--sans h1,h2] [--ips a,b] [--dry-run]");
     println!("  caduceus cert bundle create [platform] [--dry-run]");
+    println!("  caduceus cert apply <portal> <upstream> <certificate> <key> [--dry-run]");
+    println!("  caduceus cert trust-install <bundle> [--platform linux] [--dry-run]");
+    println!(
+        "  caduceus cert portal-admit <portal> <lan-ip> <upstream> [--aliases a,b] [--dry-run]"
+    );
     println!("  caduceus legacy-sbin list");
     println!("  caduceus legacy-sbin show <script-id>");
     println!("  caduceus homeserver-sbin list");

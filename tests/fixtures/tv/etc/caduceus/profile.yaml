@@ -19,6 +19,8 @@ commands:
 - pjlink known add
 - pjlink known remove
 - staff intent
+- cert trust-install
+- cert status
 services:
   update:
     timer: harmonia-tv.timer

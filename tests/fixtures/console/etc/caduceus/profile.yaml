@@ -28,6 +28,8 @@ commands:
 - local-ai runtime update
 - profile module toggle
 - staff intent
+- cert trust-install
+- cert status
 services:
   ledger: /var/lib/harmonia/receipts/homeconsole-ledger.jsonl
   update:

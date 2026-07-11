@@ -22,5 +22,6 @@ commands:
 - staff intent
 - cert status
 - cert issue-leaf
-- cert rotate-ca
 - cert bundle create
+- cert apply
+- cert portal-admit
