@@ -1,5 +1,6 @@
-pub mod gui;
 pub mod cert;
+pub mod dhcp;
+pub mod gui;
 pub mod health;
 pub mod help;
 pub mod homeserver_sbin;

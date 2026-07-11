@@ -3,8 +3,8 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    cert, gui, health, help, homeserver_sbin, identity, legacy_sbin, local_ai, network, pjlink, profile,
-    profile_module, receipts, serve, staff, sync, update,
+    cert, dhcp, gui, health, help, homeserver_sbin, identity, legacy_sbin, local_ai, network,
+    pjlink, profile, profile_module, receipts, serve, staff, sync, update,
 };
 
 pub fn run<I, S>(args: I) -> i32
@@ -33,7 +33,12 @@ where
             let mut i = 0;
             while i < rest.len() {
                 if rest[i] == "--sans" && i + 1 < rest.len() {
-                    sans.extend(rest[i + 1].split(',').filter(|s| !s.is_empty()).map(str::to_string));
+                    sans.extend(
+                        rest[i + 1]
+                            .split(',')
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string),
+                    );
                     i += 2;
                     continue;
                 }
@@ -61,6 +66,11 @@ where
         [domain, verb] if domain == "legacy-sbin" && verb == "list" => legacy_sbin::list(),
         [domain, verb] if domain == "homeserver-sbin" && verb == "list" => homeserver_sbin::list(),
         [domain, verb] if domain == "network" && verb == "status" => network::status(),
+        [domain, object, rest @ ..]
+            if domain == "network" && object == "dhcp" && !rest.is_empty() =>
+        {
+            dhcp::command(rest)
+        }
         [domain, verb] if domain == "pjlink" && verb == "devices" => pjlink::devices(),
         [domain, verb] if domain == "pjlink" && verb == "known-products" => {
             pjlink::known_products()
@@ -255,6 +265,7 @@ fn print_help() {
     println!("  caduceus homeserver-sbin list");
     println!("  caduceus homeserver-sbin show <script-id>");
     println!("  caduceus network status");
+    println!("  caduceus network dhcp <status|leases|reservations|reload|...>");
     println!("  caduceus pjlink devices");
     println!("  caduceus pjlink scan <device-id> [--dry-run]");
     println!("  caduceus pjlink known-products");

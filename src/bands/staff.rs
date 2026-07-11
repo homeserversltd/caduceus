@@ -1,6 +1,8 @@
 use serde_json::{json, Value};
 use std::process::Command;
 
+use crate::bands::dhcp;
+
 const PROFILE: &str = include_str!("../../data/staff-actuators/profile.json");
 
 pub fn profile_json() -> Result<Value, String> {
@@ -150,6 +152,9 @@ pub fn intent_json(
     });
     if class == "portal-service" {
         return execute_portal_service(metadata.unwrap_or_else(|| json!({})));
+    }
+    if route.starts_with("/api/dhcp/") || route == "/api/dhcp" {
+        return dhcp::intent_json(method, route, metadata.unwrap_or_else(|| json!({})));
     }
     let upload = if route.contains("/api/files/upload") || route.contains("/api/upload/") {
         json!({
