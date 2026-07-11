@@ -1,4 +1,5 @@
 use axum::body::{to_bytes, Body};
+use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -548,6 +549,57 @@ async fn homeserver_staff_intent_route_accepts_coronatio_button_intent() {
     assert_eq!(json["schema"], "caduceus.staff.intent.v1");
     assert_eq!(json["route"], "/api/admin/system/restart");
     assert_eq!(json["execution"], "queued-behind-typed-actuator");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn loopback_portal_service_skips_capability_but_remote_does_not() {
+    let _guard = use_fixture("tests/fixtures/homeserver");
+    let root = std::env::temp_dir().join(format!("caduceus-http-systemctl-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let systemctl = root.join("systemctl");
+    std::fs::write(
+        &systemctl,
+        "#!/bin/sh\n[ \"$1\" = is-active ] && echo active\nexit 0\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&systemctl).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
+    std::fs::set_permissions(&systemctl, permissions).unwrap();
+    std::env::set_var("CADUCEUS_SYSTEMCTL_BIN", &systemctl);
+    let body = r#"{"method":"POST","route":"/api/service/control","classification":"portal-service","metadata":{"service":"jellyfin","action":"restart","systemdService":"jellyfin.service"}}"#;
+
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/staff/intent")
+        .header("content-type", "application/json")
+        .body(Body::from(body))
+        .unwrap();
+    request.extensions_mut().insert(ConnectInfo(
+        "127.0.0.1:43210".parse::<std::net::SocketAddr>().unwrap(),
+    ));
+    let response = serve::router().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    assert_eq!(
+        body_json(response).await["systemdService"],
+        "jellyfin.service"
+    );
+
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/staff/intent")
+        .header("content-type", "application/json")
+        .body(Body::from(body))
+        .unwrap();
+    request.extensions_mut().insert(ConnectInfo(
+        "192.0.2.1:43210".parse::<std::net::SocketAddr>().unwrap(),
+    ));
+    assert_eq!(
+        serve::router().oneshot(request).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    std::env::remove_var("CADUCEUS_SYSTEMCTL_BIN");
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[tokio::test(flavor = "current_thread")]
