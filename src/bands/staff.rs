@@ -1,4 +1,5 @@
 use serde_json::{json, Value};
+use std::process::Command;
 
 const PROFILE: &str = include_str!("../../data/staff-actuators/profile.json");
 
@@ -147,6 +148,9 @@ pub fn intent_json(
     } else {
         "readback"
     });
+    if class == "portal-service" {
+        return execute_portal_service(metadata.unwrap_or_else(|| json!({})));
+    }
     let upload = if route.contains("/api/files/upload") || route.contains("/api/upload/") {
         json!({
             "schema": "caduceus.staff.upload_intent.v1",
@@ -181,6 +185,78 @@ pub fn intent_json(
     }))
 }
 
+fn execute_portal_service(metadata: Value) -> Result<Value, String> {
+    let systemctl =
+        std::env::var("CADUCEUS_SYSTEMCTL_BIN").unwrap_or_else(|_| "systemctl".to_string());
+    execute_portal_service_with(metadata, &systemctl)
+}
+
+fn execute_portal_service_with(metadata: Value, systemctl: &str) -> Result<Value, String> {
+    let service = metadata
+        .get("service")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-portal-service-name-missing".to_string())?;
+    let action = metadata
+        .get("action")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-portal-service-action-missing".to_string())?;
+    let systemd_service = metadata
+        .get("systemdService")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-portal-systemd-service-missing".to_string())?;
+    if !safe_service_name(service)
+        || !safe_service_name(systemd_service)
+        || !matches!(
+            action,
+            "start" | "stop" | "restart" | "enable" | "disable" | "status"
+        )
+    {
+        return Err("caduceus-portal-service-intent-invalid".to_string());
+    }
+
+    let output = Command::new(systemctl)
+        .args([action, systemd_service])
+        .output()
+        .map_err(|err| format!("caduceus-portal-systemctl-exec-failed: {err}"))?;
+    let active_output = Command::new(&systemctl)
+        .args(["is-active", systemd_service])
+        .output()
+        .map_err(|err| format!("caduceus-portal-systemctl-active-failed: {err}"))?;
+    let command_output = if output.stdout.is_empty() {
+        String::from_utf8_lossy(&output.stderr).trim().to_string()
+    } else {
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
+    let active = active_output.status.success()
+        && String::from_utf8_lossy(&active_output.stdout).trim() == "active";
+
+    Ok(json!({
+        "schema": "caduceus.staff.portal_service.v1",
+        "ok": output.status.success(),
+        "accepted": true,
+        "classification": "portal-service",
+        "service": service,
+        "action": action,
+        "systemdService": systemd_service,
+        "success": output.status.success(),
+        "message": if output.status.success() { format!("Service {action} completed for {service}") } else { format!("Service {action} failed for {service}") },
+        "output": command_output,
+        "active": active,
+        "mutationPerformed": action != "status" && output.status.success(),
+        "execution": "systemctl",
+        "firstMissingSignal": if output.status.success() { "none" } else { "portal-systemctl-command-failed" },
+        "metadata": metadata
+    }))
+}
+
+fn safe_service_name(value: &str) -> bool {
+    !value.is_empty()
+        && !value.contains("..")
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'@'))
+}
+
 pub fn intent(method: &str, route: &str) -> i32 {
     match intent_json(method, route, None, None) {
         Ok(value) => {
@@ -191,5 +267,38 @@ pub fn intent(method: &str, route: &str) -> i32 {
             eprintln!("caduceus-staff-intent-failed: {err}");
             1
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn portal_service_classification_executes_systemctl_and_reports_active() {
+        let root =
+            std::env::temp_dir().join(format!("caduceus-systemctl-test-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let systemctl = root.join("systemctl");
+        std::fs::write(&systemctl, "#!/bin/sh\nif [ \"$1\" = is-active ]; then echo active; exit 0; else printf '%s %s\\n' \"$1\" \"$2\"; fi\n").unwrap();
+        let mut permissions = std::fs::metadata(&systemctl).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&systemctl, permissions).unwrap();
+
+        let result = execute_portal_service_with(
+            json!({
+                "service": "jellyfin",
+                "action": "restart",
+                "systemdService": "jellyfin.service"
+            }),
+            systemctl.to_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["execution"], "systemctl");
+        assert_eq!(result["output"], "restart jellyfin.service");
+        assert_eq!(result["active"], true);
+        assert_eq!(result["mutationPerformed"], true);
+        let _ = std::fs::remove_dir_all(root);
     }
 }
