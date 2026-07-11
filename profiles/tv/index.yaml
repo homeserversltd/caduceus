@@ -13,6 +13,8 @@ commands:
 - pjlink known add
 - pjlink known remove
 - staff intent
+- cert trust-install
+- cert status
 pjlink:
   catalog_path: var/lib/caduceus/pjlink-known-products.jsonl
   devices:

@@ -369,73 +369,96 @@ async fn dhcp_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBo
     gated_json("network dhcp status", dhcp::status_json).await
 }
 
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct CertBody {
+    identity: Option<String>,
+    sans: Option<Vec<String>>,
+    ips: Option<Vec<String>>,
+    platform: Option<String>,
+    bundle: Option<String>,
+    portal: Option<String>,
+    lan_ip: Option<String>,
+    upstream: Option<String>,
+    certificate: Option<String>,
+    key_path: Option<String>,
+    aliases: Option<Vec<String>>,
+    #[serde(default, alias = "dry_run")]
+    dry_run: bool,
+}
+
+fn cert_result<F: FnOnce() -> Result<Value, String>>(
+    command: &str,
+    run: F,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command(command) {
+        Ok(false) => Err(api_error(command)),
+        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+        Ok(true) => match run() {
+            Ok(value) => Ok((mutation_status(&value), Json(value))),
+            Err(error) => Err(api_error_signal(command, &error)),
+        },
+    }
+}
+
 async fn cert_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("cert status", cert::status_json).await
 }
-
 async fn cert_issue_leaf_route(
-    headers: HeaderMap,
-    Json(body): Json<serde_json::Value>,
+    Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    match policy::allows_command("cert issue-leaf") {
-        Ok(true) => {
-            if let Err(reason) = policy::capability_admits(
-                "cert issue-leaf",
-                "local",
-                capability_from_headers(&headers),
-            ) {
-                return Err(api_error_signal("cert issue-leaf", reason.signal()));
-            }
-            let dry = body
-                .get("dry_run")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let sans: Vec<String> = body
-                .get("sans")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|x| x.as_str().map(str::to_string))
-                        .collect()
-                })
-                .unwrap_or_default();
-            if dry {
-                return Ok((
-                    StatusCode::OK,
-                    Json(serde_json::json!({
-                        "schema": "caduceus.cert.issue_leaf.v1",
-                        "ok": true,
-                        "dry_run": true,
-                        "client_reinstall_required": false,
-                        "firstMissingSignal": "none"
-                    })),
-                ));
-            }
-            let mut args = vec!["issue-leaf".to_string()];
-            if !sans.is_empty() {
-                args.push("--sans".into());
-                args.push(sans.join(","));
-            }
-            // reuse CLI path via subprocess through public helpers
-            let code = cert::issue_leaf(&sans, false);
-            if code == 0 {
-                match cert::status_json() {
-                    Ok(v) => Ok((StatusCode::OK, Json(v))),
-                    Err(e) => Err(api_error_signal("cert issue-leaf", e.as_str())),
-                }
-            } else {
-                Err(api_error_signal(
-                    "cert issue-leaf",
-                    "caduceus-cert-issue-leaf-failed",
-                ))
-            }
-        }
-        Ok(false) => Err(api_error_signal(
-            "cert issue-leaf",
-            "caduceus-public-action-not-allowed",
-        )),
-        Err(reason) => Err(api_error_signal("cert issue-leaf", &reason)),
-    }
+    cert_result("cert issue-leaf", || {
+        cert::issue_leaf_json(
+            body.identity.as_deref().unwrap_or("home.arpa"),
+            body.sans.as_deref().unwrap_or(&[]),
+            body.ips.as_deref().unwrap_or(&[]),
+            body.dry_run,
+        )
+    })
+}
+async fn cert_bundle_route(
+    Json(body): Json<CertBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    cert_result("cert bundle create", || {
+        cert::bundle_create_json(body.platform.as_deref().unwrap_or("linux"), body.dry_run)
+    })
+}
+async fn cert_apply_route(
+    Json(body): Json<CertBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    cert_result("cert apply", || {
+        cert::apply_json(
+            body.portal.as_deref().unwrap_or(""),
+            body.upstream.as_deref().unwrap_or(""),
+            body.certificate.as_deref().unwrap_or(""),
+            body.key_path.as_deref().unwrap_or(""),
+            body.dry_run,
+        )
+    })
+}
+async fn cert_trust_route(
+    Json(body): Json<CertBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    cert_result("cert trust-install", || {
+        cert::trust_install_json(
+            body.bundle.as_deref().unwrap_or(""),
+            body.platform.as_deref().unwrap_or("linux"),
+            body.dry_run,
+        )
+    })
+}
+async fn cert_portal_route(
+    Json(body): Json<CertBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    cert_result("cert portal-admit", || {
+        cert::portal_admit_json(
+            body.portal.as_deref().unwrap_or(""),
+            body.lan_ip.as_deref().unwrap_or(""),
+            body.upstream.as_deref().unwrap_or(""),
+            body.aliases.as_deref().unwrap_or(&[]),
+            body.dry_run,
+        )
+    })
 }
 
 async fn pjlink_devices_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -853,6 +876,11 @@ pub fn router() -> Router {
         .route("/api/v1/network/dhcp/status", get(dhcp_status_route))
         .route("/api/v1/cert/status", get(cert_status_route))
         .route("/api/v1/cert/issue-leaf", post(cert_issue_leaf_route))
+        .route("/api/v1/cert/bundle", post(cert_bundle_route))
+        .route("/api/v1/cert/bundle/create", post(cert_bundle_route))
+        .route("/api/v1/cert/apply", post(cert_apply_route))
+        .route("/api/v1/cert/trust-install", post(cert_trust_route))
+        .route("/api/v1/cert/portal-admit", post(cert_portal_route))
         .route("/api/v1/pjlink/devices", get(pjlink_devices_route))
         .route(
             "/api/v1/pjlink/known-products",
