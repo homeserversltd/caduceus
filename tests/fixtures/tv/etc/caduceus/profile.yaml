@@ -7,7 +7,6 @@ commands:
 - hyalos reflect
 - hyalos append
 - hyalos tail
-- hyalos project
 - identity show
 - profile show
 - health

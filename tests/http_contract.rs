@@ -636,18 +636,13 @@ async fn homeserver_staff_intent_route_executes_upload_bytes() {
     assert_eq!(json["mutationPerformed"], true);
     assert_eq!(json["execution"], "native-rust-file-ingress");
     assert_eq!(json["hyalos"]["event"]["kind"], "upload");
-    assert_eq!(json["uploadProjection"]["authority"], "derived-view");
     assert_eq!(std::fs::read(root.join("proof.txt")).unwrap(), b"hello");
     assert!(
         std::fs::read_to_string(root.join("var/log/hyalos/channel.jsonl"))
             .unwrap()
             .contains("proof.txt")
     );
-    assert!(
-        std::fs::read_to_string(root.join("var/log/hyalos/projections/upload.log"))
-            .unwrap()
-            .contains("proof.txt")
-    );
+    assert!(!root.join("var/log/hyalos/projections/upload.log").exists());
     std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
     let _ = std::fs::remove_dir_all(root);
 }
@@ -821,7 +816,7 @@ async fn homeserver_dhcp_http_status_and_staff_intent_execute_python_actuator() 
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn hyalos_http_reflect_tail_and_projection_are_profile_gated() {
+async fn hyalos_http_reflect_tail_filters_and_no_projection_route() {
     let _guard = use_fixture("tests/fixtures/homeserver");
     let root = std::env::temp_dir().join(format!("caduceus-hyalos-http-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -841,7 +836,7 @@ async fn hyalos_http_reflect_tail_and_projection_are_profile_gated() {
                 .uri("/api/v1/hyalos/reflect")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"organ":"file-ingress","kind":"upload","message":"http-proof","payload":{"projection":"upload","password":"hidden"}}"#,
+                    r#"{"organ":"file-ingress","kind":"upload","level":"info","message":"http-proof","payload":{"password":"hidden"}}"#,
                 ))
                 .unwrap(),
         )
@@ -849,24 +844,48 @@ async fn hyalos_http_reflect_tail_and_projection_are_profile_gated() {
         .unwrap();
     assert_eq!(reflected.status(), StatusCode::OK);
     let reflected = body_json(reflected).await;
-    assert_eq!(reflected["event"]["schema"], "hyalos.channel.event.v1");
+    assert_eq!(reflected["event"]["schema"], "hyalos.channel.event.v2");
+    assert_eq!(reflected["event"]["level"], "info");
+    assert!(reflected["event"]["timestamp"]
+        .as_str()
+        .unwrap_or("")
+        .contains('T'));
     assert_eq!(
-        reflected["event"]["payload_redacted"]["password"],
+        reflected["event"]["attributes_redacted"]["password"],
         "[REDACTED]"
     );
+
+    let other = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/hyalos/reflect")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"organ":"caduceus","kind":"receipt","message":"other"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(other.status(), StatusCode::OK);
 
     let tail = app
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/hyalos/tail?count=1")
+                .uri("/api/v1/hyalos/tail?count=5&kind=upload")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(tail.status(), StatusCode::OK);
-    assert_eq!(body_json(tail).await["count"], 1);
+    let tail_json = body_json(tail).await;
+    assert_eq!(tail_json["count"], 1);
+    assert_eq!(tail_json["filters"]["kind"], "upload");
+    assert_eq!(tail_json["events"][0]["kind"], "upload");
 
     let projection = app
         .oneshot(
@@ -878,8 +897,7 @@ async fn hyalos_http_reflect_tail_and_projection_are_profile_gated() {
         )
         .await
         .unwrap();
-    assert_eq!(projection.status(), StatusCode::OK);
-    assert_eq!(body_json(projection).await["authority"], "derived-view");
+    assert_eq!(projection.status(), StatusCode::NOT_FOUND);
     std::env::remove_var("CADUCEUS_ROOT");
     let _ = std::fs::remove_dir_all(root);
 }

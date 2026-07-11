@@ -69,7 +69,8 @@ fn help_names_public_commands() {
     assert!(text.contains("caduceus pjlink power set <device-id> <on|off> [--dry-run]"));
     assert!(text.contains("caduceus identity show"));
     assert!(text.contains("caduceus hyalos reflect"));
-    assert!(text.contains("caduceus hyalos project upload"));
+    assert!(text.contains("caduceus hyalos tail"));
+    assert!(!text.contains("caduceus hyalos project upload"));
 }
 
 #[test]
@@ -547,7 +548,7 @@ fn network_dhcp_cli_invokes_staff_python_band() {
 }
 
 #[test]
-fn hyalos_cli_reflects_redacts_tails_and_projects_upload() {
+fn hyalos_cli_reflects_redacts_tails_with_filters_and_no_projection() {
     let root = std::env::temp_dir().join(format!("caduceus-hyalos-cli-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
@@ -564,8 +565,10 @@ fn hyalos_cli_reflects_redacts_tails_and_projects_upload() {
             "file-ingress",
             "upload",
             "proof.txt",
+            "--level",
+            "info",
             "--payload",
-            r#"{"projection":"upload","token":"not-on-wall"}"#,
+            r#"{"token":"not-on-wall"}"#,
         ])
         .output()
         .unwrap();
@@ -575,26 +578,45 @@ fn hyalos_cli_reflects_redacts_tails_and_projects_upload() {
         String::from_utf8_lossy(&reflected.stderr)
     );
     let channel = std::fs::read_to_string(root.join("var/log/hyalos/channel.jsonl")).unwrap();
-    assert!(channel.contains("hyalos.channel.event.v1"));
+    assert!(channel.contains("hyalos.channel.event.v2"));
+    assert!(channel.contains("attributes_redacted"));
+    assert!(channel.contains(r#""level":"info""#));
+    assert!(channel.contains('T'));
     assert!(channel.contains("[REDACTED]"));
     assert!(!channel.contains("not-on-wall"));
 
+    let other = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args(["hyalos", "reflect", "caduceus", "receipt", "other-event"])
+        .output()
+        .unwrap();
+    assert!(other.status.success());
+
     let tail = Command::new(bin())
         .env("CADUCEUS_ROOT", &root)
-        .args(["hyalos", "tail", "1"])
+        .args(["hyalos", "tail", "5", "--kind", "upload"])
         .output()
         .unwrap();
     assert!(tail.status.success());
-    assert!(String::from_utf8_lossy(&tail.stdout).contains("caduceus.hyalos.tail.v1"));
+    let tail_text = String::from_utf8_lossy(&tail.stdout);
+    assert!(tail_text.contains("caduceus.hyalos.tail.v1"));
+    assert!(tail_text.contains("upload"));
+    assert!(!tail_text.contains("other-event"));
 
-    let projection = Command::new(bin())
+    let project = Command::new(bin())
         .env("CADUCEUS_ROOT", &root)
         .args(["hyalos", "project", "upload"])
         .output()
         .unwrap();
-    assert!(projection.status.success());
-    let upload =
-        std::fs::read_to_string(root.join("var/log/hyalos/projections/upload.log")).unwrap();
-    assert_eq!(upload, channel);
+    assert!(!project.status.success());
+    assert!(!root.join("var/log/hyalos/projections/upload.log").exists());
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn hyalos_source_has_no_projection_upload_paths() {
+    let src = std::fs::read_to_string("src/tools/hyalos.rs").unwrap();
+    assert!(!src.contains("PROJECTIONS_PATH"));
+    assert!(!src.contains("project_upload_json"));
+    assert!(!src.contains("upload.log"));
 }

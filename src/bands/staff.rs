@@ -269,20 +269,19 @@ fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
     let reflection = hyalos::reflect_json(json!({
         "organ": "file-ingress",
         "kind": "upload",
+        "level": "info",
         "ok": true,
         "message": format!("uploaded {filename}"),
-        "payload_redacted": {
+        "attributes_redacted": {
             "classification": "file-ingress",
-            "projection": "upload",
             "filename": filename,
             "destination": destination,
             "path": target,
             "bytes": bytes.len()
         }
     }))?;
-    let projection = hyalos::project_upload_json()?;
     Ok(
-        json!({"schema":"caduceus.staff.file_ingress.v1","ok":true,"accepted":true,"classification":"file-ingress","mutationPerformed":true,"execution":"native-rust-file-ingress","path":target,"bytes":bytes.len(),"hyalos":reflection,"uploadProjection":projection,"firstMissingSignal":"none"}),
+        json!({"schema":"caduceus.staff.file_ingress.v1","ok":true,"accepted":true,"classification":"file-ingress","mutationPerformed":true,"execution":"native-rust-file-ingress","path":target,"bytes":bytes.len(),"hyalos":reflection,"firstMissingSignal":"none"}),
     )
 }
 
