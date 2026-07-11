@@ -7,7 +7,7 @@ pub fn write_latest(body: &str) -> Result<(), String> {
         "kind": "receipt",
         "ok": true,
         "message": body,
-        "payload_redacted": {"source": "receipts::write_latest"}
+        "attributes_redacted": {"source": "receipts::write_latest"}
     }))
     .map(|_| ())
 }

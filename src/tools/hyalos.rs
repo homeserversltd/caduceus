@@ -1,38 +1,73 @@
 use crate::tools::config;
+use chrono::{TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const EVENT_SCHEMA: &str = "hyalos.channel.event.v1";
+pub const EVENT_SCHEMA: &str = "hyalos.channel.event.v2";
+pub const EVENT_SCHEMA_V1: &str = "hyalos.channel.event.v1";
 const CHANNEL_PATH: &str = "var/log/hyalos/channel.jsonl";
-const PROJECTIONS_PATH: &str = "var/log/hyalos/projections";
+
+const LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error", "fatal"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelEvent {
     pub schema: String,
-    pub stamp: String,
+    pub timestamp: String,
     pub body_id: String,
-    pub world: String,
+    pub level: String,
     pub organ: String,
     pub kind: String,
-    pub correlation_id: Option<String>,
-    pub session_id: Option<String>,
-    pub work_id: Option<String>,
-    pub review_id: Option<String>,
-    pub strike_id: Option<String>,
+    pub world: String,
     pub ok: bool,
     pub message: String,
-    pub payload_redacted: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strike_id: Option<String>,
+    pub attributes_redacted: Value,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TailFilters {
+    #[serde(default = "default_tail_count")]
+    pub count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub organ: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub world: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ok: Option<bool>,
+}
+
+fn default_tail_count() -> usize {
+    20
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Reflection {
     #[serde(default)]
+    pub timestamp: Option<String>,
+    #[serde(default)]
     pub stamp: Option<String>,
     #[serde(default, alias = "bodyId")]
     pub body_id: Option<String>,
+    #[serde(default)]
+    pub level: Option<String>,
     #[serde(default)]
     pub world: Option<String>,
     pub organ: String,
@@ -50,19 +85,54 @@ pub struct Reflection {
     #[serde(default = "default_ok")]
     pub ok: bool,
     pub message: String,
-    #[serde(default, alias = "payloadRedacted", alias = "payload")]
-    pub payload_redacted: Value,
+    #[serde(
+        default,
+        alias = "attributesRedacted",
+        alias = "payloadRedacted",
+        alias = "payload_redacted",
+        alias = "payload"
+    )]
+    pub attributes_redacted: Value,
 }
 
 fn default_ok() -> bool {
     true
 }
 
-fn now_stamp() -> Result<String, String> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis().to_string())
-        .map_err(|err| format!("hyalos-clock-failed: {err}"))
+fn now_timestamp() -> String {
+    Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+fn stamp_to_timestamp(stamp: &str) -> Result<String, String> {
+    let millis = stamp
+        .parse::<i64>()
+        .map_err(|err| format!("hyalos-stamp-invalid: {err}"))?;
+    let seconds = millis / 1000;
+    let nanos = ((millis % 1000) * 1_000_000) as u32;
+    Utc.timestamp_opt(seconds, nanos)
+        .single()
+        .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+        .ok_or_else(|| "hyalos-stamp-invalid".to_string())
+}
+
+fn resolve_timestamp(timestamp: Option<String>, stamp: Option<String>) -> Result<String, String> {
+    if let Some(timestamp) = timestamp {
+        return Ok(timestamp);
+    }
+    if let Some(stamp) = stamp {
+        return stamp_to_timestamp(&stamp);
+    }
+    Ok(now_timestamp())
+}
+
+fn normalize_level(level: Option<String>) -> Result<String, String> {
+    let level = level.unwrap_or_else(|| "info".to_string());
+    let lowered = level.to_ascii_lowercase();
+    if LEVELS.contains(&lowered.as_str()) {
+        Ok(lowered)
+    } else {
+        Err(format!("hyalos-level-invalid: {level}"))
+    }
 }
 
 fn profile_defaults() -> (String, String) {
@@ -98,8 +168,9 @@ pub fn reflect(input: Reflection) -> Result<ChannelEvent, String> {
     let (default_body_id, default_world) = profile_defaults();
     let event = ChannelEvent {
         schema: EVENT_SCHEMA.to_string(),
-        stamp: input.stamp.map(Ok).unwrap_or_else(now_stamp)?,
+        timestamp: resolve_timestamp(input.timestamp, input.stamp)?,
         body_id: input.body_id.unwrap_or(default_body_id),
+        level: normalize_level(input.level)?,
         world: input.world.unwrap_or(default_world),
         organ: input.organ,
         kind: input.kind,
@@ -110,7 +181,7 @@ pub fn reflect(input: Reflection) -> Result<ChannelEvent, String> {
         strike_id: input.strike_id,
         ok: input.ok,
         message: input.message,
-        payload_redacted: redact(input.payload_redacted),
+        attributes_redacted: redact(input.attributes_redacted),
     };
     append(&event)?;
     Ok(event)
@@ -141,7 +212,8 @@ pub fn append_json(input: Value) -> Result<Value, String> {
     {
         return Err("hyalos-channel-event-required-field-missing".to_string());
     }
-    event.payload_redacted = redact(event.payload_redacted);
+    event.level = normalize_level(Some(event.level))?;
+    event.attributes_redacted = redact(event.attributes_redacted);
     append(&event)?;
     Ok(json!({
         "schema": "caduceus.hyalos.append.v1",
@@ -168,18 +240,65 @@ fn append(event: &ChannelEvent) -> Result<(), String> {
         .map_err(|err| format!("{}: {err}", path.display()))
 }
 
-pub fn tail_json(count: usize) -> Result<Value, String> {
+fn parse_channel_line(line: &str) -> Result<Value, String> {
+    let event: Value =
+        serde_json::from_str(line).map_err(|err| format!("hyalos-channel-line-invalid: {err}"))?;
+    let schema = event.get("schema").and_then(Value::as_str);
+    if schema != Some(EVENT_SCHEMA) && schema != Some(EVENT_SCHEMA_V1) {
+        return Err("hyalos-channel-event-schema-invalid".to_string());
+    }
+    Ok(event)
+}
+
+fn event_field_str<'a>(event: &'a Value, field: &str) -> Option<&'a str> {
+    event.get(field).and_then(Value::as_str)
+}
+
+fn matches_filters(event: &Value, filters: &TailFilters) -> bool {
+    if let Some(kind) = filters.kind.as_deref() {
+        if event_field_str(event, "kind") != Some(kind) {
+            return false;
+        }
+    }
+    if let Some(organ) = filters.organ.as_deref() {
+        if event_field_str(event, "organ") != Some(organ) {
+            return false;
+        }
+    }
+    if let Some(world) = filters.world.as_deref() {
+        if event_field_str(event, "world") != Some(world) {
+            return false;
+        }
+    }
+    if let Some(correlation_id) = filters.correlation_id.as_deref() {
+        if event_field_str(event, "correlation_id") != Some(correlation_id) {
+            return false;
+        }
+    }
+    if let Some(level) = filters.level.as_deref() {
+        if event_field_str(event, "level") != Some(level) {
+            return false;
+        }
+    }
+    if let Some(ok) = filters.ok {
+        if event.get("ok").and_then(Value::as_bool) != Some(ok) {
+            return false;
+        }
+    }
+    true
+}
+
+pub fn tail_json(filters: TailFilters) -> Result<Value, String> {
     let path = config::path(CHANNEL_PATH);
     let text = fs::read_to_string(&path).unwrap_or_default();
     let mut events = text
         .lines()
         .filter(|line| !line.trim().is_empty())
-        .map(|line| {
-            serde_json::from_str::<Value>(line)
-                .map_err(|err| format!("hyalos-channel-line-invalid: {err}"))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let keep = count.clamp(1, 1000);
+        .map(parse_channel_line)
+        .filter_map(|result| result.ok())
+        .filter(|event| matches_filters(event, &filters))
+        .collect::<Vec<_>>();
+    let keep = filters.count.clamp(1, 1000);
     if events.len() > keep {
         events.drain(..events.len() - keep);
     }
@@ -188,55 +307,10 @@ pub fn tail_json(count: usize) -> Result<Value, String> {
         "ok": true,
         "channelPath": path,
         "count": events.len(),
+        "filters": filters,
         "events": events,
         "firstMissingSignal": if text.trim().is_empty() { "hyalos-channel-empty" } else { "none" }
     }))
-}
-
-pub fn project_upload_json() -> Result<Value, String> {
-    let source_path = config::path(CHANNEL_PATH);
-    let source = fs::read_to_string(&source_path).unwrap_or_default();
-    let mut lines = Vec::new();
-    for line in source.lines().filter(|line| !line.trim().is_empty()) {
-        let event: Value = serde_json::from_str(line)
-            .map_err(|err| format!("hyalos-channel-line-invalid: {err}"))?;
-        if is_upload_event(&event) {
-            lines.push(line);
-        }
-    }
-    let path = config::path(&format!("{PROJECTIONS_PATH}/upload.log"));
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
-    }
-    let body = if lines.is_empty() {
-        String::new()
-    } else {
-        format!("{}\n", lines.join("\n"))
-    };
-    fs::write(&path, body).map_err(|err| format!("{}: {err}", path.display()))?;
-    Ok(json!({
-        "schema": "caduceus.hyalos.projection.v1",
-        "ok": true,
-        "projection": "upload",
-        "projectionPath": path,
-        "eventCount": lines.len(),
-        "sourcePath": config::path(CHANNEL_PATH),
-        "authority": "derived-view",
-        "firstMissingSignal": "none"
-    }))
-}
-
-fn is_upload_event(event: &Value) -> bool {
-    event.get("kind").and_then(Value::as_str) == Some("upload")
-        || event.get("organ").and_then(Value::as_str) == Some("file-ingress")
-        || event
-            .pointer("/payload_redacted/projection")
-            .and_then(Value::as_str)
-            == Some("upload")
-        || event
-            .pointer("/payload_redacted/classification")
-            .and_then(Value::as_str)
-            == Some("file-ingress")
 }
 
 fn redact(value: Value) -> Value {

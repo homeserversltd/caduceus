@@ -341,16 +341,27 @@ async fn hyalos_append_route(
 async fn hyalos_tail_route(
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    let count = query
-        .get("count")
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(20);
-    hyalos_result("hyalos tail", || hyalos::tail_json(count))
-}
-
-async fn hyalos_project_upload_route(
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    hyalos_result("hyalos project", hyalos::project_upload_json)
+    use crate::tools::hyalos::TailFilters;
+    let filters = TailFilters {
+        count: query
+            .get("count")
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(20),
+        kind: query.get("kind").cloned(),
+        organ: query.get("organ").cloned(),
+        world: query.get("world").cloned(),
+        correlation_id: query
+            .get("correlation_id")
+            .or_else(|| query.get("correlationId"))
+            .cloned(),
+        level: query.get("level").cloned(),
+        ok: query.get("ok").and_then(|value| match value.as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        }),
+    };
+    hyalos_result("hyalos tail", || hyalos::tail_json(filters))
 }
 
 async fn staff_intent_route(
@@ -951,10 +962,6 @@ pub fn router() -> Router {
         .route("/api/v1/hyalos/reflect", post(hyalos_reflect_route))
         .route("/api/v1/hyalos/append", post(hyalos_append_route))
         .route("/api/v1/hyalos/tail", get(hyalos_tail_route))
-        .route(
-            "/api/v1/hyalos/project/upload",
-            post(hyalos_project_upload_route),
-        )
         .route("/api/v1/update/now", post(update_now_route))
         .route("/api/v1/update/check", post(update_check_route))
         .route("/api/v1/sync/status", get(sync_status_route))

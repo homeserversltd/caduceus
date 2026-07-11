@@ -8,7 +8,6 @@ commands:
 - hyalos reflect
 - hyalos append
 - hyalos tail
-- hyalos project
 - pjlink devices
 - pjlink power status
 - pjlink power set

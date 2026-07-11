@@ -384,8 +384,7 @@ fn print_help() {
     println!("  caduceus staff intent <method> <route>");
     println!("  caduceus hyalos reflect <organ> <kind> <message> [--payload JSON]");
     println!("  caduceus hyalos append <event-json>");
-    println!("  caduceus hyalos tail [count]");
-    println!("  caduceus hyalos project upload");
+    println!("  caduceus hyalos tail [count] [--kind K] [--organ O] [--world W] [--correlation-id ID] [--level L] [--ok true|false]");
     println!("  caduceus sync status");
     println!("  caduceus sync now [--no-restart] [--dry-run]");
     println!("  caduceus update status");
