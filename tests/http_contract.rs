@@ -505,7 +505,7 @@ async fn homeserver_staff_actuators_route_is_profile_allowed() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.staff.actuators.v1");
-    assert_eq!(json["count"], 6);
+    assert_eq!(json["count"], 8);
     assert_eq!(json["actuators"][0]["id"], "network-dhcp");
 }
 
@@ -551,8 +551,11 @@ async fn homeserver_staff_intent_route_accepts_coronatio_button_intent() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn homeserver_staff_intent_route_accepts_upload_metadata() {
+async fn homeserver_staff_intent_route_executes_upload_bytes() {
     let _guard = use_fixture("tests/fixtures/homeserver");
+    let root = std::env::temp_dir().join(format!("caduceus-http-upload-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::env::set_var("CADUCEUS_FILE_INGRESS_ROOT", &root);
     let app = serve::router();
     let response = app
         .oneshot(
@@ -562,7 +565,7 @@ async fn homeserver_staff_intent_route_accepts_upload_metadata() {
                 .header("x-caduceus-capability", capability("staff intent", "/api/files/upload", 60))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"method":"POST","route":"/api/files/upload","classification":"file-ingress","metadata":{"filename":"proof.txt","bytes":5,"destination":"/mnt/nas"}}"#,
+                    r#"{"method":"POST","route":"/api/files/upload","classification":"file-ingress","metadata":{"filename":"proof.txt","bytes":5,"destination":"/mnt/nas","payload":[104,101,108,108,111]}}"#,
                 ))
                 .unwrap(),
         )
@@ -570,10 +573,12 @@ async fn homeserver_staff_intent_route_accepts_upload_metadata() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
     let json = body_json(response).await;
-    assert_eq!(json["schema"], "caduceus.staff.intent.v1");
-    assert_eq!(json["upload"]["schema"], "caduceus.staff.upload_intent.v1");
-    assert_eq!(json["upload"]["metadata"]["filename"], "proof.txt");
-    assert_eq!(json["execution"], "upload-queued-behind-typed-actuator");
+    assert_eq!(json["schema"], "caduceus.staff.file_ingress.v1");
+    assert_eq!(json["mutationPerformed"], true);
+    assert_eq!(json["execution"], "native-rust-file-ingress");
+    assert_eq!(std::fs::read(root.join("proof.txt")).unwrap(), b"hello");
+    std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[tokio::test(flavor = "current_thread")]

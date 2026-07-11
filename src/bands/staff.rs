@@ -1,4 +1,6 @@
 use serde_json::{json, Value};
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::bands::dhcp;
@@ -156,6 +158,19 @@ pub fn intent_json(
     if route.starts_with("/api/dhcp/") || route == "/api/dhcp" {
         return dhcp::intent_json(method, route, metadata.unwrap_or_else(|| json!({})));
     }
+    if route == "/api/files/upload"
+        && method == "POST"
+        && metadata
+            .as_ref()
+            .and_then(|value| value.get("payload"))
+            .and_then(Value::as_array)
+            .is_some()
+    {
+        return execute_file_ingress(metadata.unwrap_or_else(|| json!({})));
+    }
+    if route == "/api/upload/force-permissions" && method == "POST" {
+        return execute_force_permissions(metadata.unwrap_or_else(|| json!({})));
+    }
     let upload = if route.contains("/api/files/upload") || route.contains("/api/upload/") {
         json!({
             "schema": "caduceus.staff.upload_intent.v1",
@@ -188,6 +203,87 @@ pub fn intent_json(
         "firstMissingSignal": if privileged && actuator_count == 0 { "caduceus-staff-actuator-missing" } else { "none" },
         "nextBoundary": if route.contains("/api/files/upload") { "typed upload actuator execution receipt" } else if privileged { "typed staff actuator execution receipt" } else { "Coronatio readback route" }
     }))
+}
+
+fn ingress_root() -> PathBuf {
+    std::env::var_os("CADUCEUS_FILE_INGRESS_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/mnt/nas"))
+}
+
+fn admitted_destination(metadata: &Value) -> Result<PathBuf, String> {
+    let root = ingress_root();
+    let requested = metadata
+        .get("destination")
+        .and_then(Value::as_str)
+        .unwrap_or("/mnt/nas");
+    let relative = if requested == "/mnt/nas" || requested == root.to_string_lossy() {
+        Path::new("")
+    } else if let Some(value) = requested.strip_prefix("/mnt/nas/") {
+        Path::new(value)
+    } else if let Ok(value) = Path::new(requested).strip_prefix(&root) {
+        value
+    } else {
+        return Err("caduceus-file-ingress-destination-outside-root".to_string());
+    };
+    if relative
+        .components()
+        .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        && !relative.as_os_str().is_empty()
+    {
+        return Err("caduceus-file-ingress-destination-invalid".to_string());
+    }
+    Ok(root.join(relative))
+}
+
+fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
+    let destination = admitted_destination(&metadata)?;
+    let filename = metadata
+        .get("filename")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-file-ingress-filename-missing".to_string())?;
+    if filename.is_empty()
+        || Path::new(filename).file_name().and_then(|v| v.to_str()) != Some(filename)
+    {
+        return Err("caduceus-file-ingress-filename-invalid".to_string());
+    }
+    let bytes = metadata
+        .get("payload")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "caduceus-file-ingress-payload-missing".to_string())?
+        .iter()
+        .map(|value| {
+            value
+                .as_u64()
+                .filter(|v| *v <= 255)
+                .map(|v| v as u8)
+                .ok_or_else(|| "caduceus-file-ingress-payload-invalid".to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    std::fs::create_dir_all(&destination)
+        .map_err(|err| format!("caduceus-file-ingress-create-destination-failed: {err}"))?;
+    let target = destination.join(filename);
+    std::fs::write(&target, &bytes)
+        .map_err(|err| format!("caduceus-file-ingress-write-failed: {err}"))?;
+    Ok(
+        json!({"schema":"caduceus.staff.file_ingress.v1","ok":true,"accepted":true,"classification":"file-ingress","mutationPerformed":true,"execution":"native-rust-file-ingress","path":target,"bytes":bytes.len(),"firstMissingSignal":"none"}),
+    )
+}
+
+fn execute_force_permissions(metadata: Value) -> Result<Value, String> {
+    let destination = admitted_destination(&metadata)?;
+    if !destination.is_dir() {
+        return Err("caduceus-force-permissions-directory-missing".to_string());
+    }
+    let mut permissions = std::fs::metadata(&destination)
+        .map_err(|err| err.to_string())?
+        .permissions();
+    permissions.set_mode(0o775);
+    std::fs::set_permissions(&destination, permissions)
+        .map_err(|err| format!("caduceus-force-permissions-failed: {err}"))?;
+    Ok(
+        json!({"schema":"caduceus.staff.force_permissions.v1","ok":true,"accepted":true,"classification":"force-permissions","mutationPerformed":true,"execution":"native-rust-force-permissions","path":destination,"firstMissingSignal":"none"}),
+    )
 }
 
 fn execute_portal_service(metadata: Value) -> Result<Value, String> {
@@ -281,9 +377,42 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
+    fn file_ingress_and_force_permissions_execute_real_mutations() {
+        let root =
+            std::env::temp_dir().join(format!("caduceus-file-ingress-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::env::set_var("CADUCEUS_FILE_INGRESS_ROOT", &root);
+        let result = intent_json("POST", "/api/files/upload", Some("file-ingress"), Some(json!({"filename":"proof.txt","destination":"/mnt/nas/test","payload":[104,101,108,108,111]}))).unwrap();
+        assert_eq!(result["mutationPerformed"], true);
+        assert_eq!(
+            std::fs::read(root.join("test/proof.txt")).unwrap(),
+            b"hello"
+        );
+        let result = intent_json(
+            "POST",
+            "/api/upload/force-permissions",
+            Some("force-permissions"),
+            Some(json!({"destination":"/mnt/nas/test"})),
+        )
+        .unwrap();
+        assert_eq!(result["mutationPerformed"], true);
+        assert_eq!(
+            std::fs::metadata(root.join("test"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o775
+        );
+        std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn portal_service_classification_executes_systemctl_and_reports_active() {
         let root =
             std::env::temp_dir().join(format!("caduceus-systemctl-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let systemctl = root.join("systemctl");
         std::fs::write(&systemctl, "#!/bin/sh\nif [ \"$1\" = is-active ]; then echo active; exit 0; else printf '%s %s\\n' \"$1\" \"$2\"; fi\n").unwrap();
