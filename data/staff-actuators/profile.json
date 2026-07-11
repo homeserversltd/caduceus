@@ -11,6 +11,19 @@
   },
   "actuators": [
     {
+      "id": "network-dhcp",
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": ["update-kea-dhcp.sh"],
+      "launcher": "/usr/local/sbin/caduceus-network-dhcp",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/dhcp.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.dhcp.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Kea DHCP readback and control execute through the typed staff Python actuator.",
+      "pythonModule": "caduceus_staff.network.dhcp"
+    },
+    {
       "id": "backblaze-b2-recover",
       "family": "backup",
       "actuatorClass": "staff-python",

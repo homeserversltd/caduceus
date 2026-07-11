@@ -9,6 +9,12 @@ commands:
 - legacy-sbin list
 - legacy-sbin show
 - network status
+- network dhcp status
+- network dhcp leases
+- network dhcp reservations
+- network dhcp reload
+- network dhcp reservation add
+- network dhcp reservation remove
 - homeserver-sbin list
 - homeserver-sbin show
 - staff status

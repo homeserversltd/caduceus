@@ -60,6 +60,7 @@ fn help_names_public_commands() {
     assert!(text.contains("caduceus homeserver-sbin list"));
     assert!(text.contains("caduceus staff status"));
     assert!(text.contains("caduceus network status"));
+    assert!(text.contains("caduceus network dhcp"));
     assert!(text.contains("caduceus pjlink devices"));
     assert!(text.contains("caduceus pjlink scan <device-id> [--dry-run]"));
     assert!(text.contains("caduceus pjlink known-products"));
@@ -319,7 +320,8 @@ fn staff_actuators_list_backblaze_and_calibre_python_lanes() {
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("schema=caduceus.staff.actuators.v1"));
-    assert!(text.contains("count=5"));
+    assert!(text.contains("count=6"));
+    assert!(text.contains("actuator=network-dhcp"));
     assert!(text.contains("actuator=backblaze-b2-recover"));
     assert!(text.contains("actuator=calibre-helper-daemon"));
     assert!(text.contains("class=staff-python"));
@@ -441,10 +443,10 @@ fn cli_capability_walls_refuse_expired_scope_tampered_and_missing() {
         .unwrap()
         .contains("caduceus-capability-scope"));
 
-    let mut token = capability("pjlink power set", "living-room-tv", 60);
-    let replacement = if token.ends_with('A') { 'B' } else { 'A' };
-    token.pop();
-    token.push(replacement);
+    let token = capability("pjlink power set", "living-room-tv", 60);
+    let (payload, signature) = token.split_once('.').unwrap();
+    let replacement = if signature.starts_with('A') { 'B' } else { 'A' };
+    let token = format!("{payload}.{replacement}{}", &signature[1..]);
     let tampered = Command::new(bin())
         .env("CADUCEUS_ROOT", "tests/fixtures/tv")
         .args([
@@ -522,4 +524,22 @@ fn cli_refuses_capability_when_household_key_is_not_configured() {
         .unwrap()
         .contains("caduceus-capability-unsigned"));
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn network_dhcp_cli_invokes_staff_python_band() {
+    let output = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
+        .env("PYTHONPATH", "tests/fixtures/staff")
+        .env(
+            "CADUCEUS_DHCP_CMD",
+            "python3 -m caduceus_staff.network.dhcp",
+        )
+        .args(["network", "dhcp", "status"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("caduceus.network.dhcp.status.v1"));
+    assert!(stdout.contains("caduceus_staff.network.dhcp"));
 }

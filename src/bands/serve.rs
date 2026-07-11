@@ -1,6 +1,6 @@
 use crate::bands::{
-    cert, gui, health, homeserver_sbin, identity, legacy_sbin, local_ai, network, pjlink, profile,
-    profile_module, receipts, staff, sync, update,
+    cert, dhcp, gui, health, homeserver_sbin, identity, legacy_sbin, local_ai, network, pjlink,
+    profile, profile_module, receipts, staff, sync, update,
 };
 use crate::tools::policy;
 use axum::{
@@ -365,6 +365,10 @@ async fn network_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErro
     gated_json("network status", network::status_json).await
 }
 
+async fn dhcp_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("network dhcp status", dhcp::status_json).await
+}
+
 async fn cert_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("cert status", cert::status_json).await
 }
@@ -375,12 +379,17 @@ async fn cert_issue_leaf_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("cert issue-leaf") {
         Ok(true) => {
-            if let Err(reason) =
-                policy::capability_admits("cert issue-leaf", "local", capability_from_headers(&headers))
-            {
+            if let Err(reason) = policy::capability_admits(
+                "cert issue-leaf",
+                "local",
+                capability_from_headers(&headers),
+            ) {
                 return Err(api_error_signal("cert issue-leaf", reason.signal()));
             }
-            let dry = body.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
+            let dry = body
+                .get("dry_run")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let sans: Vec<String> = body
                 .get("sans")
                 .and_then(|v| v.as_array())
@@ -415,7 +424,10 @@ async fn cert_issue_leaf_route(
                     Err(e) => Err(api_error_signal("cert issue-leaf", e.as_str())),
                 }
             } else {
-                Err(api_error_signal("cert issue-leaf", "caduceus-cert-issue-leaf-failed"))
+                Err(api_error_signal(
+                    "cert issue-leaf",
+                    "caduceus-cert-issue-leaf-failed",
+                ))
             }
         }
         Ok(false) => Err(api_error_signal(
@@ -425,8 +437,6 @@ async fn cert_issue_leaf_route(
         Err(reason) => Err(api_error_signal("cert issue-leaf", &reason)),
     }
 }
-
-
 
 async fn pjlink_devices_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("pjlink devices", pjlink::devices_json).await
@@ -840,6 +850,7 @@ pub fn router() -> Router {
         )
         .route("/api/v1/update/status", get(update_status_route))
         .route("/api/v1/network/status", get(network_status_route))
+        .route("/api/v1/network/dhcp/status", get(dhcp_status_route))
         .route("/api/v1/cert/status", get(cert_status_route))
         .route("/api/v1/cert/issue-leaf", post(cert_issue_leaf_route))
         .route("/api/v1/pjlink/devices", get(pjlink_devices_route))

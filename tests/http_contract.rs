@@ -505,8 +505,8 @@ async fn homeserver_staff_actuators_route_is_profile_allowed() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.staff.actuators.v1");
-    assert_eq!(json["count"], 5);
-    assert_eq!(json["actuators"][0]["actuatorClass"], "staff-python");
+    assert_eq!(json["count"], 6);
+    assert_eq!(json["actuators"][0]["id"], "network-dhcp");
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -650,10 +650,10 @@ async fn http_capability_walls_cover_fresh_expired_scope_tampered_and_missing() 
         "caduceus-capability-scope"
     );
 
-    let mut token = capability("pjlink power set", "living-room-tv", 60);
-    let replacement = if token.ends_with('A') { 'B' } else { 'A' };
-    token.pop();
-    token.push(replacement);
+    let token = capability("pjlink power set", "living-room-tv", 60);
+    let (payload, signature) = token.split_once('.').unwrap();
+    let replacement = if signature.starts_with('A') { 'B' } else { 'A' };
+    let token = format!("{payload}.{replacement}{}", &signature[1..]);
     let tampered = app
         .clone()
         .oneshot(
@@ -693,4 +693,53 @@ async fn http_capability_walls_cover_fresh_expired_scope_tampered_and_missing() 
         body_json(missing).await["firstMissingSignal"],
         "caduceus-capability-unsigned"
     );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn homeserver_dhcp_http_status_and_staff_intent_execute_python_actuator() {
+    let _guard = use_fixture("tests/fixtures/homeserver");
+    std::env::set_var("PYTHONPATH", "tests/fixtures/staff");
+    std::env::set_var(
+        "CADUCEUS_DHCP_CMD",
+        "python3 -m caduceus_staff.network.dhcp",
+    );
+    let app = serve::router();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/network/dhcp/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        body_json(response).await["schema"],
+        "caduceus.network.dhcp.status.v1"
+    );
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/staff/intent")
+                .header(
+                    "x-caduceus-capability",
+                    capability("staff intent", "/api/dhcp/reservations", 60),
+                )
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"method":"POST","route":"/api/dhcp/reservations","metadata":{"ip":"192.168.1.7"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let json = body_json(response).await;
+    assert_eq!(json["classification"], "network-control");
+    assert_eq!(json["mutationPerformed"], true);
+    assert_eq!(json["execution"], "caduceus_staff.network.dhcp");
 }

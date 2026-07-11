@@ -18,3 +18,9 @@ commands:
 - cert issue-leaf
 - cert rotate-ca
 - cert bundle create
+- network dhcp status
+- network dhcp leases
+- network dhcp reservations
+- network dhcp reload
+- network dhcp reservation add
+- network dhcp reservation remove
