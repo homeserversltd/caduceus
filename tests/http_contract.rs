@@ -777,23 +777,18 @@ async fn homeserver_dhcp_http_status_and_staff_intent_execute_python_actuator() 
         "caduceus.network.dhcp.status.v1"
     );
 
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/staff/intent")
-                .header(
-                    "x-caduceus-capability",
-                    capability("staff intent", "/api/dhcp/reservations", 60),
-                )
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"method":"POST","route":"/api/dhcp/reservations","metadata":{"ip":"192.168.1.7"}}"#,
-                ))
-                .unwrap(),
-        )
-        .await
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/staff/intent")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"method":"POST","route":"/api/dhcp/reservations","metadata":{"ip":"192.168.1.7"}}"#,
+        ))
         .unwrap();
+    request.extensions_mut().insert(ConnectInfo(
+        "127.0.0.1:43210".parse::<std::net::SocketAddr>().unwrap(),
+    ));
+    let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::ACCEPTED);
     let json = body_json(response).await;
     assert_eq!(json["classification"], "network-control");

@@ -320,13 +320,15 @@ async fn staff_intent_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("staff intent") {
         Ok(true) => {
-            let loopback_portal_service = connect_info
+            let loopback_peer = connect_info
                 .as_ref()
-                .is_some_and(|ConnectInfo(peer)| peer.ip().is_loopback())
-                && body.classification.as_deref() == Some("portal-service")
-                && body.method == "POST"
-                && body.route == "/api/service/control";
-            if !loopback_portal_service {
+                .is_some_and(|ConnectInfo(peer)| peer.ip().is_loopback());
+            let loopback_trusted_intent = loopback_peer
+                && ((body.classification.as_deref() == Some("portal-service")
+                    && body.method == "POST"
+                    && body.route == "/api/service/control")
+                    || body.route.starts_with("/api/dhcp/"));
+            if !loopback_trusted_intent {
                 if let Err(reason) = policy::capability_admits(
                     "staff intent",
                     &body.route,

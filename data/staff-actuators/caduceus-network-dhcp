@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+PYTHON=${CADUCEUS_STAFF_PYTHON:-/var/lib/caduceus/venv/bin/python}
+exec "$PYTHON" -m caduceus_staff.network.dhcp "$@"
