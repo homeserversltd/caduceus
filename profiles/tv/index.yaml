@@ -5,6 +5,10 @@ harmonia_profile: /etc/harmonia/profiles/tv/index.json
 planned_capabilities:
 - pjlink
 commands:
+- hyalos reflect
+- hyalos append
+- hyalos tail
+- hyalos project
 - pjlink devices
 - pjlink power status
 - pjlink power set

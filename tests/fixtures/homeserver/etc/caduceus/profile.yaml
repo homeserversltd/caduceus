@@ -5,6 +5,10 @@ capability:
   default_ttl_seconds: 60
 mode: homeserver
 commands:
+- hyalos reflect
+- hyalos append
+- hyalos tail
+- hyalos project
 - help
 - identity show
 - profile show

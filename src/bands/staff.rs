@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::bands::dhcp;
-use crate::tools::config;
+use crate::tools::{config, hyalos};
 
 const PROFILE: &str = include_str!("../../data/staff-actuators/profile.json");
 
@@ -266,8 +266,23 @@ fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
     let target = destination.join(filename);
     std::fs::write(&target, &bytes)
         .map_err(|err| format!("caduceus-file-ingress-write-failed: {err}"))?;
+    let reflection = hyalos::reflect_json(json!({
+        "organ": "file-ingress",
+        "kind": "upload",
+        "ok": true,
+        "message": format!("uploaded {filename}"),
+        "payload_redacted": {
+            "classification": "file-ingress",
+            "projection": "upload",
+            "filename": filename,
+            "destination": destination,
+            "path": target,
+            "bytes": bytes.len()
+        }
+    }))?;
+    let projection = hyalos::project_upload_json()?;
     Ok(
-        json!({"schema":"caduceus.staff.file_ingress.v1","ok":true,"accepted":true,"classification":"file-ingress","mutationPerformed":true,"execution":"native-rust-file-ingress","path":target,"bytes":bytes.len(),"firstMissingSignal":"none"}),
+        json!({"schema":"caduceus.staff.file_ingress.v1","ok":true,"accepted":true,"classification":"file-ingress","mutationPerformed":true,"execution":"native-rust-file-ingress","path":target,"bytes":bytes.len(),"hyalos":reflection,"uploadProjection":projection,"firstMissingSignal":"none"}),
     )
 }
 

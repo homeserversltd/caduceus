@@ -4,6 +4,7 @@ pub mod gui;
 pub mod health;
 pub mod help;
 pub mod homeserver_sbin;
+pub mod hyalos;
 pub mod identity;
 pub mod legacy_sbin;
 pub mod local_ai;

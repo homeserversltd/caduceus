@@ -3,6 +3,10 @@ profile: console
 mode: console
 harmonia_profile: /etc/harmonia/profiles/homeconsole/index.json
 commands:
+- hyalos reflect
+- hyalos append
+- hyalos tail
+- hyalos project
 - help
 - identity show
 - profile show
