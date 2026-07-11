@@ -4,7 +4,7 @@ use crate::bands::{
 };
 use crate::tools::policy;
 use axum::{
-    extract::Query,
+    extract::{ConnectInfo, Query},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
@@ -314,17 +314,26 @@ async fn staff_actuators_route() -> Result<Json<Value>, (StatusCode, Json<ApiErr
 }
 
 async fn staff_intent_route(
+    connect_info: Option<ConnectInfo<SocketAddr>>,
     headers: HeaderMap,
     Json(body): Json<StaffIntentBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("staff intent") {
         Ok(true) => {
-            if let Err(reason) = policy::capability_admits(
-                "staff intent",
-                &body.route,
-                capability_from_headers(&headers),
-            ) {
-                return Err(api_error_signal("staff intent", reason.signal()));
+            let loopback_portal_service = connect_info
+                .as_ref()
+                .is_some_and(|ConnectInfo(peer)| peer.ip().is_loopback())
+                && body.classification.as_deref() == Some("portal-service")
+                && body.method == "POST"
+                && body.route == "/api/service/control";
+            if !loopback_portal_service {
+                if let Err(reason) = policy::capability_admits(
+                    "staff intent",
+                    &body.route,
+                    capability_from_headers(&headers),
+                ) {
+                    return Err(api_error_signal("staff intent", reason.signal()));
+                }
             }
             match staff::intent_json(
                 &body.method,
@@ -953,7 +962,12 @@ pub async fn run_async() -> i32 {
     };
 
     eprintln!("caduceus serve listening on {addr}");
-    match axum::serve(listener, app).await {
+    match axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    {
         Ok(()) => 0,
         Err(err) => {
             eprintln!("caduceus-serve-failed: {err}");

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::bands::dhcp;
+use crate::tools::config;
 
 const PROFILE: &str = include_str!("../../data/staff-actuators/profile.json");
 
@@ -315,6 +316,12 @@ fn execute_portal_service_with(metadata: Value, systemctl: &str) -> Result<Value
         return Err("caduceus-portal-service-intent-invalid".to_string());
     }
 
+    let allowed = portal_service_allowlist()?;
+    let normalized = normalize_systemd_service(service);
+    if systemd_service != normalized || !allowed.iter().any(|item| item == &normalized) {
+        return Err("caduceus-portal-service-not-allowed".to_string());
+    }
+
     let output = Command::new(systemctl)
         .args([action, systemd_service])
         .output()
@@ -348,6 +355,36 @@ fn execute_portal_service_with(metadata: Value, systemctl: &str) -> Result<Value
         "firstMissingSignal": if output.status.success() { "none" } else { "portal-systemctl-command-failed" },
         "metadata": metadata
     }))
+}
+
+fn normalize_systemd_service(service: &str) -> String {
+    if service.ends_with(".service") {
+        service.to_string()
+    } else {
+        format!("{service}.service")
+    }
+}
+
+fn portal_service_allowlist() -> Result<Vec<String>, String> {
+    let text = config::read_public_file("var/www/homeserver/src/config/homeserver.json")
+        .map_err(|err| format!("caduceus-homeserver-config-missing: {err}"))?;
+    let value: Value = serde_json::from_str(&text)
+        .map_err(|err| format!("caduceus-homeserver-config-invalid: {err}"))?;
+    let portals = value
+        .pointer("/tabs/portals/data/portals")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "caduceus-homeserver-portals-missing".to_string())?;
+    let mut services = portals
+        .iter()
+        .filter_map(|portal| portal.get("services").and_then(Value::as_array))
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|service| safe_service_name(service))
+        .map(normalize_systemd_service)
+        .collect::<Vec<_>>();
+    services.sort();
+    services.dedup();
+    Ok(services)
 }
 
 fn safe_service_name(value: &str) -> bool {
@@ -414,6 +451,10 @@ mod tests {
             std::env::temp_dir().join(format!("caduceus-systemctl-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
+        let config_dir = root.join("var/www/homeserver/src/config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(config_dir.join("homeserver.json"), r#"{"tabs":{"portals":{"data":{"portals":[{"name":"Jellyfin","services":["jellyfin"]}]}}}}"#).unwrap();
+        std::env::set_var("CADUCEUS_ROOT", &root);
         let systemctl = root.join("systemctl");
         std::fs::write(&systemctl, "#!/bin/sh\nif [ \"$1\" = is-active ]; then echo active; exit 0; else printf '%s %s\\n' \"$1\" \"$2\"; fi\n").unwrap();
         let mut permissions = std::fs::metadata(&systemctl).unwrap().permissions();
@@ -433,6 +474,12 @@ mod tests {
         assert_eq!(result["output"], "restart jellyfin.service");
         assert_eq!(result["active"], true);
         assert_eq!(result["mutationPerformed"], true);
+        let refused = execute_portal_service_with(
+            json!({"service":"ssh","action":"restart","systemdService":"ssh.service"}),
+            systemctl.to_str().unwrap(),
+        );
+        assert_eq!(refused.unwrap_err(), "caduceus-portal-service-not-allowed");
+        std::env::remove_var("CADUCEUS_ROOT");
         let _ = std::fs::remove_dir_all(root);
     }
 }

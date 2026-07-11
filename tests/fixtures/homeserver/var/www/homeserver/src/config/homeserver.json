@@ -1,0 +1,12 @@
+{
+  "tabs": {
+    "portals": {
+      "data": {
+        "portals": [
+          {"name": "Jellyfin", "services": ["jellyfin"]},
+          {"name": "Calibre Web", "services": ["calibre-web", "calibre-simple-watch"]}
+        ]
+      }
+    }
+  }
+}
