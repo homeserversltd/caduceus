@@ -4,6 +4,7 @@
     "cert",
     "health",
     "homeserver-sbin",
+    "hyalos",
     "identity",
     "network",
     "pjlink",

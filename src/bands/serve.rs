@@ -1,6 +1,6 @@
 use crate::bands::{
-    cert, dhcp, gui, health, homeserver_sbin, identity, legacy_sbin, local_ai, network, pjlink,
-    profile, profile_module, receipts, staff, sync, update,
+    cert, dhcp, gui, health, homeserver_sbin, hyalos, identity, legacy_sbin, local_ai, network,
+    pjlink, profile, profile_module, receipts, staff, sync, update,
 };
 use crate::tools::policy;
 use axum::{
@@ -311,6 +311,46 @@ async fn staff_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorB
 
 async fn staff_actuators_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("staff actuators", staff::actuators_json).await
+}
+
+fn hyalos_result(
+    command: &str,
+    run: impl FnOnce() -> Result<Value, String>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command(command) {
+        Ok(true) => run()
+            .map(|value| (StatusCode::OK, Json(value)))
+            .map_err(|err| api_error_signal(command, &err)),
+        Ok(false) => Err(api_error(command)),
+        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+    }
+}
+
+async fn hyalos_reflect_route(
+    Json(body): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    hyalos_result("hyalos reflect", || hyalos::reflect_json(body))
+}
+
+async fn hyalos_append_route(
+    Json(body): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    hyalos_result("hyalos append", || hyalos::append_json(body))
+}
+
+async fn hyalos_tail_route(
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let count = query
+        .get("count")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(20);
+    hyalos_result("hyalos tail", || hyalos::tail_json(count))
+}
+
+async fn hyalos_project_upload_route(
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    hyalos_result("hyalos project", hyalos::project_upload_json)
 }
 
 async fn staff_intent_route(
@@ -908,6 +948,13 @@ pub fn router() -> Router {
         .route("/api/v1/staff/status", get(staff_status_route))
         .route("/api/v1/staff/actuators", get(staff_actuators_route))
         .route("/api/v1/staff/intent", post(staff_intent_route))
+        .route("/api/v1/hyalos/reflect", post(hyalos_reflect_route))
+        .route("/api/v1/hyalos/append", post(hyalos_append_route))
+        .route("/api/v1/hyalos/tail", get(hyalos_tail_route))
+        .route(
+            "/api/v1/hyalos/project/upload",
+            post(hyalos_project_upload_route),
+        )
         .route("/api/v1/update/now", post(update_now_route))
         .route("/api/v1/update/check", post(update_check_route))
         .route("/api/v1/sync/status", get(sync_status_route))

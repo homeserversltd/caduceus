@@ -607,6 +607,13 @@ async fn homeserver_staff_intent_route_executes_upload_bytes() {
     let _guard = use_fixture("tests/fixtures/homeserver");
     let root = std::env::temp_dir().join(format!("caduceus-http-upload-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+    std::fs::copy(
+        "tests/fixtures/homeserver/etc/caduceus/profile.yaml",
+        root.join("etc/caduceus/profile.yaml"),
+    )
+    .unwrap();
+    std::env::set_var("CADUCEUS_ROOT", &root);
     std::env::set_var("CADUCEUS_FILE_INGRESS_ROOT", &root);
     let app = serve::router();
     let response = app
@@ -628,7 +635,19 @@ async fn homeserver_staff_intent_route_executes_upload_bytes() {
     assert_eq!(json["schema"], "caduceus.staff.file_ingress.v1");
     assert_eq!(json["mutationPerformed"], true);
     assert_eq!(json["execution"], "native-rust-file-ingress");
+    assert_eq!(json["hyalos"]["event"]["kind"], "upload");
+    assert_eq!(json["uploadProjection"]["authority"], "derived-view");
     assert_eq!(std::fs::read(root.join("proof.txt")).unwrap(), b"hello");
+    assert!(
+        std::fs::read_to_string(root.join("var/log/hyalos/channel.jsonl"))
+            .unwrap()
+            .contains("proof.txt")
+    );
+    assert!(
+        std::fs::read_to_string(root.join("var/log/hyalos/projections/upload.log"))
+            .unwrap()
+            .contains("proof.txt")
+    );
     std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
     let _ = std::fs::remove_dir_all(root);
 }
@@ -799,4 +818,68 @@ async fn homeserver_dhcp_http_status_and_staff_intent_execute_python_actuator() 
     assert_eq!(json["classification"], "network-control");
     assert_eq!(json["mutationPerformed"], true);
     assert_eq!(json["execution"], "caduceus_staff.network.dhcp");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn hyalos_http_reflect_tail_and_projection_are_profile_gated() {
+    let _guard = use_fixture("tests/fixtures/homeserver");
+    let root = std::env::temp_dir().join(format!("caduceus-hyalos-http-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+    std::fs::copy(
+        "tests/fixtures/homeserver/etc/caduceus/profile.yaml",
+        root.join("etc/caduceus/profile.yaml"),
+    )
+    .unwrap();
+    std::env::set_var("CADUCEUS_ROOT", &root);
+    let app = serve::router();
+    let reflected = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/hyalos/reflect")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"organ":"file-ingress","kind":"upload","message":"http-proof","payload":{"projection":"upload","password":"hidden"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reflected.status(), StatusCode::OK);
+    let reflected = body_json(reflected).await;
+    assert_eq!(reflected["event"]["schema"], "hyalos.channel.event.v1");
+    assert_eq!(
+        reflected["event"]["payload_redacted"]["password"],
+        "[REDACTED]"
+    );
+
+    let tail = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/hyalos/tail?count=1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(tail.status(), StatusCode::OK);
+    assert_eq!(body_json(tail).await["count"], 1);
+
+    let projection = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/hyalos/project/upload")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(projection.status(), StatusCode::OK);
+    assert_eq!(body_json(projection).await["authority"], "derived-view");
+    std::env::remove_var("CADUCEUS_ROOT");
+    let _ = std::fs::remove_dir_all(root);
 }

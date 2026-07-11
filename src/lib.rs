@@ -3,8 +3,8 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    cert, dhcp, gui, health, help, homeserver_sbin, identity, legacy_sbin, local_ai, network,
-    pjlink, profile, profile_module, receipts, serve, staff, sync, update,
+    cert, dhcp, gui, health, help, homeserver_sbin, hyalos, identity, legacy_sbin, local_ai,
+    network, pjlink, profile, profile_module, receipts, serve, staff, sync, update,
 };
 
 pub fn run<I, S>(args: I) -> i32
@@ -132,6 +132,7 @@ where
             })
         }
         [domain] if domain == "serve" => serve::run(),
+        [domain, rest @ ..] if domain == "hyalos" => hyalos::command(rest),
         [domain, verb] if domain == "legacy-sbin" && verb == "list" => legacy_sbin::list(),
         [domain, verb] if domain == "homeserver-sbin" && verb == "list" => homeserver_sbin::list(),
         [domain, verb] if domain == "network" && verb == "status" => network::status(),
@@ -381,6 +382,10 @@ fn print_help() {
     println!("  caduceus staff status");
     println!("  caduceus staff actuators");
     println!("  caduceus staff intent <method> <route>");
+    println!("  caduceus hyalos reflect <organ> <kind> <message> [--payload JSON]");
+    println!("  caduceus hyalos append <event-json>");
+    println!("  caduceus hyalos tail [count]");
+    println!("  caduceus hyalos project upload");
     println!("  caduceus sync status");
     println!("  caduceus sync now [--no-restart] [--dry-run]");
     println!("  caduceus update status");
