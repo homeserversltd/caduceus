@@ -24,6 +24,30 @@
       "pythonModule": "caduceus_staff.network.dhcp"
     },
     {
+      "id": "file-ingress",
+      "family": "upload",
+      "actuatorClass": "native-rust",
+      "sourceScripts": [],
+      "launcher": "/usr/local/bin/caduceus",
+      "libraryEntry": "src/bands/staff.rs#execute_file_ingress",
+      "dependencies": [],
+      "receiptFamily": "caduceus.staff.file_ingress.v1",
+      "conversionStatus": "native-rust-admitted",
+      "notes": "Validated upload bytes land under the homeserver NAS root through Caduceus staff."
+    },
+    {
+      "id": "upload-force-permissions",
+      "family": "upload",
+      "actuatorClass": "native-rust",
+      "sourceScripts": [],
+      "launcher": "/usr/local/bin/caduceus",
+      "libraryEntry": "src/bands/staff.rs#execute_force_permissions",
+      "dependencies": [],
+      "receiptFamily": "caduceus.staff.force_permissions.v1",
+      "conversionStatus": "native-rust-admitted",
+      "notes": "Applies the admitted directory mode to a validated NAS directory."
+    },
+    {
       "id": "backblaze-b2-recover",
       "family": "backup",
       "actuatorClass": "staff-python",
