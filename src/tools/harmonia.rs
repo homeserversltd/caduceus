@@ -50,6 +50,12 @@ pub fn build_argv(route: &Value, rest: &[String]) -> Result<Vec<String>, String>
     Ok(argv)
 }
 
+fn privileged_command(bin: &str, run_args: &[String]) -> Command {
+    let mut command = Command::new("sudo");
+    command.arg("-n").arg(bin).args(run_args);
+    command
+}
+
 pub fn invoke_body_to_json(route_key: &str, code: i32, body: &str) -> Value {
     let mut fields = serde_json::Map::new();
     for line in body.lines() {
@@ -99,33 +105,14 @@ pub fn invoke(route_key: &str, rest: &[String], dry_run: bool) -> (i32, String) 
         }
     };
     let (bin, run_args) = argv.split_first().unwrap();
-    let output = if route_key == "update_now" {
-        let unit = format!("caduceus-harmonia-update-{}", std::process::id());
-        let mut command = Command::new("systemd-run");
-        command
-            .arg("--quiet")
-            .arg("--collect")
-            .arg("--setenv=HOME=/root")
-            .arg("--setenv=GIT_CONFIG_GLOBAL=/root/.gitconfig")
-            .arg("--unit")
-            .arg(unit)
-            .arg(bin)
-            .args(run_args);
-        command.output()
-    } else {
-        Command::new("sudo")
-            .arg("-n")
-            .arg(bin)
-            .args(run_args)
-            .output()
-    };
+    let output = privileged_command(bin, run_args).output();
     match output {
         Ok(result) => {
             let ok = result.status.success();
             let body = format!(
                 "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute={route_key}\nok={ok}\nexit_code={}\ncommand={}\nfirst_missing_signal={}\n",
                 result.status.code().unwrap_or(-1),
-                if route_key == "update_now" { "systemd-run" } else { bin },
+                bin,
                 if ok { "none" } else { "caduceus-harmonia-command-failed" }
             );
             (if ok { 0 } else { 1 }, body)
@@ -155,5 +142,29 @@ mod tests {
         assert_eq!(argv[1], "run-profile");
         assert_eq!(argv[2], "/etc/harmonia/profiles/homeserver/index.json");
         assert_eq!(argv[3], "--apply");
+    }
+
+    #[test]
+    fn privileged_command_uses_noninteractive_sudo_and_preserves_harmonia_argv() {
+        let args = vec![
+            "homeserver-update".to_string(),
+            "/etc/harmonia/profiles/homeserver/index.json".to_string(),
+            "--apply".to_string(),
+        ];
+        let command = privileged_command("/usr/local/bin/harmonia", &args);
+        assert_eq!(command.get_program(), "sudo");
+        assert_eq!(
+            command
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
+            vec![
+                "-n",
+                "/usr/local/bin/harmonia",
+                "homeserver-update",
+                "/etc/harmonia/profiles/homeserver/index.json",
+                "--apply",
+            ]
+        );
     }
 }
