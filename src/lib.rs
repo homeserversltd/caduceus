@@ -3,8 +3,8 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    cert, dhcp, gui, health, help, homeserver_sbin, hyalos, identity, legacy_sbin, local_ai,
-    network, pjlink, profile, profile_module, receipts, serve, staff, sync, update,
+    cert, config, dhcp, gui, health, help, homeserver_sbin, hyalos, identity, legacy_sbin,
+    local_ai, network, pjlink, profile, profile_module, receipts, serve, staff, sync, update,
 };
 
 pub fn run<I, S>(args: I) -> i32
@@ -130,6 +130,27 @@ where
                     }
                 }
             })
+        }
+        [domain, verb] if domain == "config" && verb == "path" => {
+            config_command("config path", config::path_json)
+        }
+        [domain, verb] if domain == "config" && verb == "show" => {
+            config_command("config show", config::show_json)
+        }
+        [domain, verb, key] if domain == "config" && verb == "get" => {
+            config_command("config get", || config::get_json(key))
+        }
+        [domain, verb, key, value, rest @ ..] if domain == "config" && verb == "set" => {
+            match require_capability("config set", key, rest) {
+                Ok(_) => config_print(config::set_json(key, parse_json_value(value))),
+                Err(code) => code,
+            }
+        }
+        [domain, verb, merge, rest @ ..] if domain == "config" && verb == "patch" => {
+            match require_capability("config patch", "household-config", rest) {
+                Ok(_) => config_print(config::patch_json(parse_json_value(merge))),
+                Err(code) => code,
+            }
         }
         [domain] if domain == "serve" => serve::run(),
         [domain, rest @ ..] if domain == "hyalos" => hyalos::command(rest),
@@ -298,6 +319,37 @@ fn capability_arg(rest: &[String]) -> Option<&str> {
     None
 }
 
+fn config_command<F: FnOnce() -> Result<serde_json::Value, String>>(command: &str, read: F) -> i32 {
+    match policy::allows_command(command) {
+        Ok(true) => config_print(read()),
+        Ok(false) => {
+            eprintln!("caduceus-public-action-not-allowed");
+            2
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            2
+        }
+    }
+}
+
+fn config_print(result: Result<serde_json::Value, String>) -> i32 {
+    match result {
+        Ok(value) => {
+            println!("{value}");
+            0
+        }
+        Err(err) => {
+            eprintln!("{err}");
+            1
+        }
+    }
+}
+
+fn parse_json_value(text: &str) -> serde_json::Value {
+    serde_json::from_str(text).unwrap_or_else(|_| serde_json::Value::String(text.to_string()))
+}
+
 fn cert_command<F: FnOnce() -> i32>(command: &str, run: F) -> i32 {
     match policy::allows_command(command) {
         Ok(true) => run(),
@@ -397,5 +449,10 @@ fn print_help() {
     println!("  caduceus local-ai runtime update [--dry-run]");
     println!("  caduceus profile module toggle <module-id> <on|off>");
     println!("  caduceus receipts latest");
+    println!("  caduceus config path");
+    println!("  caduceus config show");
+    println!("  caduceus config get <dotted.path>");
+    println!("  caduceus config set <dotted.path> <json-value>");
+    println!("  caduceus config patch <merge-json>");
     println!("  caduceus serve");
 }

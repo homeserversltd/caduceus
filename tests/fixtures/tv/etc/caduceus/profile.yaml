@@ -24,6 +24,11 @@ commands:
 - staff intent
 - cert trust-install
 - cert status
+- config path
+- config show
+- config get
+- config set
+- config patch
 services:
   update:
     timer: harmonia-tv.timer

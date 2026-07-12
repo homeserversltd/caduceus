@@ -2,6 +2,7 @@
   "schema": "caduceus.bands.v1",
   "children": [
     "cert",
+    "config",
     "health",
     "homeserver-sbin",
     "hyalos",

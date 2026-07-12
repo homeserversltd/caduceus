@@ -1,4 +1,5 @@
 pub mod cert;
+pub mod config;
 pub mod dhcp;
 pub mod gui;
 pub mod health;

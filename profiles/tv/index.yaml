@@ -18,6 +18,11 @@ commands:
 - staff intent
 - cert trust-install
 - cert status
+- config path
+- config show
+- config get
+- config set
+- config patch
 pjlink:
   catalog_path: var/lib/caduceus/pjlink-known-products.jsonl
   devices:

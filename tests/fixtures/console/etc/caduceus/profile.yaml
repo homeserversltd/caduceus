@@ -33,6 +33,11 @@ commands:
 - staff intent
 - cert trust-install
 - cert status
+- config path
+- config show
+- config get
+- config set
+- config patch
 services:
   ledger: /var/lib/harmonia/receipts/homeconsole-ledger.jsonl
   update:

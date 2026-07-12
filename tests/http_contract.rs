@@ -815,6 +815,273 @@ async fn homeserver_dhcp_http_status_and_staff_intent_execute_python_actuator() 
     assert_eq!(json["execution"], "caduceus_staff.network.dhcp");
 }
 
+fn config_temp_root(tag: &str) -> std::path::PathBuf {
+    let root =
+        std::env::temp_dir().join(format!("caduceus-http-config-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+    std::fs::create_dir_all(root.join("etc/tv")).unwrap();
+    std::fs::copy(
+        "tests/fixtures/tv/etc/caduceus/profile.yaml",
+        root.join("etc/caduceus/profile.yaml"),
+    )
+    .unwrap();
+    std::fs::copy(
+        "tests/fixtures/tv/etc/tv/config.json",
+        root.join("etc/tv/config.json"),
+    )
+    .unwrap();
+    root
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn config_path_show_get_routes_resolve_tv_profile() {
+    let _guard = use_fixture("tests/fixtures/tv");
+    let app = serve::router();
+
+    let path = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/config/path")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(path.status(), StatusCode::OK);
+    let path = body_json(path).await;
+    assert_eq!(path["schema"], "caduceus.household-config.path.v1");
+    assert_eq!(path["profile"], "tv");
+    assert_eq!(path["path"], "/etc/tv/config.json");
+    assert!(!path["path"].as_str().unwrap().contains("tests/fixtures"));
+
+    let show = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/config/show")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(show.status(), StatusCode::OK);
+    let show = body_json(show).await;
+    assert_eq!(show["schema"], "caduceus.household-config.show.v1");
+    assert_eq!(show["document"]["schema"], "household.config.v1");
+    assert_eq!(show["path"], "/etc/tv/config.json");
+
+    let get = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/config/get?path=tabs.starred")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get.status(), StatusCode::OK);
+    let get = body_json(get).await;
+    assert_eq!(get["schema"], "caduceus.household-config.get.v1");
+    assert_eq!(get["value"][0], "jellyfin");
+    assert_eq!(get["value"][1], "photos");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn config_set_route_mutates_isolated_root_with_valid_capability() {
+    let root = config_temp_root("set");
+    let _guard = use_fixture(root.to_str().unwrap());
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/config/set")
+                .header(
+                    "x-caduceus-capability",
+                    capability("config set", "display.theme", 60),
+                )
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"path":"display.theme","value":"light"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let receipt = body_json(response).await;
+    assert_eq!(receipt["schema"], "caduceus.household-config.mutation.v1");
+    assert_eq!(receipt["ok"], true);
+    assert_eq!(receipt["op"], "set");
+    assert_eq!(receipt["changed"], true);
+    assert_eq!(receipt["path"], "/etc/tv/config.json");
+    assert_eq!(receipt["keysTouched"][0], "display.theme");
+
+    let document: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
+            .unwrap();
+    assert_eq!(document["display"]["theme"], "light");
+    assert_eq!(document["tabs"]["starred"][0], "jellyfin");
+
+    let backups: Vec<_> = std::fs::read_dir(root.join("var/lib/caduceus/backups/household-config"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(backups.len(), 1);
+    assert!(std::fs::read_to_string(&backups[0])
+        .unwrap()
+        .contains("\"dark\""));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn config_patch_route_deep_merge_preserves_starred() {
+    let root = config_temp_root("patch");
+    let _guard = use_fixture(root.to_str().unwrap());
+    let app = serve::router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/config/patch")
+                .header(
+                    "x-caduceus-capability",
+                    capability("config patch", "household-config", 60),
+                )
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"merge":{"tabs":{"order":["media","home"]},"display":{"sleepMinutes":15}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let receipt = body_json(response).await;
+    assert_eq!(receipt["schema"], "caduceus.household-config.mutation.v1");
+    assert_eq!(receipt["op"], "patch");
+    assert_eq!(receipt["changed"], true);
+
+    let document: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
+            .unwrap();
+    assert_eq!(document["tabs"]["starred"][0], "jellyfin");
+    assert_eq!(document["tabs"]["starred"][1], "photos");
+    assert_eq!(document["tabs"]["order"][0], "media");
+    assert_eq!(document["display"]["sleepMinutes"], 15);
+    assert_eq!(document["display"]["theme"], "dark");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn config_mutation_routes_refuse_without_capability() {
+    let root = config_temp_root("refuse");
+    let _guard = use_fixture(root.to_str().unwrap());
+    let original = std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap();
+    let app = serve::router();
+
+    let set = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/config/set")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"path":"display.theme","value":"light"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(set.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(set).await["firstMissingSignal"],
+        "caduceus-capability-unsigned"
+    );
+
+    let patch = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/config/patch")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"merge":{"display":{"theme":"light"}}}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(patch.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(patch).await["firstMissingSignal"],
+        "caduceus-capability-unsigned"
+    );
+
+    assert_eq!(
+        std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap(),
+        original
+    );
+    assert!(!root.join("var/lib/caduceus/backups").exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn config_routes_refuse_path_injection_without_mutation() {
+    let root = config_temp_root("inject");
+    let _guard = use_fixture(root.to_str().unwrap());
+    let original = std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap();
+    let app = serve::router();
+
+    let get = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/config/get?path=../../etc/passwd")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        body_json(get).await["firstMissingSignal"],
+        "caduceus-household-config-path-invalid"
+    );
+
+    for hostile in ["../../etc/hostile", "/etc/hostile", "tabs..starred"] {
+        let set = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/config/set")
+                    .header(
+                        "x-caduceus-capability",
+                        capability("config set", hostile, 60),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(r#"{{"path":"{hostile}","value":"x"}}"#)))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            set.status(),
+            StatusCode::BAD_REQUEST,
+            "{hostile} was not refused"
+        );
+        assert_eq!(
+            body_json(set).await["firstMissingSignal"],
+            "caduceus-household-config-path-invalid"
+        );
+    }
+
+    assert_eq!(
+        std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap(),
+        original
+    );
+    assert!(!root.join("var/lib/caduceus/backups").exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn hyalos_http_reflect_tail_filters_and_no_projection_route() {
     let _guard = use_fixture("tests/fixtures/homeserver");
