@@ -1,0 +1,8 @@
+{
+  "schema": "caduceus.staff.band.v1",
+  "id": "household-capability",
+  "face": "index.py",
+  "children": [
+    "skeleton-sha"
+  ]
+}
