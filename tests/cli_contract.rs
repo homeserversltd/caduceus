@@ -620,3 +620,297 @@ fn hyalos_source_has_no_projection_upload_paths() {
     assert!(!src.contains("project_upload_json"));
     assert!(!src.contains("upload.log"));
 }
+
+fn config_temp_root(tag: &str) -> std::path::PathBuf {
+    let root = std::env::temp_dir().join(format!("caduceus-config-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+    std::fs::create_dir_all(root.join("etc/tv")).unwrap();
+    std::fs::copy(
+        "tests/fixtures/tv/etc/caduceus/profile.yaml",
+        root.join("etc/caduceus/profile.yaml"),
+    )
+    .unwrap();
+    std::fs::copy(
+        "tests/fixtures/tv/etc/tv/config.json",
+        root.join("etc/tv/config.json"),
+    )
+    .unwrap();
+    root
+}
+
+#[test]
+fn config_path_show_get_resolve_each_profile() {
+    for (profile, device_path) in [
+        ("tv", "/etc/tv/config.json"),
+        ("console", "/etc/console/config.json"),
+        ("homeserver", "/etc/homeserver/config.json"),
+    ] {
+        let fixture = format!("tests/fixtures/{profile}");
+        let path = Command::new(bin())
+            .env("CADUCEUS_ROOT", &fixture)
+            .args(["config", "path"])
+            .output()
+            .unwrap();
+        assert!(path.status.success());
+        let text = String::from_utf8(path.stdout).unwrap();
+        assert!(text.contains("caduceus.household-config.path.v1"));
+        assert!(text.contains(&format!("\"profile\":\"{profile}\"")));
+        assert!(text.contains(&format!("\"path\":\"{device_path}\"")));
+        assert!(!text.contains("tests/fixtures"));
+
+        let show = Command::new(bin())
+            .env("CADUCEUS_ROOT", &fixture)
+            .args(["config", "show"])
+            .output()
+            .unwrap();
+        assert!(show.status.success());
+        let text = String::from_utf8(show.stdout).unwrap();
+        assert!(text.contains("caduceus.household-config.show.v1"));
+        assert!(text.contains("household.config.v1"));
+        assert!(!text.contains("tests/fixtures"));
+
+        let get = Command::new(bin())
+            .env("CADUCEUS_ROOT", &fixture)
+            .args(["config", "get", "tabs.starred"])
+            .output()
+            .unwrap();
+        assert!(get.status.success());
+        let json: serde_json::Value = serde_json::from_slice(&get.stdout).unwrap();
+        assert_eq!(json["schema"], "caduceus.household-config.get.v1");
+        assert!(json["value"].as_array().unwrap().len() >= 2);
+    }
+}
+
+#[test]
+fn config_set_roundtrip_writes_backup_and_public_safe_receipt() {
+    let root = config_temp_root("cli-set");
+    let set = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args([
+            "config",
+            "set",
+            "display.theme",
+            "\"light\"",
+            "--capability",
+            &capability("config set", "display.theme", 60),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        set.status.success(),
+        "{}",
+        String::from_utf8_lossy(&set.stderr)
+    );
+    let receipt: serde_json::Value = serde_json::from_slice(&set.stdout).unwrap();
+    assert_eq!(receipt["schema"], "caduceus.household-config.mutation.v1");
+    assert_eq!(receipt["ok"], true);
+    assert_eq!(receipt["op"], "set");
+    assert_eq!(receipt["changed"], true);
+    assert_eq!(receipt["path"], "/etc/tv/config.json");
+    assert_eq!(receipt["keysTouched"][0], "display.theme");
+
+    let document: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
+            .unwrap();
+    assert_eq!(document["display"]["theme"], "light");
+    assert_eq!(document["tabs"]["starred"][0], "jellyfin");
+
+    let backups: Vec<_> = std::fs::read_dir(root.join("var/lib/caduceus/backups/household-config"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(backups.len(), 1);
+    let backup_text = std::fs::read_to_string(&backups[0]).unwrap();
+    assert!(backup_text.contains("\"dark\""));
+
+    let receipts: Vec<_> = std::fs::read_dir(root.join("var/lib/caduceus/receipts"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(receipts.len(), 1);
+    let receipt_text = std::fs::read_to_string(&receipts[0]).unwrap();
+    assert!(receipt_text.contains("caduceus.household-config.mutation.v1"));
+    assert!(!receipt_text.contains(root.to_str().unwrap()));
+    assert!(!receipt_text.contains("Fulcrum"));
+
+    let get = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args(["config", "get", "display.theme"])
+        .output()
+        .unwrap();
+    assert!(get.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&get.stdout).unwrap();
+    assert_eq!(json["value"], "light");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn config_patch_deep_merge_preserves_starred_unless_explicitly_patched() {
+    let root = config_temp_root("cli-patch");
+    let patch = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args([
+            "config",
+            "patch",
+            r#"{"tabs":{"order":["media","home"]},"display":{"sleepMinutes":15}}"#,
+            "--capability",
+            &capability("config patch", "household-config", 60),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        patch.status.success(),
+        "{}",
+        String::from_utf8_lossy(&patch.stderr)
+    );
+    let receipt: serde_json::Value = serde_json::from_slice(&patch.stdout).unwrap();
+    assert_eq!(receipt["schema"], "caduceus.household-config.mutation.v1");
+    assert_eq!(receipt["op"], "patch");
+    assert_eq!(receipt["changed"], true);
+
+    let document: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
+            .unwrap();
+    assert_eq!(document["tabs"]["starred"][0], "jellyfin");
+    assert_eq!(document["tabs"]["starred"][1], "photos");
+    assert_eq!(document["tabs"]["order"][0], "media");
+    assert_eq!(document["display"]["sleepMinutes"], 15);
+    assert_eq!(document["display"]["theme"], "dark");
+
+    let explicit = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args([
+            "config",
+            "patch",
+            r#"{"tabs":{"starred":["photos"]}}"#,
+            "--capability",
+            &capability("config patch", "household-config", 60),
+        ])
+        .output()
+        .unwrap();
+    assert!(explicit.status.success());
+    let document: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
+            .unwrap();
+    assert_eq!(document["tabs"]["starred"], serde_json::json!(["photos"]));
+    assert_eq!(document["tabs"]["order"][0], "media");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn config_unknown_profile_is_refused() {
+    let root = std::env::temp_dir().join(format!("caduceus-config-unknown-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+    std::fs::write(
+        root.join("etc/caduceus/profile.yaml"),
+        "schema: caduceus.profile.v1\nprofile: toaster\ncommands:\n- config path\n- config show\n",
+    )
+    .unwrap();
+    let out = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args(["config", "path"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8(out.stderr)
+        .unwrap()
+        .contains("caduceus-household-config-profile-unknown"));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn config_path_injection_is_refused_without_mutation() {
+    let get = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/tv")
+        .args(["config", "get", "../../etc/passwd"])
+        .output()
+        .unwrap();
+    assert!(!get.status.success());
+    assert!(String::from_utf8(get.stderr)
+        .unwrap()
+        .contains("caduceus-household-config-path-invalid"));
+
+    let root = config_temp_root("cli-inject");
+    let original = std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap();
+    for hostile in ["../../etc/hostile", "/etc/hostile", "tabs..starred"] {
+        let set = Command::new(bin())
+            .env("CADUCEUS_ROOT", &root)
+            .args([
+                "config",
+                "set",
+                hostile,
+                "\"x\"",
+                "--capability",
+                &capability("config set", hostile, 60),
+            ])
+            .output()
+            .unwrap();
+        assert!(!set.status.success(), "{hostile} was not refused");
+        assert!(String::from_utf8(set.stderr)
+            .unwrap()
+            .contains("caduceus-household-config-path-invalid"));
+    }
+    assert_eq!(
+        std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap(),
+        original
+    );
+    assert!(!root.join("var/lib/caduceus/backups").exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn config_mutation_refuses_missing_and_mismatched_tokens() {
+    let root = config_temp_root("cli-token");
+    let original = std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap();
+
+    let missing = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args(["config", "set", "display.theme", "\"light\""])
+        .output()
+        .unwrap();
+    assert!(!missing.status.success());
+    assert!(String::from_utf8(missing.stderr)
+        .unwrap()
+        .contains("caduceus-capability-unsigned"));
+
+    let scope = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args([
+            "config",
+            "set",
+            "display.theme",
+            "\"light\"",
+            "--capability",
+            &capability("config set", "tabs.starred", 60),
+        ])
+        .output()
+        .unwrap();
+    assert!(!scope.status.success());
+    assert!(String::from_utf8(scope.stderr)
+        .unwrap()
+        .contains("caduceus-capability-scope"));
+
+    let wrong_action = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args([
+            "config",
+            "patch",
+            r#"{"display":{"theme":"light"}}"#,
+            "--capability",
+            &capability("config set", "household-config", 60),
+        ])
+        .output()
+        .unwrap();
+    assert!(!wrong_action.status.success());
+    assert!(String::from_utf8(wrong_action.stderr)
+        .unwrap()
+        .contains("caduceus-capability-scope"));
+
+    assert_eq!(
+        std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap(),
+        original
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

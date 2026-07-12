@@ -1,0 +1,12 @@
+{
+  "schema": "household.config.v1",
+  "profile": "homeserver",
+  "display": {
+    "theme": "light",
+    "sleepMinutes": 0
+  },
+  "tabs": {
+    "starred": ["dashboard", "files"],
+    "order": ["home", "services", "network"]
+  }
+}

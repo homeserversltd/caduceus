@@ -28,3 +28,8 @@ commands:
 - cert bundle create
 - cert apply
 - cert portal-admit
+- config path
+- config show
+- config get
+- config set
+- config patch

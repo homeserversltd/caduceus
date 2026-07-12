@@ -1,6 +1,6 @@
 use crate::bands::{
-    cert, dhcp, gui, health, homeserver_sbin, hyalos, identity, legacy_sbin, local_ai, network,
-    pjlink, profile, profile_module, receipts, staff, sync, update,
+    cert, config, dhcp, gui, health, homeserver_sbin, hyalos, identity, legacy_sbin, local_ai,
+    network, pjlink, profile, profile_module, receipts, staff, sync, update,
 };
 use crate::tools::policy;
 use axum::{
@@ -415,6 +415,125 @@ async fn staff_intent_route(
             }),
         )),
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConfigSetBody {
+    path: String,
+    value: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConfigPatchBody {
+    merge: Value,
+}
+
+fn config_api_error(command: &str, err: String) -> (StatusCode, Json<ApiErrorBody>) {
+    let status = match err.as_str() {
+        "caduceus-household-config-path-invalid"
+        | "caduceus-household-config-patch-object-required" => StatusCode::BAD_REQUEST,
+        "caduceus-household-config-key-missing" => StatusCode::NOT_FOUND,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    };
+    (
+        status,
+        Json(ApiErrorBody {
+            schema: "caduceus.api.error.v1",
+            ok: false,
+            command: command.to_string(),
+            first_missing_signal: err,
+        }),
+    )
+}
+
+fn config_read(
+    command: &str,
+    read: impl FnOnce() -> Result<Value, String>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command(command) {
+        Ok(true) => read()
+            .map(Json)
+            .map_err(|err| config_api_error(command, err)),
+        Ok(false) => Err(api_error(command)),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: command.to_string(),
+                first_missing_signal: "caduceus-profile-missing".to_string(),
+            }),
+        )),
+    }
+}
+
+fn config_mutation(
+    command: &str,
+    target: &str,
+    headers: &HeaderMap,
+    run: impl FnOnce() -> Result<Value, String>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command(command) {
+        Ok(true) => {
+            if let Err(reason) =
+                policy::capability_admits(command, target, capability_from_headers(headers))
+            {
+                return Err(api_error_signal(command, reason.signal()));
+            }
+            run()
+                .map(|value| (mutation_status(&value), Json(value)))
+                .map_err(|err| config_api_error(command, err))
+        }
+        Ok(false) => Err(api_error(command)),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: command.to_string(),
+                first_missing_signal: "caduceus-profile-missing".to_string(),
+            }),
+        )),
+    }
+}
+
+async fn config_path_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    config_read("config path", config::path_json)
+}
+
+async fn config_show_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    config_read("config show", config::show_json)
+}
+
+async fn config_get_route(
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    config_read("config get", || {
+        let path = query
+            .get("path")
+            .ok_or_else(|| "caduceus-household-config-path-invalid".to_string())?;
+        config::get_json(path)
+    })
+}
+
+async fn config_set_route(
+    headers: HeaderMap,
+    Json(body): Json<ConfigSetBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    config_mutation("config set", &body.path, &headers, || {
+        config::set_json(&body.path, body.value)
+    })
+}
+
+async fn config_patch_route(
+    headers: HeaderMap,
+    Json(body): Json<ConfigPatchBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    config_mutation("config patch", "household-config", &headers, || {
+        config::patch_json(body.merge)
+    })
 }
 
 async fn update_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -931,6 +1050,11 @@ pub fn router() -> Router {
             "/api/v1/homeserver-sbin/show",
             get(homeserver_sbin_show_route),
         )
+        .route("/api/v1/config/path", get(config_path_route))
+        .route("/api/v1/config/show", get(config_show_route))
+        .route("/api/v1/config/get", get(config_get_route))
+        .route("/api/v1/config/set", post(config_set_route))
+        .route("/api/v1/config/patch", post(config_patch_route))
         .route("/api/v1/update/status", get(update_status_route))
         .route("/api/v1/network/status", get(network_status_route))
         .route("/api/v1/network/dhcp/status", get(dhcp_status_route))
