@@ -10,6 +10,7 @@ these modules directly.
 |------|------|
 | `caduceus_staff/house_ca.py` | Hestia Anchor household TLS primitives |
 | `caduceus_staff/network/dhcp.py` | Kea DHCP readback and control |
+| `caduceus_staff/household_capability/` | Household capability signing and digest-only identity binding |
 | `caduceus-house-ca` | Launcher: `python -m caduceus_staff.house_ca` |
 | `profile.json` | Actuator catalog (id, launcher, receipt family, notes) |
 

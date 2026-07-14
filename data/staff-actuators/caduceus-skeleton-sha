@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+[ "$#" -eq 0 ] || { echo "caduceus-skeleton-sha-accepts-no-arguments" >&2; exit 64; }
+/usr/bin/sha256sum /root/key/skeleton.key | /usr/bin/cut -d ' ' -f 1
