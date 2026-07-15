@@ -18,6 +18,8 @@ commands:
 - network dhcp reload
 - network dhcp reservation add
 - network dhcp reservation remove
+- network dns status
+- network dns intent
 - homeserver-sbin list
 - homeserver-sbin show
 - staff status

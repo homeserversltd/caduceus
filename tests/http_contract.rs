@@ -5,8 +5,13 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use caduceus::bands::serve;
 use ed25519_dalek::{Signer, SigningKey};
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    env, fs,
+    os::unix::fs::PermissionsExt,
+    path::PathBuf,
+    sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tower::ServiceExt;
 
 fn capability(action: &str, target: &str, seconds_from_now: i64) -> String {
@@ -56,6 +61,58 @@ fn use_fixture(root: &str) -> std::sync::MutexGuard<'static, ()> {
     let guard = FIXTURE_LOCK.lock().unwrap();
     std::env::set_var("CADUCEUS_ROOT", root);
     guard
+}
+
+struct DnsCommandFixture {
+    root: PathBuf,
+    prior_command: Option<std::ffi::OsString>,
+}
+
+impl DnsCommandFixture {
+    fn new() -> Self {
+        let root = env::temp_dir().join(format!(
+            "caduceus-dns-http-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let log = root.join("launcher-args");
+        let launcher = root.join("fixture-launcher");
+        fs::write(
+            &launcher,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" > {}\nprintf '{{\"schema\":\"caduceus.network.dns.intent.v1\",\"ok\":true,\"mutationPerformed\":false,\"receipt\":\"fixture-actuator-receipt\"}}\\n'\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&launcher).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&launcher, permissions).unwrap();
+        let prior_command = env::var_os("CADUCEUS_DNS_CMD");
+        env::set_var("CADUCEUS_DNS_CMD", &launcher);
+        Self {
+            root,
+            prior_command,
+        }
+    }
+
+    fn launcher_args(&self) -> String {
+        fs::read_to_string(self.root.join("launcher-args")).unwrap()
+    }
+}
+
+impl Drop for DnsCommandFixture {
+    fn drop(&mut self) {
+        match &self.prior_command {
+            Some(command) => env::set_var("CADUCEUS_DNS_CMD", command),
+            None => env::remove_var("CADUCEUS_DNS_CMD"),
+        }
+        let _ = fs::remove_dir_all(&self.root);
+    }
 }
 
 async fn body_json(response: axum::response::Response) -> serde_json::Value {
@@ -420,6 +477,76 @@ async fn console_network_status_route_is_profile_allowed() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn network_dns_mutation_requires_scoped_unexpired_capability() {
+    let _guard = use_fixture("tests/fixtures/homeserver");
+    let request = |token: Option<String>| {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri("/api/v1/network/dns")
+            .header("content-type", "application/json");
+        if let Some(token) = token {
+            builder = builder.header("x-caduceus-capability", token);
+        }
+        builder
+            .body(Body::from(
+                r#"{"dropIn":"server: local-zone: \\\"home.arpa. transparent\\\""}"#,
+            ))
+            .unwrap()
+    };
+
+    for (token, signal) in [
+        (None, "caduceus-capability-unsigned".to_string()),
+        (
+            Some(capability("wrong action", "/api/dns/unbound/drop-in", 60)),
+            "caduceus-capability-scope".to_string(),
+        ),
+        (
+            Some(capability("network dns", "/api/dns/unbound/drop-in", -1)),
+            "caduceus-capability-expired".to_string(),
+        ),
+    ] {
+        let response = serve::router().oneshot(request(token)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let json = body_json(response).await;
+        assert_eq!(json["firstMissingSignal"], signal);
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn network_dns_mutation_invokes_staff_launcher_with_valid_scoped_capability() {
+    let _guard = use_fixture("tests/fixtures/homeserver");
+    let fixture = DnsCommandFixture::new();
+    let payload = r#"{"dropIn":"server: local-zone: \"home.arpa.\" transparent","dryRun":true}"#;
+    let response = serve::router()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/network/dns")
+                .header(
+                    "x-caduceus-capability",
+                    capability("network dns", "/api/dns/unbound/drop-in", 60),
+                )
+                .header("content-type", "application/json")
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let receipt = body_json(response).await;
+    assert_eq!(receipt["schema"], "caduceus.network.dns.intent.v1");
+    assert_eq!(receipt["receipt"], "fixture-actuator-receipt");
+    assert!(receipt.get("dropIn").is_none());
+    assert!(!receipt.to_string().contains("home.arpa."));
+
+    let launcher_args = fixture.launcher_args();
+    assert!(launcher_args.starts_with("intent POST /api/dns/unbound/drop-in --metadata-json "));
+    assert!(launcher_args.contains("\"dropIn\":\""));
+    assert!(launcher_args.contains("\"dryRun\":true"));
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn locked_profile_rejects_network_status() {
     let _guard = use_fixture("tests/fixtures/locked");
     let app = serve::router();
@@ -506,9 +633,10 @@ async fn homeserver_staff_actuators_route_is_profile_allowed() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.staff.actuators.v1");
-    assert_eq!(json["count"], 9);
+    assert_eq!(json["count"], 10);
     assert_eq!(json["actuators"][0]["id"], "network-dhcp");
-    assert_eq!(json["actuators"][1]["id"], "household-capability");
+    assert_eq!(json["actuators"][1]["id"], "network-dns");
+    assert_eq!(json["actuators"][2]["id"], "household-capability");
 }
 
 #[tokio::test(flavor = "current_thread")]

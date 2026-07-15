@@ -1,5 +1,5 @@
 use crate::bands::{
-    cert, config, dhcp, gui, health, homeserver_sbin, hyalos, identity, legacy_sbin, local_ai,
+    cert, config, dhcp, dns, gui, health, homeserver_sbin, hyalos, identity, legacy_sbin, local_ai,
     network, pjlink, profile, profile_module, receipts, staff, sync, update,
 };
 use crate::tools::{access, policy};
@@ -692,6 +692,45 @@ async fn dhcp_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBo
     gated_json("network dhcp status", dhcp::status_json).await
 }
 
+async fn network_dns_route(
+    headers: HeaderMap,
+    Json(metadata): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let command = "network dns";
+    let target = "/api/dns/unbound/drop-in";
+    match policy::allows_command(command) {
+        Ok(true) => {
+            if let Err(reason) =
+                capability_admits(command, target, capability_from_headers(&headers))
+            {
+                return Err(api_error_signal(command, &reason));
+            }
+            match dns::intent_json("POST", target, metadata) {
+                Ok(value) => Ok((mutation_status(&value), Json(value))),
+                Err(err) => Err((
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: command.to_string(),
+                        first_missing_signal: err,
+                    }),
+                )),
+            }
+        }
+        Ok(false) => Err(api_error(command)),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: command.to_string(),
+                first_missing_signal: "caduceus-profile-missing".to_string(),
+            }),
+        )),
+    }
+}
+
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct CertBody {
@@ -1212,6 +1251,7 @@ pub fn router() -> Router {
         .route("/api/v1/update/status", get(update_status_route))
         .route("/api/v1/network/status", get(network_status_route))
         .route("/api/v1/network/dhcp/status", get(dhcp_status_route))
+        .route("/api/v1/network/dns", post(network_dns_route))
         .route("/api/v1/cert/status", get(cert_status_route))
         .route("/api/v1/cert/issue-leaf", post(cert_issue_leaf_route))
         .route("/api/v1/cert/bundle", post(cert_bundle_route))

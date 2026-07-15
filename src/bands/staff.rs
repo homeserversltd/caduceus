@@ -3,7 +3,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::bands::dhcp;
+use crate::bands::{dhcp, dns};
 use crate::tools::{config, hyalos};
 
 const PROFILE: &str = include_str!("../../data/staff-actuators/profile.json");
@@ -158,6 +158,9 @@ pub fn intent_json(
     }
     if route.starts_with("/api/dhcp/") || route == "/api/dhcp" {
         return dhcp::intent_json(method, route, metadata.unwrap_or_else(|| json!({})));
+    }
+    if route.starts_with("/api/dns/") || route == "/api/dns" {
+        return dns::intent_json(method, route, metadata.unwrap_or_else(|| json!({})));
     }
     if route == "/api/files/upload"
         && method == "POST"

@@ -3,7 +3,7 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    cert, config, dhcp, gui, health, help, homeserver_sbin, hyalos, identity, legacy_sbin,
+    cert, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos, identity, legacy_sbin,
     local_ai, network, pjlink, profile, profile_module, receipts, serve, staff, sync, update,
 };
 
@@ -161,6 +161,18 @@ where
             if domain == "network" && object == "dhcp" && !rest.is_empty() =>
         {
             dhcp::command(rest)
+        }
+        [domain, object, rest @ ..]
+            if domain == "network" && object == "dns" && !rest.is_empty() =>
+        {
+            if rest.first().map(String::as_str) == Some("status") {
+                dns::command(rest)
+            } else {
+                match require_capability("network dns", "/api/dns/unbound/drop-in", rest) {
+                    Ok(filtered) => dns::command(&filtered),
+                    Err(code) => code,
+                }
+            }
         }
         [domain, verb] if domain == "pjlink" && verb == "devices" => pjlink::devices(),
         [domain, verb] if domain == "pjlink" && verb == "known-products" => {
@@ -424,6 +436,7 @@ fn print_help() {
     println!("  caduceus homeserver-sbin show <script-id>");
     println!("  caduceus network status");
     println!("  caduceus network dhcp <status|leases|reservations|reload|...>");
+    println!("  caduceus network dns <status|intent ...> [--capability TOKEN]");
     println!("  caduceus pjlink devices");
     println!("  caduceus pjlink scan <device-id> [--dry-run]");
     println!("  caduceus pjlink known-products");
