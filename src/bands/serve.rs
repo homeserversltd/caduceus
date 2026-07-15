@@ -2,10 +2,12 @@ use crate::bands::{
     cert, config, dhcp, gui, health, homeserver_sbin, hyalos, identity, legacy_sbin, local_ai,
     network, pjlink, profile, profile_module, receipts, staff, sync, update,
 };
-use crate::tools::policy;
+use crate::tools::{access, policy};
 use axum::{
-    extract::{ConnectInfo, Query},
-    http::{HeaderMap, StatusCode},
+    extract::{ConnectInfo, OriginalUri, Query},
+    http::{HeaderMap, Request, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -165,6 +167,32 @@ fn capability_from_headers(headers: &HeaderMap) -> Option<&str> {
         })
 }
 
+/// The actual actuator boundary. Once staff has projected its current public
+/// key/epoch, static legacy verification is not a fallback: verification,
+/// profile/scope/expiry/epoch checks, and atomic one-use consumption occur
+/// before `run` is reached.
+fn capability_admits(command: &str, target: &str, token: Option<&str>) -> Result<(), String> {
+    let state = access_state();
+    if state
+        .has_projection()
+        .map_err(|reason| reason.signal().to_string())?
+    {
+        let profile_value =
+            policy::load_profile_value().map_err(|_| "caduceus-profile-missing".to_string())?;
+        let profile = profile_value
+            .get("profile")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "caduceus-profile-missing".to_string())?;
+        let token = token
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| access::AccessReason::Unsigned.signal().to_string())?;
+        return state
+            .verify_and_consume(token, command, target, profile)
+            .map_err(|reason| reason.signal().to_string());
+    }
+    policy::capability_admits(command, target, token).map_err(|reason| reason.signal().to_string())
+}
+
 async fn gated_mutation(
     command: &str,
     target: &str,
@@ -173,8 +201,8 @@ async fn gated_mutation(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
         Ok(true) => {
-            if let Err(reason) = policy::capability_admits(command, target, token) {
-                return Err(api_error_signal(command, reason.signal()));
+            if let Err(signal) = capability_admits(command, target, token) {
+                return Err(api_error_signal(command, &signal));
             }
             let value = run();
             Ok((mutation_status(&value), Json(value)))
@@ -198,6 +226,109 @@ async fn health_route() -> Json<LivenessBody> {
         ok: true,
         service: "caduceus",
     })
+}
+
+/// This handler is deliberately reached only after `reject_nonloopback_access`.
+/// The JSON extractor therefore cannot buffer or parse a non-loopback body.
+async fn access_route(
+    OriginalUri(uri): OriginalUri,
+    Json(mut body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    let expected = match uri.path() {
+        "/api/v1/access/sessions/mint" => "session.mint",
+        "/api/v1/access/sessions/prove" => "session.prove",
+        "/api/v1/access/sessions/refresh" => "session.refresh",
+        "/api/v1/access/sessions/clear" => "session.clear",
+        "/api/v1/access/capabilities/mint" => "capability.mint",
+        "/api/v1/access/pin/change" => "pin.change",
+        _ => {
+            return Err(api_error_signal(
+                "access",
+                "caduceus-access-request-invalid",
+            ))
+        }
+    };
+    body["op"] = Value::String(expected.to_string());
+    let operation = body.get("op").and_then(Value::as_str).unwrap_or("");
+    if operation.is_empty() {
+        return Err(api_error_signal(
+            "access",
+            "caduceus-access-request-invalid",
+        ));
+    }
+    let socket = env::var("CADUCEUS_ACCESS_SOCKET")
+        .unwrap_or_else(|_| "/run/caduceus/access.sock".to_string());
+    let started = std::time::Instant::now();
+    let result = access::staff_request(std::path::Path::new(&socket), &body)
+        .map_err(|reason| api_error_signal("access", reason.signal()))?;
+    if let (Some(key), Some(epoch)) = (
+        result.get("public_key").and_then(Value::as_str),
+        result.get("epoch").and_then(Value::as_u64),
+    ) {
+        // Only public verifier material crosses this boundary.
+        let _ = access_state().install_public_projection(key, epoch);
+    }
+    let signal = result.get("code").and_then(Value::as_str).unwrap_or("none");
+    let section = if operation.starts_with("session") {
+        "access.session"
+    } else if operation.starts_with("capability") {
+        "access.capability"
+    } else {
+        "access.pin-change"
+    };
+    let correlation_id = body
+        .get("correlation_id")
+        .and_then(Value::as_str)
+        .unwrap_or("generated");
+    let outcome = if result.get("ok").and_then(Value::as_bool) == Some(true) {
+        "ok"
+    } else {
+        "refused"
+    };
+    let audit = access::DiagnosticEvent::new(
+        section,
+        correlation_id,
+        operation,
+        outcome,
+        started,
+        signal,
+        access_state().clock.now(),
+    );
+    // This audit path has no configuration switch. In-memory diagnostics remain
+    // bounded/TTL; Hyalos is the durable redacted reflection.
+    access_state().record_diagnostic(audit.clone());
+    let _ =
+        hyalos::reflect_json(serde_json::to_value(audit).unwrap_or_else(|_| serde_json::json!({})));
+    Ok(Json(result))
+}
+
+fn access_state() -> &'static access::AccessState {
+    static STATE: std::sync::OnceLock<access::AccessState> = std::sync::OnceLock::new();
+    STATE.get_or_init(access::AccessState::default)
+}
+
+async fn reject_nonloopback_access(request: Request<axum::body::Body>, next: Next) -> Response {
+    let allowed = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .is_some_and(|ConnectInfo(peer)| peer.ip().is_loopback());
+    if !allowed {
+        let event = access::DiagnosticEvent::new(
+            "access.session",
+            "peer-refused",
+            "pre-body",
+            "refused",
+            std::time::Instant::now(),
+            "caduceus-access-non-loopback",
+            access_state().clock.now(),
+        );
+        access_state().record_diagnostic(event.clone());
+        let _ = hyalos::reflect_json(
+            serde_json::to_value(event).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        return api_error_signal("access", "caduceus-access-non-loopback").into_response();
+    }
+    next.run(request).await
 }
 
 async fn identity_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -378,12 +509,12 @@ async fn staff_intent_route(
                 && body.method == "POST"
                 && body.route == "/api/service/control";
             if !loopback_portal_service {
-                if let Err(reason) = policy::capability_admits(
+                if let Err(reason) = capability_admits(
                     "staff intent",
                     &body.route,
                     capability_from_headers(&headers),
                 ) {
-                    return Err(api_error_signal("staff intent", reason.signal()));
+                    return Err(api_error_signal("staff intent", &reason));
                 }
             }
             match staff::intent_json(
@@ -478,9 +609,9 @@ fn config_mutation(
     match policy::allows_command(command) {
         Ok(true) => {
             if let Err(reason) =
-                policy::capability_admits(command, target, capability_from_headers(headers))
+                capability_admits(command, target, capability_from_headers(headers))
             {
-                return Err(api_error_signal(command, reason.signal()));
+                return Err(api_error_signal(command, &reason));
             }
             run()
                 .map(|value| (mutation_status(&value), Json(value)))
@@ -654,12 +785,12 @@ async fn pjlink_scan_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("pjlink scan") {
         Ok(true) => {
-            if let Err(reason) = policy::capability_admits(
+            if let Err(reason) = capability_admits(
                 "pjlink scan",
                 &body.device_id,
                 capability_from_headers(&headers),
             ) {
-                return Err(api_error_signal("pjlink scan", reason.signal()));
+                return Err(api_error_signal("pjlink scan", &reason));
             }
             match pjlink::scan_product_json(&body.device_id, body.dry_run) {
                 Ok(value) => Ok((mutation_status(&value), Json(value))),
@@ -693,12 +824,12 @@ async fn pjlink_known_add_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("pjlink known add") {
         Ok(true) => {
-            if let Err(reason) = policy::capability_admits(
+            if let Err(reason) = capability_admits(
                 "pjlink known add",
                 &body.device_id,
                 capability_from_headers(&headers),
             ) {
-                return Err(api_error_signal("pjlink known add", reason.signal()));
+                return Err(api_error_signal("pjlink known add", &reason));
             }
             match pjlink::add_known_product_json(&body.device_id, body.dry_run, body.from_profile) {
                 Ok(value) => Ok((StatusCode::OK, Json(value))),
@@ -732,12 +863,12 @@ async fn pjlink_known_remove_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("pjlink known remove") {
         Ok(true) => {
-            if let Err(reason) = policy::capability_admits(
+            if let Err(reason) = capability_admits(
                 "pjlink known remove",
                 &body.id,
                 capability_from_headers(&headers),
             ) {
-                return Err(api_error_signal("pjlink known remove", reason.signal()));
+                return Err(api_error_signal("pjlink known remove", &reason));
             }
             match pjlink::remove_known_product_json(&body.id) {
                 Ok(value) => Ok((StatusCode::OK, Json(value))),
@@ -814,12 +945,12 @@ async fn pjlink_power_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("pjlink power set") {
         Ok(true) => {
-            if let Err(reason) = policy::capability_admits(
+            if let Err(reason) = capability_admits(
                 "pjlink power set",
                 &body.device_id,
                 capability_from_headers(&headers),
             ) {
-                return Err(api_error_signal("pjlink power set", reason.signal()));
+                return Err(api_error_signal("pjlink power set", &reason));
             }
             match pjlink::power_json(&body.device_id, &body.state, body.dry_run) {
                 Ok(value) => Ok((mutation_status(&value), Json(value))),
@@ -972,12 +1103,12 @@ async fn profile_module_toggle_route(
     let module_id = body.module_id;
     match policy::allows_command("profile module toggle") {
         Ok(true) => {
-            if let Err(reason) = policy::capability_admits(
+            if let Err(reason) = capability_admits(
                 "profile module toggle",
                 &module_id,
                 capability_from_headers(&headers),
             ) {
-                return Err(api_error_signal("profile module toggle", reason.signal()));
+                return Err(api_error_signal("profile module toggle", &reason));
             }
             match profile_module::toggle_json(&module_id, body.enabled) {
                 Ok(value) => Ok((StatusCode::OK, Json(value))),
@@ -1012,12 +1143,12 @@ async fn update_service_toggle_route(
     let state = body.state;
     match policy::allows_command("update service toggle") {
         Ok(true) => {
-            if let Err(reason) = policy::capability_admits(
+            if let Err(reason) = capability_admits(
                 "update service toggle",
                 &state,
                 capability_from_headers(&headers),
             ) {
-                return Err(api_error_signal("update service toggle", reason.signal()));
+                return Err(api_error_signal("update service toggle", &reason));
             }
             match update::service_toggle_json(&state, &[]) {
                 Ok(value) => Ok((StatusCode::OK, Json(value))),
@@ -1038,7 +1169,16 @@ async fn update_service_toggle_route(
 }
 
 pub fn router() -> Router {
+    let access_routes = Router::new()
+        .route("/api/v1/access/sessions/mint", post(access_route))
+        .route("/api/v1/access/sessions/prove", post(access_route))
+        .route("/api/v1/access/sessions/refresh", post(access_route))
+        .route("/api/v1/access/sessions/clear", post(access_route))
+        .route("/api/v1/access/capabilities/mint", post(access_route))
+        .route("/api/v1/access/pin/change", post(access_route))
+        .route_layer(middleware::from_fn(reject_nonloopback_access));
     Router::new()
+        .merge(access_routes)
         .route("/health", get(health_route))
         .route("/api/v1/identity", get(identity_route))
         .route("/api/v1/profile", get(profile_route))
