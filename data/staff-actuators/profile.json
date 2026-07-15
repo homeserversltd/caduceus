@@ -26,6 +26,19 @@
       "pythonModule": "caduceus_staff.network.dhcp"
     },
     {
+      "id": "network-dns",
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-network-dns",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/dns.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.dns.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Managed Unbound drop-in DNS intent delegates to the typed staff Python actuator; Rust performs no live DNS/UFW work.",
+      "pythonModule": "caduceus_staff.network.dns"
+    },
+    {
       "id": "household-capability",
       "family": "household",
       "actuatorClass": "staff-python",

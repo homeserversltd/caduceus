@@ -420,6 +420,42 @@ async fn console_network_status_route_is_profile_allowed() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn network_dns_mutation_requires_scoped_unexpired_capability() {
+    let _guard = use_fixture("tests/fixtures/homeserver");
+    let request = |token: Option<String>| {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri("/api/v1/network/dns")
+            .header("content-type", "application/json");
+        if let Some(token) = token {
+            builder = builder.header("x-caduceus-capability", token);
+        }
+        builder
+            .body(Body::from(
+                r#"{"dropIn":"server: local-zone: \\\"home.arpa. transparent\\\""}"#,
+            ))
+            .unwrap()
+    };
+
+    for (token, signal) in [
+        (None, "caduceus-capability-unsigned".to_string()),
+        (
+            Some(capability("wrong action", "/api/dns/unbound/drop-in", 60)),
+            "caduceus-capability-scope".to_string(),
+        ),
+        (
+            Some(capability("network dns", "/api/dns/unbound/drop-in", -1)),
+            "caduceus-capability-expired".to_string(),
+        ),
+    ] {
+        let response = serve::router().oneshot(request(token)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let json = body_json(response).await;
+        assert_eq!(json["firstMissingSignal"], signal);
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn locked_profile_rejects_network_status() {
     let _guard = use_fixture("tests/fixtures/locked");
     let app = serve::router();
@@ -506,9 +542,10 @@ async fn homeserver_staff_actuators_route_is_profile_allowed() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.staff.actuators.v1");
-    assert_eq!(json["count"], 9);
+    assert_eq!(json["count"], 10);
     assert_eq!(json["actuators"][0]["id"], "network-dhcp");
-    assert_eq!(json["actuators"][1]["id"], "household-capability");
+    assert_eq!(json["actuators"][1]["id"], "network-dns");
+    assert_eq!(json["actuators"][2]["id"], "household-capability");
 }
 
 #[tokio::test(flavor = "current_thread")]

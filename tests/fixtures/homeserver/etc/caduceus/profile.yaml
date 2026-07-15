@@ -28,6 +28,7 @@ commands:
 - network dhcp reload
 - network dhcp reservation add
 - network dhcp reservation remove
+- network dns
 - config path
 - config show
 - config get
