@@ -10,6 +10,13 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tower::ServiceExt;
 
+const CHALLENGE_ID: &str = "fixture-challenge-id";
+const CHALLENGE_BYTES: &str = "fixture-challenge-bytes";
+const TICKET: &str = "fixture-attendance-ticket";
+const CAPABILITY: &str = "fixture-one-use-capability";
+const PIN: &str = "fixture-pin-981";
+const SIGNATURE: &str = "fixture-document-signature";
+
 fn request(peer: &str, body: Body) -> Request<Body> {
     static PROFILE: OnceLock<()> = OnceLock::new();
     PROFILE.get_or_init(|| {
@@ -46,6 +53,31 @@ fn socket(name: &str) -> PathBuf {
     ))
 }
 
+fn proof() -> serde_json::Value {
+    serde_json::json!({"challenge_id": CHALLENGE_ID, "signature": SIGNATURE})
+}
+
+fn success_response(op: &str) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "challenge_id": CHALLENGE_ID,
+        "challenge": CHALLENGE_BYTES,
+        "expires_at": 1_700_000_000u64,
+        "ticket": TICKET,
+        "capability": CAPABILITY,
+        "pin": PIN,
+        "signature": SIGNATURE,
+        "op": op,
+    })
+}
+
+async fn json_response(response: axum::response::Response) -> serde_json::Value {
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn access_loopback_is_admitted_before_secret_body_is_dispatched() {
     let response = serve::router()
@@ -63,10 +95,7 @@ async fn nonloopback_access_is_refused_before_malformed_or_oversize_body_parsing
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let value = json_response(response).await;
         assert_eq!(value["firstMissingSignal"], "caduceus-access-non-loopback");
     }
 }
@@ -81,33 +110,38 @@ async fn loopback_oversize_is_rejected_before_staff() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn five_access_routes_forward_exact_operation_mapping_and_safe_context() {
+async fn direct_success_allowlists_only_matching_attendance_material() {
     let _environment = environment_lock();
     let paths = [
         (
             "/api/v1/access/challenges/mint",
             "challenge.mint",
-            serde_json::json!({"purpose":"document-attendance","context":{"document_public_key":"public"}}),
+            serde_json::json!({"purpose":"session.mint","context":{"document_public_key":"fixture-public-key"}}),
         ),
         (
             "/api/v1/access/sessions/mint",
             "session.mint",
-            serde_json::json!({"pin":"fixture-pin-981"}),
+            serde_json::json!({"pin": PIN, "challenge_id": CHALLENGE_ID, "signature": SIGNATURE}),
         ),
         (
             "/api/v1/access/sessions/prove",
             "session.prove",
-            serde_json::json!({"challenge_id":"challenge-id","signature":"webcrypto-signature"}),
+            serde_json::json!({"ticket": TICKET, "challenge_id": CHALLENGE_ID, "signature": SIGNATURE}),
         ),
         (
             "/api/v1/access/sessions/clear",
             "session.clear",
-            serde_json::json!({"challenge_id":"challenge-id","signature":"webcrypto-signature"}),
+            serde_json::json!({"ticket": TICKET, "challenge_id": CHALLENGE_ID, "signature": SIGNATURE}),
         ),
         (
             "/api/v1/access/capabilities/mint",
             "capability.mint",
-            serde_json::json!({"challenge_id":"challenge-id","signature":"webcrypto-signature","ticket":"server-ticket"}),
+            serde_json::json!({"ticket": TICKET, "challenge_id": CHALLENGE_ID, "signature": SIGNATURE, "action":"pin.change", "target":"homeserver"}),
+        ),
+        (
+            "/api/v1/access/pin/change",
+            "pin.change",
+            serde_json::json!({"ticket": TICKET, "challenge_id": CHALLENGE_ID, "signature": SIGNATURE, "capability": CAPABILITY, "new_pin":"fixture-new-pin"}),
         ),
     ];
     let path = socket("operations");
@@ -126,71 +160,110 @@ async fn five_access_routes_forward_exact_operation_mapping_and_safe_context() {
                 assert_eq!(&observed[key], value, "staff context field {key}");
             }
             let mut peer = peer;
-            peer.write_all(b"{\"ok\":false,\"code\":\"attendance-refused\",\"pin\":\"fixture-pin-981\",\"ticket\":\"server-ticket\",\"signature\":\"webcrypto-signature\",\"capability\":\"secret-capability\",\"challenge\":\"secret-challenge\"}\n")
+            peer.write_all(success_response(&wanted).to_string().as_bytes())
                 .unwrap();
+            peer.write_all(b"\n").unwrap();
         }
     });
     std::env::set_var("CADUCEUS_ACCESS_SOCKET", &path);
-    for (route, _, body) in paths {
+    for (route, operation, body) in paths {
         let mut local = request("127.0.0.1:40231", Body::from(body.to_string()));
         *local.uri_mut() = route.parse().unwrap();
         let response = serve::router().oneshot(local).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK, "route {route}");
-        let response = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let response = String::from_utf8(response.to_vec()).unwrap();
-        for secret in [
-            "fixture-pin-981",
-            "server-ticket",
-            "webcrypto-signature",
-            "secret-capability",
-            "secret-challenge",
-        ] {
+        let response = json_response(response).await;
+        assert_eq!(response["ok"], true);
+        match operation {
+            "challenge.mint" => {
+                assert_eq!(response["challenge_id"], CHALLENGE_ID);
+                assert_eq!(response["challenge"], CHALLENGE_BYTES);
+                assert_eq!(response["expires_at"], 1_700_000_000u64);
+            }
+            "session.mint" => assert_eq!(response["ticket"], TICKET),
+            "capability.mint" => assert_eq!(response["capability"], CAPABILITY),
+            _ => {
+                assert!(response.get("challenge_id").is_none());
+                assert!(response.get("ticket").is_none());
+                assert!(response.get("capability").is_none());
+            }
+        }
+        for secret in [PIN, SIGNATURE] {
             assert!(
-                !response.contains(secret),
-                "public response leaked {secret}"
+                !response.to_string().contains(secret),
+                "direct response leaked {secret}"
             );
+        }
+        if operation != "challenge.mint" {
+            assert!(!response.to_string().contains(CHALLENGE_BYTES));
+        }
+        if operation != "session.mint" {
+            assert!(!response.to_string().contains(TICKET));
+        }
+        if operation != "capability.mint" {
+            assert!(!response.to_string().contains(CAPABILITY));
         }
     }
     std::env::remove_var("CADUCEUS_ACCESS_SOCKET");
     worker.join().unwrap();
     let _ = std::fs::remove_file(path);
+    let diagnostic_and_hyalos_payload =
+        serde_json::to_string(&serve::recorded_access_diagnostics()).unwrap();
+    for secret in [
+        CHALLENGE_ID,
+        CHALLENGE_BYTES,
+        TICKET,
+        CAPABILITY,
+        PIN,
+        SIGNATURE,
+    ] {
+        assert!(
+            !diagnostic_and_hyalos_payload.contains(secret),
+            "recorded diagnostic/Hyalos-safe payload leaked {secret}"
+        );
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn malformed_challenge_and_missing_staff_refuse_without_secret_reflection() {
+async fn malformed_proofs_and_unknown_challenge_purpose_refuse_before_staff() {
     let _environment = environment_lock();
-    let mut malformed = request(
-        "127.0.0.1:40231",
-        Body::from(r#"{"purpose":"unknown-purpose","context":{}}"#),
-    );
-    *malformed.uri_mut() = "/api/v1/access/challenges/mint".parse().unwrap();
-    let response = serve::router().oneshot(malformed).await.unwrap();
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let response = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    assert!(String::from_utf8(response.to_vec())
-        .unwrap()
-        .contains("caduceus-attendance-challenge-malformed"));
-
-    std::env::set_var("CADUCEUS_ACCESS_SOCKET", socket("absent"));
-    let response = serve::router()
-        .oneshot(request(
-            "127.0.0.1:40231",
-            Body::from(r#"{"pin":"fixture-pin-981"}"#),
-        ))
-        .await
-        .unwrap();
+    let cases = [
+        (
+            "/api/v1/access/challenges/mint",
+            serde_json::json!({"purpose":"document-attendance","context":{"document_public_key":"fixture"}}),
+        ),
+        (
+            "/api/v1/access/challenges/mint",
+            serde_json::json!({"purpose":"unknown","context":{"document_public_key":"fixture"}}),
+        ),
+        (
+            "/api/v1/access/sessions/mint",
+            serde_json::json!({"pin": PIN}),
+        ),
+        ("/api/v1/access/sessions/prove", proof()),
+        ("/api/v1/access/sessions/clear", proof()),
+        (
+            "/api/v1/access/capabilities/mint",
+            serde_json::json!({"ticket":TICKET,"challenge_id":CHALLENGE_ID,"signature":SIGNATURE}),
+        ),
+        (
+            "/api/v1/access/pin/change",
+            serde_json::json!({"ticket":TICKET,"challenge_id":CHALLENGE_ID,"signature":SIGNATURE,"new_pin":"fixture-new-pin"}),
+        ),
+    ];
+    std::env::set_var("CADUCEUS_ACCESS_SOCKET", socket("must-not-connect"));
+    for (route, body) in cases {
+        let mut local = request("127.0.0.1:40231", Body::from(body.to_string()));
+        *local.uri_mut() = route.parse().unwrap();
+        let response = serve::router().oneshot(local).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "route {route}");
+        let response = json_response(response).await;
+        assert_ne!(response["firstMissingSignal"], "caduceus-staff-unavailable");
+        let rendered = response.to_string();
+        for secret in [PIN, SIGNATURE, TICKET, CAPABILITY] {
+            assert!(!rendered.contains(secret), "refusal leaked {secret}");
+        }
+    }
     std::env::remove_var("CADUCEUS_ACCESS_SOCKET");
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let response = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let response = String::from_utf8(response.to_vec()).unwrap();
-    assert!(response.contains("caduceus-staff-unavailable"));
-    assert!(!response.contains("fixture-pin-981"));
 }
 
 #[test]
@@ -203,10 +276,11 @@ fn access_route_census_retires_refresh_and_duration_lease() {
         "/api/v1/access/sessions/prove",
         "/api/v1/access/sessions/clear",
         "/api/v1/access/capabilities/mint",
+        "/api/v1/access/pin/change",
     ] {
         assert!(serve.contains(route), "missing access route {route}");
     }
-    assert_eq!(serve.matches("post(access_route)").count(), 5);
+    assert_eq!(serve.matches("post(access_route)").count(), 6);
     assert!(!serve.contains("sessions/refresh"));
     assert!(!access.contains("session.refresh"));
     assert!(!access.contains("SESSION_SECONDS"));
@@ -225,7 +299,10 @@ async fn blocked_staff_socket_does_not_block_unrelated_http() {
     std::env::set_var("CADUCEUS_ACCESS_SOCKET", &path);
     let access = serve::router().oneshot(request(
         "127.0.0.1:40231",
-        Body::from(r#"{"pin":"fixture-pin-981"}"#),
+        Body::from(
+            serde_json::json!({"pin":PIN,"challenge_id":CHALLENGE_ID,"signature":SIGNATURE})
+                .to_string(),
+        ),
     ));
     let health = serve::router().oneshot(
         Request::builder()

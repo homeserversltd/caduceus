@@ -244,6 +244,7 @@ fn access_operation(path: &str) -> Option<&'static str> {
         "/api/v1/access/sessions/prove" => Some("session.prove"),
         "/api/v1/access/sessions/clear" => Some("session.clear"),
         "/api/v1/access/capabilities/mint" => Some("capability.mint"),
+        "/api/v1/access/pin/change" => Some("pin.change"),
         _ => None,
     }
 }
@@ -254,14 +255,41 @@ fn bounded_text<'a>(body: &'a Value, field: &str, maximum: usize) -> Option<&'a 
         .filter(|value| !value.is_empty() && value.len() <= maximum)
 }
 
+fn bounded_challenge_context(body: &Value) -> bool {
+    let Some(context) = body.get("context").filter(|value| value.is_object()) else {
+        return false;
+    };
+    serde_json::to_vec(context)
+        .ok()
+        .is_some_and(|encoded| encoded.len() <= 4096)
+        && bounded_text(context, "document_public_key", 4096).is_some()
+}
+
+fn has_document_proof(body: &Value) -> bool {
+    bounded_text(body, "challenge_id", 512).is_some()
+        && bounded_text(body, "signature", 4096).is_some()
+}
+
+fn has_attendance_ticket(body: &Value) -> bool {
+    bounded_text(body, "ticket", 4096).is_some()
+}
+
 /// The staff remains the attendance authority. Rust only rejects malformed public
 /// envelopes before the private socket and never interprets tickets as authority.
 fn validate_access_request(operation: &str, body: &Value) -> Result<(), &'static str> {
     match operation {
         "challenge.mint" => {
-            if bounded_text(body, "purpose", 64) != Some("document-attendance")
-                || !body.get("context").is_some_and(Value::is_object)
-            {
+            let valid_purpose = matches!(
+                bounded_text(body, "purpose", 64),
+                Some(
+                    "session.mint"
+                        | "session.prove"
+                        | "session.clear"
+                        | "capability.mint"
+                        | "pin.change"
+                )
+            );
+            if !valid_purpose || !bounded_challenge_context(body) {
                 return Err("caduceus-attendance-challenge-malformed");
             }
         }
@@ -269,14 +297,37 @@ fn validate_access_request(operation: &str, body: &Value) -> Result<(), &'static
             if bounded_text(body, "pin", 1024).is_none() {
                 return Err("caduceus-attendance-refused");
             }
-        }
-        "session.prove" | "session.clear" | "capability.mint" => {
-            if bounded_text(body, "challenge_id", 512).is_none()
-                || bounded_text(body, "signature", 4096).is_none()
-            {
+            if !has_document_proof(body) {
                 return Err("caduceus-attendance-proof-malformed");
             }
-            if operation == "capability.mint" && body.get("ticket").is_none() {
+        }
+        "session.prove" | "session.clear" => {
+            if !has_document_proof(body) {
+                return Err("caduceus-attendance-proof-malformed");
+            }
+            if !has_attendance_ticket(body) {
+                return Err("caduceus-attendance-refused");
+            }
+        }
+        "capability.mint" => {
+            if !has_document_proof(body) {
+                return Err("caduceus-attendance-proof-malformed");
+            }
+            if !has_attendance_ticket(body)
+                || bounded_text(body, "action", 512).is_none()
+                || bounded_text(body, "target", 1024).is_none()
+            {
+                return Err("caduceus-attendance-refused");
+            }
+        }
+        "pin.change" => {
+            if !has_document_proof(body) {
+                return Err("caduceus-attendance-proof-malformed");
+            }
+            if !has_attendance_ticket(body)
+                || bounded_text(body, "capability", 8192).is_none()
+                || bounded_text(body, "new_pin", 1024).is_none()
+            {
                 return Err("caduceus-attendance-refused");
             }
         }
@@ -302,29 +353,51 @@ fn safe_access_code(value: &Value) -> &'static str {
     }
 }
 
-/// Never reflect the staff envelope wholesale: it can carry PINs, tickets, proofs,
-/// or capability material. Only a public challenge identifier and expiry escape.
-fn public_access_response(value: Value) -> Value {
+/// Successful material is an operation-specific, direct-loopback transport only.
+/// It is never copied into diagnostics, Hyalos, errors, or refusal envelopes.
+fn public_access_response(operation: &str, value: Value) -> Value {
     let ok = value.get("ok").and_then(Value::as_bool) == Some(true);
     let mut response = serde_json::json!({
         "schema": "caduceus.access.attendance.v1",
         "ok": ok,
         "code": if ok { "none" } else { safe_access_code(&value) },
     });
-    if ok {
-        if let Some(challenge_id) = value
-            .get("challenge_id")
-            .or_else(|| value.get("challengeId"))
+    if !ok {
+        return response;
+    }
+
+    let copy_text = |response: &mut Value, output: &str, input: &str, maximum: usize| {
+        if let Some(value) = value
+            .get(input)
             .and_then(Value::as_str)
-            .filter(|id| !id.is_empty() && id.len() <= 512)
+            .filter(|value| !value.is_empty() && value.len() <= maximum)
         {
-            response["challenge_id"] = Value::String(challenge_id.to_string());
+            response[output] = Value::String(value.to_string());
         }
+    };
+    let copy_expiry = |response: &mut Value| {
         if let Some(expires_at) = value.get("expires_at").or_else(|| value.get("expiresAt")) {
             if expires_at.is_u64() {
                 response["expires_at"] = expires_at.clone();
             }
         }
+    };
+    match operation {
+        "challenge.mint" => {
+            copy_text(&mut response, "challenge_id", "challenge_id", 512);
+            if response.get("challenge_id").is_none() {
+                copy_text(&mut response, "challenge_id", "challengeId", 512);
+            }
+            copy_text(&mut response, "challenge", "challenge", 4096);
+            if response.get("challenge").is_none() {
+                copy_text(&mut response, "challenge", "challenge_bytes", 4096);
+            }
+            copy_expiry(&mut response);
+        }
+        "session.mint" => copy_text(&mut response, "ticket", "ticket", 4096),
+        "capability.mint" => copy_text(&mut response, "capability", "capability", 8192),
+        "session.prove" | "session.clear" | "pin.change" => {}
+        _ => {}
     }
     response
 }
@@ -363,7 +436,7 @@ async fn access_route(
             return Err(api_error_signal("access", reason.signal()));
         }
     }
-    let public_response = public_access_response(result);
+    let public_response = public_access_response(operation, result);
     let signal = public_response
         .get("code")
         .and_then(Value::as_str)
@@ -406,6 +479,13 @@ async fn access_route(
 fn access_state() -> &'static access::AccessState {
     static STATE: std::sync::OnceLock<access::AccessState> = std::sync::OnceLock::new();
     STATE.get_or_init(access::AccessState::default)
+}
+
+/// Library-only inspection of the already-redacted diagnostic projection. This has
+/// no HTTP route and cannot expose request or private staff envelopes.
+#[doc(hidden)]
+pub fn recorded_access_diagnostics() -> Vec<access::DiagnosticEvent> {
+    access_state().diagnostics()
 }
 
 async fn reject_nonloopback_access(request: Request<axum::body::Body>, next: Next) -> Response {
@@ -1292,6 +1372,7 @@ pub fn router() -> Router {
         .route("/api/v1/access/sessions/prove", post(access_route))
         .route("/api/v1/access/sessions/clear", post(access_route))
         .route("/api/v1/access/capabilities/mint", post(access_route))
+        .route("/api/v1/access/pin/change", post(access_route))
         .layer(DefaultBodyLimit::max(access::MAX_LINE_BYTES))
         .route_layer(middleware::from_fn(reject_nonloopback_access));
     Router::new()

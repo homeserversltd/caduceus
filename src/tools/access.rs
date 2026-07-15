@@ -159,7 +159,7 @@ impl AccessState {
         }
     }
 
-    #[cfg(test)]
+    /// Returns only the redacted diagnostic projection; no request or staff envelope is retained.
     pub fn diagnostics(&self) -> Vec<DiagnosticEvent> {
         self.diagnostics
             .lock()
@@ -263,7 +263,7 @@ fn safe_correlation(value: &str) -> String {
 fn safe_phase(value: &str) -> String {
     match value {
         "challenge.mint" | "session.mint" | "session.prove" | "session.clear"
-        | "capability.mint" | "pre-body" => value.to_string(),
+        | "capability.mint" | "pin.change" | "pre-body" => value.to_string(),
         _ => "redacted".to_string(),
     }
 }
