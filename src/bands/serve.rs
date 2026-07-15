@@ -4,7 +4,7 @@ use crate::bands::{
 };
 use crate::tools::{access, policy};
 use axum::{
-    extract::{ConnectInfo, OriginalUri, Query},
+    extract::{connect_info::ConnectInfo, DefaultBodyLimit, OriginalUri, Query},
     http::{HeaderMap, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -173,12 +173,16 @@ fn capability_from_headers(headers: &HeaderMap) -> Option<&str> {
 /// before `run` is reached.
 fn capability_admits(command: &str, target: &str, token: Option<&str>) -> Result<(), String> {
     let state = access_state();
+    let profile_value =
+        policy::load_profile_value().map_err(|_| "caduceus-profile-missing".to_string())?;
+    let successor_required = profile_value
+        .pointer("/capability/mode")
+        .and_then(Value::as_str)
+        == Some("successor-required");
     if state
         .has_projection()
         .map_err(|reason| reason.signal().to_string())?
     {
-        let profile_value =
-            policy::load_profile_value().map_err(|_| "caduceus-profile-missing".to_string())?;
         let profile = profile_value
             .get("profile")
             .and_then(Value::as_str)
@@ -189,6 +193,9 @@ fn capability_admits(command: &str, target: &str, token: Option<&str>) -> Result
         return state
             .verify_and_consume(token, command, target, profile)
             .map_err(|reason| reason.signal().to_string());
+    }
+    if successor_required {
+        return Err(access::AccessReason::Unsigned.signal().to_string());
     }
     policy::capability_admits(command, target, token).map_err(|reason| reason.signal().to_string())
 }
@@ -230,24 +237,24 @@ async fn health_route() -> Json<LivenessBody> {
 
 /// This handler is deliberately reached only after `reject_nonloopback_access`.
 /// The JSON extractor therefore cannot buffer or parse a non-loopback body.
+fn access_operation(path: &str) -> Option<&'static str> {
+    match path {
+        "/api/v1/access/sessions/mint" => Some("session.mint"),
+        "/api/v1/access/sessions/prove" => Some("session.prove"),
+        "/api/v1/access/sessions/refresh" => Some("session.refresh"),
+        "/api/v1/access/sessions/clear" => Some("session.clear"),
+        "/api/v1/access/capabilities/mint" => Some("capability.mint"),
+        "/api/v1/access/pin/change" => Some("pin.change"),
+        _ => None,
+    }
+}
+
 async fn access_route(
     OriginalUri(uri): OriginalUri,
     Json(mut body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    let expected = match uri.path() {
-        "/api/v1/access/sessions/mint" => "session.mint",
-        "/api/v1/access/sessions/prove" => "session.prove",
-        "/api/v1/access/sessions/refresh" => "session.refresh",
-        "/api/v1/access/sessions/clear" => "session.clear",
-        "/api/v1/access/capabilities/mint" => "capability.mint",
-        "/api/v1/access/pin/change" => "pin.change",
-        _ => {
-            return Err(api_error_signal(
-                "access",
-                "caduceus-access-request-invalid",
-            ))
-        }
-    };
+    let expected = access_operation(uri.path())
+        .ok_or_else(|| api_error_signal("access", "caduceus-access-request-invalid"))?;
     body["op"] = Value::String(expected.to_string());
     let operation = body.get("op").and_then(Value::as_str).unwrap_or("");
     if operation.is_empty() {
@@ -259,14 +266,20 @@ async fn access_route(
     let socket = env::var("CADUCEUS_ACCESS_SOCKET")
         .unwrap_or_else(|_| "/run/caduceus/access.sock".to_string());
     let started = std::time::Instant::now();
-    let result = access::staff_request(std::path::Path::new(&socket), &body)
-        .map_err(|reason| api_error_signal("access", reason.signal()))?;
+    let request_body = body.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        access::staff_request(std::path::Path::new(&socket), &request_body)
+    })
+    .await
+    .map_err(|_| api_error_signal("access", access::AccessReason::Unavailable.signal()))?
+    .map_err(|reason| api_error_signal("access", reason.signal()))?;
     if let (Some(key), Some(epoch)) = (
         result.get("public_key").and_then(Value::as_str),
         result.get("epoch").and_then(Value::as_u64),
     ) {
-        // Only public verifier material crosses this boundary.
-        let _ = access_state().install_public_projection(key, epoch);
+        if let Err(reason) = access_state().install_public_projection(key, epoch) {
+            return Err(api_error_signal("access", reason.signal()));
+        }
     }
     let signal = result.get("code").and_then(Value::as_str).unwrap_or("none");
     let section = if operation.starts_with("session") {
@@ -1176,6 +1189,7 @@ pub fn router() -> Router {
         .route("/api/v1/access/sessions/clear", post(access_route))
         .route("/api/v1/access/capabilities/mint", post(access_route))
         .route("/api/v1/access/pin/change", post(access_route))
+        .layer(DefaultBodyLimit::max(access::MAX_LINE_BYTES))
         .route_layer(middleware::from_fn(reject_nonloopback_access));
     Router::new()
         .merge(access_routes)
