@@ -239,14 +239,94 @@ async fn health_route() -> Json<LivenessBody> {
 /// The JSON extractor therefore cannot buffer or parse a non-loopback body.
 fn access_operation(path: &str) -> Option<&'static str> {
     match path {
+        "/api/v1/access/challenges/mint" => Some("challenge.mint"),
         "/api/v1/access/sessions/mint" => Some("session.mint"),
         "/api/v1/access/sessions/prove" => Some("session.prove"),
-        "/api/v1/access/sessions/refresh" => Some("session.refresh"),
         "/api/v1/access/sessions/clear" => Some("session.clear"),
         "/api/v1/access/capabilities/mint" => Some("capability.mint"),
-        "/api/v1/access/pin/change" => Some("pin.change"),
         _ => None,
     }
+}
+
+fn bounded_text<'a>(body: &'a Value, field: &str, maximum: usize) -> Option<&'a str> {
+    body.get(field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty() && value.len() <= maximum)
+}
+
+/// The staff remains the attendance authority. Rust only rejects malformed public
+/// envelopes before the private socket and never interprets tickets as authority.
+fn validate_access_request(operation: &str, body: &Value) -> Result<(), &'static str> {
+    match operation {
+        "challenge.mint" => {
+            if bounded_text(body, "purpose", 64) != Some("document-attendance")
+                || !body.get("context").is_some_and(Value::is_object)
+            {
+                return Err("caduceus-attendance-challenge-malformed");
+            }
+        }
+        "session.mint" => {
+            if bounded_text(body, "pin", 1024).is_none() {
+                return Err("caduceus-attendance-refused");
+            }
+        }
+        "session.prove" | "session.clear" | "capability.mint" => {
+            if bounded_text(body, "challenge_id", 512).is_none()
+                || bounded_text(body, "signature", 4096).is_none()
+            {
+                return Err("caduceus-attendance-proof-malformed");
+            }
+            if operation == "capability.mint" && body.get("ticket").is_none() {
+                return Err("caduceus-attendance-refused");
+            }
+        }
+        _ => return Err("caduceus-access-request-invalid"),
+    }
+    Ok(())
+}
+
+fn safe_access_code(value: &Value) -> &'static str {
+    match value.get("code").and_then(Value::as_str) {
+        Some("challenge_malformed") | Some("challenge-malformed") => {
+            "caduceus-attendance-challenge-malformed"
+        }
+        Some("proof_malformed") | Some("proof-malformed") => "caduceus-attendance-proof-malformed",
+        Some("challenge_expired") | Some("challenge-expired") => {
+            "caduceus-attendance-challenge-expired"
+        }
+        Some("challenge_replayed") | Some("challenge-replayed") => {
+            "caduceus-attendance-challenge-replayed"
+        }
+        Some("staff_unavailable") | Some("staff-unavailable") => "caduceus-staff-unavailable",
+        _ => "caduceus-attendance-refused",
+    }
+}
+
+/// Never reflect the staff envelope wholesale: it can carry PINs, tickets, proofs,
+/// or capability material. Only a public challenge identifier and expiry escape.
+fn public_access_response(value: Value) -> Value {
+    let ok = value.get("ok").and_then(Value::as_bool) == Some(true);
+    let mut response = serde_json::json!({
+        "schema": "caduceus.access.attendance.v1",
+        "ok": ok,
+        "code": if ok { "none" } else { safe_access_code(&value) },
+    });
+    if ok {
+        if let Some(challenge_id) = value
+            .get("challenge_id")
+            .or_else(|| value.get("challengeId"))
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty() && id.len() <= 512)
+        {
+            response["challenge_id"] = Value::String(challenge_id.to_string());
+        }
+        if let Some(expires_at) = value.get("expires_at").or_else(|| value.get("expiresAt")) {
+            if expires_at.is_u64() {
+                response["expires_at"] = expires_at.clone();
+            }
+        }
+    }
+    response
 }
 
 async fn access_route(
@@ -255,6 +335,8 @@ async fn access_route(
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     let expected = access_operation(uri.path())
         .ok_or_else(|| api_error_signal("access", "caduceus-access-request-invalid"))?;
+    validate_access_request(expected, &body)
+        .map_err(|signal| api_error_signal("access", signal))?;
     body["op"] = Value::String(expected.to_string());
     let operation = body.get("op").and_then(Value::as_str).unwrap_or("");
     if operation.is_empty() {
@@ -281,9 +363,15 @@ async fn access_route(
             return Err(api_error_signal("access", reason.signal()));
         }
     }
-    let signal = result.get("code").and_then(Value::as_str).unwrap_or("none");
-    let section = if operation.starts_with("session") {
-        "access.session"
+    let public_response = public_access_response(result);
+    let signal = public_response
+        .get("code")
+        .and_then(Value::as_str)
+        .unwrap_or("caduceus-attendance-refused");
+    let section = if operation == "challenge.mint" {
+        "access.document"
+    } else if operation.starts_with("session") {
+        "access.attendance"
     } else if operation.starts_with("capability") {
         "access.capability"
     } else {
@@ -293,7 +381,7 @@ async fn access_route(
         .get("correlation_id")
         .and_then(Value::as_str)
         .unwrap_or("generated");
-    let outcome = if result.get("ok").and_then(Value::as_bool) == Some(true) {
+    let outcome = if public_response.get("ok").and_then(Value::as_bool) == Some(true) {
         "ok"
     } else {
         "refused"
@@ -312,7 +400,7 @@ async fn access_route(
     access_state().record_diagnostic(audit.clone());
     let _ =
         hyalos::reflect_json(serde_json::to_value(audit).unwrap_or_else(|_| serde_json::json!({})));
-    Ok(Json(result))
+    Ok(Json(public_response))
 }
 
 fn access_state() -> &'static access::AccessState {
@@ -327,7 +415,7 @@ async fn reject_nonloopback_access(request: Request<axum::body::Body>, next: Nex
         .is_some_and(|ConnectInfo(peer)| peer.ip().is_loopback());
     if !allowed {
         let event = access::DiagnosticEvent::new(
-            "access.session",
+            "access.attendance",
             "peer-refused",
             "pre-body",
             "refused",
@@ -340,6 +428,22 @@ async fn reject_nonloopback_access(request: Request<axum::body::Body>, next: Nex
             serde_json::to_value(event).unwrap_or_else(|_| serde_json::json!({})),
         );
         return api_error_signal("access", "caduceus-access-non-loopback").into_response();
+    }
+    match policy::allows_command("staff intent") {
+        Ok(true) => {}
+        Ok(false) => return api_error("access").into_response(),
+        Err(_) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: "access".to_string(),
+                    first_missing_signal: "caduceus-profile-missing".to_string(),
+                }),
+            )
+                .into_response()
+        }
     }
     next.run(request).await
 }
@@ -1183,12 +1287,11 @@ async fn update_service_toggle_route(
 
 pub fn router() -> Router {
     let access_routes = Router::new()
+        .route("/api/v1/access/challenges/mint", post(access_route))
         .route("/api/v1/access/sessions/mint", post(access_route))
         .route("/api/v1/access/sessions/prove", post(access_route))
-        .route("/api/v1/access/sessions/refresh", post(access_route))
         .route("/api/v1/access/sessions/clear", post(access_route))
         .route("/api/v1/access/capabilities/mint", post(access_route))
-        .route("/api/v1/access/pin/change", post(access_route))
         .layer(DefaultBodyLimit::max(access::MAX_LINE_BYTES))
         .route_layer(middleware::from_fn(reject_nonloopback_access));
     Router::new()

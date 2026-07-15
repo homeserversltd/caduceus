@@ -9,7 +9,6 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-pub const SESSION_SECONDS: u64 = 1800;
 pub const CAPABILITY_SECONDS: u64 = 60;
 pub const DIAGNOSTIC_TTL_SECONDS: u64 = 15 * 60;
 pub const DIAGNOSTIC_LIMIT: usize = 128;
@@ -263,8 +262,8 @@ fn safe_correlation(value: &str) -> String {
 
 fn safe_phase(value: &str) -> String {
     match value {
-        "session.mint" | "session.prove" | "session.refresh" | "session.clear"
-        | "capability.mint" | "pin.change" | "pre-body" => value.to_string(),
+        "challenge.mint" | "session.mint" | "session.prove" | "session.clear"
+        | "capability.mint" | "pre-body" => value.to_string(),
         _ => "redacted".to_string(),
     }
 }
@@ -274,7 +273,11 @@ fn safe_signal(value: &str) -> String {
         "none"
         | "caduceus-access-non-loopback"
         | "caduceus-access-request-invalid"
-        | "caduceus-session-invalid"
+        | "caduceus-attendance-challenge-malformed"
+        | "caduceus-attendance-proof-malformed"
+        | "caduceus-attendance-refused"
+        | "caduceus-attendance-challenge-expired"
+        | "caduceus-attendance-challenge-replayed"
         | "caduceus-capability-scope"
         | "caduceus-capability-unsigned"
         | "caduceus-capability-expired"

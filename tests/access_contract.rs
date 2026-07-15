@@ -11,6 +11,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tower::ServiceExt;
 
 fn request(peer: &str, body: Body) -> Request<Body> {
+    static PROFILE: OnceLock<()> = OnceLock::new();
+    PROFILE.get_or_init(|| {
+        std::env::set_var(
+            "CADUCEUS_ROOT",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/homeserver"),
+        );
+    });
     let mut request = Request::builder()
         .method("POST")
         .uri("/api/v1/access/sessions/mint")
@@ -74,45 +81,136 @@ async fn loopback_oversize_is_rejected_before_staff() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn six_access_routes_forward_exact_operation_mapping() {
+async fn five_access_routes_forward_exact_operation_mapping_and_safe_context() {
     let _environment = environment_lock();
     let paths = [
-        ("/api/v1/access/sessions/mint", "session.mint"),
-        ("/api/v1/access/sessions/prove", "session.prove"),
-        ("/api/v1/access/sessions/refresh", "session.refresh"),
-        ("/api/v1/access/sessions/clear", "session.clear"),
-        ("/api/v1/access/capabilities/mint", "capability.mint"),
-        ("/api/v1/access/pin/change", "pin.change"),
+        (
+            "/api/v1/access/challenges/mint",
+            "challenge.mint",
+            serde_json::json!({"purpose":"document-attendance","context":{"document_public_key":"public"}}),
+        ),
+        (
+            "/api/v1/access/sessions/mint",
+            "session.mint",
+            serde_json::json!({"pin":"fixture-pin-981"}),
+        ),
+        (
+            "/api/v1/access/sessions/prove",
+            "session.prove",
+            serde_json::json!({"challenge_id":"challenge-id","signature":"webcrypto-signature"}),
+        ),
+        (
+            "/api/v1/access/sessions/clear",
+            "session.clear",
+            serde_json::json!({"challenge_id":"challenge-id","signature":"webcrypto-signature"}),
+        ),
+        (
+            "/api/v1/access/capabilities/mint",
+            "capability.mint",
+            serde_json::json!({"challenge_id":"challenge-id","signature":"webcrypto-signature","ticket":"server-ticket"}),
+        ),
     ];
     let path = socket("operations");
     let listener = UnixListener::bind(&path).unwrap();
-    let expected = paths.map(|(_, op)| op.to_string());
+    let expected = paths.clone().map(|(_, op, body)| (op.to_string(), body));
     let worker = thread::spawn(move || {
-        for wanted in expected {
+        for (wanted, expected_body) in expected {
             let (peer, _) = listener.accept().unwrap();
             let mut line = String::new();
             BufReader::new(peer.try_clone().unwrap())
                 .read_line(&mut line)
                 .unwrap();
-            assert_eq!(
-                serde_json::from_str::<serde_json::Value>(&line).unwrap()["op"],
-                wanted
-            );
+            let observed = serde_json::from_str::<serde_json::Value>(&line).unwrap();
+            assert_eq!(observed["op"], wanted);
+            for (key, value) in expected_body.as_object().unwrap() {
+                assert_eq!(&observed[key], value, "staff context field {key}");
+            }
             let mut peer = peer;
-            peer.write_all(b"{\"ok\":false,\"code\":\"fixture\"}\n")
+            peer.write_all(b"{\"ok\":false,\"code\":\"attendance-refused\",\"pin\":\"fixture-pin-981\",\"ticket\":\"server-ticket\",\"signature\":\"webcrypto-signature\",\"capability\":\"secret-capability\",\"challenge\":\"secret-challenge\"}\n")
                 .unwrap();
         }
     });
     std::env::set_var("CADUCEUS_ACCESS_SOCKET", &path);
-    for (route, _) in paths {
-        let mut local = request("127.0.0.1:40231", Body::from("{}"));
+    for (route, _, body) in paths {
+        let mut local = request("127.0.0.1:40231", Body::from(body.to_string()));
         *local.uri_mut() = route.parse().unwrap();
         let response = serve::router().oneshot(local).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK, "route {route}");
+        let response = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response = String::from_utf8(response.to_vec()).unwrap();
+        for secret in [
+            "fixture-pin-981",
+            "server-ticket",
+            "webcrypto-signature",
+            "secret-capability",
+            "secret-challenge",
+        ] {
+            assert!(
+                !response.contains(secret),
+                "public response leaked {secret}"
+            );
+        }
     }
     std::env::remove_var("CADUCEUS_ACCESS_SOCKET");
     worker.join().unwrap();
     let _ = std::fs::remove_file(path);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn malformed_challenge_and_missing_staff_refuse_without_secret_reflection() {
+    let _environment = environment_lock();
+    let mut malformed = request(
+        "127.0.0.1:40231",
+        Body::from(r#"{"purpose":"unknown-purpose","context":{}}"#),
+    );
+    *malformed.uri_mut() = "/api/v1/access/challenges/mint".parse().unwrap();
+    let response = serve::router().oneshot(malformed).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let response = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert!(String::from_utf8(response.to_vec())
+        .unwrap()
+        .contains("caduceus-attendance-challenge-malformed"));
+
+    std::env::set_var("CADUCEUS_ACCESS_SOCKET", socket("absent"));
+    let response = serve::router()
+        .oneshot(request(
+            "127.0.0.1:40231",
+            Body::from(r#"{"pin":"fixture-pin-981"}"#),
+        ))
+        .await
+        .unwrap();
+    std::env::remove_var("CADUCEUS_ACCESS_SOCKET");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let response = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let response = String::from_utf8(response.to_vec()).unwrap();
+    assert!(response.contains("caduceus-staff-unavailable"));
+    assert!(!response.contains("fixture-pin-981"));
+}
+
+#[test]
+fn access_route_census_retires_refresh_and_duration_lease() {
+    let serve = include_str!("../src/bands/serve.rs");
+    let access = include_str!("../src/tools/access.rs");
+    for route in [
+        "/api/v1/access/challenges/mint",
+        "/api/v1/access/sessions/mint",
+        "/api/v1/access/sessions/prove",
+        "/api/v1/access/sessions/clear",
+        "/api/v1/access/capabilities/mint",
+    ] {
+        assert!(serve.contains(route), "missing access route {route}");
+    }
+    assert_eq!(serve.matches("post(access_route)").count(), 5);
+    assert!(!serve.contains("sessions/refresh"));
+    assert!(!access.contains("session.refresh"));
+    assert!(!access.contains("SESSION_SECONDS"));
+    assert!(!access.contains(&["18", "00"].concat()));
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -125,7 +223,10 @@ async fn blocked_staff_socket_does_not_block_unrelated_http() {
         thread::sleep(Duration::from_secs(6));
     });
     std::env::set_var("CADUCEUS_ACCESS_SOCKET", &path);
-    let access = serve::router().oneshot(request("127.0.0.1:40231", Body::from("{}")));
+    let access = serve::router().oneshot(request(
+        "127.0.0.1:40231",
+        Body::from(r#"{"pin":"fixture-pin-981"}"#),
+    ));
     let health = serve::router().oneshot(
         Request::builder()
             .uri("/health")
