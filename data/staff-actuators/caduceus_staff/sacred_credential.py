@@ -1,42 +1,31 @@
-"""Root-only in-memory Keyman access for the Caduceus staff process.
+"""Root-only Keyman command membrane for Caduceus SacredCredential.
 
-Canonical Caduceus identity bytes are the Keyman skeleton secret selected with
-legacy ``fgets(buffer, 512, ...)`` semantics: bytes through the first ``LF`` in
-that 511-byte read window, with that one ``LF`` removed.  They are not broad
-raw-file hashing.  The legacy service-suite PBKDF2 passphrase is separately the
-canonical secret's C-string prefix.  Neither interpretation uses broad
-whitespace stripping.
+The credential is owned, encrypted, and rewritten only by Keyman's one admitted
+implementation, ``/vault/keyman/keyman-crypto``.  This module never interprets
+Keyman's ciphertext, derivation parameters, cipher mode, skeleton passphrase
+quirks, or Keyman file format.  It asks Keyman for a brief decrypted caduceus record in a
+private temporary directory, parses that bounded record, and securely removes it.
 
-Python can overwrite mutable bytearrays best-effort.  It cannot honestly erase
-immutable ``str``/``bytes`` values or cryptography key objects; this membrane
-therefore guarantees no serialization, logging, child process, or plaintext
-file rather than claiming universal zeroization.
+Caduceus identity is always lowercase SHA-256 of the raw skeleton file bytes.
+That identity is public metadata; the operator PIN and Keyman plaintext remain
+inside the bounded Keyman command/read/cleanup window.
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
-import importlib.util
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Final
 
-from cryptography.hazmat.primitives import hashes
+
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-_SERVICE_NAME: Final = "caduceus"
-_SERVICE_SUITE_USERNAME: Final = "service_suite"
-_HEADER: Final = b"Salted__"
-_SALT_BYTES: Final = 8
-_PBKDF2_ITERATIONS: Final = 10_000
-_SERVICE_SUITE_NAME: Final = "service_suite.key"
-_CADUCEUS_NAME: Final = "caduceus.key"
 _RECORD = re.compile(rb'^username="([^"\r\n]+)"\r?\npassword="([^"\r\n]*)"\r?\n?$', re.DOTALL)
 
 
@@ -44,93 +33,9 @@ class CaduceusAccessRefused(RuntimeError):
     """A redacted refusal for missing, malformed, or mismatched Keyman data."""
 
 
-class CaduceusAccessCommitUncertain(CaduceusAccessRefused):
-    """Replacement occurred, but Keyman cannot prove the directory commit durable."""
-
-
 def _wipe(value: bytearray) -> None:
     for index in range(len(value)):
         value[index] = 0
-
-
-def _read(path: Path) -> bytearray:
-    try:
-        return bytearray(path.read_bytes())
-    except OSError as exc:
-        raise CaduceusAccessRefused("caduceus-key-unavailable") from exc
-
-
-def _canonical_skeleton_identity_bytes(raw: bytearray) -> bytearray:
-    """Return canonical secret bytes, not serialized-file bytes or a file hash.
-
-    This exactly selects the first legacy ``fgets(buffer, 512, ...)`` result:
-    stop through the first LF within the 511-byte data window, then remove that
-    LF only.  CR and every other selected byte remain intact.
-    """
-    read_window = raw[:511]
-    newline = read_window.find(b"\n")
-    identity_line = bytearray(read_window if newline < 0 else read_window[:newline])
-    if not identity_line:
-        raise CaduceusAccessRefused("caduceus-skeleton-malformed")
-    return identity_line
-
-
-def _legacy_skeleton_passphrase(identity_bytes: bytearray) -> bytearray:
-    """Legacy C passes the C-string prefix, ending at its first NUL, to PBKDF2."""
-    nul = identity_bytes.find(b"\x00")
-    passphrase = bytearray(identity_bytes if nul < 0 else identity_bytes[:nul])
-    if not passphrase:
-        raise CaduceusAccessRefused("caduceus-skeleton-malformed")
-    return passphrase
-
-
-def _identity_for_skeleton(canonical_identity: bytearray) -> str:
-    return hashlib.sha256(bytes(canonical_identity)).hexdigest()
-
-
-def _decrypt_openssl(ciphertext: bytearray, password: bytearray) -> bytearray:
-    if len(ciphertext) < len(_HEADER) + _SALT_BYTES + 16 or not hmac.compare_digest(ciphertext[:8], _HEADER):
-        raise CaduceusAccessRefused("caduceus-key-malformed")
-    salt = bytes(ciphertext[8 : 8 + _SALT_BYTES])
-    key_iv = bytearray(PBKDF2HMAC(
-        algorithm=hashes.SHA256(), length=48, salt=salt, iterations=_PBKDF2_ITERATIONS,
-    ).derive(bytes(password)))
-    try:
-        decryptor = Cipher(algorithms.AES(bytes(key_iv[:32])), modes.CBC(bytes(key_iv[32:]))).decryptor()
-        padded = bytearray(decryptor.update(bytes(ciphertext[16:])) + decryptor.finalize())
-    except ValueError as exc:
-        raise CaduceusAccessRefused("caduceus-key-corrupt") from exc
-    finally:
-        _wipe(key_iv)
-    if not padded:
-        raise CaduceusAccessRefused("caduceus-key-corrupt")
-    pad = padded[-1]
-    if pad < 1 or pad > 16 or len(padded) < pad or not hmac.compare_digest(padded[-pad:], bytes([pad]) * pad):
-        _wipe(padded)
-        raise CaduceusAccessRefused("caduceus-key-corrupt")
-    plaintext = bytearray(padded[:-pad])
-    _wipe(padded)
-    return plaintext
-
-
-def _encrypt_openssl(plaintext: bytearray, password: bytearray) -> bytearray:
-    salt = os.urandom(_SALT_BYTES)
-    key_iv = bytearray(PBKDF2HMAC(
-        algorithm=hashes.SHA256(), length=48, salt=salt, iterations=_PBKDF2_ITERATIONS,
-    ).derive(bytes(password)))
-    try:
-        encryptor = Cipher(algorithms.AES(bytes(key_iv[:32])), modes.CBC(bytes(key_iv[32:]))).encryptor()
-        padded = bytes(plaintext) + bytes([16 - len(plaintext) % 16]) * (16 - len(plaintext) % 16)
-        return bytearray(_HEADER + salt + encryptor.update(padded) + encryptor.finalize())
-    finally:
-        _wipe(key_iv)
-
-
-def _record(plaintext: bytearray) -> tuple[bytearray, bytearray]:
-    match = _RECORD.fullmatch(bytes(plaintext))
-    if match is None:
-        raise CaduceusAccessRefused("caduceus-key-malformed")
-    return bytearray(match.group(1)), bytearray(match.group(2))
 
 
 def _require_root() -> None:
@@ -146,78 +51,124 @@ def _pin_bytes(pin: str) -> bytearray:
     return value
 
 
-def _service_suite_password(canonical_skeleton: bytearray, vault_dir: Path) -> bytearray:
-    suite_ciphertext = _read(vault_dir / _SERVICE_SUITE_NAME)
-    suite_plaintext = bytearray()
-    suite_username = bytearray()
-    suite_password = bytearray()
+def _runtime_paths(key_dir: Path | None, vault_dir: Path | None) -> tuple[Path, Path]:
+    """Production defaults with scratch fake-root coordinates for proof."""
+    return (
+        key_dir or Path(os.environ.get("CADUCEUS_KEYMAN_KEY_DIR", "/root/key")),
+        vault_dir or Path(os.environ.get("CADUCEUS_KEYMAN_VAULT_DIR", "/vault/.keys")),
+    )
+
+
+def _keyman_binary() -> Path:
+    return Path(os.environ.get("CADUCEUS_KEYMAN_CRYPTO", "/vault/keyman/keyman-crypto"))
+
+
+def _keyman_temp_dir() -> Path:
+    return Path(os.environ.get("CADUCEUS_KEYMAN_TEMP_DIR", "/dev/shm"))
+
+
+def _raw_identity(key_dir: Path) -> str:
     try:
-        suite_plaintext = _decrypt_openssl(suite_ciphertext, canonical_skeleton)
-        suite_username, suite_password = _record(suite_plaintext)
-        if not hmac.compare_digest(bytes(suite_username), _SERVICE_SUITE_USERNAME.encode("ascii")):
-            raise CaduceusAccessRefused("caduceus-service-suite-identity-mismatch")
-        result = bytearray(suite_password)
-        return result
+        raw = bytearray((key_dir / "skeleton.key").read_bytes())
+    except OSError as exc:
+        raise CaduceusAccessRefused("caduceus-skeleton-unavailable") from exc
+    try:
+        if not raw:
+            raise CaduceusAccessRefused("caduceus-skeleton-malformed")
+        return hashlib.sha256(bytes(raw)).hexdigest()
     finally:
-        for value in (suite_ciphertext, suite_plaintext, suite_username, suite_password):
-            _wipe(value)
+        _wipe(raw)
 
 
-def _credential(identity: str, suite_password: bytearray, vault_dir: Path) -> tuple[bytearray, bytearray]:
-    service_ciphertext = _read(vault_dir / _CADUCEUS_NAME)
-    credential_plaintext = bytearray()
+def _remove_private_tree(path: Path) -> None:
+    try:
+        for child in path.iterdir():
+            if child.is_file() or child.is_symlink():
+                try:
+                    size = child.stat().st_size
+                    with child.open("r+b", buffering=0) as handle:
+                        handle.write(b"\x00" * size)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                except OSError:
+                    pass
+                child.unlink(missing_ok=True)
+        path.rmdir()
+    except OSError:
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def _keyman(operation: str, payload: bytearray, *, read_output: bool = False) -> bytearray:
+    """Invoke exactly Keyman's binary; PIN/plaintext are never command arguments."""
+    binary = _keyman_binary()
+    temporary_root: Path | None = None
+    input_path: Path | None = None
+    output_path: Path | None = None
+    output = bytearray()
+    try:
+        if not binary.is_file() or not os.access(binary, os.X_OK):
+            raise CaduceusAccessRefused("caduceus-keyman-unavailable")
+        temporary_root = Path(tempfile.mkdtemp(prefix="caduceus-keyman-", dir=_keyman_temp_dir()))
+        os.chmod(temporary_root, 0o700)
+        input_path = temporary_root / "input"
+        with input_path.open("xb", buffering=0) as handle:
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        command = [str(binary), operation, str(input_path)]
+        if read_output:
+            output_path = temporary_root / "output"
+            command.append(str(output_path))
+        result = subprocess.run(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            raise CaduceusAccessRefused("caduceus-keyman-command-refused")
+        if read_output:
+            try:
+                if output_path is None:
+                    raise CaduceusAccessRefused("caduceus-keyman-output-unavailable")
+                output = bytearray(output_path.read_bytes())
+            except OSError as exc:
+                raise CaduceusAccessRefused("caduceus-keyman-output-unavailable") from exc
+        return output
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise CaduceusAccessRefused("caduceus-keyman-command-refused") from exc
+    finally:
+        _wipe(payload)
+        if temporary_root is not None:
+            _remove_private_tree(temporary_root)
+
+
+def _credential() -> tuple[bytearray, bytearray]:
+    plaintext = _keyman("decrypt", bytearray(b"service=caduceus\n"), read_output=True)
+    try:
+        match = _RECORD.fullmatch(bytes(plaintext))
+        if match is None:
+            raise CaduceusAccessRefused("caduceus-key-malformed")
+        return bytearray(match.group(1)), bytearray(match.group(2))
+    finally:
+        _wipe(plaintext)
+
+
+def _require_current_credential(key_dir: Path) -> tuple[str, bytearray]:
+    identity = _raw_identity(key_dir)
     username = bytearray()
     stored_pin = bytearray()
     try:
-        credential_plaintext = _decrypt_openssl(service_ciphertext, suite_password)
-        username, stored_pin = _record(credential_plaintext)
+        username, stored_pin = _credential()
         if not hmac.compare_digest(bytes(username), identity.encode("ascii")):
             raise CaduceusAccessRefused("caduceus-identity-mismatch")
-        return bytearray(username), bytearray(stored_pin)
+        return identity, bytearray(stored_pin)
     finally:
-        for value in (service_ciphertext, credential_plaintext, username, stored_pin):
-            _wipe(value)
-
-
-def _atomic_ciphertext_write(target: Path, ciphertext: bytearray, *, replace: bool) -> None:
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        fd, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)
-    except OSError as exc:
-        raise CaduceusAccessRefused("caduceus-key-write-refused") from exc
-    temporary_path = Path(temporary)
-    committed = False
-    try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "wb", closefd=True) as handle:
-            handle.write(ciphertext)
-            handle.flush()
-            os.fsync(handle.fileno())
-        if replace:
-            os.replace(temporary_path, target)
-            committed = True
-        else:
-            try:
-                os.link(temporary_path, target)
-            except FileExistsError as exc:
-                raise CaduceusAccessRefused("caduceus-key-exists") from exc
-            temporary_path.unlink()
-        directory_fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
-    except OSError as exc:
-        if committed:
-            raise CaduceusAccessCommitUncertain("caduceus-key-commit-uncertain") from exc
-        raise CaduceusAccessRefused("caduceus-key-write-refused") from exc
-    finally:
-        if temporary_path.exists():
-            temporary_path.unlink()
-
-
-def _credential_plaintext(identity: str, pin: bytearray) -> bytearray:
-    return bytearray(b'username="' + identity.encode("ascii") + b'"\npassword="' + bytes(pin) + b'"\n')
+        _wipe(username)
+        _wipe(stored_pin)
 
 
 @dataclass
@@ -229,23 +180,19 @@ class DerivedCaduceusSigner:
     _public_key_hex: str = ""
 
     def __post_init__(self) -> None:
-        """Project only public verifier material while the seed is in custody."""
         public = self.private_key().public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
         self._public_key_hex = public.hex()
 
     @property
     def public_key_hex(self) -> str:
-        """Exact raw 32-byte Ed25519 public key as lowercase hexadecimal."""
         return self._public_key_hex
 
     @property
     def signer_epoch(self) -> str:
-        """Lowercase SHA-256 hexadecimal of the raw 32-byte public key."""
         return hashlib.sha256(bytes.fromhex(self._public_key_hex)).hexdigest()
 
     @property
     def epoch(self) -> str:
-        """Compatibility-free short name for the public deterministic signer epoch."""
         return self.signer_epoch
 
     def private_key(self) -> Ed25519PrivateKey:
@@ -264,158 +211,68 @@ class DerivedCaduceusSigner:
         self.close()
 
 
-def _runtime_paths(key_dir: Path | None, vault_dir: Path | None) -> tuple[Path, Path]:
-    """Resolve fixed production paths, with scratch fake-root paths for proof only."""
-    return (
-        key_dir or Path(os.environ.get("CADUCEUS_KEYMAN_KEY_DIR", "/root/key")),
-        vault_dir or Path(os.environ.get("CADUCEUS_KEYMAN_VAULT_DIR", "/vault/.keys")),
-    )
-
-
 def verify_and_derive_caduceus(pin: str, *, key_dir: Path | None = None, vault_dir: Path | None = None) -> DerivedCaduceusSigner:
-    """Constant-time verify one PIN and derive the tablet-defined signer in memory."""
+    """Verify one PIN through Keyman and derive the tablet-defined signer."""
     _require_root()
     key_dir, vault_dir = _runtime_paths(key_dir, vault_dir)
-    pin_bytes = _pin_bytes(pin)
-    raw_skeleton = _read(key_dir / "skeleton.key")
-    canonical_identity = bytearray()
-    legacy_passphrase = bytearray()
-    suite_password = bytearray()
-    username = bytearray()
-    stored_pin = bytearray()
+    if not (vault_dir / "caduceus.key").is_file():
+        raise CaduceusAccessRefused("caduceus-key-unavailable")
+    presented = _pin_bytes(pin)
+    stored = bytearray()
     try:
-        canonical_identity = _canonical_skeleton_identity_bytes(raw_skeleton)
-        legacy_passphrase = _legacy_skeleton_passphrase(canonical_identity)
-        identity = _identity_for_skeleton(raw_skeleton)
-        suite_password = _service_suite_password(legacy_passphrase, vault_dir)
-        username, stored_pin = _credential(identity, suite_password, vault_dir)
-        if not hmac.compare_digest(bytes(stored_pin), bytes(pin_bytes)):
+        identity, stored = _require_current_credential(key_dir)
+        if not hmac.compare_digest(bytes(stored), bytes(presented)):
             raise CaduceusAccessRefused("caduceus-pin-refused")
-        seed = bytearray(hashlib.sha256(identity.encode("ascii") + b"\x00" + bytes(pin_bytes)).digest())
+        seed = bytearray(hashlib.sha256(identity.encode("ascii") + b"\x00" + bytes(presented)).digest())
         return DerivedCaduceusSigner(seed, identity)
     finally:
-        for value in (pin_bytes, raw_skeleton, canonical_identity, legacy_passphrase, suite_password, username, stored_pin):
-            _wipe(value)
+        _wipe(presented)
+        _wipe(stored)
 
 
 def bind_derived_caduceus(*, key_dir: Path | None = None, vault_dir: Path | None = None) -> DerivedCaduceusSigner:
-    """Bind the current encrypted Caduceus credential to its in-memory signer.
-
-    This root-only staff-startup API deliberately has no PIN argument. It opens
-    the existing Keyman service suite and fixed Caduceus credential in-process,
-    derives from the stored PIN, and returns only the signing seat.
-    """
+    """Read fixed Keyman custody and derive a signer from the seated PIN."""
     _require_root()
     key_dir, vault_dir = _runtime_paths(key_dir, vault_dir)
-    raw_skeleton = _read(key_dir / "skeleton.key")
-    canonical_identity = bytearray()
-    legacy_passphrase = bytearray()
-    suite_password = bytearray()
-    username = bytearray()
-    stored_pin = bytearray()
-    seed = bytearray()
+    if not (vault_dir / "caduceus.key").is_file():
+        raise CaduceusAccessRefused("caduceus-key-unavailable")
+    stored = bytearray()
     try:
-        canonical_identity = _canonical_skeleton_identity_bytes(raw_skeleton)
-        legacy_passphrase = _legacy_skeleton_passphrase(canonical_identity)
-        identity = _identity_for_skeleton(raw_skeleton)
-        suite_password = _service_suite_password(legacy_passphrase, vault_dir)
-        username, stored_pin = _credential(identity, suite_password, vault_dir)
-        seed = bytearray(hashlib.sha256(identity.encode("ascii") + b"\x00" + bytes(stored_pin)).digest())
-        signer = DerivedCaduceusSigner(seed, identity)
-        seed = bytearray()
-        return signer
+        identity, stored = _require_current_credential(key_dir)
+        seed = bytearray(hashlib.sha256(identity.encode("ascii") + b"\x00" + bytes(stored)).digest())
+        return DerivedCaduceusSigner(seed, identity)
     finally:
-        for value in (raw_skeleton, canonical_identity, legacy_passphrase, suite_password, username, stored_pin, seed):
-            _wipe(value)
+        _wipe(stored)
 
 
-def provision_caduceus(initial_pin: str, *, key_dir: Path = Path("/root/key"), vault_dir: Path = Path("/vault/.keys")) -> dict[str, object]:
-    """Create the fixed credential once, without plaintext files or legacy CLI paths."""
+def provision_caduceus(initial_pin: str, *, key_dir: Path | None = None, vault_dir: Path | None = None) -> dict[str, object]:
+    """Create the fixed Caduceus credential exactly once through Keyman."""
     _require_root()
-    target = vault_dir / _CADUCEUS_NAME
-    if target.exists():
+    key_dir, vault_dir = _runtime_paths(key_dir, vault_dir)
+    if (vault_dir / "caduceus.key").exists():
         raise CaduceusAccessRefused("caduceus-key-exists")
-    pin_bytes = _pin_bytes(initial_pin)
-    raw_skeleton = _read(key_dir / "skeleton.key")
-    canonical_identity = bytearray()
-    legacy_passphrase = bytearray()
-    suite_password = bytearray()
-    plaintext = bytearray()
-    ciphertext = bytearray()
+    pin = _pin_bytes(initial_pin)
     try:
-        canonical_identity = _canonical_skeleton_identity_bytes(raw_skeleton)
-        legacy_passphrase = _legacy_skeleton_passphrase(canonical_identity)
-        identity = _identity_for_skeleton(raw_skeleton)
-        suite_password = _service_suite_password(legacy_passphrase, vault_dir)
-        plaintext = _credential_plaintext(identity, pin_bytes)
-        ciphertext = _encrypt_openssl(plaintext, suite_password)
-        _atomic_ciphertext_write(target, ciphertext, replace=False)
+        identity = _raw_identity(key_dir)
+        _keyman("create", bytearray(b"service=caduceus\nusername=" + identity.encode("ascii") + b"\npassword=" + bytes(pin) + b"\n"))
         return {"schema": "keyman.caduceus_access.status.v1", "ok": True, "operation": "provisioned", "private_material": "[REDACTED]"}
     finally:
-        for value in (pin_bytes, raw_skeleton, canonical_identity, legacy_passphrase, suite_password, plaintext, ciphertext):
-            _wipe(value)
+        _wipe(pin)
 
 
 def change_caduceus_pin(old_pin: str, new_pin: str, *, key_dir: Path | None = None, vault_dir: Path | None = None) -> dict[str, object]:
-    """Verify old PIN then atomically replace only the encrypted fixed credential."""
+    """Verify old PIN, ask Keyman to reencrypt, then leave rebind to the caller."""
     _require_root()
-    key_dir, vault_dir = _runtime_paths(key_dir, vault_dir)
-    old_bytes = _pin_bytes(old_pin)
-    new_bytes = _pin_bytes(new_pin)
-    raw_skeleton = _read(key_dir / "skeleton.key")
-    canonical_identity = bytearray()
-    legacy_passphrase = bytearray()
-    suite_password = bytearray()
-    username = bytearray()
-    stored_pin = bytearray()
-    plaintext = bytearray()
-    ciphertext = bytearray()
+    key_dir, _ = _runtime_paths(key_dir, vault_dir)
+    old = _pin_bytes(old_pin)
+    new = _pin_bytes(new_pin)
+    stored = bytearray()
     try:
-        canonical_identity = _canonical_skeleton_identity_bytes(raw_skeleton)
-        legacy_passphrase = _legacy_skeleton_passphrase(canonical_identity)
-        identity = _identity_for_skeleton(raw_skeleton)
-        suite_password = _service_suite_password(legacy_passphrase, vault_dir)
-        username, stored_pin = _credential(identity, suite_password, vault_dir)
-        if not hmac.compare_digest(bytes(stored_pin), bytes(old_bytes)):
+        _, stored = _require_current_credential(key_dir)
+        if not hmac.compare_digest(bytes(stored), bytes(old)):
             raise CaduceusAccessRefused("caduceus-pin-refused")
-        plaintext = _credential_plaintext(identity, new_bytes)
-        ciphertext = _encrypt_openssl(plaintext, suite_password)
-        _atomic_ciphertext_write(vault_dir / _CADUCEUS_NAME, ciphertext, replace=True)
+        _keyman("reencrypt", bytearray(b"service=caduceus\nnew_password=" + bytes(new) + b"\n"))
         return {"schema": "keyman.caduceus_access.status.v1", "ok": True, "operation": "pin-changed", "private_material": "[REDACTED]"}
     finally:
-        for value in (old_bytes, new_bytes, raw_skeleton, canonical_identity, legacy_passphrase, suite_password, username, stored_pin, plaintext, ciphertext):
+        for value in (old, new, stored):
             _wipe(value)
-
-
-def access_module_importable(path: Path) -> bool:
-    """Secret-free installed-runtime import check, including crypto dependency."""
-    name = "_keyman_caduceus_access_install_check"
-    try:
-        spec = importlib.util.spec_from_file_location(name, path)
-        if spec is None or spec.loader is None:
-            return False
-        module = importlib.util.module_from_spec(spec)
-        import sys
-        sys.modules[name] = module
-        spec.loader.exec_module(module)
-        return True
-    except (ImportError, OSError, SyntaxError, ValueError):
-        return False
-    finally:
-        import sys
-        sys.modules.pop(name, None)
-
-
-def caduceus_access_status(*, runtime_dir: Path) -> dict[str, object]:
-    """Return only installed membrane shape; never open credential material."""
-    module = runtime_dir / "lib" / "keyman_caduceus_access.py"
-    installed = module.is_file()
-    importable = installed and access_module_importable(module)
-    return {
-        "schema": "keyman.caduceus_access.status.v1",
-        "ok": importable,
-        "operation": "root-in-process-caduceus-verify-and-derive",
-        "service": _SERVICE_NAME,
-        "private_material": "[REDACTED]",
-        "first_missing_signal": "none" if importable else "caduceus-access-module-or-crypto-dependency-unavailable",
-    }
