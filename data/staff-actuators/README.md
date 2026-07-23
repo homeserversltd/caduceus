@@ -16,6 +16,26 @@ these modules directly.
 
 Harmonia ships actuators to `/usr/local/sbin/caduceus_staff/` on each appliance.
 
+## SacredCredential (operator provisioning)
+
+`caduceus.key` is an ordinary Keyman service credential. Its username is the
+lowercase SHA-256 of the raw `/root/key/skeleton.key` bytes; its password is the
+operator PIN. It is not a `caduceus_household.key`, and no household-capability
+signing path exists.
+
+As root, compute the identity and provision exactly one credential with this
+paste-ready ceremony (replace `<PIN>` only):
+
+```sh
+id=$(sha256sum /root/key/skeleton.key | cut -d ' ' -f1); /vault/keyman/newkey.sh caduceus "$id" '<PIN>'
+```
+
+The root `bind` launcher reads this credential at startup through Keyman,
+creates only the in-memory signer, and returns public verifier material. If the
+credential is absent it returns `UNBOUND` with
+`caduceus-pin-not-yet-provisioned`; the Crown projects that as “PIN not yet
+provisioned.”
+
 ## Dual-snake pattern
 
 ```text

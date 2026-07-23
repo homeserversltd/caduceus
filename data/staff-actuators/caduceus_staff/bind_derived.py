@@ -1,30 +1,29 @@
-"""Canonical Caduceus staff identity derivation from the active leaf.
+"""Caduceus SacredCredential bind and PIN verification launcher.
 
-The derivation is intentionally byte-exact and has no persistence, lease, or
-session state: identity is SHA-256(raw skeleton bytes), rendered lower-case
-hex; seed is SHA-256(identity ASCII + NUL + PIN UTF-8).
+The fixed Keyman credential ``/vault/.keys/caduceus.key`` is the sole PIN
+truth.  Its username is the SHA-256 identity of raw skeleton bytes and its
+password is the operator PIN.  Binding reads the current Keyman credential as
+root, holds the Ed25519 signer only in staff memory, and projects public data.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import json
-import os
-from pathlib import Path
 from typing import Any, Sequence
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from .household_capability.skeleton_sha import skeleton_sha
+from . import sacred_credential
+
+_BOUND: sacred_credential.DerivedCaduceusSigner | None = None
 
 
 def identity_hex(skeleton: bytes) -> str:
+    """Lowercase SHA-256 identity of the raw skeleton bytes."""
     return hashlib.sha256(skeleton).hexdigest()
-
-
-def active_identity_hex() -> str:
-    return skeleton_sha()
 
 
 def seed_bytes(identity: str, pin: str) -> bytes:
@@ -37,58 +36,128 @@ def private_key(identity: str, pin: str) -> Ed25519PrivateKey:
     return Ed25519PrivateKey.from_private_bytes(seed_bytes(identity, pin))
 
 
-def bind_derived(pin: str) -> dict[str, Any]:
-    identity = active_identity_hex()
-    key = private_key(identity, pin)
-    public_key = key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+def _unbound_signal(exc: Exception) -> str:
+    signal = str(exc) or "caduceus-derived-unbound"
+    if signal in {"caduceus-key-unavailable", "caduceus-key-malformed", "caduceus-key-corrupt"}:
+        return "caduceus-pin-not-yet-provisioned"
+    return signal
+
+
+def _project(signer: sacred_credential.DerivedCaduceusSigner, *, operation: str) -> dict[str, Any]:
     return {
-        "schema": "caduceus.staff.bind-derived.v1",
+        "schema": "caduceus.staff.sacred-credential.v1",
         "ok": True,
-        "identity": identity,
-        "publicKey": public_key,
+        "operation": operation,
+        "posture": "DERIVED_BOUND",
+        "identity": signer.identity_sha256,
+        "publicKey": signer.public_key_hex,
+        "epoch": signer.signer_epoch,
         "derivation": "sha256(identity_ascii + 0x00 + pin_utf8)",
         "firstMissingSignal": "none",
     }
 
 
-def verify_derived(pin: str, public_key: str) -> dict[str, Any]:
-    expected = bind_derived(pin)
-    ok = public_key.lower() == expected["publicKey"]
-    return {**expected, "ok": ok, "verified": ok, "firstMissingSignal": "none" if ok else "caduceus-staff-derived-key-mismatch"}
+def bind_derived() -> dict[str, Any]:
+    """Read current Keyman custody and replace the in-memory signing seat."""
+    global _BOUND
+    try:
+        fresh = sacred_credential.bind_derived_caduceus()
+    except sacred_credential.CaduceusAccessRefused as exc:
+        if _BOUND is not None:
+            _BOUND.close()
+            _BOUND = None
+        return {
+            "schema": "caduceus.staff.sacred-credential.v1",
+            "ok": False,
+            "operation": "bind",
+            "posture": "UNBOUND",
+            "firstMissingSignal": _unbound_signal(exc),
+        }
+    if _BOUND is not None:
+        _BOUND.close()
+    _BOUND = fresh
+    return _project(fresh, operation="bind")
+
+
+def verify_derived(pin: str) -> dict[str, Any]:
+    """Verify a presented PIN against the currently bound Keyman truth."""
+    if _BOUND is None:
+        return {
+            "schema": "caduceus.staff.sacred-credential.v1",
+            "ok": False,
+            "operation": "verify",
+            "posture": "UNBOUND",
+            "verified": False,
+            "firstMissingSignal": "caduceus-derived-unbound",
+        }
+    try:
+        candidate = sacred_credential.verify_and_derive_caduceus(pin)
+    except sacred_credential.CaduceusAccessRefused as exc:
+        return {
+            "schema": "caduceus.staff.sacred-credential.v1",
+            "ok": False,
+            "operation": "verify",
+            "posture": "DERIVED_BOUND",
+            "verified": False,
+            "firstMissingSignal": _unbound_signal(exc),
+        }
+    try:
+        verified = hmac.compare_digest(candidate.public_key_hex, _BOUND.public_key_hex)
+        return {
+            **_project(_BOUND, operation="verify"),
+            "ok": verified,
+            "verified": verified,
+            "firstMissingSignal": "none" if verified else "caduceus-staff-derived-key-mismatch",
+        }
+    finally:
+        candidate.close()
 
 
 def atomic_change_pin(old_pin: str, new_pin: str) -> dict[str, Any]:
+    """Verify old PIN, atomically rotate Keyman credential password, then rebind."""
     if not new_pin:
-        raise ValueError("caduceus-staff-new-pin-missing")
-    # Keyman owns durable secret custody; this fixed launcher only proves the
-    # replacement derivation before the owning actuator commits it.
-    old = bind_derived(old_pin)
-    new = bind_derived(new_pin)
-    return {"schema": "caduceus.staff.atomic-change-pin.v1", "ok": True, "oldPublicKey": old["publicKey"], "publicKey": new["publicKey"], "identity": new["identity"], "firstMissingSignal": "none"}
+        return {
+            "schema": "caduceus.staff.sacred-credential.v1",
+            "ok": False,
+            "operation": "atomic-change-pin",
+            "posture": "DERIVED_BOUND" if _BOUND else "UNBOUND",
+            "firstMissingSignal": "caduceus-staff-new-pin-missing",
+        }
+    verified = verify_derived(old_pin)
+    if not verified.get("ok"):
+        return {**verified, "operation": "atomic-change-pin"}
+    try:
+        sacred_credential.change_caduceus_pin(old_pin, new_pin)
+    except sacred_credential.CaduceusAccessRefused as exc:
+        return {
+            "schema": "caduceus.staff.sacred-credential.v1",
+            "ok": False,
+            "operation": "atomic-change-pin",
+            "posture": "STALE_DERIVED",
+            "firstMissingSignal": _unbound_signal(exc),
+        }
+    rebound = bind_derived()
+    if not rebound.get("ok"):
+        return {**rebound, "operation": "atomic-change-pin", "posture": "STALE_DERIVED"}
+    return {**rebound, "operation": "atomic-change-pin", "rotated": True}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="caduceus-staff-bind-derived")
+    parser = argparse.ArgumentParser(prog="caduceus-sacred-credential")
     commands = parser.add_subparsers(dest="command", required=True)
-    bind = commands.add_parser("bind")
-    bind.add_argument("pin")
+    commands.add_parser("bind")
     verify = commands.add_parser("verify")
     verify.add_argument("pin")
-    verify.add_argument("public_key")
     change = commands.add_parser("atomic-change-pin")
     change.add_argument("old_pin")
     change.add_argument("new_pin")
     args = parser.parse_args(argv)
-    try:
-        if args.command == "bind":
-            value = bind_derived(args.pin)
-        elif args.command == "verify":
-            value = verify_derived(args.pin, args.public_key)
-        else:
-            value = atomic_change_pin(args.old_pin, args.new_pin)
-    except (OSError, ValueError) as exc:
-        print(json.dumps({"schema": "caduceus.staff.bind-derived.v1", "ok": False, "firstMissingSignal": str(exc)}))
-        return 1
+    if args.command == "bind":
+        value = bind_derived()
+    elif args.command == "verify":
+        value = verify_derived(args.pin)
+    else:
+        value = atomic_change_pin(args.old_pin, args.new_pin)
     print(json.dumps(value, sort_keys=True))
     return 0 if value.get("ok") else 1
 
