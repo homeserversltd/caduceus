@@ -1,3 +1,4 @@
 #!/bin/sh
 set -eu
+export PYTHONPATH=/usr/local/sbin${PYTHONPATH:+:$PYTHONPATH}
 exec "${CADUCEUS_STAFF_PYTHON:-python3}" -m caduceus_staff.bind_derived verify "$@"
