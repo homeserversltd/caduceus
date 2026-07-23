@@ -231,6 +231,31 @@ async fn attendance_route(
     }
 }
 
+async fn admin_action_admission_route(
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    let action = body
+        .get("action")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty() && value.len() <= 512)
+        .ok_or_else(|| api_error_signal("admin action", "caduceus-admin-action-malformed"))?;
+    let target = body
+        .get("target")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty() && value.len() <= 1024)
+        .ok_or_else(|| api_error_signal("admin action", "caduceus-admin-action-malformed"))?;
+    attendance_admits(target, capability_from_headers(&headers))
+        .map_err(|signal| api_error_signal("admin action", &signal))?;
+    Ok(Json(serde_json::json!({
+        "schema": "caduceus.admin.action-admission.v1",
+        "ok": true,
+        "code": "none",
+        "action": action,
+        "target": target,
+    })))
+}
+
 async fn identity_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("identity show", identity::read_json).await
 }
@@ -1112,6 +1137,7 @@ pub fn router() -> Router {
         .route("/api/v1/attendance/open", post(attendance_route))
         .route("/api/v1/attendance/validate", post(attendance_route))
         .route("/api/v1/attendance/invalidate", post(attendance_route))
+        .route("/api/v1/admin/action", post(admin_action_admission_route))
         .layer(DefaultBodyLimit::max(8192));
     Router::new()
         .merge(attendance_routes)

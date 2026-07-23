@@ -21,6 +21,24 @@ async fn attendance_open_validate_invalidate_is_document_incarnation_bound() {
     let valid = serve::router().oneshot(request("/api/v1/attendance/validate", serde_json::json!({"attendance":attendance,"documentId":"doc-a","documentIncarnation":"inc-1"}))).await.unwrap();
     assert_eq!(valid.status(), StatusCode::OK);
     assert_eq!(json(valid).await["ok"], true);
+    std::env::set_var("CADUCEUS_DOCUMENT_INCARNATION", "inc-1");
+    let admitted = serve::router()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/admin/action")
+                .header("content-type", "application/json")
+                .header("x-caduceus-attendance", attendance)
+                .body(Body::from(
+                    serde_json::json!({"action":"document.read","target":"doc-a"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(admitted.status(), StatusCode::OK);
+    assert_eq!(json(admitted).await["ok"], true);
+    std::env::remove_var("CADUCEUS_DOCUMENT_INCARNATION");
     let mismatch = serve::router().oneshot(request("/api/v1/attendance/validate", serde_json::json!({"attendance":attendance,"documentId":"doc-a","documentIncarnation":"inc-2"}))).await.unwrap();
     assert_eq!(mismatch.status(), StatusCode::FORBIDDEN);
     assert_eq!(json(mismatch).await["firstMissingSignal"], "caduceus-attendance-document-incarnation-mismatch");
@@ -36,6 +54,7 @@ fn retired_sidecar_and_routes_are_absent() {
     assert!(serve.contains("/api/v1/attendance/open"));
     assert!(serve.contains("/api/v1/attendance/validate"));
     assert!(serve.contains("/api/v1/attendance/invalidate"));
+    assert!(serve.contains("/api/v1/admin/action"));
     assert!(!serve.contains("/api/v1/access/"));
     assert!(!std::path::Path::new("src/tools/access.rs").exists());
 }

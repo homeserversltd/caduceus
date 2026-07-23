@@ -50,28 +50,6 @@ pub fn allows_command(command: &str) -> Result<bool, String> {
         .any(|allowed| allowed == command))
 }
 
-pub fn default_capability_ttl_seconds() -> Result<u64, String> {
-    let profile = load_profile_value()?;
-    for value in [
-        profile
-            .get("capability")
-            .and_then(|capability| capability.get("default_ttl_seconds")),
-        profile
-            .get("capability")
-            .and_then(|capability| capability.get("defaultTtlSeconds")),
-        profile.get("capability_default_ttl_seconds"),
-        profile.get("capabilityDefaultTtlSeconds"),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if let Some(seconds) = value.as_u64() {
-            return Ok(seconds);
-        }
-    }
-    Err("caduceus-capability-default-ttl-missing".to_string())
-}
-
 pub fn capability_admits(command: &str, target: &str, token: Option<&str>) -> Result<(), Reason> {
     let token = token
         .filter(|token| !token.trim().is_empty())

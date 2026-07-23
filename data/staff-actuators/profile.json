@@ -38,21 +38,7 @@
       "notes": "Managed Unbound drop-in DNS intent delegates to the typed staff Python actuator; Rust performs no live DNS/UFW work.",
       "pythonModule": "caduceus_staff.network.dns"
     },
-    {
-      "id": "household-capability",
-      "family": "household",
-      "actuatorClass": "staff-python",
-      "sourceScripts": [],
-      "launcher": "/usr/local/sbin/caduceus-keyman-sign-capability",
-      "libraryEntry": "/usr/local/sbin/caduceus_staff/household_capability/index.py",
-      "dependencies": [
-        "cryptography"
-      ],
-      "receiptFamily": "caduceus.household.capability.v1",
-      "conversionStatus": "sbin-library-admitted",
-      "notes": "Staff-only household capability signing with fixed-path skeleton digest binding.",
-      "pythonModule": "caduceus_staff.household_capability"
-    },
+
     {
       "id": "file-ingress",
       "family": "upload",

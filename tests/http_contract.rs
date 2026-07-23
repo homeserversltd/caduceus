@@ -633,10 +633,10 @@ async fn homeserver_staff_actuators_route_is_profile_allowed() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.staff.actuators.v1");
-    assert_eq!(json["count"], 10);
+    assert_eq!(json["count"], 9);
     assert_eq!(json["actuators"][0]["id"], "network-dhcp");
     assert_eq!(json["actuators"][1]["id"], "network-dns");
-    assert_eq!(json["actuators"][2]["id"], "household-capability");
+
 }
 
 #[tokio::test(flavor = "current_thread")]
