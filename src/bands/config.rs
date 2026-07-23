@@ -126,6 +126,25 @@ fn resolve() -> Result<Resolved, String> {
     })
 }
 
+/// Reads may follow the profile's legacy/quarry chain. Persistence never may:
+/// the installed successor path is the only lawful config writer target.
+fn resolve_write() -> Result<Resolved, String> {
+    let mut resolved = resolve()?;
+    let installed_path = match resolved.profile.as_str() {
+        "homeserver" => "/etc/homeserver/config.json",
+        "console" => "/etc/console/config.json",
+        "tv" => "/etc/tv/config.json",
+        _ => unreachable!(),
+    };
+    let fs_path = paths::path(installed_path);
+    if !fs_path.is_file() {
+        return Err("caduceus-household-config-installed-path-missing".to_string());
+    }
+    resolved.device_path = installed_path.to_string();
+    resolved.fs_path = fs_path;
+    Ok(resolved)
+}
+
 fn read_document(resolved: &Resolved) -> Result<Value, String> {
     let text = fs::read_to_string(&resolved.fs_path)
         .map_err(|_| "caduceus-household-config-missing".to_string())?;
@@ -222,7 +241,7 @@ fn set_dotted(document: &mut Value, path: &str, value: Value) -> Result<(), Stri
 }
 
 fn mutate(op: &str, target: &str, update: Value) -> Result<Value, String> {
-    let resolved = resolve()?;
+    let resolved = resolve_write()?;
     let mut document = read_document(&resolved)?;
     let before = document.clone();
     let keys_touched: Vec<String> = if op == "set" {

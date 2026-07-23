@@ -1297,3 +1297,53 @@ async fn hyalos_http_reflect_tail_filters_and_no_projection_route() {
     std::env::remove_var("CADUCEUS_ROOT");
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn guest_config_set_only_allows_tabs_starred_and_writes_installed_path() {
+    let root = config_temp_root("guest");
+    let _guard = use_fixture(root.to_str().unwrap());
+    let app = serve::router();
+
+    let starred = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/config/set")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"path":"tabs.starred","value":["photos"]}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(starred.status(), StatusCode::OK);
+    let receipt = body_json(starred).await;
+    assert_eq!(receipt["path"], "/etc/tv/config.json");
+    assert_eq!(receipt["changed"], true);
+    let installed: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
+            .unwrap();
+    assert_eq!(installed["tabs"]["starred"], serde_json::json!(["photos"]));
+
+    let guest_other = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/config/set")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"path":"display.theme","value":"light"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(guest_other.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(guest_other).await["firstMissingSignal"],
+        "caduceus-capability-unsigned"
+    );
+    let installed: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
+            .unwrap();
+    assert_eq!(installed["display"]["theme"], "dark");
+    let _ = std::fs::remove_dir_all(root);
+}

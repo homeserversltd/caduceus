@@ -533,10 +533,15 @@ fn config_mutation(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
         Ok(true) => {
-            if let Err(reason) =
-                capability_admits(command, target, capability_from_headers(headers))
-            {
-                return Err(api_error_signal(command, &reason));
+            // IRIS T01/T02: a visible, enabled regular tab is guest-star-eligible.
+            // This narrowly permits only its stored selection; all other config
+            // mutations remain subject to capability and current attendance.
+            if target != "tabs.starred" {
+                if let Err(reason) =
+                    capability_admits(command, target, capability_from_headers(headers))
+                {
+                    return Err(api_error_signal(command, &reason));
+                }
             }
             run()
                 .map(|value| (mutation_status(&value), Json(value)))
