@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import json
 import os
 import re
 import subprocess
-import time
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -23,7 +21,6 @@ KEYMAN_EXPORTKEY = Path("/vault/keyman/exportkey.sh")
 KEYMAN_KEY = Path("/vault/.keys/caduceus_household.key")
 KEYMAN_EXCHANGE = Path("/mnt/keyexchange/caduceus_household")
 PROFILE_PATH = Path("/etc/caduceus/profile.yaml")
-DEFAULT_TTL_SECONDS = 60
 
 
 def _path(env: str, default: Path) -> Path:
@@ -56,7 +53,7 @@ def _write_profile_key(public_hex: str) -> None:
     capability_index = next((i for i, line in enumerate(lines) if line.strip() == "capability:" and not line.startswith((" ", "\t"))), None)
     if capability_index is None:
         insert_at = next((i for i, line in enumerate(lines) if line.startswith("mode:")), len(lines))
-        lines[insert_at:insert_at] = ["capability:", f"  household_verifying_key: {public_hex}", f"  default_ttl_seconds: {DEFAULT_TTL_SECONDS}"]
+        lines[insert_at:insert_at] = ["capability:", f"  household_verifying_key: {public_hex}"]
     else:
         end = capability_index + 1
         while end < len(lines) and (not lines[end].strip() or lines[end].startswith((" ", "\t"))):
@@ -66,8 +63,6 @@ def _write_profile_key(public_hex: str) -> None:
             lines.insert(capability_index + 1, f"  household_verifying_key: {public_hex}")
         else:
             lines[key_index] = f"  household_verifying_key: {public_hex}"
-        if not any(lines[i].lstrip().startswith("default_ttl_seconds:") for i in range(capability_index + 1, end)):
-            lines.insert(capability_index + 2, f"  default_ttl_seconds: {DEFAULT_TTL_SECONDS}")
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -137,23 +132,6 @@ def _parse_exported_seed(value: bytes) -> bytes:
     raise ValueError("caduceus-household-exported-seed-invalid")
 
 
-def _b64url(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
-
-
-def sign_capability(action: str, target: str, actor: str = "coronatio", ttl_seconds: int = DEFAULT_TTL_SECONDS) -> str:
-    if ttl_seconds <= 0:
-        raise ValueError("ttl_seconds must be positive")
-    ensure_signing_key()
-    seed = _read_exported_seed()
-    payload = json.dumps(
-        {"actor": actor, "action": action, "target": target, "exp": int(time.time()) + ttl_seconds},
-        separators=(",", ":"),
-    ).encode("utf-8")
-    signature = Ed25519PrivateKey.from_private_bytes(seed).sign(payload)
-    return f"{_b64url(payload)}.{_b64url(signature)}"
-
-
 def rotate_signing_key() -> dict[str, Any]:
     public_hex = _store_seed(_new_seed())
     return {"ok": True, "service": SERVICE_NAME, "changed": True, "rotated": True, "public_key": public_hex}
@@ -196,11 +174,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="caduceus-household-capability")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("ensure")
-    sign = commands.add_parser("sign")
-    sign.add_argument("--action", required=True)
-    sign.add_argument("--target", required=True)
-    sign.add_argument("--actor", default="coronatio")
-    sign.add_argument("--ttl-seconds", type=int, default=DEFAULT_TTL_SECONDS)
     commands.add_parser("rotate")
     commands.add_parser("status")
     commands.add_parser("skeleton-sha")
@@ -208,16 +181,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "skeleton-sha":
         print(json.dumps(skeleton_sha_receipt(), sort_keys=True))
         return 0
-    if args.command == "sign":
-        try:
-            token = sign_capability(args.action, args.target, args.actor, args.ttl_seconds)
-        except Exception as exc:
-            print(json.dumps({"ok": False, "firstMissingSignal": str(exc) or "caduceus-household-capability-sign-failed"}, sort_keys=True))
-            return 1
-        print(json.dumps({"ok": True, "capability": token, "firstMissingSignal": "none"}, sort_keys=True))
-    else:
-        result = {"ensure": ensure_signing_key, "rotate": rotate_signing_key, "status": status}[args.command]()
-        print(json.dumps(result, sort_keys=True))
+    result = {"ensure": ensure_signing_key, "rotate": rotate_signing_key, "status": status}[args.command]()
+    print(json.dumps(result, sort_keys=True))
     return 0
 
 
