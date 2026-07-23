@@ -79,9 +79,14 @@ def bind_derived() -> dict[str, Any]:
     return _project(fresh, operation="bind")
 
 
-def verify_derived(pin: str) -> dict[str, Any]:
-    """Verify a presented PIN against the currently bound Keyman truth."""
-    if _BOUND is None:
+def verify_derived(pin: str, expected_public_key: str | None = None) -> dict[str, Any]:
+    """Derive the presented PIN under root custody and compare only public verifier material.
+
+    The one-shot sudo launcher has no staff-memory continuity with startup bind;
+    the serving Rust process carries the public key and passes it back here.
+    """
+    expected = expected_public_key or (_BOUND.public_key_hex if _BOUND else None)
+    if not expected:
         return {
             "schema": "caduceus.staff.sacred-credential.v1",
             "ok": False,
@@ -102,10 +107,12 @@ def verify_derived(pin: str) -> dict[str, Any]:
             "firstMissingSignal": _unbound_signal(exc),
         }
     try:
-        verified = hmac.compare_digest(candidate.public_key_hex, _BOUND.public_key_hex)
+        verified = hmac.compare_digest(candidate.public_key_hex, expected)
         return {
-            **_project(_BOUND, operation="verify"),
+            "schema": "caduceus.staff.sacred-credential.v1",
             "ok": verified,
+            "operation": "verify",
+            "posture": "DERIVED_BOUND",
             "verified": verified,
             "firstMissingSignal": "none" if verified else "caduceus-staff-derived-key-mismatch",
         }
@@ -148,6 +155,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands.add_parser("bind")
     verify = commands.add_parser("verify")
     verify.add_argument("pin")
+    verify.add_argument("public_key")
     change = commands.add_parser("atomic-change-pin")
     change.add_argument("old_pin")
     change.add_argument("new_pin")
@@ -155,7 +163,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "bind":
         value = bind_derived()
     elif args.command == "verify":
-        value = verify_derived(args.pin)
+        value = verify_derived(args.pin, args.public_key)
     else:
         value = atomic_change_pin(args.old_pin, args.new_pin)
     print(json.dumps(value, sort_keys=True))

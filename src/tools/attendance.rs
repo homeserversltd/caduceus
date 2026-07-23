@@ -1,7 +1,11 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
+
+const BIND_LAUNCHER: &str = "/usr/local/sbin/caduceus-bind";
+const VERIFY_LAUNCHER: &str = "/usr/local/sbin/caduceus-verify";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Attendance {
@@ -9,9 +13,16 @@ struct Attendance {
     document_incarnation: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BoundVerifier {
+    public_key: String,
+    epoch: String,
+}
+
 #[derive(Default)]
 struct AttendanceState {
     current: HashMap<String, Attendance>,
+    verifier: Option<BoundVerifier>,
 }
 
 static STATE: OnceLock<Mutex<AttendanceState>> = OnceLock::new();
@@ -39,9 +50,65 @@ fn envelope(ok: bool, code: &'static str) -> Value {
     })
 }
 
+fn crossing(bin: &str, args: &[&str]) -> Result<Value, String> {
+    let output = Command::new("sudo")
+        .arg("-n")
+        .arg(bin)
+        .args(args)
+        .output()
+        .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
+    let value: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
+    if !output.status.success() || value.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err(value
+            .get("firstMissingSignal")
+            .and_then(Value::as_str)
+            .unwrap_or("caduceus-pin-not-yet-provisioned")
+            .to_string());
+    }
+    Ok(value)
+}
+
+/// Bind only public verifier material at process startup. Any unsuccessful crossing is UNBOUND.
+pub fn bind() {
+    let bound = crossing(BIND_LAUNCHER, &[]).ok().and_then(|value| {
+        let public_key = value.get("publicKey")?.as_str()?.to_string();
+        let epoch = match value.get("epoch")? {
+            Value::String(value) if !value.is_empty() => value.clone(),
+            Value::Number(value) => value.to_string(),
+            _ => return None,
+        };
+        if public_key.is_empty() { None } else { Some(BoundVerifier { public_key, epoch }) }
+    });
+    if let Ok(mut guard) = state().lock() {
+        guard.verifier = bound;
+    }
+}
+
+fn verifier() -> Result<BoundVerifier, String> {
+    state()
+        .lock()
+        .map_err(|_| "caduceus-attendance-unavailable".to_string())?
+        .verifier
+        .clone()
+        .ok_or_else(|| "caduceus-pin-not-yet-provisioned".to_string())
+}
+
+fn pin_verified(pin: &str, public_key: &str) -> bool {
+    crossing(VERIFY_LAUNCHER, &[pin, public_key])
+        .ok()
+        .and_then(|value| value.get("verified").and_then(Value::as_bool))
+        == Some(true)
+}
+
 pub fn open_json(body: &Value) -> Result<Value, String> {
     let document_id = text(body, "documentId")?;
     let document_incarnation = text(body, "documentIncarnation")?;
+    let pin = text(body, "pin")?;
+    let verifier = verifier()?;
+    if !pin_verified(&pin, &verifier.public_key) {
+        return Ok(envelope(false, "caduceus-attendance-pin-refused"));
+    }
     let mut guard = state().lock().map_err(|_| "caduceus-attendance-unavailable".to_string())?;
     let attendance = format!("attendance-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     guard.current.insert(
@@ -91,5 +158,8 @@ pub fn admits(attendance: &str, document_id: &str, document_incarnation: &str) -
 }
 
 pub fn reset_for_tests() {
-    if let Ok(mut guard) = state().lock() { guard.current.clear(); }
+    if let Ok(mut guard) = state().lock() {
+        guard.current.clear();
+        guard.verifier = None;
+    }
 }
