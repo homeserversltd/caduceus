@@ -1,4 +1,3 @@
-import json
 import unittest
 from pathlib import Path
 
@@ -7,17 +6,15 @@ STAFF = ROOT / "data/staff-actuators"
 
 
 class StaffActuatorDataTests(unittest.TestCase):
-    def test_bind_derived_keeps_ordered_digest_child(self):
-        band = STAFF / "caduceus_staff/household_capability"
-        metadata = json.loads((band / "index.json").read_text())
-        self.assertEqual(metadata["children"], ["skeleton-sha"])
-        self.assertTrue((band / "skeleton_sha/index.py").is_file())
+    def test_sacred_credential_is_the_only_pin_authority_module(self):
+        module = STAFF / "caduceus_staff/sacred_credential.py"
+        self.assertTrue(module.is_file())
+        self.assertFalse((STAFF / "caduceus_staff/household_capability").exists())
+        self.assertFalse((STAFF / "caduceus-skeleton-sha").exists())
 
-    def test_digest_helper_is_fixed_path_and_zero_argument(self):
-        helper = (STAFF / "caduceus-skeleton-sha").read_text()
-        self.assertIn('[ "$#" -eq 0 ]', helper)
-        self.assertIn("/root/key/skeleton.key", helper)
-        self.assertNotIn('"$1"', helper)
+    def test_legacy_capability_launchers_are_absent(self):
+        self.assertFalse((STAFF / "caduceus-keyman-sign-capability").exists())
+        self.assertFalse((STAFF / "caduceus-keyman-rotate-capability").exists())
 
 
 if __name__ == "__main__":
