@@ -1,4 +1,4 @@
-pub mod access;
+pub mod attendance;
 pub mod command;
 pub mod config;
 pub mod harmonia;
