@@ -916,3 +916,51 @@ fn config_mutation_refuses_missing_and_mismatched_tokens() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn config_write_refuses_missing_homeserver_install_without_touching_legacy() {
+    let root = std::env::temp_dir().join(format!(
+        "caduceus-config-homeserver-missing-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+    std::fs::create_dir_all(root.join("var/www/homeserver/src/config")).unwrap();
+    std::fs::copy(
+        "tests/fixtures/homeserver/etc/caduceus/profile.yaml",
+        root.join("etc/caduceus/profile.yaml"),
+    )
+    .unwrap();
+    std::fs::copy(
+        "tests/fixtures/homeserver/etc/caduceus/identity.json",
+        root.join("etc/caduceus/identity.json"),
+    )
+    .unwrap();
+    let legacy = root.join("var/www/homeserver/src/config/homeserver.json");
+    std::fs::copy(
+        "tests/fixtures/homeserver/var/www/homeserver/src/config/homeserver.json",
+        &legacy,
+    )
+    .unwrap();
+    let legacy_before = std::fs::read_to_string(&legacy).unwrap();
+
+    let set = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args([
+            "config",
+            "set",
+            "display.theme",
+            "\"light\"",
+            "--capability",
+            &capability("config set", "display.theme", 60),
+        ])
+        .output()
+        .unwrap();
+    assert!(!set.status.success());
+    assert!(String::from_utf8(set.stderr)
+        .unwrap()
+        .contains("caduceus-household-config-installed-path-missing"));
+    assert_eq!(std::fs::read_to_string(legacy).unwrap(), legacy_before);
+    assert!(!root.join("etc/homeserver/config.json").exists());
+    let _ = std::fs::remove_dir_all(root);
+}
