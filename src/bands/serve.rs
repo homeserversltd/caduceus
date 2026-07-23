@@ -1232,6 +1232,7 @@ pub async fn run_async() -> i32 {
         }
     };
 
+    attendance::bind();
     let app = router();
 
     let listener = match TcpListener::bind(addr).await {
