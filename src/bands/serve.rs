@@ -1,5 +1,5 @@
 use crate::bands::{
-    cert, config, dhcp, dns, gui, health, homeserver_sbin, hyalos, identity, legacy_sbin, local_ai,
+    actions, cert, config, dhcp, dns, gui, health, homeserver_sbin, hyalos, identity, legacy_sbin, local_ai,
     network, pjlink, profile, profile_module, receipts, staff, sync, update,
 };
 use crate::tools::{attendance, policy};
@@ -232,28 +232,25 @@ async fn attendance_route(
 }
 
 async fn admin_action_admission_route(
-    headers: HeaderMap,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    let action = body
-        .get("action")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty() && value.len() <= 512)
-        .ok_or_else(|| api_error_signal("admin action", "caduceus-admin-action-malformed"))?;
-    let target = body
-        .get("target")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty() && value.len() <= 1024)
-        .ok_or_else(|| api_error_signal("admin action", "caduceus-admin-action-malformed"))?;
-    attendance_admits(target, capability_from_headers(&headers))
-        .map_err(|signal| api_error_signal("admin action", &signal))?;
-    Ok(Json(serde_json::json!({
-        "schema": "caduceus.admin.action-admission.v1",
-        "ok": true,
-        "code": "none",
-        "action": action,
-        "target": target,
-    })))
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let action = body.get("action").and_then(Value::as_str).and_then(actions::by_id).or_else(|| {
+        body.get("method").and_then(Value::as_str)
+            .zip(body.get("route").and_then(Value::as_str))
+            .and_then(|(method, route)| actions::by_legacy(method, route))
+    }).ok_or_else(|| api_error_signal("admin action", "caduceus-action-unmapped"))?;
+    Ok((StatusCode::NOT_IMPLEMENTED, Json(actions::unavailable_receipt(action, "legacy-admin-action"))))
+}
+
+async fn registered_service_action_route(
+    Json(body): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    if body != serde_json::json!({}) {
+        return Err(api_error_signal("service restart coronatio", "caduceus-action-request-malformed"));
+    }
+    let action = actions::by_http("POST", "/api/v1/service/coronatio/restart")
+        .ok_or_else(|| api_error_signal("service restart coronatio", "caduceus-action-unmapped"))?;
+    Ok((StatusCode::NOT_IMPLEMENTED, Json(actions::unavailable_receipt(action, "http"))))
 }
 
 async fn identity_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -449,15 +446,7 @@ async fn staff_intent_route(
                 body.metadata,
             ) {
                 Ok(value) => Ok((StatusCode::ACCEPTED, Json(value))),
-                Err(err) => Err((
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Json(ApiErrorBody {
-                        schema: "caduceus.api.error.v1",
-                        ok: false,
-                        command: "staff intent".to_string(),
-                        first_missing_signal: missing_signal(&err).to_string(),
-                    }),
-                )),
+                Err(err) => Err(api_error_signal("staff intent", &err)),
             }
         }
         Ok(false) => Err(api_error("staff intent")),
@@ -1143,6 +1132,7 @@ pub fn router() -> Router {
         .route("/api/v1/attendance/validate", post(attendance_route))
         .route("/api/v1/attendance/invalidate", post(attendance_route))
         .route("/api/v1/admin/action", post(admin_action_admission_route))
+        .route("/api/v1/service/coronatio/restart", post(registered_service_action_route))
         .layer(DefaultBodyLimit::max(8192));
     Router::new()
         .merge(attendance_routes)

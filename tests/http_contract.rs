@@ -656,7 +656,7 @@ async fn locked_profile_rejects_staff_actuators() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn homeserver_staff_intent_route_accepts_coronatio_button_intent() {
+async fn homeserver_staff_intent_route_refuses_unmapped_coronatio_button_intent() {
     let _guard = use_fixture("tests/fixtures/homeserver");
     let app = serve::router();
     let response = app
@@ -673,11 +673,9 @@ async fn homeserver_staff_intent_route_accepts_coronatio_button_intent() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let json = body_json(response).await;
-    assert_eq!(json["schema"], "caduceus.staff.intent.v1");
-    assert_eq!(json["route"], "/api/admin/system/restart");
-    assert_eq!(json["execution"], "queued-behind-typed-actuator");
+    assert_eq!(json["firstMissingSignal"], "caduceus-action-unmapped");
 }
 
 #[tokio::test(flavor = "current_thread")]
