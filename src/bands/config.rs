@@ -9,7 +9,13 @@ use chrono::Utc;
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+
+/// All household configuration documents are owner-writable and readable only
+/// by the service group. This is asserted after every write, not delegated to
+/// the process umask or directory defaults.
+const OWNED_FILE_MODE: u32 = 0o640;
 
 #[derive(Debug, Clone)]
 struct Resolved {
@@ -240,6 +246,17 @@ fn set_dotted(document: &mut Value, path: &str, value: Value) -> Result<(), Stri
     Ok(())
 }
 
+/// Write a file created by this process with its declared, least-permissive
+/// mode. Creation gives the file this process's uid/gid; explicitly setting
+/// the mode makes the final policy independent of the ambient umask.
+fn write_owned_file(path: &Path, bytes: &[u8], mode: u32) -> Result<(), String> {
+    let mut file = fs::File::create(path).map_err(|err| err.to_string())?;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).map_err(|err| err.to_string())?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|err| err.to_string())
+}
+
 fn mutate(op: &str, target: &str, update: Value) -> Result<Value, String> {
     let resolved = resolve_write()?;
     let mut document = read_document(&resolved)?;
@@ -290,12 +307,8 @@ fn mutate(op: &str, target: &str, update: Value) -> Result<Value, String> {
     let mut rendered = serde_json::to_vec_pretty(&document)
         .map_err(|_| "caduceus-household-config-render-failed".to_string())?;
     rendered.push(b'\n');
-    let mut file =
-        fs::File::create(&tmp).map_err(|_| "caduceus-household-config-write-failed".to_string())?;
-    file.write_all(&rendered)
-        .and_then(|()| file.sync_all())
+    write_owned_file(&tmp, &rendered, OWNED_FILE_MODE)
         .map_err(|_| "caduceus-household-config-write-failed".to_string())?;
-    drop(file);
     fs::rename(&tmp, &resolved.fs_path)
         .map_err(|_| "caduceus-household-config-write-failed".to_string())?;
     let receipt = json!({
