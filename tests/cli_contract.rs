@@ -1,6 +1,7 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ed25519_dalek::{Signer, SigningKey};
+use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -744,6 +745,43 @@ fn config_set_roundtrip_writes_backup_and_public_safe_receipt() {
     assert!(get.status.success());
     let json: serde_json::Value = serde_json::from_slice(&get.stdout).unwrap();
     assert_eq!(json["value"], "light");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn config_set_asserts_declared_file_mode_despite_child_umask() {
+    let root = config_temp_root("cli-mode");
+    let config = root.join("etc/tv/config.json");
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let before = std::fs::metadata(&config).unwrap().permissions().mode() & 0o777;
+    assert_eq!(before, 0o600);
+
+    let capability = capability("config set", "display.theme", 60);
+    let output = Command::new("sh")
+        .env("CADUCEUS_ROOT", &root)
+        .args([
+            "-c",
+            "umask 077; exec \"$@\"",
+            "caduceus-umask",
+            bin(),
+            "config",
+            "set",
+            "display.theme",
+            "\"light\"",
+            "--capability",
+            &capability,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let after = std::fs::metadata(&config).unwrap().permissions().mode() & 0o777;
+    assert_eq!(after, 0o640, "mutate must override the child umask");
+    eprintln!("config mode transition under umask 077: {before:04o} -> {after:04o}");
     let _ = std::fs::remove_dir_all(root);
 }
 
