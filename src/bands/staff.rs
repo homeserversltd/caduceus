@@ -3,7 +3,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::bands::{dhcp, dns};
+use crate::bands::{actions, dhcp, dns};
 use crate::tools::{config, hyalos};
 
 const PROFILE: &str = include_str!("../../data/staff-actuators/profile.json");
@@ -133,6 +133,11 @@ pub fn intent_json(
     classification: Option<&str>,
     metadata: Option<Value>,
 ) -> Result<Value, String> {
+    if route.starts_with("/api/admin/") {
+        let action = actions::by_legacy(method, route)
+            .ok_or_else(|| "caduceus-action-unmapped".to_string())?;
+        return Ok(actions::unavailable_receipt(action, "legacy-staff-intent"));
+    }
     let profile = profile_json()?;
     let actuator_count = profile
         .get("actuators")

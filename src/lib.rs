@@ -3,7 +3,7 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    cert, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos, identity, legacy_sbin,
+    actions, cert, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos, identity, legacy_sbin,
     local_ai, network, pjlink, profile, profile_module, receipts, serve, staff, sync, update,
 };
 
@@ -153,6 +153,9 @@ where
             }
         }
         [domain] if domain == "serve" => serve::run(),
+        [domain, verb, target] if domain == "service" && verb == "restart" => {
+            actions::command(&vec![domain.clone(), verb.clone(), target.clone()])
+        }
         [domain, rest @ ..] if domain == "hyalos" => hyalos::command(rest),
         [domain, verb] if domain == "legacy-sbin" && verb == "list" => legacy_sbin::list(),
         [domain, verb] if domain == "homeserver-sbin" && verb == "list" => homeserver_sbin::list(),
@@ -437,6 +440,7 @@ fn print_help() {
     println!("  caduceus network status");
     println!("  caduceus network dhcp <status|leases|reservations|reload|...>");
     println!("  caduceus network dns <status|intent ...> [--capability TOKEN]");
+    println!("  caduceus service restart coronatio");
     println!("  caduceus pjlink devices");
     println!("  caduceus pjlink scan <device-id> [--dry-run]");
     println!("  caduceus pjlink known-products");
