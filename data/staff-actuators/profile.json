@@ -11,6 +11,19 @@
   },
   "actuators": [
     {
+      "id": "profile-sources-reseed",
+      "family": "identity",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-profile-sources-reseed",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/source_map.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.profile.sources.reseed.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Consumes the fixed Harmonia-managed completed source map and atomically splices only the sources member of /etc/profile.json.",
+      "pythonModule": "caduceus_staff.source_map"
+    },
+    {
       "id": "network-dhcp",
       "family": "network",
       "actuatorClass": "staff-python",
