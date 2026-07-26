@@ -4,7 +4,7 @@ pub mod tools;
 use crate::tools::policy;
 use bands::{
     actions, cert, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos, identity, legacy_sbin,
-    local_ai, network, pjlink, profile, profile_module, receipts, serve, staff, sync, update,
+    local_ai, network, pjlink, profile, profile_module, receipts, serve, source_map, staff, sync, update,
 };
 
 pub fn run<I, S>(args: I) -> i32
@@ -25,6 +25,18 @@ where
         [domain] if domain == "help" => help::show(),
         [domain, verb] if domain == "identity" && verb == "show" => identity::show(),
         [domain, verb] if domain == "profile" && verb == "show" => profile::show(),
+        [domain, object, verb, rest @ ..]
+            if domain == "profile" && object == "sources" && verb == "reseed" =>
+        {
+            match require_capability(source_map::public_command(), source_map::target(), rest) {
+                Ok(filtered) if filtered.is_empty() => source_map::command(),
+                Ok(_) => {
+                    eprintln!("caduceus-source-map-reseed-arguments-forbidden");
+                    2
+                }
+                Err(code) => code,
+            }
+        }
         [domain] if domain == "health" => health::show(),
         [domain, verb] if domain == "cert" && verb == "status" => {
             cert_command("cert status", cert::status)
@@ -424,6 +436,7 @@ fn print_help() {
     println!("  caduceus help");
     println!("  caduceus identity show");
     println!("  caduceus profile show");
+    println!("  caduceus profile sources reseed [--capability TOKEN]");
     println!("  caduceus health");
     println!("  caduceus cert status");
     println!("  caduceus cert issue-leaf [identity] [--sans h1,h2] [--ips a,b] [--dry-run]");

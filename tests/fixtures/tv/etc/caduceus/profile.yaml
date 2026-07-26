@@ -28,6 +28,7 @@ commands:
 - config get
 - config set
 - config patch
+- profile sources reseed
 services:
   update:
     timer: harmonia-tv.timer

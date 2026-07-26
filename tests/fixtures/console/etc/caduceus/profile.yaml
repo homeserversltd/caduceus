@@ -37,6 +37,7 @@ commands:
 - config get
 - config set
 - config patch
+- profile sources reseed
 services:
   ledger: /var/lib/harmonia/receipts/homeconsole-ledger.jsonl
   update:

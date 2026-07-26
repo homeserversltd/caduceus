@@ -1,7 +1,7 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ed25519_dalek::{Signer, SigningKey};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -324,7 +324,8 @@ fn staff_actuators_list_backblaze_and_calibre_python_lanes() {
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("schema=caduceus.staff.actuators.v1"));
-    assert!(text.contains("count=9"));
+    assert!(text.contains("count=10"));
+    assert!(text.contains("profile-sources-reseed"));
     assert!(text.contains("actuator=network-dhcp"));
     assert!(text.contains("actuator=network-dns"));
 
@@ -1000,4 +1001,69 @@ fn config_write_refuses_missing_homeserver_install_without_touching_legacy() {
     assert_eq!(std::fs::read_to_string(legacy).unwrap(), legacy_before);
     assert!(!root.join("etc/homeserver/config.json").exists());
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn profile_sources_reseed_crosses_public_cli_launcher_staff_and_is_idempotent() {
+    let root = std::env::temp_dir().join(format!(
+        "caduceus-source-map-public-crossing-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+    std::fs::copy(
+        "tests/fixtures/tv/etc/caduceus/profile.yaml",
+        root.join("etc/caduceus/profile.yaml"),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("etc/profile.json"),
+        r#"{
+  "schema": "homeserver.device-profile.v1",
+  "birth_provenance": {"born":"fixture"},
+  "hardware": {"serial":"abc"},
+  "kernel": {"profile":"tv"},
+  "profile": "tv"
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("etc/caduceus/source-map.json"),
+        r#"{"caduceus":{"ref":"main","candidates":[{"kind":"git","url":"git@git.home.arpa:HOMESERVERSLTD/caduceus.git"}]}}"#,
+    )
+    .unwrap();
+    let worktree = std::env::current_dir().unwrap();
+    let launcher = worktree.join("data/staff-actuators/caduceus-profile-sources-reseed");
+    let staff = worktree.join("data/staff-actuators");
+    let token = capability("profile sources reseed", "profile-sources", 60);
+    let run = || {
+        Command::new("sudo")
+            .args(["-n", "env"])
+            .arg(format!("CADUCEUS_ROOT={}", root.display()))
+            .arg(format!("CADUCEUS_PROFILE_SOURCES_RESEED_CMD={}", launcher.display()))
+            .arg("CADUCEUS_STAFF_PYTHON=/usr/bin/python3")
+            .arg(format!("PYTHONPATH={}", staff.display()))
+            .arg(bin())
+            .args(["profile", "sources", "reseed", "--capability", &token])
+            .output()
+            .unwrap()
+    };
+    let first = run();
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    let first_receipt: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
+    assert_eq!(first_receipt["ok"], true);
+    assert_eq!(first_receipt["changed"], true);
+    let certificate = std::fs::read(root.join("etc/profile.json")).unwrap();
+    assert!(String::from_utf8_lossy(&certificate).contains("\"sources\""));
+    let metadata = std::fs::metadata(root.join("etc/profile.json")).unwrap();
+    assert_eq!(metadata.permissions().mode() & 0o777, 0o444);
+    assert_eq!(metadata.uid(), 0);
+    assert_eq!(metadata.gid(), 0);
+    let second = run();
+    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    let second_receipt: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(second_receipt["changed"], false);
+    assert_eq!(certificate, std::fs::read(root.join("etc/profile.json")).unwrap());
+    let _ = Command::new("sudo").args(["-n", "rm", "-rf"]).arg(&root).status();
 }

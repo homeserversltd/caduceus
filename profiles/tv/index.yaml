@@ -23,6 +23,7 @@ commands:
 - config get
 - config set
 - config patch
+- profile sources reseed
 pjlink:
   catalog_path: var/lib/caduceus/pjlink-known-products.jsonl
   devices:
