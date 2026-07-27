@@ -163,6 +163,45 @@
       "conversionStatus": "sbin-library-admitted",
       "notes": "Calibre watch loop moves into staff Python with explicit status/receipt posture.",
       "pythonModule": "caduceus_staff.runner:calibre-watch"
+    },
+    {
+      "id": "household-time-resolve",
+      "family": "household_time",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-household-time",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/household_time.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.household-time.receipt.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Generic no-key public-IP geoIP resolver; only validated timezone provenance is persisted.",
+      "pythonModule": "caduceus_staff.household_time"
+    },
+    {
+      "id": "household-time-ensure-ntp",
+      "family": "household_time",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-household-time",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/household_time.py#ensure_ntp",
+      "dependencies": [],
+      "receiptFamily": "caduceus.household-time.receipt.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Detects, enables, and proves the installed synchronization provider through timedatectl readback.",
+      "pythonModule": "caduceus_staff.household_time"
+    },
+    {
+      "id": "household-time-set-timezone",
+      "family": "household_time",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-household-time",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/household_time.py#set_timezone",
+      "dependencies": [],
+      "receiptFamily": "caduceus.household-time.receipt.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Validates installed IANA zones, debounces changes, and proves timedatectl readback.",
+      "pythonModule": "caduceus_staff.household_time"
     }
   ]
 }
