@@ -1,6 +1,7 @@
 use crate::bands::{
-    actions, cert, config, dhcp, dns, gui, health, homeserver_sbin, hyalos, identity, legacy_sbin, local_ai,
-    network, pjlink, profile, profile_module, receipts, source_map, staff, sync, update,
+    actions, cert, config, dhcp, dns, gui, health, homeserver_sbin, hyalos, identity, legacy_sbin,
+    local_ai, network, pjlink, profile, profile_module, receipts, source_map, staff, sync, time,
+    update,
 };
 use crate::tools::{attendance, policy};
 use axum::{
@@ -182,9 +183,16 @@ async fn gated_mutation(
 
 /// Administrative mutations are admitted only by a currently open document attendance.
 fn attendance_admits(target: &str, token: Option<&str>) -> Result<(), String> {
-    let token = token.filter(|value| !value.trim().is_empty()).ok_or_else(|| "caduceus-attendance-not-current".to_string())?;
-    let incarnation = env::var("CADUCEUS_DOCUMENT_INCARNATION").map_err(|_| "caduceus-document-incarnation-missing".to_string())?;
-    if attendance::admits(token, target, &incarnation) { Ok(()) } else { Err("caduceus-attendance-not-current".to_string()) }
+    let token = token
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "caduceus-attendance-not-current".to_string())?;
+    let incarnation = env::var("CADUCEUS_DOCUMENT_INCARNATION")
+        .map_err(|_| "caduceus-document-incarnation-missing".to_string())?;
+    if attendance::admits(token, target, &incarnation) {
+        Ok(())
+    } else {
+        Err("caduceus-attendance-not-current".to_string())
+    }
 }
 
 fn capability_from_headers(headers: &HeaderMap) -> Option<&str> {
@@ -192,14 +200,20 @@ fn capability_from_headers(headers: &HeaderMap) -> Option<&str> {
         .get("x-caduceus-attendance")
         .or_else(|| headers.get("x-caduceus-capability"))
         .and_then(|value| value.to_str().ok())
-        .or_else(|| headers.get("authorization").and_then(|value| value.to_str().ok()).and_then(|value| value.strip_prefix("Bearer ")))
+        .or_else(|| {
+            headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Bearer "))
+        })
 }
 
 fn capability_admits(command: &str, target: &str, token: Option<&str>) -> Result<(), String> {
     if env::var_os("CADUCEUS_DOCUMENT_INCARNATION").is_some() {
         attendance_admits(target, token).map_err(|_| "caduceus-attendance-not-current".to_string())
     } else {
-        policy::capability_admits(command, target, token).map_err(|reason| reason.signal().to_string())
+        policy::capability_admits(command, target, token)
+            .map_err(|reason| reason.signal().to_string())
     }
 }
 
@@ -226,7 +240,13 @@ async fn attendance_route(
     }));
     match result {
         Ok(value) if value.get("ok").and_then(Value::as_bool) == Some(true) => Ok(Json(value)),
-        Ok(value) => Err(api_error_signal("attendance", value.get("code").and_then(Value::as_str).unwrap_or("caduceus-attendance-refused"))),
+        Ok(value) => Err(api_error_signal(
+            "attendance",
+            value
+                .get("code")
+                .and_then(Value::as_str)
+                .unwrap_or("caduceus-attendance-refused"),
+        )),
         Err(signal) => Err(api_error_signal("attendance", &signal)),
     }
 }
@@ -234,23 +254,38 @@ async fn attendance_route(
 async fn admin_action_admission_route(
     Json(body): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    let action = body.get("action").and_then(Value::as_str).and_then(actions::by_id).or_else(|| {
-        body.get("method").and_then(Value::as_str)
-            .zip(body.get("route").and_then(Value::as_str))
-            .and_then(|(method, route)| actions::by_legacy(method, route))
-    }).ok_or_else(|| api_error_signal("admin action", "caduceus-action-unmapped"))?;
-    Ok((StatusCode::NOT_IMPLEMENTED, Json(actions::unavailable_receipt(action, "legacy-admin-action"))))
+    let action = body
+        .get("action")
+        .and_then(Value::as_str)
+        .and_then(actions::by_id)
+        .or_else(|| {
+            body.get("method")
+                .and_then(Value::as_str)
+                .zip(body.get("route").and_then(Value::as_str))
+                .and_then(|(method, route)| actions::by_legacy(method, route))
+        })
+        .ok_or_else(|| api_error_signal("admin action", "caduceus-action-unmapped"))?;
+    Ok((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(actions::unavailable_receipt(action, "legacy-admin-action")),
+    ))
 }
 
 async fn registered_service_action_route(
     Json(body): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     if body != serde_json::json!({}) {
-        return Err(api_error_signal("service restart coronatio", "caduceus-action-request-malformed"));
+        return Err(api_error_signal(
+            "service restart coronatio",
+            "caduceus-action-request-malformed",
+        ));
     }
     let action = actions::by_http("POST", "/api/v1/service/coronatio/restart")
         .ok_or_else(|| api_error_signal("service restart coronatio", "caduceus-action-unmapped"))?;
-    Ok((StatusCode::NOT_IMPLEMENTED, Json(actions::unavailable_receipt(action, "http"))))
+    Ok((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(actions::unavailable_receipt(action, "http")),
+    ))
 }
 
 async fn identity_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -275,12 +310,16 @@ async fn profile_sources_reseed_route(
         source_map::public_command(),
         source_map::target(),
         capability_from_headers(&headers),
-        || source_map::reseed_json().unwrap_or_else(|signal| serde_json::json!({
-            "schema": "caduceus.profile.sources.reseed.v1",
-            "ok": false,
-            "changed": false,
-            "firstMissingSignal": signal,
-        })),
+        || {
+            source_map::reseed_json().unwrap_or_else(|signal| {
+                serde_json::json!({
+                    "schema": "caduceus.profile.sources.reseed.v1",
+                    "ok": false,
+                    "changed": false,
+                    "firstMissingSignal": signal,
+                })
+            })
+        },
     )
     .await
 }
@@ -620,6 +659,19 @@ async fn network_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErro
 
 async fn dhcp_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("network dhcp status", dhcp::status_json).await
+}
+
+async fn time_state_route(
+    connect_info: Option<ConnectInfo<SocketAddr>>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    let lan_peer = connect_info.is_some_and(|ConnectInfo(peer)| match peer.ip() {
+        std::net::IpAddr::V4(ip) => ip.is_private() || ip.is_loopback(),
+        std::net::IpAddr::V6(ip) => ip.is_loopback() || ip.is_unique_local(),
+    });
+    if !lan_peer {
+        return Err(api_error_signal("time state", "caduceus-time-lan-only"));
+    }
+    gated_json("time state", time::state_json).await
 }
 
 async fn network_dns_route(
@@ -1156,14 +1208,20 @@ pub fn router() -> Router {
         .route("/api/v1/attendance/validate", post(attendance_route))
         .route("/api/v1/attendance/invalidate", post(attendance_route))
         .route("/api/v1/admin/action", post(admin_action_admission_route))
-        .route("/api/v1/service/coronatio/restart", post(registered_service_action_route))
+        .route(
+            "/api/v1/service/coronatio/restart",
+            post(registered_service_action_route),
+        )
         .layer(DefaultBodyLimit::max(8192));
     Router::new()
         .merge(attendance_routes)
         .route("/health", get(health_route))
         .route("/api/v1/identity", get(identity_route))
         .route("/api/v1/profile", get(profile_route))
-        .route("/api/v1/profile/sources/reseed", post(profile_sources_reseed_route))
+        .route(
+            "/api/v1/profile/sources/reseed",
+            post(profile_sources_reseed_route),
+        )
         .route("/api/v1/health", get(health_api_route))
         .route("/api/v1/legacy-sbin", get(legacy_sbin_list_route))
         .route("/api/v1/legacy-sbin/show", get(legacy_sbin_show_route))
@@ -1180,6 +1238,7 @@ pub fn router() -> Router {
         .route("/api/v1/update/status", get(update_status_route))
         .route("/api/v1/network/status", get(network_status_route))
         .route("/api/v1/network/dhcp/status", get(dhcp_status_route))
+        .route("/api/v1/time/state", get(time_state_route))
         .route("/api/v1/network/dns", post(network_dns_route))
         .route("/api/v1/cert/status", get(cert_status_route))
         .route("/api/v1/cert/issue-leaf", post(cert_issue_leaf_route))

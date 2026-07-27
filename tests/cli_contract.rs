@@ -324,7 +324,7 @@ fn staff_actuators_list_backblaze_and_calibre_python_lanes() {
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("schema=caduceus.staff.actuators.v1"));
-    assert!(text.contains("count=10"));
+    assert!(text.contains("count=13"));
     assert!(text.contains("profile-sources-reseed"));
     assert!(text.contains("actuator=network-dhcp"));
     assert!(text.contains("actuator=network-dns"));

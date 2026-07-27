@@ -3,8 +3,9 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    actions, cert, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos, identity, legacy_sbin,
-    local_ai, network, pjlink, profile, profile_module, receipts, serve, source_map, staff, sync, update,
+    actions, cert, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos, identity,
+    legacy_sbin, local_ai, network, pjlink, profile, profile_module, receipts, serve, source_map,
+    staff, sync, time, update,
 };
 
 pub fn run<I, S>(args: I) -> i32
@@ -188,6 +189,20 @@ where
                     Err(code) => code,
                 }
             }
+        }
+        [domain, verb] if domain == "time" && verb == "state" => {
+            time_command("time state", || time::command(&["state".into()]))
+        }
+        [domain, verb] if domain == "time" && verb == "resolve" => {
+            time_command("time resolve", || time::command(&["resolve".into()]))
+        }
+        [domain, verb] if domain == "time" && verb == "ensure-ntp" => {
+            time_command("time ensure-ntp", || time::command(&["ensure-ntp".into()]))
+        }
+        [domain, verb, timezone] if domain == "time" && verb == "set-timezone" => {
+            time_command("time set-timezone", || {
+                time::command(&["set-timezone".into(), timezone.clone()])
+            })
         }
         [domain, verb] if domain == "pjlink" && verb == "devices" => pjlink::devices(),
         [domain, verb] if domain == "pjlink" && verb == "known-products" => {
@@ -378,6 +393,20 @@ fn parse_json_value(text: &str) -> serde_json::Value {
 }
 
 fn cert_command<F: FnOnce() -> i32>(command: &str, run: F) -> i32 {
+    match policy::allows_command(command) {
+        Ok(true) => run(),
+        Ok(false) => {
+            eprintln!("caduceus-public-action-not-allowed");
+            2
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            2
+        }
+    }
+}
+
+fn time_command<F: FnOnce() -> i32>(command: &str, run: F) -> i32 {
     match policy::allows_command(command) {
         Ok(true) => run(),
         Ok(false) => {

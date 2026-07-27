@@ -20,4 +20,5 @@ pub mod serve;
 pub mod source_map;
 pub mod staff;
 pub mod sync;
+pub mod time;
 pub mod update;
