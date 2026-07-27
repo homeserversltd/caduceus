@@ -5,6 +5,7 @@
 //! likewise profile-gated, but this slice adds no appliance admission entries.
 
 use serde_json::{json, Value};
+use std::os::unix::fs::PermissionsExt;
 use std::{env, process::Command};
 
 fn time_cmd() -> (String, Vec<String>) {
@@ -13,6 +14,13 @@ fn time_cmd() -> (String, Vec<String>) {
         if let Some((program, prefix)) = parts.split_first() {
             return (program.clone(), prefix.to_vec());
         }
+    }
+    const SYSTEM_LAUNCHER: &str = "/usr/local/sbin/caduceus-household-time";
+    if std::fs::metadata(SYSTEM_LAUNCHER)
+        .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+    {
+        return (SYSTEM_LAUNCHER.into(), vec![]);
     }
     if Command::new("sh")
         .args(["-c", "command -v caduceus-household-time >/dev/null 2>&1"])
@@ -77,7 +85,6 @@ pub fn command(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn delegates_to_named_launcher_without_time_mutation_in_rust() {
