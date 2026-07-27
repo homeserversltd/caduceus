@@ -18,8 +18,8 @@ from urllib.request import Request, urlopen
 
 SCHEMA = "caduceus.household-time.state.v1"
 RECEIPT_SCHEMA = "caduceus.household-time.receipt.v1"
-PROVIDER = "ipapi.co"
-PROVIDER_URL = "https://ipapi.co/json/"
+PROVIDER = "ip-api.com"
+PROVIDER_URL = "http://ip-api.com/json/"
 DEFAULT_TTL_SECONDS = 24 * 60 * 60
 DEFAULT_HOLD_SECONDS = 24 * 60 * 60
 MAX_HOLD_SECONDS = 7 * 24 * 60 * 60
@@ -139,7 +139,7 @@ def resolve() -> dict[str, Any]:
         headers={"Accept": "application/json", "User-Agent": "caduceus-household-time/1"},
     )
     try:
-        with urlopen(request, timeout=8) as response:  # nosec B310: fixed HTTPS provider by default
+        with urlopen(request, timeout=8) as response:  # nosec B310: fixed provider has no free HTTPS endpoint
             payload = json.loads(response.read().decode("utf-8"))
         timezone = validated_timezone(payload.get("timezone"))
     except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -227,13 +227,10 @@ def ensure_ntp() -> dict[str, Any]:
     ]
     candidates: list[tuple[str, str, bool]] = []
     for name, unit in providers:
-        enabled = _run([systemctl(), "is-enabled", unit])
-        active = _run([systemctl(), "is-active", unit])
-        installed = enabled.returncode == 0 or active.returncode == 0
-        candidates.append((name, unit, installed and enabled.returncode == 0))
+        listed = _run([systemctl(), "list-unit-files", unit, "--no-legend", "--no-pager"])
+        present = any(line.split(maxsplit=1)[0] == unit for line in listed.stdout.splitlines() if line.split())
+        candidates.append((name, unit, present))
     selected = next((item for item in candidates if item[2]), None)
-    if selected is None:
-        selected = next(((name, unit, False) for name, unit, _ in candidates if _run([systemctl(), "status", unit]).returncode == 0), None)
     if selected is None:
         return receipt("ensure-ntp", ok=False, changed=False,
                        first_missing_signal="caduceus-household-time-ntp-provider-missing", providers=[name for name, _, _ in candidates])
