@@ -97,6 +97,7 @@ def atomic_write(value: dict[str, Any]) -> None:
             json.dump(value, stream, indent=2, sort_keys=True)
             stream.write("\n")
             stream.flush()
+            os.fchmod(stream.fileno(), 0o644)
             os.fsync(stream.fileno())
         os.replace(temporary, path)
         directory_fd = os.open(path.parent, os.O_DIRECTORY)
