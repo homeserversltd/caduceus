@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import hmac
 import json
+import sys
 from typing import Any, Sequence
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -153,19 +154,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="caduceus-sacred-credential")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("bind")
-    verify = commands.add_parser("verify")
-    verify.add_argument("pin")
-    verify.add_argument("public_key")
-    change = commands.add_parser("atomic-change-pin")
-    change.add_argument("old_pin")
-    change.add_argument("new_pin")
+    commands.add_parser("verify")
+    commands.add_parser("atomic-change-pin")
     args = parser.parse_args(argv)
     if args.command == "bind":
         value = bind_derived()
     elif args.command == "verify":
-        value = verify_derived(args.pin, args.public_key)
+        payload = json.load(sys.stdin)
+        value = verify_derived(payload["pin"], payload["publicKey"])
     else:
-        value = atomic_change_pin(args.old_pin, args.new_pin)
+        payload = json.load(sys.stdin)
+        value = atomic_change_pin(payload["oldPin"], payload["newPin"])
     print(json.dumps(value, sort_keys=True))
     return 0 if value.get("ok") else 1
 

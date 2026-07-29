@@ -19,7 +19,7 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
     let root = std::env::temp_dir().join(format!("caduceus-attendance-{}", std::process::id()));
     let bin = root.join("bin"); fs::create_dir_all(&bin).unwrap();
     let sudo = bin.join("sudo");
-    fs::write(&sudo, "#!/bin/sh\n[ \"$1\" = -n ] || exit 9\ncase \"$2\" in\n/usr/local/sbin/caduceus-bind) echo '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}' ;;\n/usr/local/sbin/caduceus-verify) [ \"$3\" = 2468 ] && [ \"$4\" = fixture-public ] && echo '{\"ok\":true,\"verified\":true}' || echo '{\"ok\":false,\"verified\":false}' ;;\n*) exit 8;; esac\n").unwrap();
+    fs::write(&sudo, "#!/bin/sh\n[ \"$1\" = -n ] || exit 9\ncase \"$2\" in\n/usr/local/sbin/caduceus-bind) echo '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}' ;;\n/usr/local/sbin/caduceus-verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) echo '{\"ok\":true,\"verified\":true}' ;; *) echo '{\"ok\":false,\"verified\":false}' ;; esac ;;\n*) exit 8;; esac\n").unwrap();
     fs::set_permissions(&sudo, fs::Permissions::from_mode(0o700)).unwrap();
     let old_path = std::env::var("PATH").unwrap(); std::env::set_var("PATH", format!("{}:{old_path}", bin.display()));
     attendance::reset_for_tests(); attendance::bind();
