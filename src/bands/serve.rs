@@ -218,6 +218,7 @@ fn capability_admits(command: &str, target: &str, token: Option<&str>) -> Result
 }
 
 async fn attendance_route(
+    connect_info: Option<ConnectInfo<SocketAddr>>,
     OriginalUri(uri): OriginalUri,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -231,6 +232,24 @@ async fn attendance_route(
         Ok(value) => value.get("code").and_then(Value::as_str).unwrap_or("none"),
         Err(error) => error.as_str(),
     };
+    let attendance_id = body.get("attendance").and_then(Value::as_str).or_else(|| {
+        result
+            .as_ref()
+            .ok()
+            .and_then(|value| value.get("attendance"))
+            .and_then(Value::as_str)
+    });
+    eprintln!(
+        "{}",
+        serde_json::json!({
+            "event": "caduceus-access-request",
+            "route": uri.path(),
+            "firstMissingSignal": signal,
+            "documentId": body.get("documentId").and_then(Value::as_str),
+            "attendanceId": attendance_id,
+            "peer": connect_info.map(|ConnectInfo(peer)| peer.to_string()).unwrap_or_else(|| "unknown".to_string()),
+        })
+    );
     let _ = hyalos::reflect_json(serde_json::json!({
         "organ": "caduceus-attendance",
         "kind": "admin-admission",
@@ -252,6 +271,7 @@ async fn attendance_route(
 }
 
 async fn admin_action_admission_route(
+    connect_info: Option<ConnectInfo<SocketAddr>>,
     Json(body): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let action = body
@@ -263,12 +283,34 @@ async fn admin_action_admission_route(
                 .and_then(Value::as_str)
                 .zip(body.get("route").and_then(Value::as_str))
                 .and_then(|(method, route)| actions::by_legacy(method, route))
+        });
+    let result = match action {
+        Some(action) => Ok((
+            StatusCode::NOT_IMPLEMENTED,
+            Json(actions::unavailable_receipt(action, "legacy-admin-action")),
+        )),
+        None => Err(api_error_signal("admin action", "caduceus-action-unmapped")),
+    };
+    let signal = match &result {
+        Ok((_, Json(value))) => value
+            .get("firstMissingSignal")
+            .or_else(|| value.get("code"))
+            .and_then(Value::as_str)
+            .unwrap_or("none"),
+        Err((_, Json(error))) => error.first_missing_signal.as_str(),
+    };
+    eprintln!(
+        "{}",
+        serde_json::json!({
+            "event": "caduceus-access-request",
+            "route": "/api/v1/admin/action",
+            "firstMissingSignal": signal,
+            "documentId": body.get("documentId").and_then(Value::as_str),
+            "attendanceId": body.get("attendance").and_then(Value::as_str),
+            "peer": connect_info.map(|ConnectInfo(peer)| peer.to_string()).unwrap_or_else(|| "unknown".to_string()),
         })
-        .ok_or_else(|| api_error_signal("admin action", "caduceus-action-unmapped"))?;
-    Ok((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(actions::unavailable_receipt(action, "legacy-admin-action")),
-    ))
+    );
+    result
 }
 
 async fn registered_service_action_route(

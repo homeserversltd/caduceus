@@ -1,6 +1,7 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::process::Command;
+use std::io::Write;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -50,12 +51,22 @@ fn envelope(ok: bool, code: &'static str) -> Value {
     })
 }
 
-fn crossing(bin: &str, args: &[&str]) -> Result<Value, String> {
-    let output = Command::new("sudo")
+fn crossing(bin: &str, input: &Value) -> Result<Value, String> {
+    let mut child = Command::new("sudo")
         .arg("-n")
         .arg(bin)
-        .args(args)
-        .output()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
+    let payload = serde_json::to_vec(input)
+        .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
+    child.stdin.take()
+        .ok_or_else(|| "caduceus-pin-not-yet-provisioned".to_string())?
+        .write_all(&payload)
+        .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
+    let output = child.wait_with_output()
         .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
     let value: Value = serde_json::from_slice(&output.stdout)
         .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
@@ -71,18 +82,33 @@ fn crossing(bin: &str, args: &[&str]) -> Result<Value, String> {
 
 /// Bind only public verifier material at process startup. Any unsuccessful crossing is UNBOUND.
 pub fn bind() {
-    let bound = crossing(BIND_LAUNCHER, &[]).ok().and_then(|value| {
-        let public_key = value.get("publicKey")?.as_str()?.to_string();
-        let epoch = match value.get("epoch")? {
-            Value::String(value) if !value.is_empty() => value.clone(),
-            Value::Number(value) => value.to_string(),
-            _ => return None,
-        };
-        if public_key.is_empty() { None } else { Some(BoundVerifier { public_key, epoch }) }
-    });
+    let (bound, posture, signal) = match crossing(BIND_LAUNCHER, &json!({})) {
+        Ok(value) => {
+            let public_key = value.get("publicKey").and_then(Value::as_str);
+            let epoch = value.get("epoch").and_then(|value| match value {
+                Value::String(value) if !value.is_empty() => Some(value.clone()),
+                Value::Number(value) => Some(value.to_string()),
+                _ => None,
+            });
+            match (public_key, epoch) {
+                (Some(public_key), Some(epoch)) if !public_key.is_empty() => (
+                    Some(BoundVerifier { public_key: public_key.to_string(), epoch }),
+                    "DERIVED_BOUND",
+                    "none".to_string(),
+                ),
+                _ => (None, "UNBOUND", "caduceus-derived-unbound".to_string()),
+            }
+        }
+        Err(signal) => (None, "UNBOUND", signal),
+    };
     if let Ok(mut guard) = state().lock() {
         guard.verifier = bound;
     }
+    eprintln!("{}", json!({
+        "event": "caduceus-access-bind",
+        "posture": posture,
+        "firstMissingSignal": signal,
+    }));
 }
 
 fn verifier() -> Result<BoundVerifier, String> {
@@ -95,7 +121,7 @@ fn verifier() -> Result<BoundVerifier, String> {
 }
 
 fn pin_verified(pin: &str, public_key: &str) -> bool {
-    crossing(VERIFY_LAUNCHER, &[pin, public_key])
+    crossing(VERIFY_LAUNCHER, &json!({ "pin": pin, "publicKey": public_key }))
         .ok()
         .and_then(|value| value.get("verified").and_then(Value::as_bool))
         == Some(true)
