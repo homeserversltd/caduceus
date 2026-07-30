@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 const BIND_LAUNCHER: &str = "/usr/local/sbin/caduceus-bind";
 const VERIFY_LAUNCHER: &str = "/usr/local/sbin/caduceus-verify";
+const CHANGE_PIN_LAUNCHER: &str = "/usr/local/sbin/caduceus-atomic-change-pin";
 const ATTENDANCE_INACTIVITY_LIMIT: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -93,25 +94,26 @@ fn crossing(bin: &str, input: &Value) -> Result<Value, String> {
     Ok(value)
 }
 
+fn bound_verifier(value: &Value) -> Option<BoundVerifier> {
+    let public_key = value.get("publicKey").and_then(Value::as_str)?;
+    if public_key.is_empty() {
+        return None;
+    }
+    let epoch = value.get("epoch").and_then(|value| match value {
+        Value::String(value) if !value.is_empty() => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        _ => None,
+    })?;
+    Some(BoundVerifier { public_key: public_key.to_string(), epoch })
+}
+
 /// Bind only public verifier material at process startup. Any unsuccessful crossing is UNBOUND.
 pub fn bind() {
     let (bound, posture, signal) = match crossing(BIND_LAUNCHER, &json!({})) {
-        Ok(value) => {
-            let public_key = value.get("publicKey").and_then(Value::as_str);
-            let epoch = value.get("epoch").and_then(|value| match value {
-                Value::String(value) if !value.is_empty() => Some(value.clone()),
-                Value::Number(value) => Some(value.to_string()),
-                _ => None,
-            });
-            match (public_key, epoch) {
-                (Some(public_key), Some(epoch)) if !public_key.is_empty() => (
-                    Some(BoundVerifier { public_key: public_key.to_string(), epoch }),
-                    "DERIVED_BOUND",
-                    "none".to_string(),
-                ),
-                _ => (None, "UNBOUND", "caduceus-derived-unbound".to_string()),
-            }
-        }
+        Ok(value) => match bound_verifier(&value) {
+            Some(verifier) => (Some(verifier), "DERIVED_BOUND", "none".to_string()),
+            None => (None, "UNBOUND", "caduceus-derived-unbound".to_string()),
+        },
         Err(signal) => (None, "UNBOUND", signal),
     };
     if let Ok(mut guard) = state().lock() {
@@ -199,6 +201,45 @@ pub fn touch_json(body: &Value) -> Result<Value, String> {
         return Ok(envelope(false, "caduceus-attendance-document-incarnation-mismatch"));
     }
     current.last_touch = now;
+    Ok(envelope(true, "none"))
+}
+
+pub fn change_pin_json(body: &Value) -> Result<Value, String> {
+    let document_id = text(body, "documentId")?;
+    let document_incarnation = text(body, "documentIncarnation")?;
+    let attendance = text(body, "attendance")?;
+    let current_pin = text(body, "currentPin")?;
+    let new_pin = text(body, "newPin")?;
+    let now = Instant::now();
+    let mut guard = state().lock().map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+    evict_expired(&mut guard.current, now);
+    let Some(current) = guard.current.get(&attendance) else {
+        return Ok(envelope(false, "caduceus-attendance-not-current"));
+    };
+    if current.document_id != document_id || current.document_incarnation != document_incarnation {
+        return Ok(envelope(false, "caduceus-attendance-document-incarnation-mismatch"));
+    }
+    let verifier = guard.verifier.clone()
+        .ok_or_else(|| "caduceus-pin-not-yet-provisioned".to_string())?;
+    if !pin_verified(&current_pin, &verifier.public_key) {
+        return Ok(envelope(false, "caduceus-attendance-pin-refused"));
+    }
+    let receipt = match crossing(
+        CHANGE_PIN_LAUNCHER,
+        &json!({ "oldPin": current_pin, "newPin": new_pin }),
+    ) {
+        Ok(value) => value,
+        Err(_) => return Ok(envelope(false, "caduceus-attendance-change-failed")),
+    };
+    let Some(rebound) = bound_verifier(&receipt) else {
+        return Ok(envelope(false, "caduceus-attendance-change-failed"));
+    };
+
+    guard.verifier = Some(rebound);
+    guard.current.retain(|key, _| key == &attendance);
+    if let Some(current) = guard.current.get_mut(&attendance) {
+        current.last_touch = now;
+    }
     Ok(envelope(true, "none"))
 }
 
