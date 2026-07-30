@@ -4,14 +4,18 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 const BIND_LAUNCHER: &str = "/usr/local/sbin/caduceus-bind";
 const VERIFY_LAUNCHER: &str = "/usr/local/sbin/caduceus-verify";
+const ATTENDANCE_INACTIVITY_LIMIT: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Attendance {
     document_id: String,
     document_incarnation: String,
+    created_at: Instant,
+    last_touch: Instant,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,6 +35,15 @@ static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 fn state() -> &'static Mutex<AttendanceState> {
     STATE.get_or_init(|| Mutex::new(AttendanceState::default()))
+}
+
+fn expired(attendance: &Attendance, now: Instant) -> bool {
+    let last_touch = attendance.last_touch.max(attendance.created_at);
+    now.saturating_duration_since(last_touch) >= ATTENDANCE_INACTIVITY_LIMIT
+}
+
+fn evict_expired(current: &mut HashMap<String, Attendance>, now: Instant) {
+    current.retain(|_, attendance| !expired(attendance, now));
 }
 
 fn text(body: &Value, field: &str) -> Result<String, String> {
@@ -135,11 +148,18 @@ pub fn open_json(body: &Value) -> Result<Value, String> {
     if !pin_verified(&pin, &verifier.public_key) {
         return Ok(envelope(false, "caduceus-attendance-pin-refused"));
     }
+    let now = Instant::now();
     let mut guard = state().lock().map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+    evict_expired(&mut guard.current, now);
     let attendance = format!("attendance-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     guard.current.insert(
         attendance.clone(),
-        Attendance { document_id: document_id.clone(), document_incarnation: document_incarnation.clone() },
+        Attendance {
+            document_id: document_id.clone(),
+            document_incarnation: document_incarnation.clone(),
+            created_at: now,
+            last_touch: now,
+        },
     );
     let mut result = envelope(true, "none");
     result["attendance"] = Value::String(attendance);
@@ -149,10 +169,13 @@ pub fn open_json(body: &Value) -> Result<Value, String> {
 }
 
 pub fn validate_json(body: &Value) -> Result<Value, String> {
+    // Validation is observation only: background transport must not renew human activity.
+    // Only touch_json advances last_touch.
     let attendance = text(body, "attendance")?;
     let document_id = text(body, "documentId")?;
     let document_incarnation = text(body, "documentIncarnation")?;
-    let guard = state().lock().map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+    let mut guard = state().lock().map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+    evict_expired(&mut guard.current, Instant::now());
     let Some(current) = guard.current.get(&attendance) else {
         return Ok(envelope(false, "caduceus-attendance-not-current"));
     };
@@ -162,11 +185,29 @@ pub fn validate_json(body: &Value) -> Result<Value, String> {
     Ok(envelope(true, "none"))
 }
 
+pub fn touch_json(body: &Value) -> Result<Value, String> {
+    let attendance = text(body, "attendance")?;
+    let document_id = text(body, "documentId")?;
+    let document_incarnation = text(body, "documentIncarnation")?;
+    let now = Instant::now();
+    let mut guard = state().lock().map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+    evict_expired(&mut guard.current, now);
+    let Some(current) = guard.current.get_mut(&attendance) else {
+        return Ok(envelope(false, "caduceus-attendance-not-current"));
+    };
+    if current.document_id != document_id || current.document_incarnation != document_incarnation {
+        return Ok(envelope(false, "caduceus-attendance-document-incarnation-mismatch"));
+    }
+    current.last_touch = now;
+    Ok(envelope(true, "none"))
+}
+
 pub fn invalidate_json(body: &Value) -> Result<Value, String> {
     let attendance = text(body, "attendance")?;
     let document_id = text(body, "documentId")?;
     let document_incarnation = text(body, "documentIncarnation")?;
     let mut guard = state().lock().map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+    evict_expired(&mut guard.current, Instant::now());
     let Some(current) = guard.current.get(&attendance) else {
         return Ok(envelope(false, "caduceus-attendance-not-current"));
     };
@@ -178,8 +219,11 @@ pub fn invalidate_json(body: &Value) -> Result<Value, String> {
 }
 
 pub fn admits(attendance: &str, document_id: &str, document_incarnation: &str) -> bool {
-    state().lock().ok().and_then(|guard| guard.current.get(attendance).cloned()).is_some_and(|current| {
-        current.document_id == document_id && current.document_incarnation == document_incarnation
+    state().lock().ok().is_some_and(|mut guard| {
+        evict_expired(&mut guard.current, Instant::now());
+        guard.current.get(attendance).is_some_and(|current| {
+            current.document_id == document_id && current.document_incarnation == document_incarnation
+        })
     })
 }
 

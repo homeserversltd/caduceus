@@ -225,6 +225,7 @@ async fn attendance_route(
     let result = match uri.path() {
         "/api/v1/attendance/open" => attendance::open_json(&body),
         "/api/v1/attendance/validate" => attendance::validate_json(&body),
+        "/api/v1/attendance/touch" => attendance::touch_json(&body),
         "/api/v1/attendance/invalidate" => attendance::invalidate_json(&body),
         _ => Err("caduceus-attendance-route-invalid".to_string()),
     };
@@ -1248,6 +1249,7 @@ pub fn router() -> Router {
     let attendance_routes = Router::new()
         .route("/api/v1/attendance/open", post(attendance_route))
         .route("/api/v1/attendance/validate", post(attendance_route))
+        .route("/api/v1/attendance/touch", post(attendance_route))
         .route("/api/v1/attendance/invalidate", post(attendance_route))
         .route("/api/v1/admin/action", post(admin_action_admission_route))
         .route(
