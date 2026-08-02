@@ -18,6 +18,7 @@ commands:
 - staff intent
 - cert status
 - cert issue-leaf
+- cert csr sign
 - cert bundle create
 - cert bundle download
 - cert apply

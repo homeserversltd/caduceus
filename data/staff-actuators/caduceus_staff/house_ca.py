@@ -14,12 +14,17 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Sequence
 
 SCHEMA = "caduceus.household.tls.v1"
 PLATFORMS = {"windows", "android", "chromeos", "linux", "macos"}
+CSR_MAX_BYTES = 64 * 1024
+CSR_IDENTITY = "console.home.arpa"
+CSR_DNS_NAMES = (CSR_IDENTITY,)
+CSR_IP_ADDRESSES = ("192.168.123.19",)
 BUNDLE_METADATA = {
     platform: {
         "filename": f"homeserver-house-ca-{platform}{'.cer' if platform == 'windows' else '.crt'}",
@@ -131,6 +136,75 @@ def issue_leaf(identity: str = "home.arpa", dns_names: Sequence[str] = (), ip_ad
     return _receipt("issue_leaf", changed=True, identity=identity, sans=dns+ips,
                     ca_fingerprint=_fingerprint(d/"ca.pem"), leaf_fingerprint=_fingerprint(leaf),
                     leaf_not_after=_not_after(leaf), certificate=str(leaf), key_path=str(key))
+
+
+def _csr_sans(text: str) -> list[str]:
+    marker = "X509v3 Subject Alternative Name:"
+    try:
+        start = text.splitlines().index(next(line for line in text.splitlines() if marker in line)) + 1
+    except (StopIteration, ValueError):
+        raise ValueError("caduceus-cert-csr-san-missing") from None
+    sans: list[str] = []
+    for line in text.splitlines()[start:]:
+        line = line.strip()
+        if not line or line.startswith("Signature Algorithm"):
+            break
+        if line.startswith("DNS:") or line.startswith("IP Address:"):
+            sans.extend(item.strip().lower() for item in line.split(","))
+    if not sans:
+        raise ValueError("caduceus-cert-csr-san-missing")
+    return sans
+
+
+def sign_csr(csr_pem: str) -> dict[str, Any]:
+    """Sign a caller CSR; the household private key never leaves staff custody."""
+    if not isinstance(csr_pem, str) or len(csr_pem.encode()) > CSR_MAX_BYTES:
+        raise ValueError("caduceus-cert-csr-too-large")
+    if "PRIVATE KEY" in csr_pem or any(ord(char) < 32 and char not in "\n\t" for char in csr_pem):
+        raise ValueError("caduceus-cert-csr-private-key-or-control")
+    identity = CSR_IDENTITY
+    dns, ips = _split_sans([*CSR_DNS_NAMES, *CSR_IP_ADDRESSES])
+    requested = [*(f"dns:{name}" for name in dns), *(f"ip address:{ip}" for ip in ips)]
+    d = cert_dir()
+    if not (d / "ca.pem").is_file() or not (d / "ca.key.pem").is_file():
+        raise RuntimeError("caduceus-house-ca-unavailable")
+    leaf_pem = ca_pem = ""
+    leaf_path = Path()
+    with tempfile.TemporaryDirectory(dir=d) as temporary:
+        csr = Path(temporary) / "request.pem"
+        leaf = Path(temporary) / "leaf.pem"
+        config = Path(temporary) / "sign.cnf"
+        csr.write_text(csr_pem)
+        try:
+            verified = _run(["openssl", "req", "-in", str(csr), "-noout", "-verify", "-subject", "-text", "-nameopt", "RFC2253"]).stdout
+        except subprocess.CalledProcessError as error:
+            raise ValueError("caduceus-cert-csr-invalid") from error
+        subject = next((line.split("subject=", 1)[1] for line in verified.splitlines() if line.startswith("subject=")), "")
+        if subject.lower() != f"cn={identity}":
+            raise ValueError("caduceus-cert-csr-identity-mismatch")
+        actual = _csr_sans(verified)
+        if actual != requested or len(set(actual)) != len(actual):
+            raise ValueError("caduceus-cert-csr-san-mismatch")
+        config.write_text(
+            "[ext]\n"
+            "basicConstraints=critical,CA:FALSE\n"
+            "keyUsage=critical,digitalSignature,keyEncipherment\n"
+            "extendedKeyUsage=serverAuth\n"
+            "subjectAltName=" + ",".join(
+                item.replace("dns:", "DNS:").replace("ip address:", "IP:") for item in requested
+            ) + "\n"
+        )
+        try:
+            _run(["openssl", "x509", "-req", "-in", str(csr), "-CA", str(cert_dir()/"ca.pem"), "-CAkey", str(cert_dir()/"ca.key.pem"), "-CAcreateserial", "-out", str(leaf), "-days", "824", "-sha256", "-extfile", str(config), "-extensions", "ext"])
+            _run(["openssl", "verify", "-CAfile", str(cert_dir()/"ca.pem"), str(leaf)])
+            leaf_pem = leaf.read_text(); ca_pem = (cert_dir()/"ca.pem").read_text(); leaf_path = leaf
+        except subprocess.CalledProcessError as error:
+            raise ValueError("caduceus-cert-csr-sign-failed") from error
+        leaf_fingerprint = _fingerprint(leaf_path)
+    return _receipt("csr_sign", changed=True, identity=identity, sans=dns + ips,
+                    leaf_pem=leaf_pem, ca_pem=ca_pem,
+                    ca_fingerprint=_fingerprint(cert_dir()/"ca.pem"),
+                    leaf_fingerprint=leaf_fingerprint)
 
 
 def _bundle_metadata(platform: str) -> dict[str, str]:
@@ -271,6 +345,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser=argparse.ArgumentParser(prog="caduceus-house-ca"); sub=parser.add_subparsers(dest="cmd",required=True)
     for name in ("ensure-root","status"): sub.add_parser(name)
     issue=sub.add_parser("issue-leaf"); issue.add_argument("identity",nargs="?",default="home.arpa"); issue.add_argument("--sans",default=""); issue.add_argument("--ips",default=""); issue.add_argument("--dry-run",action="store_true")
+    sub.add_parser("sign-csr")
     bundle=sub.add_parser("bundle-export"); bundle.add_argument("platform",choices=sorted(PLATFORMS)); bundle.add_argument("--dry-run",action="store_true")
     bundle_read_parser=sub.add_parser("bundle-read"); bundle_read_parser.add_argument("platform",choices=sorted(PLATFORMS))
     trust=sub.add_parser("trust-install"); trust.add_argument("bundle"); trust.add_argument("--platform",default="linux",choices=sorted(PLATFORMS)); trust.add_argument("--dry-run",action="store_true")
@@ -280,6 +355,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.cmd=="ensure-root": return _emit(lambda:ensure_root())
     if args.cmd=="status": return _emit(status)
     if args.cmd=="issue-leaf": return _emit(lambda:issue_leaf(args.identity,args.sans.split(",") if args.sans else (),args.ips.split(",") if args.ips else (),dry_run=args.dry_run))
+    if args.cmd=="sign-csr":
+        try:
+            request = json.load(sys.stdin)
+        except (json.JSONDecodeError, TypeError):
+            return _emit(lambda: (_ for _ in ()).throw(ValueError("caduceus-cert-csr-request-invalid")))
+        if not isinstance(request, dict) or set(request) != {"csrPem"}:
+            return _emit(lambda: (_ for _ in ()).throw(ValueError("caduceus-cert-csr-request-invalid")))
+        return _emit(lambda: sign_csr(request["csrPem"]))
     if args.cmd=="bundle-export": return _emit(lambda:bundle_export(args.platform,dry_run=args.dry_run))
     if args.cmd=="bundle-read": return _emit(lambda:bundle_read(args.platform))
     if args.cmd=="trust-install": return _emit(lambda:trust_install(args.bundle,args.platform,dry_run=args.dry_run))

@@ -638,7 +638,7 @@ async fn homeserver_staff_actuators_route_is_profile_allowed() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.staff.actuators.v1");
-    assert_eq!(json["count"], 13);
+    assert_eq!(json["count"], 14);
     assert_eq!(json["actuators"][0]["id"], "profile-sources-reseed");
     assert_eq!(json["actuators"][1]["id"], "network-dhcp");
     assert_eq!(json["actuators"][2]["id"], "network-dns");
@@ -1770,4 +1770,84 @@ async fn trust_install_requires_capability_and_accepts_valid_dry_run() {
     assert_eq!(receipt["ok"], true);
     assert_eq!(receipt["dry_run"], true);
     assert_eq!(before, file_snapshot(&root));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn csr_sign_route_has_profile_capability_and_body_walls() {
+    let fixture = CertFixture::new("csr-walls", "homeserver");
+    run_house_ca(fixture.root(), &["ensure-root"]);
+    let app = serve::router();
+    let body = r#"{"csrPem":"not a csr"}"#;
+    let refused = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/cert/csr/sign")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(refused).await["firstMissingSignal"],
+        "caduceus-capability-unsigned"
+    );
+    let malformed = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/cert/csr/sign")
+                .header(
+                    "x-caduceus-capability",
+                    capability("cert csr sign", "console.home.arpa", 60),
+                )
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        body_json(malformed).await["firstMissingSignal"],
+        "caduceus-cert-csr-invalid"
+    );
+    let caller_policy = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/cert/csr/sign")
+                .header(
+                    "x-caduceus-capability",
+                    capability("cert csr sign", "console.home.arpa", 60),
+                )
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"csrPem":"not a csr","ips":["192.0.2.10"]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(caller_policy.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let oversized = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/cert/csr/sign")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    "{{\"csrPem\":\"{}\"}}",
+                    "x".repeat(70_000)
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }

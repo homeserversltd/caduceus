@@ -202,6 +202,19 @@
       "conversionStatus": "sbin-library-admitted",
       "notes": "Validates installed IANA zones, debounces changes, and proves timedatectl readback.",
       "pythonModule": "caduceus_staff.household_time"
+    },
+    {
+      "id": "csr-sign",
+      "family": "certificate",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-house-ca",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/house_ca.py#sign_csr",
+      "dependencies": [],
+      "receiptFamily": "caduceus.staff.house_ca.csr_sign.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Signs an exact console CSR under the stable household root; private keys and caller output paths are never accepted.",
+      "pythonModule": "caduceus_staff.house_ca"
     }
   ]
 }

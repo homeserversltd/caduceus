@@ -25,6 +25,8 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
     attendance::reset_for_tests(); attendance::bind();
     let opened = serve::router().oneshot(request("/api/v1/attendance/open", serde_json::json!({"documentId":"doc-a","documentIncarnation":"inc-1","pin":"2468"}))).await.unwrap();
     assert_eq!(opened.status(), StatusCode::OK); let presenting = json(opened).await["attendance"].as_str().unwrap().to_string();
+    assert!(attendance::admits_target(&presenting, "doc-a"));
+    assert!(!attendance::admits_target(&presenting, "doc-b"));
     let other = serve::router().oneshot(request("/api/v1/attendance/open", serde_json::json!({"documentId":"doc-b","documentIncarnation":"inc-2","pin":"2468"}))).await.unwrap();
     assert_eq!(other.status(), StatusCode::OK); let other = json(other).await["attendance"].as_str().unwrap().to_string();
     let wrong = serve::router().oneshot(request("/api/v1/attendance/open", serde_json::json!({"documentId":"doc-a","documentIncarnation":"inc-1","pin":"nope"}))).await.unwrap();

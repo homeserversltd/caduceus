@@ -214,6 +214,9 @@ fn capability_from_headers(headers: &HeaderMap) -> Option<&str> {
 }
 
 fn capability_admits(command: &str, target: &str, token: Option<&str>) -> Result<(), String> {
+    if token.is_some_and(|token| attendance::admits_target(token, target)) {
+        return Ok(());
+    }
     if env::var_os("CADUCEUS_DOCUMENT_INCARNATION").is_some() {
         attendance_admits(target, token).map_err(|_| "caduceus-attendance-not-current".to_string())
     } else {
@@ -785,6 +788,30 @@ struct CertBody {
     dry_run: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
+struct CsrSignBody {
+    csr_pem: String,
+}
+
+fn cert_csr_error(command: &str, error: &str) -> (StatusCode, Json<ApiErrorBody>) {
+    let status = if error.starts_with("caduceus-cert-csr-") {
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        status,
+        Json(ApiErrorBody {
+            schema: "caduceus.api.error.v1",
+            ok: false,
+            command: command.to_string(),
+            first_missing_signal: error.to_string(),
+        }),
+    )
+}
+
 fn cert_mutation_result<F: FnOnce() -> Result<Value, String>>(
     command: &str,
     target: &str,
@@ -821,6 +848,22 @@ async fn cert_issue_leaf_route(
             body.dry_run,
         )
     })
+}
+async fn cert_csr_sign_route(
+    headers: HeaderMap,
+    Json(body): Json<CsrSignBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let command = "cert csr sign";
+    match policy::allows_command(command) {
+        Ok(true) => {}
+        Ok(false) => return Err(api_error(command)),
+        Err(_) => return Err(api_error_signal(command, "caduceus-profile-missing")),
+    }
+    capability_admits(command, "console.home.arpa", capability_from_headers(&headers))
+        .map_err(|signal| api_error_signal(command, &signal))?;
+    cert::sign_csr_json(&body.csr_pem)
+        .map(|value| (StatusCode::OK, Json(value)))
+        .map_err(|error| cert_csr_error(command, &error))
 }
 async fn cert_bundle_route(
     headers: HeaderMap,
@@ -1345,6 +1388,10 @@ pub fn router() -> Router {
         .route("/api/v1/network/dns", post(network_dns_route))
         .route("/api/v1/cert/status", get(cert_status_route))
         .route("/api/v1/cert/issue-leaf", post(cert_issue_leaf_route))
+        .route(
+            "/api/v1/cert/csr/sign",
+            post(cert_csr_sign_route).layer(DefaultBodyLimit::max(65536)),
+        )
         .route("/api/v1/cert/bundle", post(cert_bundle_route))
         .route("/api/v1/cert/bundle/create", post(cert_bundle_route))
         .route(
