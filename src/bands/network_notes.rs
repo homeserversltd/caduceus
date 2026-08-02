@@ -120,8 +120,10 @@ pub fn write_json(mac: &str, note: &str) -> Result<Value, String> {
     }
     config::atomic_write_owned(&path, &bytes, STATE_FILE_MODE)
         .map_err(|_| "caduceus-network-notes-state-write-failed".to_string())?;
-    let mut receipt = envelope(notes);
+    let readback = notes_from(&read_state()?)?;
+    let mut receipt = envelope(readback);
     receipt["mutationPerformed"] = Value::Bool(true);
+    receipt["completed"] = Value::Bool(true);
     receipt["cleared"] = Value::Bool(note.is_empty());
     Ok(receipt)
 }

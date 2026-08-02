@@ -111,6 +111,7 @@ async fn network_notes_attendance_write_is_atomic_durable_and_readable() {
     assert_eq!(written.status(), StatusCode::OK);
     let receipt = body_json(written).await;
     assert_eq!(receipt["mutationPerformed"], true);
+    assert_eq!(receipt["completed"], true);
     assert_eq!(
         receipt["notes"],
         serde_json::json!({"AA:BB:CC:DD:EE:FF":"Kitchen tablet"})
@@ -162,6 +163,7 @@ async fn network_notes_attendance_write_is_atomic_durable_and_readable() {
             .await
             .unwrap();
         assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+        assert!(body_json(refused).await.get("completed").is_none());
         assert_eq!(fs::read(&state_path).unwrap(), persisted);
     }
 
@@ -178,6 +180,7 @@ async fn network_notes_attendance_write_is_atomic_durable_and_readable() {
             .await
             .unwrap();
         assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+        assert!(body_json(refused).await.get("completed").is_none());
         assert_eq!(fs::read(&state_path).unwrap(), persisted);
     }
 
@@ -195,6 +198,7 @@ async fn network_notes_attendance_write_is_atomic_durable_and_readable() {
     assert_eq!(cleared.status(), StatusCode::OK);
     let cleared = body_json(cleared).await;
     assert_eq!(cleared["mutationPerformed"], true);
+    assert_eq!(cleared["completed"], true);
     assert_eq!(cleared["notes"], serde_json::json!({}));
 
     attendance::reset_for_tests();
