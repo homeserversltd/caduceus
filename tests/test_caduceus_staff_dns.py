@@ -35,7 +35,7 @@ class DnsActuatorTests(unittest.TestCase):
         receipt = self.call({"action": "ensure-local-data", "name": "Media.HOME.arpa", "address": "192.168.1.20"})
         self.assertTrue(receipt["ok"])
         self.assertTrue(receipt["changed"])
-        self.assertEqual(self.path.read_bytes(), before + b'local-data: "media.home.arpa. A 192.168.1.20"\n')
+        self.assertEqual(self.path.read_bytes(), before + b'local-data: "media.home.arpa. IN A 192.168.1.20"\n')
         self.assertEqual(receipt["serviceAction"], "not-owned")
         self.assertNotIn("verbosity", json.dumps(receipt))
 
@@ -81,7 +81,7 @@ class DnsActuatorTests(unittest.TestCase):
         )
         expected = before.replace(
             b"  include-toplevel:",
-            b'  local-data: "app.home.arpa. A 192.168.1.2"\n  include-toplevel:',
+            b'  local-data: "app.home.arpa. IN A 192.168.1.2"\n  include-toplevel:',
         )
         self.assertTrue(receipt["ok"])
         self.assertEqual(self.path.read_bytes(), expected)
@@ -138,7 +138,7 @@ class DnsActuatorTests(unittest.TestCase):
             return True, ""
         receipt = dns.dispatch({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"}, config_path=self.path, checkconf=validator)
         self.assertFalse(receipt["ok"])
-        self.assertEqual(receipt["rollback"], "refused-identity-changed")
+        self.assertEqual(receipt["rollback"], "refused-identity-content-metadata-changed")
         self.assertEqual(self.path.read_bytes(), foreign)
         self.assertNotEqual(self.path.read_bytes(), before)
 
@@ -191,7 +191,7 @@ class DnsActuatorTests(unittest.TestCase):
         self.assertFalse(failed["ok"])
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o640)
-        with mock.patch.object(dns, "_identity_matches", return_value=False):
+        with mock.patch.object(dns, "_snapshot_is_current", return_value=False):
             changed = self.call({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"})
         self.assertFalse(changed["ok"])
         self.assertEqual(self.path.read_bytes(), before)
@@ -226,6 +226,208 @@ class DnsActuatorTests(unittest.TestCase):
         self.assertNotIn('add_argument("--config"', source)
         self.assertNotIn("systemctl", source)
         self.assertNotIn("service ", source)
+
+    def test_accepted_unindented_in_a_grammar_status_replace_remove_and_insertion(self):
+        original = (
+            b"server:\n"
+            b'local-zone: "home.arpa." static\n'
+            b'local-data: "git.home.arpa. IN A 192.168.123.1"\n'
+            b'include-toplevel: "/etc/unbound/local.conf"\n'
+            b"forward-zone:\n  name: \".\"\n"
+        )
+        self.path.write_bytes(original)
+        status = self.call({"action": "status"})
+        self.assertEqual(status["records"], [{"name": "git.home.arpa.", "address": "192.168.123.1"}])
+        replaced = self.call({"action": "ensure-local-data", "name": "git.home.arpa", "address": "192.168.123.2"})
+        self.assertTrue(replaced["ok"])
+        expected = original.replace(b"192.168.123.1", b"192.168.123.2")
+        self.assertEqual(self.path.read_bytes(), expected)
+        self.assertIn(b'local-data: "git.home.arpa. IN A 192.168.123.2"', self.path.read_bytes())
+        removed = self.call({"action": "remove", "name": "git.home.arpa"})
+        self.assertTrue(removed["ok"])
+        expected = expected.replace(b'local-data: "git.home.arpa. IN A 192.168.123.2"\n', b"")
+        self.assertEqual(self.path.read_bytes(), expected)
+        inserted = self.call({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.123.3"})
+        self.assertTrue(inserted["ok"])
+        final = self.path.read_bytes()
+        self.assertIn(b'local-data: "app.home.arpa. IN A 192.168.123.3"\ninclude-toplevel:', final)
+        self.assertEqual(final.split(b"forward-zone:")[1], original.split(b"forward-zone:")[1])
+
+    def test_same_inode_content_change_at_install_seam_is_refused_without_clobber(self):
+        foreign = b"server:\n# foreign same inode\n"
+        real_current = dns._snapshot_is_current
+        calls = 0
+        def change_before_replace(path, snapshot):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                self.path.write_bytes(foreign)
+            return real_current(path, snapshot)
+        with mock.patch.object(dns, "_snapshot_is_current", side_effect=change_before_replace):
+            receipt = self.call({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"})
+        self.assertFalse(receipt["ok"])
+        self.assertEqual(receipt["error"], "dns-config-identity-content-metadata-changed")
+        self.assertEqual(self.path.read_bytes(), foreign)
+
+    def test_same_inode_xattr_change_at_install_seam_is_refused_without_clobber(self):
+        try:
+            os.setxattr(self.path, "user.caduceus-cas", b"before", follow_symlinks=False)
+        except OSError as exc:
+            self.skipTest(f"filesystem does not support user xattrs: {exc}")
+        real_current = dns._snapshot_is_current
+        calls = 0
+        def change_before_replace(path, snapshot):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                os.setxattr(self.path, "user.caduceus-cas", b"foreign", follow_symlinks=False)
+            return real_current(path, snapshot)
+        with mock.patch.object(dns, "_snapshot_is_current", side_effect=change_before_replace):
+            receipt = self.call({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"})
+        self.assertFalse(receipt["ok"])
+        self.assertEqual(receipt["error"], "dns-config-identity-content-metadata-changed")
+        self.assertEqual(os.getxattr(self.path, "user.caduceus-cas", follow_symlinks=False), b"foreign")
+
+    def test_same_inode_content_change_after_install_refuses_guarded_rollback(self):
+        foreign = b"server:\n# same inode foreign after install\n"
+        calls = []
+        def validator(path):
+            calls.append(Path(path).read_bytes())
+            if len(calls) == 2:
+                self.path.write_bytes(foreign)
+                return False, "bad-installed"
+            return True, ""
+        receipt = dns.dispatch({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"}, config_path=self.path, checkconf=validator)
+        self.assertFalse(receipt["ok"])
+        self.assertEqual(receipt["rollback"], "refused-identity-content-metadata-changed")
+        self.assertEqual(self.path.read_bytes(), foreign)
+
+    def test_same_inode_xattr_change_after_install_refuses_guarded_rollback(self):
+        try:
+            os.setxattr(self.path, "user.caduceus-cas", b"before", follow_symlinks=False)
+        except OSError as exc:
+            self.skipTest(f"filesystem does not support user xattrs: {exc}")
+        calls = []
+        def validator(path):
+            calls.append(Path(path).read_bytes())
+            if len(calls) == 2:
+                os.setxattr(self.path, "user.caduceus-cas", b"foreign", follow_symlinks=False)
+                return False, "bad-installed"
+            return True, ""
+        receipt = dns.dispatch({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"}, config_path=self.path, checkconf=validator)
+        self.assertFalse(receipt["ok"])
+        self.assertEqual(receipt["rollback"], "refused-identity-content-metadata-changed")
+        self.assertEqual(os.getxattr(self.path, "user.caduceus-cas", follow_symlinks=False), b"foreign")
+
+    def test_parent_fsync_failure_restores_exact_original_snapshot(self):
+        before = self.path.read_bytes()
+        try:
+            os.setxattr(self.path, "user.caduceus-restore", b"original", follow_symlinks=False)
+            xattrs_supported = True
+        except OSError:
+            xattrs_supported = False
+        calls = 0
+        def fsync_then_recover(_path):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError("parent fsync failed")
+        with mock.patch.object(dns, "_fsync_parent", side_effect=fsync_then_recover):
+            receipt = self.call({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"})
+        self.assertFalse(receipt["ok"])
+        self.assertEqual(receipt["rollback"], "restored")
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o640)
+        if xattrs_supported:
+            self.assertEqual(os.getxattr(self.path, "user.caduceus-restore", follow_symlinks=False), b"original")
+
+    def test_installed_snapshot_failure_after_replace_enters_guarded_rollback(self):
+        before = self.path.read_bytes()
+        real_snapshot = dns._snapshot
+        calls = 0
+        def fail_installed_snapshot(path):
+            nonlocal calls
+            calls += 1
+            if calls == 5:
+                raise OSError("installed stat failed")
+            return real_snapshot(path)
+        with mock.patch.object(dns, "_snapshot", side_effect=fail_installed_snapshot):
+            receipt = self.call({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"})
+        self.assertFalse(receipt["ok"])
+        self.assertIn(receipt["rollback"], {"restored", "refused-identity-content-metadata-changed", "failed"})
+        if receipt["rollback"] == "restored":
+            self.assertEqual(self.path.read_bytes(), before)
+
+    def test_post_install_validator_false_and_exception_both_roll_back(self):
+        before = self.path.read_bytes()
+        false_calls = []
+        def false_validator(path):
+            false_calls.append(Path(path).read_bytes())
+            return (len(false_calls) != 2, "bad-installed" if len(false_calls) == 2 else "")
+        false_receipt = dns.dispatch({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"}, config_path=self.path, checkconf=false_validator)
+        self.assertFalse(false_receipt["ok"])
+        self.assertEqual(false_receipt["rollback"], "restored")
+        self.assertEqual(self.path.read_bytes(), before)
+        exception_calls = []
+        def exception_validator(path):
+            exception_calls.append(Path(path).read_bytes())
+            if len(exception_calls) == 2:
+                raise RuntimeError("validator exploded")
+            return True, ""
+        exception_receipt = dns.dispatch({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"}, config_path=self.path, checkconf=exception_validator)
+        self.assertFalse(exception_receipt["ok"])
+        self.assertEqual(exception_receipt["validation"], "installed-exception")
+        self.assertEqual(exception_receipt["rollback"], "restored")
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_rollback_refusal_after_post_replace_failure_preserves_foreign_file(self):
+        foreign = b"server:\n# foreign replacement\n"
+        def fsync_fail(_path):
+            raise OSError("parent fsync failed")
+        real_restore = dns._restore
+        def foreign_restore(*args):
+            replacement = self.root / "foreign.conf"
+            replacement.write_bytes(foreign)
+            os.replace(replacement, self.path)
+            return real_restore(*args)
+        with mock.patch.object(dns, "_fsync_parent", side_effect=fsync_fail), mock.patch.object(dns, "_restore", side_effect=foreign_restore):
+            receipt = self.call({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"})
+        self.assertFalse(receipt["ok"])
+        self.assertEqual(receipt["rollback"], "refused-identity-content-metadata-changed")
+        self.assertEqual(self.path.read_bytes(), foreign)
+
+    def test_nonstring_actions_and_bounded_malformed_cli_input_refuse_without_traceback(self):
+        for action in ([], {}, None, 1):
+            receipt = self.call({"action": action})
+            self.assertFalse(receipt["ok"])
+            self.assertEqual(receipt["error"], "dns-intent-invalid")
+        module = [sys.executable, "-m", "caduceus_staff.network.dns"]
+        malformed = subprocess.run(module, input=b'{bad', cwd=STAFF, capture_output=True)
+        oversized = subprocess.run(module, input=b"x" * (dns.MAX_INPUT_BYTES + 1), cwd=STAFF, capture_output=True)
+        for result, error in ((malformed, "dns-input-invalid"), (oversized, "dns-input-too-large")):
+            self.assertNotEqual(result.returncode, 0)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["error"], error)
+            self.assertNotIn(b"Traceback", result.stderr)
+
+    def test_fixed_validator_is_not_environment_or_path_selectable(self):
+        with mock.patch.object(dns.subprocess, "run") as run, mock.patch.dict(os.environ, {"CADUCEUS_UNBOUND_CHECKCONF": "/bin/true", "PATH": "/bin"}, clear=False):
+            run.return_value = mock.Mock(returncode=0)
+            self.assertEqual(dns._checkconf(self.path), (True, ""))
+        self.assertEqual(run.call_args.args[0], ["/usr/sbin/unbound-checkconf", str(self.path)])
+        source = Path(dns.__file__).read_text()
+        self.assertNotIn("CADUCEUS_UNBOUND_CHECKCONF", source)
+        self.assertNotIn('add_argument("--config"', source)
+
+    def test_user_xattr_is_preserved_when_supported(self):
+        name, value = "user.caduceus-test", b"preserve-me"
+        try:
+            os.setxattr(self.path, name, value, follow_symlinks=False)
+        except OSError as exc:
+            self.skipTest(f"filesystem does not support user xattrs: {exc}")
+        receipt = self.call({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"})
+        self.assertTrue(receipt["ok"])
+        self.assertEqual(os.getxattr(self.path, name, follow_symlinks=False), value)
 
 
 if __name__ == "__main__":
