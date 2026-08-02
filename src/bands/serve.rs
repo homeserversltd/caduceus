@@ -80,6 +80,11 @@ struct FirewallDeleteBody {
     expected_revision: String,
 }
 
+// Coronatio's MutationActionTarget is a document contract, not a concrete
+// resource locator. Keep this independently fixed from Axum's :mac pattern
+// and from the client-supplied MAC so document attendance cannot be widened.
+const FIREWALL_DOCUMENT_TARGET: &str = "/api/v1/network/firewall/policies/{mac}";
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PjlinkPowerBody {
@@ -974,8 +979,12 @@ async fn firewall_put_route(
             ))
         }
     }
-    capability_admits(command, &path, capability_from_headers(&headers))
-        .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
+    capability_admits(
+        command,
+        FIREWALL_DOCUMENT_TARGET,
+        capability_from_headers(&headers),
+    )
+    .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
     let intent = if body.enabled {
         serde_json::json!({"action":"put", "mac":mac, "fqdns":body.sites, "revision":body.expected_revision})
     } else {
@@ -1020,8 +1029,12 @@ async fn firewall_delete_route(
             ))
         }
     }
-    capability_admits(command, &path, capability_from_headers(&headers))
-        .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
+    capability_admits(
+        command,
+        FIREWALL_DOCUMENT_TARGET,
+        capability_from_headers(&headers),
+    )
+    .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
     firewall::invoke(
         serde_json::json!({"action":"delete", "mac":mac, "revision":body.expected_revision}),
     )
@@ -1737,7 +1750,7 @@ pub fn router() -> Router {
             get(firewall_policies_route),
         )
         .route(
-            "/api/v1/network/firewall/policies/{mac}",
+            "/api/v1/network/firewall/policies/:mac",
             get(firewall_policy_route)
                 .put(firewall_put_route)
                 .delete(firewall_delete_route),

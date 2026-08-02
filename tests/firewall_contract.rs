@@ -1,6 +1,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use caduceus::bands::{firewall, serve};
+use caduceus::tools::attendance;
 use std::{
     env, fs,
     os::unix::fs::PermissionsExt,
@@ -66,7 +67,7 @@ impl Drop for Fixture {
     }
 }
 fn body(enabled: bool) -> String {
-    serde_json::json!({"schema":"policy.v1","mac":MAC,"mode":"allow-only","sites":["example.com"],"expectedRevision":REVISION,"enabled":enabled,"enforcement":"dns-policy"}).to_string()
+    serde_json::json!({"schema":"caduceus.network.firewall.policy.v1","mac":MAC,"mode":"allow-only","sites":["example.com"],"expectedRevision":REVISION,"enabled":enabled,"enforcement":"dns-policy"}).to_string()
 }
 fn capability() -> String {
     // fixture verifier accepts only signed capabilities; malformed credentials must refuse before staff.
@@ -134,6 +135,95 @@ async fn firewall_routes_are_exactly_gated_and_globally_bounded() {
     assert_eq!(fixture.calls(), 1);
 }
 
+fn firewall_request(method: &str, request_body: String, attendance: &str) -> Request<Body> {
+    Request::builder()
+        .method(method)
+        .uri(format!("/api/v1/network/firewall/policies/{MAC}"))
+        .header("content-type", "application/json")
+        .header("x-caduceus-attendance", attendance)
+        .body(Body::from(request_body))
+        .unwrap()
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn firewall_document_attendance_is_static_and_precedes_staff() {
+    let _lock = LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let fixture = Fixture::new();
+    let bin = fixture.root.join("bin");
+    let sudo = bin.join("sudo");
+    fs::create_dir_all(&bin).unwrap();
+    fs::write(
+        &sudo,
+        "#!/bin/sh\n[ \"$1\" = -n ] || exit 9\ncase \"$2\" in\n/usr/local/sbin/caduceus-bind) echo '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}' ;;\n/usr/local/sbin/caduceus-verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) echo '{\"ok\":true,\"verified\":true}' ;; *) echo '{\"ok\":false,\"verified\":false}' ;; esac ;;\n*) exit 8 ;;\nesac\n",
+    )
+    .unwrap();
+    fs::set_permissions(&sudo, fs::Permissions::from_mode(0o700)).unwrap();
+    let old_path = env::var("PATH").unwrap();
+    let old_incarnation = env::var_os("CADUCEUS_DOCUMENT_INCARNATION");
+    env::set_var("PATH", format!("{}:{old_path}", bin.display()));
+    env::set_var("CADUCEUS_DOCUMENT_INCARNATION", "inc-1");
+    attendance::reset_for_tests();
+    attendance::bind();
+    let open = |document: &str| {
+        attendance::open_json(&serde_json::json!({
+            "documentId": document,
+            "documentIncarnation": "inc-1",
+            "pin": "2468"
+        }))
+        .unwrap()["attendance"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let current = open("/api/v1/network/firewall/policies/{mac}");
+    let concrete = open(&format!("/api/v1/network/firewall/policies/{MAC}"));
+    let wrong_static = open("/api/v1/network/firewall/policies/{device}");
+    for token in [&concrete, &wrong_static] {
+        let response = serve::router()
+            .oneshot(firewall_request("PUT", body(true), token))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(fixture.calls(), 0);
+    }
+    let put = serve::router()
+        .oneshot(firewall_request("PUT", body(true), &current))
+        .await
+        .unwrap();
+    assert_eq!(put.status(), StatusCode::OK);
+    assert_eq!(fixture.calls(), 1);
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("stdin")).unwrap(),
+        serde_json::json!({"action":"put","mac":MAC,"fqdns":["example.com"],"revision":REVISION})
+            .to_string()
+    );
+    let disabled = serve::router()
+        .oneshot(firewall_request("PUT", body(false), &current))
+        .await
+        .unwrap();
+    assert_eq!(disabled.status(), StatusCode::OK);
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("stdin")).unwrap(),
+        serde_json::json!({"action":"delete","mac":MAC,"revision":REVISION}).to_string()
+    );
+    let delete = serde_json::json!({"schema":"caduceus.network.firewall.policy.delete.v1","mac":MAC,"expectedRevision":REVISION}).to_string();
+    let deleted = serve::router()
+        .oneshot(firewall_request("DELETE", delete, &current))
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), StatusCode::OK);
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("stdin")).unwrap(),
+        serde_json::json!({"action":"delete","mac":MAC,"revision":REVISION}).to_string()
+    );
+    attendance::reset_for_tests();
+    match old_incarnation {
+        Some(value) => env::set_var("CADUCEUS_DOCUMENT_INCARNATION", value),
+        None => env::remove_var("CADUCEUS_DOCUMENT_INCARNATION"),
+    }
+    env::set_var("PATH", old_path);
+}
+
 #[test]
 fn firewall_launcher_refuses_oversize_and_keeps_staff_failures_structured() {
     let _lock = LOCK.lock().unwrap_or_else(|p| p.into_inner());
@@ -177,8 +267,8 @@ fn firewall_contract_literals_and_delivery_are_present() {
         assert!(serve.contains(route));
     }
     for literal in [
-        "policy.v1",
-        "policy.delete.v1",
+        "caduceus.network.firewall.policy.v1",
+        "caduceus.network.firewall.policy.delete.v1",
         "allow-only",
         "dns-policy",
         "DefaultBodyLimit::max(8192)",
