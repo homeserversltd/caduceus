@@ -232,6 +232,18 @@ fn attendance_admits(target: &str, token: Option<&str>) -> Result<(), String> {
     }
 }
 
+/// Admit attendance bound to the exact document identity forwarded by a Crown.
+fn document_attendance_admits(document: &str, token: Option<&str>) -> Result<(), String> {
+    let token = token
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "caduceus-attendance-not-current".to_string())?;
+    if !document.trim().is_empty() && attendance::admits_target(token, document) {
+        Ok(())
+    } else {
+        Err("caduceus-attendance-not-current".to_string())
+    }
+}
+
 fn capability_from_headers(headers: &HeaderMap) -> Option<&str> {
     headers
         .get("x-caduceus-attendance")
@@ -789,7 +801,7 @@ async fn network_notes_write_route(
                 .get("x-caduceus-document")
                 .and_then(|value| value.to_str().ok())
                 .filter(|value| !value.trim().is_empty());
-            attendance_admits(
+            document_attendance_admits(
                 document.unwrap_or(""),
                 headers
                     .get("x-caduceus-attendance")
@@ -1075,7 +1087,7 @@ async fn network_dns_route(
                 .and_then(|value| value.to_str().ok())
                 .filter(|value| !value.trim().is_empty());
             if let Some(document) = document {
-                attendance_admits(
+                document_attendance_admits(
                     document,
                     headers
                         .get("x-caduceus-attendance")
