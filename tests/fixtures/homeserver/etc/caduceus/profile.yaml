@@ -31,7 +31,8 @@ commands:
 - network notes write
 - network dhcp reservation add
 - network dhcp reservation remove
-- network dns
+- network dns status
+- network dns intent
 - config path
 - config show
 - config get
