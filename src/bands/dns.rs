@@ -5,7 +5,14 @@
 //! does not touch Unbound, DNS sockets, or UFW itself.
 
 use serde_json::{json, Value};
-use std::{env, process::Command};
+use std::{
+    env,
+    io::Write,
+    process::{Command, Stdio},
+};
+
+const DNS_INTENT_METHOD: &str = "POST";
+const DNS_INTENT_ROUTE: &str = "/api/dns/unbound/drop-in";
 
 fn dns_cmd() -> (String, Vec<String>) {
     if let Ok(command) = env::var("CADUCEUS_DNS_CMD") {
@@ -28,13 +35,26 @@ fn dns_cmd() -> (String, Vec<String>) {
     )
 }
 
-pub fn invoke(args: &[String]) -> Result<Value, String> {
+pub fn invoke(intent: &Value) -> Result<Value, String> {
     let (program, prefix) = dns_cmd();
-    let output = Command::new(program)
+    let encoded = serde_json::to_vec(intent)
+        .map_err(|err| format!("caduceus-network-dns-intent-invalid: {err}"))?;
+    let mut child = Command::new(program)
         .args(prefix)
-        .args(args)
-        .output()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|err| format!("caduceus-network-dns-unavailable: {err}"))?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| "caduceus-network-dns-stdin-unavailable".to_string())?
+        .write_all(&encoded)
+        .map_err(|err| format!("caduceus-network-dns-stdin-failed: {err}"))?;
+    let output = child
+        .wait_with_output()
+        .map_err(|err| format!("caduceus-network-dns-wait-failed: {err}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if stdout.is_empty() {
         return Err(format!(
@@ -50,6 +70,7 @@ pub fn invoke(args: &[String]) -> Result<Value, String> {
             "caduceus-network-dns-failed: {}",
             value
                 .get("firstMissingSignal")
+                .or_else(|| value.get("error"))
                 .and_then(Value::as_str)
                 .unwrap_or("nonzero-exit")
         ));
@@ -58,10 +79,16 @@ pub fn invoke(args: &[String]) -> Result<Value, String> {
 }
 
 pub fn command_json(args: &[String]) -> Result<Value, String> {
-    if args.is_empty() {
-        return Err("caduceus-network-dns-command-missing".into());
+    match args {
+        [verb] if verb == "status" => status_json(),
+        [verb, method, route, flag, metadata] if verb == "intent" && flag == "--metadata-json" => {
+            let metadata = serde_json::from_str(metadata)
+                .map_err(|err| format!("caduceus-network-dns-metadata-invalid: {err}"))?;
+            intent_json(method, route, metadata)
+        }
+        [] => Err("caduceus-network-dns-command-missing".into()),
+        _ => Err("caduceus-network-dns-command-invalid".into()),
     }
-    invoke(args)
 }
 
 pub fn command(args: &[String]) -> i32 {
@@ -78,18 +105,14 @@ pub fn command(args: &[String]) -> i32 {
 }
 
 pub fn status_json() -> Result<Value, String> {
-    invoke(&["status".into()])
+    invoke(&json!({"action":"status"}))
 }
 
 pub fn intent_json(method: &str, route: &str, metadata: Value) -> Result<Value, String> {
-    invoke(&[
-        "intent".into(),
-        method.into(),
-        route.into(),
-        "--metadata-json".into(),
-        serde_json::to_string(&metadata)
-            .map_err(|err| format!("caduceus-network-dns-metadata-invalid: {err}"))?,
-    ])
+    if method != DNS_INTENT_METHOD || route != DNS_INTENT_ROUTE {
+        return Err("caduceus-network-dns-intent-route-refused".into());
+    }
+    invoke(&metadata)
 }
 
 #[cfg(test)]
@@ -105,13 +128,15 @@ mod tests {
             .join(format!("dns-fixture-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
-        let log = root.join("args");
+        let args_log = root.join("args");
+        let stdin_log = root.join("stdin");
         let script = root.join("staff-dns");
         std::fs::write(
             &script,
             format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$*\" > {}\nprintf '{{\"schema\":\"caduceus.network.dns.intent.v1\",\"ok\":true,\"mutationPerformed\":false}}\\n'\n",
-                log.display()
+                "#!/bin/sh\nprintf '%s' \"$*\" > {}\ncat > {}\nprintf '{{\"schema\":\"caduceus.network.dns.intent.v1\",\"ok\":true,\"mutationPerformed\":false}}\\n'\n",
+                args_log.display(),
+                stdin_log.display()
             ),
         )
         .unwrap();
@@ -122,9 +147,10 @@ mod tests {
         let result =
             intent_json("POST", "/api/dns/unbound/drop-in", json!({"dryRun":true})).unwrap();
         assert_eq!(result["schema"], "caduceus.network.dns.intent.v1");
-        assert!(std::fs::read_to_string(log)
-            .unwrap()
-            .contains("intent POST /api/dns/unbound/drop-in"));
+        assert_eq!(std::fs::read_to_string(args_log).unwrap(), "");
+        let forwarded: Value =
+            serde_json::from_str(&std::fs::read_to_string(stdin_log).unwrap()).unwrap();
+        assert_eq!(forwarded, json!({"dryRun":true}));
         std::env::remove_var("CADUCEUS_DNS_CMD");
         let _ = std::fs::remove_dir_all(root);
     }
