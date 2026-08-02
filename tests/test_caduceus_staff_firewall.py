@@ -161,5 +161,28 @@ class FirewallTests(unittest.TestCase):
         p = subprocess.run([str(launcher)], cwd=STAFF, input=b"x" * (firewall.MAX_INPUT_BYTES + 1), capture_output=True)
         self.assertNotEqual(p.returncode, 0); self.assertEqual(json.loads(p.stdout)["error"], "firewall-input-too-large")
 
+    def test_nft_106_rendering_and_fixed_missing_view_mapping(self):
+        self.put("aa:bb:cc:dd:ee:01", ["a.example"])
+        self.runner.live = self.runner.live.replace("priority -5;", "priority filter - 5;")
+        self.assertEqual(self.call({"action": "list"})["policies"][0]["receipt"]["firstMissingSignal"], "none")
+        self.runner.live = self.runner.live.replace("priority filter - 5;", "priority filter - 4;")
+        self.assertNotEqual(self.call({"action": "list"})["policies"][0]["receipt"]["firstMissingSignal"], "none")
+        original = firewall.subprocess.run
+        class Result:
+            returncode, stdout, stderr = 1, "", "error: view caduceus-child-aabbccddee01 not found"
+        try:
+            firewall.subprocess.run = lambda *args, **kwargs: Result()
+            self.assertEqual(firewall._run([str(firewall.UNBOUND_CONTROL), "view_list_local_zones", "caduceus-child-aabbccddee01"])[2], "firewall-unbound-live-view-missing")
+            self.assertEqual(firewall._run([str(firewall.NFT), "list", "ruleset"])[2], "firewall-live-command-refused")
+        finally:
+            firewall.subprocess.run = original
+
+    def test_status_advertises_stable_binding_only_after_kea_parse(self):
+        self.assertEqual(self.call({"action": "status"})["stableBinding"], {"available": True})
+        self.kea.write_text("not JSON")
+        failed = self.call({"action": "status"})
+        self.assertFalse(failed["ok"])
+        self.assertEqual(failed["firstMissingSignal"], "firewall-kea-readback-unavailable")
+
 
 if __name__ == "__main__": unittest.main()

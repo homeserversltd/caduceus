@@ -263,7 +263,7 @@ def _parse_nft(data: bytes) -> set[tuple[str, str]]:
     if not lines: return set()
     if lines[:2] != ["table inet caduceus_child_filter {", "chain forward {"] or len(lines) < 5:
         raise FirewallRefused("firewall-nft-invalid")
-    if lines[2] != "type filter hook forward priority -5; policy accept;" or lines[-2:] != ["}", "}"]:
+    if lines[2] not in {"type filter hook forward priority -5; policy accept;", "type filter hook forward priority filter - 5; policy accept;"} or lines[-2:] != ["}", "}"]:
         raise FirewallRefused("firewall-nft-invalid")
     rules: set[tuple[str, str, str, str]] = set()
     for line in lines[3:-2]:
@@ -296,7 +296,7 @@ def _prove_live_nft(policies: dict[str, dict[str, Any]], runner: Callable[[list[
         lines = [line.strip() for line in live.splitlines() if line.strip() and not line.lstrip().startswith("#")]
         if lines[:2] != ["table inet caduceus_child_filter {", "chain forward {"] or len(lines) < 5:
             raise FirewallRefused("firewall-nft-live-table-mismatch")
-        if lines[2] != "type filter hook forward priority -5; policy accept;" or lines[-2:] != ["}", "}"]:
+        if lines[2] not in {"type filter hook forward priority -5; policy accept;", "type filter hook forward priority filter - 5; policy accept;"} or lines[-2:] != ["}", "}"]:
             raise FirewallRefused("firewall-nft-live-hook-mismatch")
         actual: set[tuple[str, str, str, str]] = set()
         for line in lines[3:-2]:
@@ -346,7 +346,18 @@ def _digest(unbound: bytes, nft: bytes) -> str:
 def _run(argv: list[str]) -> tuple[bool, str, str]:
     try:
         p = subprocess.run(argv, text=True, capture_output=True, timeout=20, check=False)
-        return p.returncode == 0, p.stdout, "none" if p.returncode == 0 else "firewall-live-command-refused"
+        if p.returncode == 0:
+            return True, p.stdout, "none"
+        # Only this fixed Unbound query makes a missing view meaningful.  Every
+        # other nonzero command result remains a refusal rather than absence.
+        is_view_query = len(argv) == 3 and argv[:2] == [str(UNBOUND_CONTROL), "view_list_local_zones"]
+        missing_view = re.search(
+            r"(?:\b(?:unknown|missing|absent)\s+view\b|\bview\b[^\n]*(?:not\s+found|does\s+not\s+exist|unknown|missing|absent)|\b(?:no\s+such|not\s+found)\b[^\n]*\bview\b)",
+            p.stderr.lower(),
+        )
+        if is_view_query and missing_view:
+            return False, p.stdout, "firewall-unbound-live-view-missing"
+        return False, p.stdout, "firewall-live-command-refused"
     except (OSError, subprocess.SubprocessError): return False, "", "firewall-live-command-unavailable"
 
 
@@ -414,7 +425,8 @@ def dispatch(intent: Any, *, unbound_path: Path = DEFAULT_UNBOUND, nft_path: Pat
         locks = _locks([Path(unbound_path), Path(nft_path)])
         unbound, umeta, us, nft, nmeta, ns, policies, revision, public, missing = _read_current(Path(unbound_path), Path(nft_path), Path(kea_path), checkconf, nft_check, runner)
         if action in {"status", "list"}:
-            return _receipt(action, True, False, policies=public, revision=revision, available=True, validation="readback", firstMissingSignal=missing)
+            # `_read_current` parsed Kea and attended every existing binding.
+            return _receipt(action, True, False, policies=public, revision=revision, available=True, stableBinding={"available": True}, validation="readback", firstMissingSignal=missing)
         mac = canonical_mac(intent.get("mac"))
         if action == "get":
             if mac not in policies: raise FirewallRefused("firewall-policy-not-found")

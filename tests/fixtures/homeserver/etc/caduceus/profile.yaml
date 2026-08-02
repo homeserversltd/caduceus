@@ -33,6 +33,9 @@ commands:
 - network dhcp reservation remove
 - network dns status
 - network dns intent
+- caduceus.network.firewall.read
+- caduceus.network.firewall.put
+- caduceus.network.firewall.delete
 - config path
 - config show
 - config get

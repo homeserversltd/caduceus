@@ -1,7 +1,7 @@
 use crate::bands::{
-    actions, cert, config, dhcp, dns, gui, health, homeserver_sbin, hyalos, identity, legacy_sbin,
-    local_ai, network, network_notes, pjlink, profile, profile_module, receipts, source_map, staff,
-    sync, time, update,
+    actions, cert, config, dhcp, dns, firewall, gui, health, homeserver_sbin, hyalos, identity,
+    legacy_sbin, local_ai, network, network_notes, pjlink, profile, profile_module, receipts,
+    source_map, staff, sync, time, update,
 };
 use crate::tools::{attendance, policy};
 use axum::{
@@ -58,6 +58,26 @@ struct ProfileModuleToggleBody {
 struct NetworkNotesBody {
     mac: String,
     note: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct FirewallPutBody {
+    schema: String,
+    mac: String,
+    mode: String,
+    sites: Vec<String>,
+    expected_revision: String,
+    enabled: bool,
+    enforcement: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct FirewallDeleteBody {
+    schema: String,
+    mac: String,
+    expected_revision: String,
 }
 
 #[derive(Deserialize)]
@@ -782,6 +802,233 @@ async fn dhcp_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBo
     gated_json("network dhcp status", dhcp::status_json).await
 }
 
+fn firewall_status(value: &Value) -> StatusCode {
+    let signal = value
+        .get("firstMissingSignal")
+        .or_else(|| value.get("error"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    match signal {
+        signal if signal.contains("policy-not-found") => StatusCode::NOT_FOUND,
+        signal if signal.contains("revision-conflict") || signal.contains("binding-mismatch") => {
+            StatusCode::CONFLICT
+        }
+        signal if signal.contains("rollback") && signal.contains("failed") => {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+        signal
+            if signal.contains("staff-")
+                || signal.contains("unavailable")
+                || signal.contains("live-command") =>
+        {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+        signal
+            if signal.contains("invalid")
+                || signal.contains("refused")
+                || signal.contains("foreign")
+                || signal.contains("ambiguous")
+                || signal.contains("validator")
+                || signal.contains("config") =>
+        {
+            StatusCode::UNPROCESSABLE_ENTITY
+        }
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+fn firewall_refusal(status: StatusCode, signal: &str) -> (StatusCode, Json<Value>) {
+    (
+        status,
+        Json(serde_json::json!({"ok": false, "firstMissingSignal": signal})),
+    )
+}
+
+fn firewall_mac(value: &str) -> Option<String> {
+    let compact = value.to_ascii_lowercase().replace('-', ":");
+    let canonical = if compact.len() == 12 && compact.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        compact
+            .as_bytes()
+            .chunks(2)
+            .map(|pair| std::str::from_utf8(pair).ok())
+            .collect::<Option<Vec<_>>>()?
+            .join(":")
+    } else {
+        compact
+    };
+    let valid = canonical.len() == 17
+        && canonical
+            .split(':')
+            .all(|part| part.len() == 2 && part.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        && canonical != "00:00:00:00:00:00"
+        && canonical != "ff:ff:ff:ff:ff:ff";
+    valid.then_some(canonical)
+}
+
+fn firewall_fqdns(sites: &[String]) -> bool {
+    sites.iter().all(|site| {
+        if site.is_empty()
+            || site.len() > 253
+            || site.ends_with(".home.arpa")
+            || site.ends_with(".home.arpa.")
+        {
+            return false;
+        }
+        let name = site.trim_end_matches('.');
+        name.split('.').count() >= 2
+            && name.split('.').all(|label| {
+                !label.is_empty()
+                    && label.len() <= 63
+                    && !label.starts_with('-')
+                    && !label.ends_with('-')
+                    && label.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                    })
+            })
+    })
+}
+
+fn firewall_digest(value: &str) -> bool {
+    value.len() == 64
+        && value.bytes().all(|byte| {
+            byte.is_ascii_digit() || (byte.is_ascii_lowercase() && byte.is_ascii_hexdigit())
+        })
+}
+
+fn firewall_read(
+    action: &str,
+    mac: Option<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    match policy::allows_command("caduceus.network.firewall.read") {
+        Ok(true) => {
+            let mut intent = serde_json::json!({"action": action});
+            if let Some(mac) = mac {
+                intent["mac"] = Value::String(mac);
+            }
+            firewall::invoke(intent)
+                .map(Json)
+                .map_err(|value| (firewall_status(&value), Json(value)))
+        }
+        Ok(false) => Err(firewall_refusal(
+            StatusCode::FORBIDDEN,
+            "caduceus-public-action-not-allowed",
+        )),
+        Err(_) => Err(firewall_refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "caduceus-profile-missing",
+        )),
+    }
+}
+
+async fn firewall_status_route() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    firewall_read("status", None)
+}
+
+async fn firewall_policies_route() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    firewall_read("list", None)
+}
+
+async fn firewall_policy_route(
+    axum::extract::Path(mac): axum::extract::Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let mac = firewall_mac(&mac)
+        .ok_or_else(|| firewall_refusal(StatusCode::BAD_REQUEST, "firewall-mac-invalid"))?;
+    firewall_read("get", Some(mac))
+}
+
+async fn firewall_put_route(
+    headers: HeaderMap,
+    axum::extract::Path(path_mac): axum::extract::Path<String>,
+    Json(body): Json<FirewallPutBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let command = "caduceus.network.firewall.put";
+    let path = firewall_mac(&path_mac)
+        .ok_or_else(|| firewall_refusal(StatusCode::BAD_REQUEST, "firewall-mac-invalid"))?;
+    let mac = firewall_mac(&body.mac)
+        .filter(|mac| mac == &path)
+        .ok_or_else(|| firewall_refusal(StatusCode::BAD_REQUEST, "firewall-mac-mismatch"))?;
+    if body.schema != "caduceus.network.firewall.policy.v1"
+        || body.mode != "allow-only"
+        || body.enforcement != "dns-policy"
+        || !(1..=64).contains(&body.sites.len())
+        || !firewall_fqdns(&body.sites)
+        || !firewall_digest(&body.expected_revision)
+    {
+        return Err(firewall_refusal(
+            StatusCode::BAD_REQUEST,
+            "firewall-input-invalid",
+        ));
+    }
+    match policy::allows_command(command) {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(firewall_refusal(
+                StatusCode::FORBIDDEN,
+                "caduceus-public-action-not-allowed",
+            ))
+        }
+        Err(_) => {
+            return Err(firewall_refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "caduceus-profile-missing",
+            ))
+        }
+    }
+    capability_admits(command, &path, capability_from_headers(&headers))
+        .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
+    let intent = if body.enabled {
+        serde_json::json!({"action":"put", "mac":mac, "fqdns":body.sites, "revision":body.expected_revision})
+    } else {
+        serde_json::json!({"action":"delete", "mac":mac, "revision":body.expected_revision})
+    };
+    firewall::invoke(intent)
+        .map(|value| (StatusCode::OK, Json(value)))
+        .map_err(|value| (firewall_status(&value), Json(value)))
+}
+
+async fn firewall_delete_route(
+    headers: HeaderMap,
+    axum::extract::Path(path_mac): axum::extract::Path<String>,
+    Json(body): Json<FirewallDeleteBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let command = "caduceus.network.firewall.delete";
+    let path = firewall_mac(&path_mac)
+        .ok_or_else(|| firewall_refusal(StatusCode::BAD_REQUEST, "firewall-mac-invalid"))?;
+    let mac = firewall_mac(&body.mac)
+        .filter(|mac| mac == &path)
+        .ok_or_else(|| firewall_refusal(StatusCode::BAD_REQUEST, "firewall-mac-mismatch"))?;
+    if body.schema != "caduceus.network.firewall.policy.delete.v1"
+        || !firewall_digest(&body.expected_revision)
+    {
+        return Err(firewall_refusal(
+            StatusCode::BAD_REQUEST,
+            "firewall-input-invalid",
+        ));
+    }
+    match policy::allows_command(command) {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(firewall_refusal(
+                StatusCode::FORBIDDEN,
+                "caduceus-public-action-not-allowed",
+            ))
+        }
+        Err(_) => {
+            return Err(firewall_refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "caduceus-profile-missing",
+            ))
+        }
+    }
+    capability_admits(command, &path, capability_from_headers(&headers))
+        .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
+    firewall::invoke(
+        serde_json::json!({"action":"delete", "mac":mac, "revision":body.expected_revision}),
+    )
+    .map(|value| (StatusCode::OK, Json(value)))
+    .map_err(|value| (firewall_status(&value), Json(value)))
+}
+
 async fn time_state_route(
     connect_info: Option<ConnectInfo<SocketAddr>>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -949,8 +1196,12 @@ async fn cert_csr_sign_route(
         Ok(false) => return Err(api_error(command)),
         Err(_) => return Err(api_error_signal(command, "caduceus-profile-missing")),
     }
-    capability_admits(command, "console.home.arpa", capability_from_headers(&headers))
-        .map_err(|signal| api_error_signal(command, &signal))?;
+    capability_admits(
+        command,
+        "console.home.arpa",
+        capability_from_headers(&headers),
+    )
+    .map_err(|signal| api_error_signal(command, &signal))?;
     cert::sign_csr_json(&body.csr_pem)
         .map(|value| (StatusCode::OK, Json(value)))
         .map_err(|error| cert_csr_error(command, &error))
@@ -1447,8 +1698,7 @@ pub fn router() -> Router {
         .route(
             "/api/v1/service/coronatio/restart",
             post(registered_service_action_route),
-        )
-        .layer(DefaultBodyLimit::max(8192));
+        );
     Router::new()
         .merge(attendance_routes)
         .route("/health", get(health_route))
@@ -1478,6 +1728,20 @@ pub fn router() -> Router {
             get(network_notes_read_route).put(network_notes_write_route),
         )
         .route("/api/v1/network/dhcp/status", get(dhcp_status_route))
+        .route(
+            "/api/v1/network/firewall/status",
+            get(firewall_status_route),
+        )
+        .route(
+            "/api/v1/network/firewall/policies",
+            get(firewall_policies_route),
+        )
+        .route(
+            "/api/v1/network/firewall/policies/{mac}",
+            get(firewall_policy_route)
+                .put(firewall_put_route)
+                .delete(firewall_delete_route),
+        )
         .route("/api/v1/time/state", get(time_state_route))
         .route("/api/v1/network/dns", post(network_dns_route))
         .route("/api/v1/cert/status", get(cert_status_route))
@@ -1547,6 +1811,7 @@ pub fn router() -> Router {
             "/api/v1/profile/module/toggle",
             post(profile_module_toggle_route),
         )
+        .layer(DefaultBodyLimit::max(8192))
 }
 
 pub async fn run_async() -> i32 {

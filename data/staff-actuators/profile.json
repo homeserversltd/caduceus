@@ -39,6 +39,19 @@
       "pythonModule": "caduceus_staff.network.dhcp"
     },
     {
+      "id": "network-firewall",
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-network-firewall",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/firewall.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.firewall.apply.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Typed child DNS firewall policy uses stdin JSON and owned nft/Unbound transaction.",
+      "pythonModule": "caduceus_staff.network.firewall"
+    },
+    {
       "id": "network-dns",
       "family": "network",
       "actuatorClass": "staff-python",
