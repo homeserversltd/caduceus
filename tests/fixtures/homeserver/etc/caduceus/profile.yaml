@@ -19,6 +19,7 @@ commands:
 - cert status
 - cert issue-leaf
 - cert bundle create
+- cert bundle download
 - cert apply
 - cert portal-admit
 - network dhcp status
