@@ -43,7 +43,8 @@ async fn dns_http_uses_exact_document_attendance_or_declared_scoped_capability()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let root = root();
     let bin = root.join("bin");
-    let log = root.join("launcher-args");
+    let args_log = root.join("launcher-args");
+    let stdin_log = root.join("launcher-stdin");
     let launcher = root.join("dns-launcher");
     fs::create_dir_all(root.join("etc/caduceus")).unwrap();
     fs::create_dir_all(&bin).unwrap();
@@ -62,8 +63,9 @@ async fn dns_http_uses_exact_document_attendance_or_declared_scoped_capability()
     fs::write(
         &launcher,
         format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$*\" > {}\nprintf '{{\"schema\":\"caduceus.network.dns.receipt.v2\",\"ok\":true,\"receipt\":\"fixture-actuator-receipt\"}}\\n'\n",
-            log.display()
+            "#!/bin/sh\nprintf '%s' \"$*\" > {}\ncat > {}\nprintf '{{\"schema\":\"caduceus.network.dns.receipt.v2\",\"ok\":true,\"receipt\":\"fixture-actuator-receipt\"}}\\n'\n",
+            args_log.display(),
+            stdin_log.display()
         ),
     )
     .unwrap();
@@ -102,16 +104,18 @@ async fn dns_http_uses_exact_document_attendance_or_declared_scoped_capability()
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        assert!(!log.exists());
+        assert!(!args_log.exists());
+        assert!(!stdin_log.exists());
     }
     let response = serve::router()
         .oneshot(request(Some("dns-document"), Some(&current)))
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(fs::read_to_string(&log)
-        .unwrap()
-        .starts_with("intent POST /api/dns/unbound/drop-in --metadata-json "));
+    assert_eq!(fs::read_to_string(&args_log).unwrap(), "");
+    let forwarded: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&stdin_log).unwrap()).unwrap();
+    assert_eq!(forwarded, serde_json::json!({"action":"status"}));
 
     attendance::reset_for_tests();
     match old_root {

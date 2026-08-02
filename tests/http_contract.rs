@@ -84,13 +84,15 @@ impl DnsCommandFixture {
                 .as_nanos()
         ));
         fs::create_dir_all(&root).unwrap();
-        let log = root.join("launcher-args");
+        let args_log = root.join("launcher-args");
+        let stdin_log = root.join("launcher-stdin");
         let launcher = root.join("fixture-launcher");
         fs::write(
             &launcher,
             format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$*\" > {}\nprintf '{{\"schema\":\"caduceus.network.dns.intent.v1\",\"ok\":true,\"mutationPerformed\":false,\"receipt\":\"fixture-actuator-receipt\"}}\\n'\n",
-                log.display()
+                "#!/bin/sh\nprintf '%s' \"$*\" > {}\ncat > {}\nprintf '{{\"schema\":\"caduceus.network.dns.intent.v1\",\"ok\":true,\"mutationPerformed\":false,\"receipt\":\"fixture-actuator-receipt\"}}\\n'\n",
+                args_log.display(),
+                stdin_log.display()
             ),
         )
         .unwrap();
@@ -107,6 +109,11 @@ impl DnsCommandFixture {
 
     fn launcher_args(&self) -> String {
         fs::read_to_string(self.root.join("launcher-args")).unwrap()
+    }
+
+    fn launcher_stdin(&self) -> serde_json::Value {
+        serde_json::from_str(&fs::read_to_string(self.root.join("launcher-stdin")).unwrap())
+            .unwrap()
     }
 }
 
@@ -550,9 +557,11 @@ async fn network_dns_mutation_invokes_staff_launcher_with_valid_scoped_capabilit
     assert!(!receipt.to_string().contains("home.arpa."));
 
     let launcher_args = fixture.launcher_args();
-    assert!(launcher_args.starts_with("intent POST /api/dns/unbound/drop-in --metadata-json "));
-    assert!(launcher_args.contains("\"dropIn\":\""));
-    assert!(launcher_args.contains("\"dryRun\":true"));
+    assert_eq!(launcher_args, "");
+    assert_eq!(
+        fixture.launcher_stdin(),
+        serde_json::from_str::<serde_json::Value>(payload).unwrap()
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
