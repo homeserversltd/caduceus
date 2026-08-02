@@ -75,7 +75,7 @@ async fn dns_http_uses_exact_document_attendance_or_declared_scoped_capability()
     let old_launcher = env::var_os("CADUCEUS_DNS_CMD");
     env::set_var("PATH", format!("{}:{old_path}", bin.display()));
     env::set_var("CADUCEUS_ROOT", &root);
-    env::set_var("CADUCEUS_DOCUMENT_INCARNATION", "inc-1");
+    env::remove_var("CADUCEUS_DOCUMENT_INCARNATION");
     env::set_var("CADUCEUS_DNS_CMD", &launcher);
     attendance::reset_for_tests();
     attendance::bind();
@@ -95,6 +95,7 @@ async fn dns_http_uses_exact_document_attendance_or_declared_scoped_capability()
     for (document, token) in [
         (Some("wrong-document"), Some(current.as_str())),
         (None, Some(current.as_str())),
+        (Some("dns-document"), None),
     ] {
         let response = serve::router()
             .oneshot(request(document, token))

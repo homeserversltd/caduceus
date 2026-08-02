@@ -69,9 +69,10 @@ async fn network_notes_attendance_write_is_atomic_durable_and_readable() {
     fs::set_permissions(&sudo, fs::Permissions::from_mode(0o700)).unwrap();
 
     let old_path = std::env::var("PATH").unwrap();
+    let old_incarnation = std::env::var_os("CADUCEUS_DOCUMENT_INCARNATION");
     std::env::set_var("PATH", format!("{}:{old_path}", bin.display()));
     std::env::set_var("CADUCEUS_ROOT", &root);
-    std::env::set_var("CADUCEUS_DOCUMENT_INCARNATION", "inc-1");
+    std::env::remove_var("CADUCEUS_DOCUMENT_INCARNATION");
     attendance::reset_for_tests();
     attendance::bind();
     let opened = attendance::open_json(&serde_json::json!({
@@ -167,7 +168,11 @@ async fn network_notes_attendance_write_is_atomic_durable_and_readable() {
         assert_eq!(fs::read(&state_path).unwrap(), persisted);
     }
 
-    for (document, token) in [(None, None), (Some("other-document"), Some(attendance))] {
+    for (document, token) in [
+        (None, None),
+        (Some("other-document"), Some(attendance)),
+        (Some("stats-document"), None),
+    ] {
         let refused = app
             .clone()
             .oneshot(request(
@@ -202,7 +207,10 @@ async fn network_notes_attendance_write_is_atomic_durable_and_readable() {
     assert_eq!(cleared["notes"], serde_json::json!({}));
 
     attendance::reset_for_tests();
-    std::env::remove_var("CADUCEUS_DOCUMENT_INCARNATION");
+    match old_incarnation {
+        Some(value) => std::env::set_var("CADUCEUS_DOCUMENT_INCARNATION", value),
+        None => std::env::remove_var("CADUCEUS_DOCUMENT_INCARNATION"),
+    }
     std::env::set_var("PATH", old_path);
     let _ = fs::remove_dir_all(root);
 }
