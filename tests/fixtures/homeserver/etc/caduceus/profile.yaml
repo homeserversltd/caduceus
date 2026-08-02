@@ -26,6 +26,8 @@ commands:
 - network dhcp leases
 - network dhcp reservations
 - network dhcp reload
+- network notes
+- network notes write
 - network dhcp reservation add
 - network dhcp reservation remove
 - network dns

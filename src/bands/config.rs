@@ -246,15 +246,26 @@ fn set_dotted(document: &mut Value, path: &str, value: Value) -> Result<(), Stri
     Ok(())
 }
 
-/// Write a file created by this process with its declared, least-permissive
-/// mode. Creation gives the file this process's uid/gid; explicitly setting
-/// the mode makes the final policy independent of the ambient umask.
-fn write_owned_file(path: &Path, bytes: &[u8], mode: u32) -> Result<(), String> {
-    let mut file = fs::File::create(path).map_err(|err| err.to_string())?;
-    fs::set_permissions(path, fs::Permissions::from_mode(mode)).map_err(|err| err.to_string())?;
-    file.write_all(bytes)
-        .and_then(|()| file.sync_all())
-        .map_err(|err| err.to_string())
+/// Atomically replace a Caduceus-owned file with a fully synced, owner-created
+/// sibling. Callers validate and render before this boundary so a refusal never
+/// changes the prior durable bytes.
+pub fn atomic_write_owned(path: &Path, bytes: &[u8], mode: u32) -> Result<(), String> {
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "state.json".to_string());
+    let temporary = path.with_file_name(format!("{file_name}.tmp.{}", std::process::id()));
+    let result = (|| {
+        let mut file = fs::File::create(&temporary)?;
+        fs::set_permissions(&temporary, fs::Permissions::from_mode(mode))?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result.map_err(|err| err.to_string())
 }
 
 fn mutate(op: &str, target: &str, update: Value) -> Result<Value, String> {
@@ -296,20 +307,10 @@ fn mutate(op: &str, target: &str, update: Value) -> Result<Value, String> {
     }
     fs::copy(&resolved.fs_path, &backup_fs)
         .map_err(|_| "caduceus-household-config-backup-failed".to_string())?;
-    let file_name = resolved
-        .fs_path
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| "config.json".to_string());
-    let tmp = resolved
-        .fs_path
-        .with_file_name(format!("{file_name}.tmp.{}", std::process::id()));
     let mut rendered = serde_json::to_vec_pretty(&document)
         .map_err(|_| "caduceus-household-config-render-failed".to_string())?;
     rendered.push(b'\n');
-    write_owned_file(&tmp, &rendered, OWNED_FILE_MODE)
-        .map_err(|_| "caduceus-household-config-write-failed".to_string())?;
-    fs::rename(&tmp, &resolved.fs_path)
+    atomic_write_owned(&resolved.fs_path, &rendered, OWNED_FILE_MODE)
         .map_err(|_| "caduceus-household-config-write-failed".to_string())?;
     let receipt = json!({
         "schema": "caduceus.household-config.mutation.v1",
