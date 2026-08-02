@@ -220,6 +220,18 @@ fn capability_from_headers(headers: &HeaderMap) -> Option<&str> {
         })
 }
 
+fn standalone_capability_from_headers(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("x-caduceus-capability")
+        .and_then(|value| value.to_str().ok())
+        .or_else(|| {
+            headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Bearer "))
+        })
+}
+
 fn capability_admits(command: &str, target: &str, token: Option<&str>) -> Result<(), String> {
     if token.is_some_and(|token| attendance::admits_target(token, target)) {
         return Ok(());
@@ -787,13 +799,34 @@ async fn network_dns_route(
     headers: HeaderMap,
     Json(metadata): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    let command = "network dns";
+    // The staff actuator remains the typed authority for mutation-action
+    // validation. Only its declared read-only status action selects the status
+    // profile command; every other payload reaches typed intent validation.
+    let command = if metadata.get("action").and_then(Value::as_str) == Some("status") {
+        "network dns status"
+    } else {
+        "network dns intent"
+    };
     let target = "/api/dns/unbound/drop-in";
     match policy::allows_command(command) {
         Ok(true) => {
-            if let Err(reason) =
-                capability_admits(command, target, capability_from_headers(&headers))
-            {
+            let document = headers
+                .get("x-caduceus-document")
+                .and_then(|value| value.to_str().ok())
+                .filter(|value| !value.trim().is_empty());
+            if let Some(document) = document {
+                attendance_admits(
+                    document,
+                    headers
+                        .get("x-caduceus-attendance")
+                        .and_then(|value| value.to_str().ok()),
+                )
+                .map_err(|signal| api_error_signal(command, &signal))?;
+            } else if let Err(reason) = capability_admits(
+                command,
+                target,
+                standalone_capability_from_headers(&headers),
+            ) {
                 return Err(api_error_signal(command, &reason));
             }
             match dns::intent_json("POST", target, metadata) {

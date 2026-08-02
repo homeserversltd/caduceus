@@ -506,7 +506,11 @@ async fn network_dns_mutation_requires_scoped_unexpired_capability() {
             "caduceus-capability-scope".to_string(),
         ),
         (
-            Some(capability("network dns", "/api/dns/unbound/drop-in", -1)),
+            Some(capability(
+                "network dns intent",
+                "/api/dns/unbound/drop-in",
+                -1,
+            )),
             "caduceus-capability-expired".to_string(),
         ),
     ] {
@@ -529,7 +533,7 @@ async fn network_dns_mutation_invokes_staff_launcher_with_valid_scoped_capabilit
                 .uri("/api/v1/network/dns")
                 .header(
                     "x-caduceus-capability",
-                    capability("network dns", "/api/dns/unbound/drop-in", 60),
+                    capability("network dns intent", "/api/dns/unbound/drop-in", 60),
                 )
                 .header("content-type", "application/json")
                 .body(Body::from(payload))
