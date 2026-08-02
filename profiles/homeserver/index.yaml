@@ -12,6 +12,8 @@ commands:
 - legacy-sbin list
 - legacy-sbin show
 - network status
+- network notes
+- network notes write
 - network dhcp status
 - network dhcp leases
 - network dhcp reservations

@@ -1,7 +1,7 @@
 use crate::bands::{
     actions, cert, config, dhcp, dns, gui, health, homeserver_sbin, hyalos, identity, legacy_sbin,
-    local_ai, network, pjlink, profile, profile_module, receipts, source_map, staff, sync, time,
-    update,
+    local_ai, network, network_notes, pjlink, profile, profile_module, receipts, source_map, staff,
+    sync, time, update,
 };
 use crate::tools::{attendance, policy};
 use axum::{
@@ -51,6 +51,13 @@ struct ProfileModuleToggleBody {
     #[serde(alias = "moduleId")]
     module_id: String,
     enabled: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NetworkNotesBody {
+    mac: String,
+    note: String,
 }
 
 #[derive(Deserialize)]
@@ -707,6 +714,56 @@ async fn update_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiError
 
 async fn network_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("network status", network::status_json).await
+}
+
+async fn network_notes_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("network notes", network_notes::read_json).await
+}
+
+fn network_notes_write_error(signal: String) -> (StatusCode, Json<ApiErrorBody>) {
+    let status = if signal == "caduceus-network-notes-mac-invalid"
+        || signal == "caduceus-network-notes-note-invalid"
+    {
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        status,
+        Json(ApiErrorBody {
+            schema: "caduceus.api.error.v1",
+            ok: false,
+            command: "network notes write".to_string(),
+            first_missing_signal: signal,
+        }),
+    )
+}
+
+async fn network_notes_write_route(
+    headers: HeaderMap,
+    Json(body): Json<NetworkNotesBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let command = "network notes write";
+    match policy::allows_command(command) {
+        Ok(false) => Err(api_error(command)),
+        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+        Ok(true) => {
+            let document = headers
+                .get("x-caduceus-document")
+                .and_then(|value| value.to_str().ok())
+                .filter(|value| !value.trim().is_empty());
+            attendance_admits(
+                document.unwrap_or(""),
+                headers
+                    .get("x-caduceus-attendance")
+                    .and_then(|value| value.to_str().ok()),
+            )
+            .map_err(|signal| api_error_signal(command, &signal))?;
+            network_notes::write_json(&body.mac, &body.note)
+                .map(|value| (StatusCode::OK, Json(value)))
+                .map_err(network_notes_write_error)
+        }
+    }
 }
 
 async fn dhcp_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -1383,6 +1440,10 @@ pub fn router() -> Router {
         .route("/api/v1/config/patch", post(config_patch_route))
         .route("/api/v1/update/status", get(update_status_route))
         .route("/api/v1/network/status", get(network_status_route))
+        .route(
+            "/api/v1/network/notes",
+            get(network_notes_read_route).put(network_notes_write_route),
+        )
         .route("/api/v1/network/dhcp/status", get(dhcp_status_route))
         .route("/api/v1/time/state", get(time_state_route))
         .route("/api/v1/network/dns", post(network_dns_route))
