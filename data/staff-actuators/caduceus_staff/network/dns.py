@@ -166,11 +166,25 @@ def _snapshot(path: Path) -> tuple[bytes, os.stat_result, FileSnapshot]:
 
 
 def _snapshot_is_current(path: Path, expected: FileSnapshot) -> bool:
+    """Strict CAS proof used before replacing a currently installed file."""
     try:
         _data, _metadata, observed = _snapshot(path)
-    except DnsRefused:
+    except (DnsRefused, OSError):
         return False
     return observed == expected
+
+
+def _snapshot_semantics_are_current(path: Path, expected: FileSnapshot) -> bool:
+    """Prove restored pathname content and posture without requiring inode reuse."""
+    try:
+        _data, _metadata, observed = _snapshot(path)
+    except (DnsRefused, OSError):
+        return False
+    return (
+        observed.posture == expected.posture
+        and observed.digest == expected.digest
+        and observed.xattrs == expected.xattrs
+    )
 
 
 def _apply_metadata(fd: int, metadata: os.stat_result, xattrs: tuple[tuple[str, bytes], ...]) -> None:
@@ -354,7 +368,7 @@ def _restore(path: Path, original: bytes, metadata: os.stat_result, xattrs: tupl
             raise DnsRefused("dns-config-identity-content-metadata-changed")
         os.replace(staged, path)
         _fsync_parent(path)
-        if not _snapshot_is_current(path, source):
+        if not _snapshot_semantics_are_current(path, source):
             raise DnsRefused("dns-config-restore-validation-failed")
     finally:
         staged.unlink(missing_ok=True)

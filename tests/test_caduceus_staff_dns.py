@@ -124,6 +124,49 @@ class DnsActuatorTests(unittest.TestCase):
         self.assertIn(stat.S_IFDIR, locked_kinds)
         self.assertEqual(self.path.read_bytes(), before)
 
+    def test_guarded_rollback_replaces_inode_but_restores_exact_semantics(self):
+        original = self.path.read_bytes()
+        try:
+            os.setxattr(self.path, "user.caduceus-restore", b"original", follow_symlinks=False)
+            xattrs_supported = True
+        except OSError:
+            xattrs_supported = False
+        before = dns._snapshot(self.path)[2]
+        original_fd = os.open(self.path, os.O_RDONLY)
+        checks = []
+        def validator(path):
+            checks.append(Path(path).read_bytes())
+            return (len(checks) != 2, "bad-installed" if len(checks) == 2 else "")
+        try:
+            receipt = dns.dispatch({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"}, config_path=self.path, checkconf=validator)
+            after = dns._snapshot(self.path)[2]
+        finally:
+            os.close(original_fd)
+        self.assertFalse(receipt["ok"])
+        self.assertEqual(receipt["rollback"], "restored")
+        self.assertNotEqual(after.identity, before.identity)
+        self.assertEqual(self.path.read_bytes(), original)
+        self.assertEqual(after.posture, before.posture)
+        self.assertEqual(after.digest, before.digest)
+        self.assertEqual(after.xattrs, before.xattrs)
+        if xattrs_supported:
+            self.assertEqual(os.getxattr(self.path, "user.caduceus-restore", follow_symlinks=False), b"original")
+
+    def test_guarded_rollback_refuses_same_inode_metadata_mutation(self):
+        before = self.path.read_bytes()
+        calls = []
+        def validator(path):
+            calls.append(Path(path).read_bytes())
+            if len(calls) == 2:
+                os.chmod(self.path, 0o600)
+                return False, "bad-installed"
+            return True, ""
+        receipt = dns.dispatch({"action": "ensure-local-data", "name": "app.home.arpa", "address": "192.168.1.2"}, config_path=self.path, checkconf=validator)
+        self.assertFalse(receipt["ok"])
+        self.assertEqual(receipt["rollback"], "refused-identity-content-metadata-changed")
+        self.assertEqual(self.path.read_bytes(), before + b'local-data: "app.home.arpa. IN A 192.168.1.2"\n')
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+
     def test_rollback_refuses_foreign_replacement_after_install(self):
         before = self.path.read_bytes()
         foreign = b"server:\n# foreign writer\n"
