@@ -4,6 +4,7 @@ use base64::Engine;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::env;
+use std::io::Write;
 use std::process::{Command, Stdio};
 
 fn command() -> (String, Vec<String>) {
@@ -18,12 +19,32 @@ fn command() -> (String, Vec<String>) {
 }
 
 pub fn invoke_json(args: &[String]) -> Result<Value, String> {
+    invoke_json_with_stdin(args, None)
+}
+
+fn invoke_json_with_stdin(args: &[String], stdin: Option<&[u8]>) -> Result<Value, String> {
     let (program, prefix) = command();
-    let output = Command::new(program)
+    let mut child = Command::new(program)
         .args(prefix)
         .args(args)
-        .stdin(Stdio::null())
-        .output()
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("caduceus-cert-house-ca-unavailable: {e}"))?;
+    if let Some(input) = stdin {
+        child
+            .stdin
+            .take()
+            .expect("piped stdin")
+            .write_all(input)
+            .map_err(|e| format!("caduceus-cert-house-ca-stdin-failed: {e}"))?;
+    }
+    let output = child
+        .wait_with_output()
         .map_err(|e| format!("caduceus-cert-house-ca-unavailable: {e}"))?;
     // stderr is deliberately suppressed at the public membrane.
     let value: Value = serde_json::from_slice(&output.stdout)
@@ -37,6 +58,12 @@ pub fn invoke_json(args: &[String]) -> Result<Value, String> {
             .unwrap_or("caduceus-cert-house-ca-failed")
             .to_string())
     }
+}
+
+pub fn sign_csr_json(csr_pem: &str) -> Result<Value, String> {
+    let request = json!({ "csrPem": csr_pem });
+    let body = request.to_string();
+    invoke_json_with_stdin(&["sign-csr".into()], Some(body.as_bytes()))
 }
 
 fn print(value: Result<Value, String>) -> i32 {

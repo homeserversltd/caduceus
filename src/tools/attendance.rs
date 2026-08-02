@@ -268,6 +268,18 @@ pub fn admits(attendance: &str, document_id: &str, document_incarnation: &str) -
     })
 }
 
+/// Admit an exact document target for a standalone Caduceus mutation.
+/// The attendance was already PIN-verified when opened and remains inactivity-bounded.
+pub fn admits_target(attendance: &str, document_id: &str) -> bool {
+    state().lock().ok().is_some_and(|mut guard| {
+        evict_expired(&mut guard.current, Instant::now());
+        guard
+            .current
+            .get(attendance)
+            .is_some_and(|current| current.document_id == document_id)
+    })
+}
+
 pub fn reset_for_tests() {
     if let Ok(mut guard) = state().lock() {
         guard.current.clear();
