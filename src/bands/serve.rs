@@ -5,8 +5,13 @@ use crate::bands::{
 };
 use crate::tools::{attendance, policy};
 use axum::{
+    body::Body,
     extract::{connect_info::ConnectInfo, DefaultBodyLimit, OriginalUri, Query},
-    http::{HeaderMap, StatusCode},
+    http::{
+        header::{CONTENT_DISPOSITION, CONTENT_TYPE},
+        HeaderMap, HeaderValue, StatusCode,
+    },
+    response::Response,
     routing::{get, post},
     Json, Router,
 };
@@ -758,6 +763,11 @@ async fn network_dns_route(
 }
 
 #[derive(Deserialize, Default)]
+struct CertQuery {
+    platform: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct CertBody {
     identity: Option<String>,
@@ -775,17 +785,23 @@ struct CertBody {
     dry_run: bool,
 }
 
-fn cert_result<F: FnOnce() -> Result<Value, String>>(
+fn cert_mutation_result<F: FnOnce() -> Result<Value, String>>(
     command: &str,
+    target: &str,
+    headers: &HeaderMap,
     run: F,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
         Ok(false) => Err(api_error(command)),
         Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
-        Ok(true) => match run() {
-            Ok(value) => Ok((mutation_status(&value), Json(value))),
-            Err(error) => Err(api_error_signal(command, &error)),
-        },
+        Ok(true) => {
+            capability_admits(command, target, capability_from_headers(headers))
+                .map_err(|signal| api_error_signal(command, &signal))?;
+            match run() {
+                Ok(value) => Ok((mutation_status(&value), Json(value))),
+                Err(error) => Err(api_error_signal(command, &error)),
+            }
+        }
     }
 }
 
@@ -793,11 +809,13 @@ async fn cert_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBo
     gated_json("cert status", cert::status_json).await
 }
 async fn cert_issue_leaf_route(
+    headers: HeaderMap,
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    cert_result("cert issue-leaf", || {
+    let target = body.identity.as_deref().unwrap_or("home.arpa");
+    cert_mutation_result("cert issue-leaf", target, &headers, || {
         cert::issue_leaf_json(
-            body.identity.as_deref().unwrap_or("home.arpa"),
+            target,
             body.sans.as_deref().unwrap_or(&[]),
             body.ips.as_deref().unwrap_or(&[]),
             body.dry_run,
@@ -805,18 +823,53 @@ async fn cert_issue_leaf_route(
     })
 }
 async fn cert_bundle_route(
+    headers: HeaderMap,
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    cert_result("cert bundle create", || {
-        cert::bundle_create_json(body.platform.as_deref().unwrap_or("linux"), body.dry_run)
+    let target = body.platform.as_deref().unwrap_or("linux");
+    cert_mutation_result("cert bundle create", target, &headers, || {
+        cert::bundle_create_json(target, body.dry_run)
     })
 }
+async fn cert_bundle_download_route(
+    Query(query): Query<CertQuery>,
+) -> Result<Response<Body>, (StatusCode, Json<ApiErrorBody>)> {
+    let command = "cert bundle download";
+    match policy::allows_command(command) {
+        Ok(false) => return Err(api_error(command)),
+        Err(_) => return Err(api_error_signal(command, "caduceus-profile-missing")),
+        Ok(true) => {}
+    }
+    let platform = query.platform.as_deref().unwrap_or("linux");
+    let bundle = cert::bundle_download_json(platform).map_err(|signal| {
+        let status = match signal.as_str() {
+            "caduceus-cert-platform-invalid" => StatusCode::BAD_REQUEST,
+            "caduceus-cert-bundle-missing" => StatusCode::NOT_FOUND,
+            _ => StatusCode::SERVICE_UNAVAILABLE,
+        };
+        let (_, body) = api_error_signal(command, &signal);
+        (status, body)
+    })?;
+    let disposition =
+        HeaderValue::from_str(&format!(r#"attachment; filename="{}""#, bundle.filename))
+            .map_err(|_| api_error_signal(command, "caduceus-cert-bundle-filename-invalid"))?;
+    let content_type = HeaderValue::from_str(&bundle.mime_type)
+        .map_err(|_| api_error_signal(command, "caduceus-cert-bundle-mime-invalid"))?;
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, content_type)
+        .header(CONTENT_DISPOSITION, disposition)
+        .body(Body::from(bundle.bytes))
+        .map_err(|_| api_error_signal(command, "caduceus-cert-bundle-response-invalid"))
+}
 async fn cert_apply_route(
+    headers: HeaderMap,
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    cert_result("cert apply", || {
+    let target = body.portal.as_deref().unwrap_or("");
+    cert_mutation_result("cert apply", target, &headers, || {
         cert::apply_json(
-            body.portal.as_deref().unwrap_or(""),
+            target,
             body.upstream.as_deref().unwrap_or(""),
             body.certificate.as_deref().unwrap_or(""),
             body.key_path.as_deref().unwrap_or(""),
@@ -825,22 +878,26 @@ async fn cert_apply_route(
     })
 }
 async fn cert_trust_route(
+    headers: HeaderMap,
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    cert_result("cert trust-install", || {
+    let target = body.bundle.as_deref().unwrap_or("");
+    cert_mutation_result("cert trust-install", target, &headers, || {
         cert::trust_install_json(
-            body.bundle.as_deref().unwrap_or(""),
+            target,
             body.platform.as_deref().unwrap_or("linux"),
             body.dry_run,
         )
     })
 }
 async fn cert_portal_route(
+    headers: HeaderMap,
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    cert_result("cert portal-admit", || {
+    let target = body.portal.as_deref().unwrap_or("");
+    cert_mutation_result("cert portal-admit", target, &headers, || {
         cert::portal_admit_json(
-            body.portal.as_deref().unwrap_or(""),
+            target,
             body.lan_ip.as_deref().unwrap_or(""),
             body.upstream.as_deref().unwrap_or(""),
             body.aliases.as_deref().unwrap_or(&[]),
@@ -1290,6 +1347,10 @@ pub fn router() -> Router {
         .route("/api/v1/cert/issue-leaf", post(cert_issue_leaf_route))
         .route("/api/v1/cert/bundle", post(cert_bundle_route))
         .route("/api/v1/cert/bundle/create", post(cert_bundle_route))
+        .route(
+            "/api/v1/cert/bundle/download",
+            get(cert_bundle_download_route),
+        )
         .route("/api/v1/cert/apply", post(cert_apply_route))
         .route("/api/v1/cert/trust-install", post(cert_trust_route))
         .route("/api/v1/cert/portal-admit", post(cert_portal_route))

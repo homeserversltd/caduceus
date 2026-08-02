@@ -1,4 +1,7 @@
 //! Hestia Anchor certificate control band: typed public membrane over house_ca.
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::env;
 use std::process::{Command, Stdio};
@@ -94,6 +97,77 @@ pub fn bundle_create_json(platform: &str, dry_run: bool) -> Result<Value, String
 }
 pub fn bundle_create(platform: &str, dry_run: bool) -> i32 {
     print(bundle_create_json(platform, dry_run))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct BundleDownload {
+    pub bytes: Vec<u8>,
+    pub filename: String,
+    pub mime_type: String,
+    pub fingerprint: String,
+    pub client_reinstall_required: bool,
+}
+
+#[derive(Deserialize)]
+struct BundleReadReceipt {
+    schema: String,
+    ok: bool,
+    platform: String,
+    filename: String,
+    mime_type: String,
+    fingerprint: String,
+    content_base64: String,
+    client_reinstall_required: bool,
+}
+
+fn bundle_metadata(platform: &str) -> Result<(String, &'static str), String> {
+    if !["windows", "android", "chromeos", "linux", "macos"].contains(&platform) {
+        return Err("caduceus-cert-platform-invalid".into());
+    }
+    let suffix = if platform == "windows" {
+        ".cer"
+    } else {
+        ".crt"
+    };
+    Ok((
+        format!("homeserver-house-ca-{platform}{suffix}"),
+        "application/x-x509-ca-cert",
+    ))
+}
+
+pub fn bundle_download_json(platform: &str) -> Result<BundleDownload, String> {
+    let (expected_filename, expected_mime) = bundle_metadata(platform)?;
+    let value = invoke_json(&["bundle-read".into(), platform.into()])?;
+    let receipt: BundleReadReceipt = serde_json::from_value(value)
+        .map_err(|_| "caduceus-cert-bundle-read-invalid-receipt".to_string())?;
+    if receipt.schema != "caduceus.staff.house_ca.bundle_read.v1"
+        || !receipt.ok
+        || receipt.platform != platform
+        || receipt.filename != expected_filename
+        || receipt.mime_type != expected_mime
+        || receipt.fingerprint.trim().is_empty()
+    {
+        return Err("caduceus-cert-bundle-read-invalid-receipt".into());
+    }
+    let bytes = STANDARD
+        .decode(receipt.content_base64)
+        .map_err(|_| "caduceus-cert-bundle-read-invalid-base64".to_string())?;
+    if bytes.is_empty() {
+        return Err("caduceus-cert-bundle-empty".into());
+    }
+    if bytes
+        .windows(b"PRIVATE KEY".len())
+        .any(|window| window == b"PRIVATE KEY")
+    {
+        return Err("caduceus-cert-private-key-leaked".into());
+    }
+    Ok(BundleDownload {
+        bytes,
+        filename: receipt.filename,
+        mime_type: receipt.mime_type,
+        fingerprint: receipt.fingerprint,
+        client_reinstall_required: receipt.client_reinstall_required,
+    })
 }
 
 pub fn apply_json(

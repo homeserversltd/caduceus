@@ -1,12 +1,13 @@
 """Privileged Hestia Anchor household certificate primitives.
 
-This module is the mutation engine behind Caduceus' Rust certificate band.  Its
-nine public primitives are intentionally small and composable; only
-``state_commit`` replaces durable state.
+This module is the staff engine behind Caduceus' Rust certificate band.  Its
+public primitives are intentionally small and composable; only ``state_commit``
+replaces durable state.
 """
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import ipaddress
 import json
@@ -19,6 +20,14 @@ from typing import Any, Sequence
 
 SCHEMA = "caduceus.household.tls.v1"
 PLATFORMS = {"windows", "android", "chromeos", "linux", "macos"}
+BUNDLE_METADATA = {
+    platform: {
+        "filename": f"homeserver-house-ca-{platform}{'.cer' if platform == 'windows' else '.crt'}",
+        "mime_type": "application/x-x509-ca-cert",
+        "encoding": "der" if platform == "windows" else "pem",
+    }
+    for platform in PLATFORMS
+}
 
 
 def _root() -> Path:
@@ -124,19 +133,54 @@ def issue_leaf(identity: str = "home.arpa", dns_names: Sequence[str] = (), ip_ad
                     leaf_not_after=_not_after(leaf), certificate=str(leaf), key_path=str(key))
 
 
+def _bundle_metadata(platform: str) -> dict[str, str]:
+    try:
+        return BUNDLE_METADATA[platform]
+    except (KeyError, TypeError):
+        raise ValueError("caduceus-cert-platform-invalid") from None
+
+
+def _bundle_path(platform: str) -> Path:
+    metadata = _bundle_metadata(platform)
+    return _path("CADUCEUS_CERT_BUNDLE_DIR", "/var/lib/caduceus/certs/bundles") / metadata["filename"]
+
+
 def bundle_export(platform: str = "linux", *, dry_run: bool = False) -> dict[str, Any]:
-    if platform not in PLATFORMS: raise ValueError("caduceus-cert-platform-invalid")
+    metadata = _bundle_metadata(platform)
     root = ensure_root(dry_run=dry_run)
-    out_dir = _path("CADUCEUS_CERT_BUNDLE_DIR", "/var/lib/caduceus/certs/bundles")
-    suffix = ".cer" if platform == "windows" else ".crt"
-    out = out_dir / f"homeserver-house-ca-{platform}{suffix}"
+    out = _bundle_path(platform)
     if dry_run: return _receipt("bundle_export", changed=False, dry_run=True, platform=platform, path=str(out), ca_fingerprint=root.get("ca_fingerprint"), plan=["export-ca-only"])
-    out_dir.mkdir(parents=True, exist_ok=True)
-    if platform == "windows": _run(["openssl","x509","-in",str(cert_dir()/"ca.pem"),"-outform","DER","-out",str(out)])
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if metadata["encoding"] == "der": _run(["openssl","x509","-in",str(cert_dir()/"ca.pem"),"-outform","DER","-out",str(out)])
     else: shutil.copyfile(cert_dir()/"ca.pem", out)
     if b"PRIVATE KEY" in out.read_bytes(): raise RuntimeError("caduceus-cert-private-key-leaked")
     out.chmod(0o644)
     return _receipt("bundle_export", changed=True, platform=platform, path=str(out), ca_fingerprint=_fingerprint(cert_dir()/"ca.pem"))
+
+
+def bundle_read(platform: str) -> dict[str, Any]:
+    """Read one already-exported public bundle from its deterministic custody path."""
+    metadata = _bundle_metadata(platform)
+    bundle = _bundle_path(platform)
+    if not bundle.is_file():
+        raise ValueError("caduceus-cert-bundle-missing")
+    content = bundle.read_bytes()
+    if b"PRIVATE KEY" in content:
+        raise RuntimeError("caduceus-cert-private-key-leaked")
+    command = ["openssl", "x509"]
+    if metadata["encoding"] == "der":
+        command.extend(["-inform", "DER"])
+    command.extend(["-in", str(bundle), "-noout", "-fingerprint", "-sha256"])
+    fingerprint = _run(command).stdout.strip().split("=", 1)[-1]
+    return _receipt(
+        "bundle_read",
+        changed=False,
+        platform=platform,
+        filename=metadata["filename"],
+        mime_type=metadata["mime_type"],
+        fingerprint=fingerprint,
+        content_base64=base64.b64encode(content).decode("ascii"),
+    )
 
 
 def trust_install(bundle: str, platform: str = "linux", *, dry_run: bool = False) -> dict[str, Any]:
@@ -228,6 +272,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for name in ("ensure-root","status"): sub.add_parser(name)
     issue=sub.add_parser("issue-leaf"); issue.add_argument("identity",nargs="?",default="home.arpa"); issue.add_argument("--sans",default=""); issue.add_argument("--ips",default=""); issue.add_argument("--dry-run",action="store_true")
     bundle=sub.add_parser("bundle-export"); bundle.add_argument("platform",choices=sorted(PLATFORMS)); bundle.add_argument("--dry-run",action="store_true")
+    bundle_read_parser=sub.add_parser("bundle-read"); bundle_read_parser.add_argument("platform",choices=sorted(PLATFORMS))
     trust=sub.add_parser("trust-install"); trust.add_argument("bundle"); trust.add_argument("--platform",default="linux",choices=sorted(PLATFORMS)); trust.add_argument("--dry-run",action="store_true")
     apply=sub.add_parser("apply-nginx"); apply.add_argument("portal"); apply.add_argument("upstream"); apply.add_argument("certificate"); apply.add_argument("key_path"); apply.add_argument("--dry-run",action="store_true")
     admit=sub.add_parser("portal-admit"); admit.add_argument("portal"); admit.add_argument("lan_ip"); admit.add_argument("upstream"); admit.add_argument("--aliases",default=""); admit.add_argument("--dry-run",action="store_true")
@@ -236,6 +281,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.cmd=="status": return _emit(status)
     if args.cmd=="issue-leaf": return _emit(lambda:issue_leaf(args.identity,args.sans.split(",") if args.sans else (),args.ips.split(",") if args.ips else (),dry_run=args.dry_run))
     if args.cmd=="bundle-export": return _emit(lambda:bundle_export(args.platform,dry_run=args.dry_run))
+    if args.cmd=="bundle-read": return _emit(lambda:bundle_read(args.platform))
     if args.cmd=="trust-install": return _emit(lambda:trust_install(args.bundle,args.platform,dry_run=args.dry_run))
     if args.cmd=="apply-nginx": return _emit(lambda:apply_nginx(args.portal,args.upstream,args.certificate,args.key_path,dry_run=args.dry_run))
     if args.cmd=="portal-admit": return _emit(lambda:portal_admit(args.portal,args.lan_ip,args.upstream,args.aliases.split(",") if args.aliases else (),dry_run=args.dry_run))

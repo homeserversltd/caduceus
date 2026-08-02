@@ -6,10 +6,13 @@ use base64::Engine;
 use caduceus::bands::serve;
 use ed25519_dalek::{Signer, SigningKey};
 use std::{
-    env, fs,
+    env,
+    ffi::OsString,
+    fs,
     os::unix::fs::PermissionsExt,
-    path::PathBuf,
-    sync::Mutex,
+    path::{Path, PathBuf},
+    process::Command,
+    sync::{Mutex, MutexGuard},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tower::ServiceExt;
@@ -58,7 +61,9 @@ fn hex_bytes(text: &str) -> Vec<u8> {
 static FIXTURE_LOCK: Mutex<()> = Mutex::new(());
 
 fn use_fixture(root: &str) -> std::sync::MutexGuard<'static, ()> {
-    let guard = FIXTURE_LOCK.lock().unwrap();
+    let guard = FIXTURE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     std::env::set_var("CADUCEUS_ROOT", root);
     guard
 }
@@ -374,7 +379,7 @@ async fn console_update_service_status_reads_profile_timer() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn console_sync_now_route_is_profile_allowed() {
-    let _guard = use_fixture("tests/fixtures/console");
+    let _fixture = HarmoniaFailureFixture::new("sync");
     let app = serve::router();
     let response = app
         .oneshot(
@@ -394,7 +399,7 @@ async fn console_sync_now_route_is_profile_allowed() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn console_gui_update_route_is_profile_allowed() {
-    let _guard = use_fixture("tests/fixtures/console");
+    let _fixture = HarmoniaFailureFixture::new("gui-update");
     let app = serve::router();
     let response = app
         .oneshot(
@@ -637,7 +642,6 @@ async fn homeserver_staff_actuators_route_is_profile_allowed() {
     assert_eq!(json["actuators"][0]["id"], "profile-sources-reseed");
     assert_eq!(json["actuators"][1]["id"], "network-dhcp");
     assert_eq!(json["actuators"][2]["id"], "network-dns");
-
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1345,4 +1349,425 @@ async fn guest_config_set_only_allows_tabs_starred_and_writes_installed_path() {
             .unwrap();
     assert_eq!(installed["display"]["theme"], "dark");
     let _ = std::fs::remove_dir_all(root);
+}
+
+struct CertTempRoot(PathBuf);
+
+impl CertTempRoot {
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for CertTempRoot {
+    type Target = Path;
+
+    fn deref(&self) -> &Self::Target {
+        self.path()
+    }
+}
+
+impl Drop for CertTempRoot {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+struct HarmoniaFailureFixture {
+    _root: CertTempRoot,
+    previous_root: Option<OsString>,
+    previous_path: Option<OsString>,
+    _lock: MutexGuard<'static, ()>,
+}
+
+impl HarmoniaFailureFixture {
+    fn new(tag: &str) -> Self {
+        let lock = FIXTURE_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let root = cert_temp_root(tag, "console");
+        let bin_dir = root.join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let sudo = bin_dir.join("sudo");
+        fs::write(&sudo, "#!/bin/sh\nexit 1\n").unwrap();
+        let mut permissions = fs::metadata(&sudo).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&sudo, permissions).unwrap();
+        let previous_root = env::var_os("CADUCEUS_ROOT");
+        let previous_path = env::var_os("PATH");
+        let mut paths = vec![bin_dir];
+        if let Some(path) = previous_path.as_deref() {
+            paths.extend(env::split_paths(path));
+        }
+        env::set_var("CADUCEUS_ROOT", root.as_os_str());
+        env::set_var("PATH", env::join_paths(paths).unwrap());
+        Self {
+            _root: root,
+            previous_root,
+            previous_path,
+            _lock: lock,
+        }
+    }
+}
+
+impl Drop for HarmoniaFailureFixture {
+    fn drop(&mut self) {
+        match self.previous_root.take() {
+            Some(value) => env::set_var("CADUCEUS_ROOT", value),
+            None => env::remove_var("CADUCEUS_ROOT"),
+        }
+        match self.previous_path.take() {
+            Some(value) => env::set_var("PATH", value),
+            None => env::remove_var("PATH"),
+        }
+    }
+}
+
+fn cert_temp_root(tag: &str, profile: &str) -> CertTempRoot {
+    let root = env::temp_dir().join(format!(
+        "caduceus-cert-http-{tag}-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let root = CertTempRoot(root);
+    fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+    for name in ["profile.yaml", "identity.json"] {
+        fs::copy(
+            format!("tests/fixtures/{profile}/etc/caduceus/{name}"),
+            root.join("etc/caduceus").join(name),
+        )
+        .unwrap();
+    }
+    root
+}
+
+fn run_house_ca(root: &Path, args: &[&str]) -> serde_json::Value {
+    let output = Command::new("python3")
+        .args(["-m", "caduceus_staff.house_ca"])
+        .args(args)
+        .env("PYTHONPATH", "tests/fixtures/staff")
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .env("CADUCEUS_ROOT", root)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "house_ca {:?} failed: {} {}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+fn file_snapshot(root: &Path) -> Vec<(String, u64, SystemTime)> {
+    fn visit(root: &Path, path: &Path, output: &mut Vec<(String, u64, SystemTime)>) {
+        if let Ok(entries) = fs::read_dir(path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    visit(root, &path, output);
+                } else {
+                    let metadata = entry.metadata().unwrap();
+                    output.push((
+                        path.strip_prefix(root).unwrap().display().to_string(),
+                        metadata.len(),
+                        metadata.modified().unwrap(),
+                    ));
+                }
+            }
+        }
+    }
+    let mut output = Vec::new();
+    visit(root, root, &mut output);
+    output.sort_by(|a, b| a.0.cmp(&b.0));
+    output
+}
+
+struct CertFixture {
+    root: CertTempRoot,
+    previous_env: Vec<(&'static str, Option<OsString>)>,
+    _lock: MutexGuard<'static, ()>,
+}
+
+impl CertFixture {
+    fn new(tag: &str, profile: &str) -> Self {
+        let lock = FIXTURE_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let root = cert_temp_root(tag, profile);
+        let values = [
+            ("CADUCEUS_ROOT", root.as_os_str()),
+            ("PYTHONPATH", std::ffi::OsStr::new("tests/fixtures/staff")),
+            ("PYTHONDONTWRITEBYTECODE", std::ffi::OsStr::new("1")),
+            (
+                "CADUCEUS_HOUSE_CA_CMD",
+                std::ffi::OsStr::new("python3 -m caduceus_staff.house_ca"),
+            ),
+        ];
+        let previous_env = values
+            .iter()
+            .map(|(name, _)| (*name, env::var_os(name)))
+            .collect();
+        for (name, value) in values {
+            env::set_var(name, value);
+        }
+        Self {
+            root,
+            previous_env,
+            _lock: lock,
+        }
+    }
+
+    fn root(&self) -> &Path {
+        self.root.path()
+    }
+}
+
+impl Drop for CertFixture {
+    fn drop(&mut self) {
+        for (name, value) in self.previous_env.drain(..) {
+            match value {
+                Some(value) => env::set_var(name, value),
+                None => env::remove_var(name),
+            }
+        }
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn cert_bundle_download_is_public_deterministic_and_read_only() {
+    let fixture = CertFixture::new("download", "homeserver");
+    let root = fixture.root();
+    let app = serve::router();
+
+    let before_absent = file_snapshot(&root);
+    let absent = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/cert/bundle/download?platform=linux")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(absent.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        body_json(absent).await["firstMissingSignal"],
+        "caduceus-cert-bundle-missing"
+    );
+    assert_eq!(before_absent, file_snapshot(&root));
+    assert!(!root.join("var/lib/caduceus/certs").exists());
+
+    for platform in ["windows", "android", "chromeos", "linux", "macos"] {
+        run_house_ca(&root, &["bundle-export", platform]);
+    }
+    let status = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/cert/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(status.status(), StatusCode::OK);
+    assert_eq!(
+        body_json(status).await["schema"],
+        "caduceus.staff.house_ca.status.v1"
+    );
+    let before_downloads = file_snapshot(&root);
+    for platform in ["windows", "android", "chromeos", "linux", "macos"] {
+        let uri = format!("/api/v1/cert/bundle/download?platform={platform}");
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{platform}");
+        assert_eq!(
+            response.headers()["content-type"],
+            "application/x-x509-ca-cert"
+        );
+        let suffix = if platform == "windows" {
+            ".cer"
+        } else {
+            ".crt"
+        };
+        let filename = format!("homeserver-house-ca-{platform}{suffix}");
+        assert_eq!(
+            response.headers()["content-disposition"],
+            format!("attachment; filename=\"{filename}\"")
+        );
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(
+            bytes.as_ref(),
+            fs::read(root.join("var/lib/caduceus/certs/bundles").join(filename))
+                .unwrap()
+                .as_slice()
+        );
+        assert!(!bytes
+            .windows(b"PRIVATE KEY".len())
+            .any(|window| window == b"PRIVATE KEY"));
+    }
+    let default_linux = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/cert/bundle/download")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(default_linux.status(), StatusCode::OK);
+    assert_eq!(
+        default_linux.headers()["content-disposition"],
+        "attachment; filename=\"homeserver-house-ca-linux.crt\""
+    );
+
+    let hostile = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/cert/bundle/download?platform=..%2F..%2Fetc%2Fpasswd")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(hostile.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        body_json(hostile).await["firstMissingSignal"],
+        "caduceus-cert-platform-invalid"
+    );
+    assert_eq!(before_downloads, file_snapshot(&root));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn homeserver_cert_mutations_require_capability_and_accept_valid_dry_run() {
+    let fixture = CertFixture::new("mutations", "homeserver");
+    let root = fixture.root();
+    let app = serve::router();
+    let before = file_snapshot(&root);
+    let cases = [
+        (
+            "/api/v1/cert/issue-leaf",
+            "cert issue-leaf",
+            "home.arpa",
+            r#"{"identity":"home.arpa","dryRun":true}"#,
+        ),
+        (
+            "/api/v1/cert/bundle/create",
+            "cert bundle create",
+            "linux",
+            r#"{"platform":"linux","dryRun":true}"#,
+        ),
+        (
+            "/api/v1/cert/apply",
+            "cert apply",
+            "portal.home.arpa",
+            r#"{"portal":"portal.home.arpa","upstream":"http://127.0.0.1:8080","certificate":"/fixture/cert.pem","keyPath":"/fixture/key.pem","dryRun":true}"#,
+        ),
+        (
+            "/api/v1/cert/portal-admit",
+            "cert portal-admit",
+            "portal.home.arpa",
+            r#"{"portal":"portal.home.arpa","lanIp":"192.168.123.20","upstream":"http://127.0.0.1:8080","dryRun":true}"#,
+        ),
+    ];
+    for (uri, action, target, body) in cases {
+        let refused = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(uri)
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), StatusCode::FORBIDDEN, "{uri}");
+        assert_eq!(
+            body_json(refused).await["firstMissingSignal"],
+            "caduceus-capability-unsigned"
+        );
+
+        let accepted = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(uri)
+                    .header("x-caduceus-capability", capability(action, target, 60))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(accepted.status(), StatusCode::OK, "{uri}");
+        let receipt = body_json(accepted).await;
+        assert_eq!(receipt["ok"], true);
+        assert_eq!(receipt["dry_run"], true);
+    }
+    assert_eq!(before, file_snapshot(&root));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn trust_install_requires_capability_and_accepts_valid_dry_run() {
+    let fixture = CertFixture::new("trust", "console");
+    let root = fixture.root();
+    run_house_ca(root, &["ensure-root"]);
+    let bundle = root.join("var/lib/caduceus/certs/ca.pem");
+    let app = serve::router();
+    let before = file_snapshot(&root);
+    let body = format!(
+        r#"{{"bundle":"{}","platform":"linux","dryRun":true}}"#,
+        bundle.display()
+    );
+    let refused = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/cert/trust-install")
+                .header("content-type", "application/json")
+                .body(Body::from(body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(refused).await["firstMissingSignal"],
+        "caduceus-capability-unsigned"
+    );
+
+    let accepted = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/cert/trust-install")
+                .header(
+                    "x-caduceus-capability",
+                    capability("cert trust-install", bundle.to_str().unwrap(), 60),
+                )
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(accepted.status(), StatusCode::OK);
+    let receipt = body_json(accepted).await;
+    assert_eq!(receipt["ok"], true);
+    assert_eq!(receipt["dry_run"], true);
+    assert_eq!(before, file_snapshot(&root));
 }
