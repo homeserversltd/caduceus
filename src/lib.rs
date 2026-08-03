@@ -40,10 +40,18 @@ where
         }
         [domain] if domain == "health" => health::show(),
         [domain, verb] if domain == "cert" && verb == "status" => {
-            cert_command("cert status", cert::status)
+            cert_command("cert status", "status", &[], cert::status)
+        }
+        [domain, verb, rest @ ..] if domain == "cert" && verb == "ensure-root" => {
+            cert_command("cert ensure-root", "ensure_root", &[], || {
+                cert_print(cert::ensure_root_json(
+                    rest.iter().any(|arg| arg == "--dry-run"),
+                    option_value(rest, "--renewal-authority"),
+                ))
+            })
         }
         [domain, verb, rest @ ..] if domain == "cert" && verb == "issue-leaf" => {
-            cert_command("cert issue-leaf", || {
+            cert_command("cert issue-leaf", "issue_leaf", &[], || {
                 let dry = rest.iter().any(|a| a == "--dry-run");
                 let sans = option_list(rest, "--sans");
                 let ips = option_list(rest, "--ips");
@@ -64,10 +72,11 @@ where
                 }
             })
         }
-        [domain, object, verb, rest @ ..]
-            if domain == "cert" && object == "bundle" && verb == "create" =>
-        {
-            cert_command("cert bundle create", || {
+        [domain, verb, rest @ ..] if domain == "cert" && verb == "bundle-export" => cert_command(
+            "cert bundle-export",
+            "bundle_export",
+            &["cert bundle create"],
+            || {
                 let dry = rest.iter().any(|a| a == "--dry-run");
                 let platform = rest
                     .iter()
@@ -75,12 +84,41 @@ where
                     .map(String::as_str)
                     .unwrap_or("linux");
                 cert::bundle_create(platform, dry)
+            },
+        ),
+        [domain, object, verb, rest @ ..]
+            if domain == "cert" && object == "bundle" && verb == "create" =>
+        {
+            cert_command(
+                "cert bundle-export",
+                "bundle_export",
+                &["cert bundle create"],
+                || {
+                    let dry = rest.iter().any(|a| a == "--dry-run");
+                    let platform = rest
+                        .iter()
+                        .find(|a| !a.starts_with('-'))
+                        .map(String::as_str)
+                        .unwrap_or("linux");
+                    cert::bundle_create(platform, dry)
+                },
+            )
+        }
+        [domain, verb, portal, lan_ip, rest @ ..]
+            if domain == "cert" && verb == "constituent-lock" =>
+        {
+            cert_command("cert constituent-lock", "constituent_lock", &[], || {
+                cert_print(cert::constituent_lock_json(
+                    portal,
+                    lan_ip,
+                    rest.iter().any(|arg| arg == "--dry-run"),
+                ))
             })
         }
         [domain, verb, portal, upstream, certificate, key, rest @ ..]
-            if domain == "cert" && verb == "apply" =>
+            if domain == "cert" && (verb == "apply-nginx" || verb == "apply") =>
         {
-            cert_command("cert apply", || {
+            cert_command("cert apply-nginx", "apply_nginx", &["cert apply"], || {
                 let result = cert::apply_json(
                     portal,
                     upstream,
@@ -101,7 +139,7 @@ where
             })
         }
         [domain, verb, bundle, rest @ ..] if domain == "cert" && verb == "trust-install" => {
-            cert_command("cert trust-install", || {
+            cert_command("cert trust-install", "trust_install", &[], || {
                 let platform = option_value(rest, "--platform").unwrap_or("linux");
                 let result = cert::trust_install_json(
                     bundle,
@@ -123,7 +161,7 @@ where
         [domain, verb, portal, ip, upstream, rest @ ..]
             if domain == "cert" && verb == "portal-admit" =>
         {
-            cert_command("cert portal-admit", || {
+            cert_command("cert portal-admit", "portal_admit", &[], || {
                 let aliases = option_list(rest, "--aliases");
                 let result = cert::portal_admit_json(
                     portal,
@@ -392,16 +430,66 @@ fn parse_json_value(text: &str) -> serde_json::Value {
     serde_json::from_str(text).unwrap_or_else(|_| serde_json::Value::String(text.to_string()))
 }
 
-fn cert_command<F: FnOnce() -> i32>(command: &str, run: F) -> i32 {
-    match policy::allows_command(command) {
-        Ok(true) => run(),
-        Ok(false) => {
-            eprintln!("caduceus-public-action-not-allowed");
+fn cert_command<F: FnOnce() -> i32>(
+    command: &str,
+    primitive: &str,
+    aliases: &[&str],
+    run: F,
+) -> i32 {
+    match cert_allowed_command(command, aliases) {
+        Ok(Some(_)) => run(),
+        Ok(None) => {
+            println!("{}", cert_profile_refused(command, primitive));
             2
         }
         Err(error) => {
             eprintln!("{error}");
             2
+        }
+    }
+}
+
+fn cert_allowed_command(command: &str, aliases: &[&str]) -> Result<Option<String>, String> {
+    if policy::allows_command(command)? {
+        return Ok(Some(command.to_string()));
+    }
+    for alias in aliases {
+        if policy::allows_command(alias)? {
+            return Ok(Some((*alias).to_string()));
+        }
+    }
+    Ok(None)
+}
+
+fn cert_profile_refused(command: &str, primitive: &str) -> serde_json::Value {
+    let role = policy::load_profile_value()
+        .ok()
+        .and_then(|profile| {
+            profile
+                .get("profile")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+    serde_json::json!({
+        "schema": "caduceus.cert.profile_refused.v1",
+        "ok": false,
+        "primitive": primitive,
+        "role": role,
+        "refused_verb": command,
+        "firstMissingSignal": "profile_refused"
+    })
+}
+
+fn cert_print(result: Result<serde_json::Value, String>) -> i32 {
+    match result {
+        Ok(value) => {
+            println!("{value}");
+            0
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            1
         }
     }
 }
@@ -468,9 +556,11 @@ fn print_help() {
     println!("  caduceus profile sources reseed [--capability TOKEN]");
     println!("  caduceus health");
     println!("  caduceus cert status");
+    println!("  caduceus cert ensure-root [--dry-run] [--renewal-authority AUTHORITY]");
     println!("  caduceus cert issue-leaf [identity] [--sans h1,h2] [--ips a,b] [--dry-run]");
-    println!("  caduceus cert bundle create [platform] [--dry-run]");
-    println!("  caduceus cert apply <portal> <upstream> <certificate> <key> [--dry-run]");
+    println!("  caduceus cert bundle-export [platform] [--dry-run]");
+    println!("  caduceus cert constituent-lock <portal> <lan-ip> [--dry-run]");
+    println!("  caduceus cert apply-nginx <portal> <upstream> <certificate> <key> [--dry-run]");
     println!("  caduceus cert trust-install <bundle> [--platform linux] [--dry-run]");
     println!(
         "  caduceus cert portal-admit <portal> <lan-ip> <upstream> [--aliases a,b] [--dry-run]"

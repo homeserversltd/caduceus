@@ -1146,6 +1146,7 @@ struct CertBody {
     certificate: Option<String>,
     key_path: Option<String>,
     aliases: Option<Vec<String>>,
+    renewal_authority: Option<String>,
     #[serde(default, alias = "dry_run")]
     dry_run: bool,
 }
@@ -1157,97 +1158,182 @@ struct CsrSignBody {
     csr_pem: String,
 }
 
-fn cert_csr_error(command: &str, error: &str) -> (StatusCode, Json<ApiErrorBody>) {
-    let status = if error.starts_with("caduceus-cert-csr-") {
-        StatusCode::BAD_REQUEST
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
-    };
+fn cert_api_error(command: &str, signal: &str) -> (StatusCode, Json<Value>) {
+    cert_value_error(StatusCode::FORBIDDEN, command, signal)
+}
+
+fn cert_value_error(
+    status: StatusCode,
+    command: &str,
+    signal: &str,
+) -> (StatusCode, Json<Value>) {
     (
         status,
-        Json(ApiErrorBody {
-            schema: "caduceus.api.error.v1",
-            ok: false,
-            command: command.to_string(),
-            first_missing_signal: error.to_string(),
-        }),
+        Json(serde_json::json!({
+            "schema": "caduceus.api.error.v1",
+            "ok": false,
+            "command": command,
+            "firstMissingSignal": signal,
+        })),
     )
+}
+
+fn cert_profile_refusal(command: &str, primitive: &str) -> (StatusCode, Json<Value>) {
+    let role = policy::load_profile_value()
+        .ok()
+        .and_then(|profile| {
+            profile
+                .get("profile")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+    (
+        StatusCode::FORBIDDEN,
+        Json(serde_json::json!({
+            "schema": "caduceus.cert.profile_refused.v1",
+            "ok": false,
+            "primitive": primitive,
+            "role": role,
+            "refused_verb": command,
+            "firstMissingSignal": "profile_refused",
+        })),
+    )
+}
+
+fn cert_admitted_command(command: &str, aliases: &[&str]) -> Result<Option<String>, String> {
+    if policy::allows_command(command)? {
+        return Ok(Some(command.to_string()));
+    }
+    for alias in aliases {
+        if policy::allows_command(alias)? {
+            return Ok(Some((*alias).to_string()));
+        }
+    }
+    Ok(None)
 }
 
 fn cert_mutation_result<F: FnOnce() -> Result<Value, String>>(
     command: &str,
+    primitive: &str,
+    aliases: &[&str],
     target: &str,
     headers: &HeaderMap,
     run: F,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    match policy::allows_command(command) {
-        Ok(false) => Err(api_error(command)),
-        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
-        Ok(true) => {
-            capability_admits(command, target, capability_from_headers(headers))
-                .map_err(|signal| api_error_signal(command, &signal))?;
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    match cert_admitted_command(command, aliases) {
+        Ok(None) => Err(cert_profile_refusal(command, primitive)),
+        Err(_) => Err(cert_api_error(command, "caduceus-profile-missing")),
+        Ok(Some(admitted_command)) => {
+            capability_admits(&admitted_command, target, capability_from_headers(headers))
+                .map_err(|signal| cert_api_error(command, &signal))?;
             match run() {
                 Ok(value) => Ok((mutation_status(&value), Json(value))),
-                Err(error) => Err(api_error_signal(command, &error)),
+                Err(error) => Err(cert_api_error(command, &error)),
             }
         }
     }
 }
 
-async fn cert_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("cert status", cert::status_json).await
+async fn cert_status_route() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    match cert_admitted_command("cert status", &[]) {
+        Ok(None) => Err(cert_profile_refusal("cert status", "status")),
+        Err(_) => Err(cert_api_error("cert status", "caduceus-profile-missing")),
+        Ok(Some(_)) => cert::status_json()
+            .map(Json)
+            .map_err(|signal| cert_api_error("cert status", &signal)),
+    }
+}
+async fn cert_ensure_root_route(
+    headers: HeaderMap,
+    Json(body): Json<CertBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    cert_mutation_result(
+        "cert ensure-root",
+        "ensure_root",
+        &[],
+        "house-root",
+        &headers,
+        || cert::ensure_root_json(body.dry_run, body.renewal_authority.as_deref()),
+    )
 }
 async fn cert_issue_leaf_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.identity.as_deref().unwrap_or("home.arpa");
-    cert_mutation_result("cert issue-leaf", target, &headers, || {
-        cert::issue_leaf_json(
-            target,
-            body.sans.as_deref().unwrap_or(&[]),
-            body.ips.as_deref().unwrap_or(&[]),
-            body.dry_run,
-        )
-    })
+    cert_mutation_result(
+        "cert issue-leaf",
+        "issue_leaf",
+        &[],
+        target,
+        &headers,
+        || {
+            cert::issue_leaf_json(
+                target,
+                body.sans.as_deref().unwrap_or(&[]),
+                body.ips.as_deref().unwrap_or(&[]),
+                body.dry_run,
+            )
+        },
+    )
 }
 async fn cert_csr_sign_route(
     headers: HeaderMap,
     Json(body): Json<CsrSignBody>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let command = "cert csr sign";
-    match policy::allows_command(command) {
-        Ok(true) => {}
-        Ok(false) => return Err(api_error(command)),
-        Err(_) => return Err(api_error_signal(command, "caduceus-profile-missing")),
-    }
+    let admitted_command = match cert_admitted_command(command, &[]) {
+        Ok(Some(command)) => command,
+        Ok(None) => return Err(cert_profile_refusal(command, "sign_csr")),
+        Err(_) => return Err(cert_api_error(command, "caduceus-profile-missing")),
+    };
     capability_admits(
-        command,
+        &admitted_command,
         "console.home.arpa",
         capability_from_headers(&headers),
     )
-    .map_err(|signal| api_error_signal(command, &signal))?;
+    .map_err(|signal| cert_api_error(command, &signal))?;
     cert::sign_csr_json(&body.csr_pem)
         .map(|value| (StatusCode::OK, Json(value)))
-        .map_err(|error| cert_csr_error(command, &error))
+        .map_err(|error| cert_value_error(StatusCode::BAD_REQUEST, command, &error))
 }
 async fn cert_bundle_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.platform.as_deref().unwrap_or("linux");
-    cert_mutation_result("cert bundle create", target, &headers, || {
-        cert::bundle_create_json(target, body.dry_run)
-    })
+    cert_mutation_result(
+        "cert bundle-export",
+        "bundle_export",
+        &["cert bundle create"],
+        target,
+        &headers,
+        || cert::bundle_create_json(target, body.dry_run),
+    )
+}
+async fn cert_constituent_lock_route(
+    headers: HeaderMap,
+    Json(body): Json<CertBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let portal = body.portal.as_deref().unwrap_or("");
+    cert_mutation_result(
+        "cert constituent-lock",
+        "constituent_lock",
+        &[],
+        portal,
+        &headers,
+        || cert::constituent_lock_json(portal, body.lan_ip.as_deref().unwrap_or(""), body.dry_run),
+    )
 }
 async fn cert_bundle_download_route(
     Query(query): Query<CertQuery>,
-) -> Result<Response<Body>, (StatusCode, Json<ApiErrorBody>)> {
+) -> Result<Response<Body>, (StatusCode, Json<Value>)> {
     let command = "cert bundle download";
-    match policy::allows_command(command) {
-        Ok(false) => return Err(api_error(command)),
-        Err(_) => return Err(api_error_signal(command, "caduceus-profile-missing")),
-        Ok(true) => {}
+    match cert_admitted_command(command, &[]) {
+        Ok(Some(_)) => {}
+        Ok(None) => return Err(cert_profile_refusal(command, "bundle_read")),
+        Err(_) => return Err(cert_api_error(command, "caduceus-profile-missing")),
     }
     let platform = query.platform.as_deref().unwrap_or("linux");
     let bundle = cert::bundle_download_json(platform).map_err(|signal| {
@@ -1256,63 +1342,83 @@ async fn cert_bundle_download_route(
             "caduceus-cert-bundle-missing" => StatusCode::NOT_FOUND,
             _ => StatusCode::SERVICE_UNAVAILABLE,
         };
-        let (_, body) = api_error_signal(command, &signal);
-        (status, body)
+        cert_value_error(status, command, &signal)
     })?;
     let disposition =
         HeaderValue::from_str(&format!(r#"attachment; filename="{}""#, bundle.filename))
-            .map_err(|_| api_error_signal(command, "caduceus-cert-bundle-filename-invalid"))?;
+            .map_err(|_| cert_api_error(command, "caduceus-cert-bundle-filename-invalid"))?;
     let content_type = HeaderValue::from_str(&bundle.mime_type)
-        .map_err(|_| api_error_signal(command, "caduceus-cert-bundle-mime-invalid"))?;
+        .map_err(|_| cert_api_error(command, "caduceus-cert-bundle-mime-invalid"))?;
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, content_type)
         .header(CONTENT_DISPOSITION, disposition)
         .body(Body::from(bundle.bytes))
-        .map_err(|_| api_error_signal(command, "caduceus-cert-bundle-response-invalid"))
+        .map_err(|_| cert_api_error(command, "caduceus-cert-bundle-response-invalid"))
 }
 async fn cert_apply_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.portal.as_deref().unwrap_or("");
-    cert_mutation_result("cert apply", target, &headers, || {
-        cert::apply_json(
-            target,
-            body.upstream.as_deref().unwrap_or(""),
-            body.certificate.as_deref().unwrap_or(""),
-            body.key_path.as_deref().unwrap_or(""),
-            body.dry_run,
-        )
-    })
+    cert_mutation_result(
+        "cert apply-nginx",
+        "apply_nginx",
+        &["cert apply"],
+        target,
+        &headers,
+        || {
+            cert::apply_json(
+                target,
+                body.upstream.as_deref().unwrap_or(""),
+                body.certificate.as_deref().unwrap_or(""),
+                body.key_path.as_deref().unwrap_or(""),
+                body.dry_run,
+            )
+        },
+    )
 }
 async fn cert_trust_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.bundle.as_deref().unwrap_or("");
-    cert_mutation_result("cert trust-install", target, &headers, || {
-        cert::trust_install_json(
-            target,
-            body.platform.as_deref().unwrap_or("linux"),
-            body.dry_run,
-        )
-    })
+    cert_mutation_result(
+        "cert trust-install",
+        "trust_install",
+        &[],
+        target,
+        &headers,
+        || {
+            cert::trust_install_json(
+                target,
+                body.platform.as_deref().unwrap_or("linux"),
+                body.dry_run,
+            )
+        },
+    )
 }
 async fn cert_portal_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.portal.as_deref().unwrap_or("");
-    cert_mutation_result("cert portal-admit", target, &headers, || {
-        cert::portal_admit_json(
-            target,
-            body.lan_ip.as_deref().unwrap_or(""),
-            body.upstream.as_deref().unwrap_or(""),
-            body.aliases.as_deref().unwrap_or(&[]),
-            body.dry_run,
-        )
-    })
+    cert_mutation_result(
+        "cert portal-admit",
+        "portal_admit",
+        &[],
+        target,
+        &headers,
+        || {
+            cert::portal_admit_json(
+                target,
+                body.lan_ip.as_deref().unwrap_or(""),
+                body.upstream.as_deref().unwrap_or(""),
+                body.aliases.as_deref().unwrap_or(&[]),
+                body.dry_run,
+            )
+        },
+    )
 }
 
 async fn pjlink_devices_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -1770,6 +1876,7 @@ pub fn router() -> Router {
         .route("/api/v1/time/state", get(time_state_route))
         .route("/api/v1/network/dns", post(network_dns_route))
         .route("/api/v1/cert/status", get(cert_status_route))
+        .route("/api/v1/cert/ensure-root", post(cert_ensure_root_route))
         .route("/api/v1/cert/issue-leaf", post(cert_issue_leaf_route))
         .route(
             "/api/v1/cert/csr/sign",
@@ -1777,11 +1884,17 @@ pub fn router() -> Router {
         )
         .route("/api/v1/cert/bundle", post(cert_bundle_route))
         .route("/api/v1/cert/bundle/create", post(cert_bundle_route))
+        .route("/api/v1/cert/bundle-export", post(cert_bundle_route))
         .route(
             "/api/v1/cert/bundle/download",
             get(cert_bundle_download_route),
         )
         .route("/api/v1/cert/apply", post(cert_apply_route))
+        .route("/api/v1/cert/apply-nginx", post(cert_apply_route))
+        .route(
+            "/api/v1/cert/constituent-lock",
+            post(cert_constituent_lock_route),
+        )
         .route("/api/v1/cert/trust-install", post(cert_trust_route))
         .route("/api/v1/cert/portal-admit", post(cert_portal_route))
         .route("/api/v1/pjlink/devices", get(pjlink_devices_route))

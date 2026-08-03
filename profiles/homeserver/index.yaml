@@ -28,12 +28,12 @@ commands:
 - staff actuators
 - staff intent
 - cert status
+- cert ensure-root
 - cert issue-leaf
-- cert csr sign
-- cert bundle create
-- cert bundle download
-- cert apply
+- cert bundle-export
+- cert apply-nginx
 - cert portal-admit
+- cert constituent-lock
 - config path
 - config show
 - config get
