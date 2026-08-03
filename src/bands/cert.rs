@@ -90,6 +90,17 @@ pub fn status() -> i32 {
     print(status_json())
 }
 
+pub fn ensure_root_json(dry_run: bool, renewal_authority: Option<&str>) -> Result<Value, String> {
+    let mut args = vec!["ensure-root".into()];
+    if dry_run {
+        args.push("--dry-run".into());
+    }
+    if let Some(authority) = renewal_authority.filter(|value| !value.is_empty()) {
+        args.extend(["--renewal-authority".into(), authority.into()]);
+    }
+    invoke_json(&args)
+}
+
 pub fn issue_leaf_json(
     identity: &str,
     sans: &[String],
@@ -211,6 +222,13 @@ pub fn apply_json(
         certificate.into(),
         key.into(),
     ];
+    if dry_run {
+        args.push("--dry-run".into());
+    }
+    invoke_json(&args)
+}
+pub fn constituent_lock_json(portal: &str, lan_ip: &str, dry_run: bool) -> Result<Value, String> {
+    let mut args = vec!["constituent-lock".into(), portal.into(), lan_ip.into()];
     if dry_run {
         args.push("--dry-run".into());
     }
