@@ -549,6 +549,22 @@
       "conversionStatus": "sbin-library-admitted",
       "notes": "Asserts the born Matrix floor and preserves Matrix nginx/Unbound material fingerprints while Caduceus remains the portal configuration writer.",
       "pythonModule": "caduceus_staff.matrix_converge"
+    },
+    {
+      "id": "harmonia-profile-refresh",
+      "family": "service",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "harmonia-profile-refresh",
+        "harmonia-chia-profile-refresh"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-harmonia-profile-refresh",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/harmonia_profile_refresh.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.harmonia.profile-refresh.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "One Chia profile-refresh actuator owns its Caduceus path/service unit install and uninstall, locks one refresh, and preserves the capsule pack/install/run-profile sequence.",
+      "pythonModule": "caduceus_staff.harmonia_profile_refresh"
     }
   ]
 }
