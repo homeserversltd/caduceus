@@ -37,7 +37,7 @@ def run(root: Path) -> tuple[int, dict, bytes]:
         capture_output=True,
         text=True,
     )
-    return out.returncode, json.loads(out.stdout), (root / "etc/profile.json").read_bytes()
+    return out.returncode, json.loads(out.stdout), (root / "etc/appliance/profile.json").read_bytes()
 
 
 class SourceMapStaffTests(unittest.TestCase):
@@ -45,7 +45,8 @@ class SourceMapStaffTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="caduceus-source-map-")
         self.root = Path(self.temp.name)
         (self.root / "etc/caduceus").mkdir(parents=True)
-        (self.root / "etc/profile.json").write_text(certificate())
+        (self.root / "etc/appliance").mkdir()
+        (self.root / "etc/appliance/profile.json").write_text(certificate())
         (self.root / "etc/caduceus/source-map.json").write_text(json.dumps(valid_map()))
 
     def tearDown(self):
@@ -59,14 +60,14 @@ class SourceMapStaffTests(unittest.TestCase):
         self.assertNotIn('profile.json "$@"', text)
 
     def test_splice_preserves_non_sources_bytes_mode_and_idempotence(self):
-        before = (self.root / "etc/profile.json").read_text()
+        before = (self.root / "etc/appliance/profile.json").read_text()
         rc, receipt, first = run(self.root)
         self.assertEqual(rc, 0)
         self.assertTrue(receipt["ok"])
         self.assertTrue(receipt["changed"])
         self.assertEqual(receipt["components"], ["caduceus", "keyman"])
         self.assertTrue(receipt["preservedNonSourcesBytes"])
-        self.assertEqual(receipt["certificatePath"], "/etc/profile.json")
+        self.assertEqual(receipt["certificatePath"], "/etc/appliance/profile.json")
         self.assertEqual(receipt["sourceMapPath"], "/etc/caduceus/source-map.json")
         after_text = first.decode()
         for member in (
@@ -79,7 +80,7 @@ class SourceMapStaffTests(unittest.TestCase):
             self.assertIn(member, after_text)
         document = json.loads(first)
         self.assertEqual(document["sources"], valid_map())
-        self.assertEqual(stat.S_IMODE((self.root / "etc/profile.json").stat().st_mode), 0o444)
+        self.assertEqual(stat.S_IMODE((self.root / "etc/appliance/profile.json").stat().st_mode), 0o444)
 
         rc, receipt, second = run(self.root)
         self.assertEqual(rc, 0)
@@ -88,7 +89,7 @@ class SourceMapStaffTests(unittest.TestCase):
         self.assertEqual(first, second)
 
     def test_malformed_map_refuses_before_certificate_write(self):
-        before = (self.root / "etc/profile.json").read_bytes()
+        before = (self.root / "etc/appliance/profile.json").read_bytes()
         (self.root / "etc/caduceus/source-map.json").write_text(json.dumps({
             "caduceus": {"ref": "main", "candidates": [{"kind": "git", "url": "https://token@example.invalid/repo.git"}]}
         }))

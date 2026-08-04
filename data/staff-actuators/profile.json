@@ -20,7 +20,7 @@
       "dependencies": [],
       "receiptFamily": "caduceus.profile.sources.reseed.v1",
       "conversionStatus": "sbin-library-admitted",
-      "notes": "Consumes the fixed Harmonia-managed completed source map and atomically splices only the sources member of /etc/profile.json.",
+      "notes": "Consumes the fixed Harmonia-managed completed source map and atomically splices only the sources member of /etc/appliance/profile.json.",
       "pythonModule": "caduceus_staff.source_map"
     },
     {

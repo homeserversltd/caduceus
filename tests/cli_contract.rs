@@ -1040,13 +1040,14 @@ fn profile_sources_reseed_crosses_public_cli_launcher_staff_and_is_idempotent() 
     ));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+    std::fs::create_dir_all(root.join("etc/appliance")).unwrap();
     std::fs::copy(
         "tests/fixtures/tv/etc/caduceus/profile.yaml",
         root.join("etc/caduceus/profile.yaml"),
     )
     .unwrap();
     std::fs::write(
-        root.join("etc/profile.json"),
+        root.join("etc/appliance/profile.json"),
         r#"{
   "schema": "homeserver.device-profile.v1",
   "birth_provenance": {"born":"fixture"},
@@ -1083,9 +1084,9 @@ fn profile_sources_reseed_crosses_public_cli_launcher_staff_and_is_idempotent() 
     let first_receipt: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
     assert_eq!(first_receipt["ok"], true);
     assert_eq!(first_receipt["changed"], true);
-    let certificate = std::fs::read(root.join("etc/profile.json")).unwrap();
+    let certificate = std::fs::read(root.join("etc/appliance/profile.json")).unwrap();
     assert!(String::from_utf8_lossy(&certificate).contains("\"sources\""));
-    let metadata = std::fs::metadata(root.join("etc/profile.json")).unwrap();
+    let metadata = std::fs::metadata(root.join("etc/appliance/profile.json")).unwrap();
     assert_eq!(metadata.permissions().mode() & 0o777, 0o444);
     assert_eq!(metadata.uid(), 0);
     assert_eq!(metadata.gid(), 0);
@@ -1093,6 +1094,6 @@ fn profile_sources_reseed_crosses_public_cli_launcher_staff_and_is_idempotent() 
     assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
     let second_receipt: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
     assert_eq!(second_receipt["changed"], false);
-    assert_eq!(certificate, std::fs::read(root.join("etc/profile.json")).unwrap());
+    assert_eq!(certificate, std::fs::read(root.join("etc/appliance/profile.json")).unwrap());
     let _ = Command::new("sudo").args(["-n", "rm", "-rf"]).arg(&root).status();
 }
