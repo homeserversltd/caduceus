@@ -534,6 +534,21 @@
       "conversionStatus": "sbin-library-admitted",
       "notes": "Explicit laptop-01/laptop-02 variants preserve installation-capable versus verification-only translator-toolchain behavior.",
       "pythonModule": "caduceus_staff.translator_toolchain"
+    },
+    {
+      "id": "matrix-converge",
+      "family": "service",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "harmonia-matrix-converge"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-matrix-converge",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/matrix_converge.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.matrix.converge.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Asserts the born Matrix floor and preserves Matrix nginx/Unbound material fingerprints while Caduceus remains the portal configuration writer.",
+      "pythonModule": "caduceus_staff.matrix_converge"
     }
   ]
 }
