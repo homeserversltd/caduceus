@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 
 SCHEMA = "homeserver.device-profile.v1"
 CERTIFICATE_PATH = "/etc/appliance/profile.json"
+FALLBACK_CERTIFICATE_PATH = "/etc/profile.json"
 SOURCE_MAP_PATH = "/etc/caduceus/source-map.json"
 COMPONENT = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 CREDENTIAL_MARKERS = ("password", "passwd", "secret", "token", "private-key", "private_key")
@@ -38,7 +39,14 @@ def _path(absolute: str) -> Path:
 
 
 def certificate_path() -> Path:
-    return _path(CERTIFICATE_PATH)
+    preferred = _path(CERTIFICATE_PATH)
+    if preferred.exists():
+        return preferred
+    return _path(FALLBACK_CERTIFICATE_PATH)
+
+
+def certificate_path_label() -> str:
+    return CERTIFICATE_PATH if _path(CERTIFICATE_PATH).exists() else FALLBACK_CERTIFICATE_PATH
 
 
 def source_map_path() -> Path:
@@ -233,7 +241,7 @@ def _receipt(*, ok: bool, changed: bool, signal: str, **fields: Any) -> dict[str
         "schema": "caduceus.profile.sources.reseed.v1",
         "ok": ok,
         "changed": changed,
-        "certificatePath": CERTIFICATE_PATH,
+        "certificatePath": certificate_path_label(),
         "sourceMapPath": SOURCE_MAP_PATH,
         "writer": "caduceus_staff.source_map",
         "firstMissingSignal": signal,
