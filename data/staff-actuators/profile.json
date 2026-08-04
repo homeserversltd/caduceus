@@ -181,7 +181,6 @@
       "notes": "Public read-only enrolled device roster.",
       "pythonModule": "caduceus_staff.network.child_device"
     },
-
     {
       "id": "file-ingress",
       "family": "upload",
@@ -475,6 +474,21 @@
       "conversionStatus": "sbin-library-admitted",
       "notes": "Auxiliary public CA-only bundle reader.",
       "pythonModule": "caduceus_staff.house_ca"
+    },
+    {
+      "id": "forgejo-credential",
+      "family": "identity",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "forgejo-credential-helper"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-forgejo-credential",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/forgejo_credential.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.forgejo.credential.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Owner-scoped Git credential-helper protocol reads the owner token only on get; never persists or emits it outside Git credential output.",
+      "pythonModule": "caduceus_staff.forgejo_credential"
     }
   ]
 }
