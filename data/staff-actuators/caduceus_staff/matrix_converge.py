@@ -73,7 +73,7 @@ def ensure_secret(path: Path) -> bool:
     return True
 
 
-def update_portals(config_url: str) -> list[dict]:
+def update_portals(config_url: str) -> dict:
     shown = result(["curl", "-fsS", config_url + "/api/v1/config/show"])
     if shown["exit"] != 0: raise RuntimeError("caduceus-config-unreachable")
     try:
@@ -83,15 +83,15 @@ def update_portals(config_url: str) -> list[dict]:
         if not isinstance(portals, list) or not isinstance(visibility, dict): raise ValueError("shape")
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         raise RuntimeError("caduceus-config-unreachable")
-    kept = [item for item in portals if not (isinstance(item, dict) and str(item.get("name", "")).lower() == "element")]
-    kept.append({"name": "Element", "url": "https://element.home.arpa"})
-    visibility.pop("element", None); visibility["Element"] = True
-    posts = []
-    for path, value in (("tabs.portals.data.portals", kept), ("tabs.portals.visibility.elements", visibility)):
-        post = result(["curl", "-fsS", "-X", "POST", config_url + "/api/v1/config/set", "-H", "Content-Type: application/json", "--data", json.dumps({"path": path, "value": value}, separators=(",", ":"))])
-        if post["exit"] != 0: raise RuntimeError("caduceus-config-unreachable")
-        posts.append(post)
-    return posts
+
+    expected_portal = {"name": "Element", "url": "https://element.home.arpa"}
+    element_portals = [item for item in portals if isinstance(item, dict) and item.get("name") == "Element"]
+    drift: list[dict] = []
+    if expected_portal not in element_portals:
+        drift.append({"path": "tabs.portals.data.portals", "expected": expected_portal, "actual": element_portals})
+    if visibility.get("Element") is not True:
+        drift.append({"path": "tabs.portals.visibility.elements.Element", "expected": True, "actual": visibility.get("Element")})
+    return {"portalsConverged": not drift, "portalDrift": drift}
 
 
 def converge(plan: bool, config_url: str, state_root: Path) -> dict:
@@ -106,7 +106,7 @@ def converge(plan: bool, config_url: str, state_root: Path) -> dict:
         portals = update_portals(config_url)
         nginx = reload_if_material_changed("nginx", paths["nginx"], state_root, False)
         unbound = reload_if_material_changed("unbound", paths["unbound"], state_root, False)
-        return {"schema": SCHEMA, "ok": True, "planned": False, "changed": secret_created or nginx["changed"] or unbound["changed"], "secretCreated": secret_created, "validations": validations, "portalWrites": portals, "fingerprints": [nginx, unbound], "firstMissingSignal": "none"}
+        return {"schema": SCHEMA, "ok": True, "planned": False, "changed": secret_created or nginx["changed"] or unbound["changed"], "secretCreated": secret_created, "validations": validations, **portals, "fingerprints": [nginx, unbound], "firstMissingSignal": "none"}
     except RuntimeError as error:
         return {"schema": SCHEMA, "ok": False, "planned": False, "changed": False, "firstMissingSignal": str(error)}
 
