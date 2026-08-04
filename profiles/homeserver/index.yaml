@@ -16,12 +16,16 @@ commands:
 - network notes write
 - network dhcp status
 - network dhcp leases
+- network dhcp reservations list
+- network dhcp boundary show
 - network dhcp reservations
 - network dhcp reload
 - network dhcp reservation add
 - network dhcp reservation remove
 - network dns status
+- network dns read
 - network dns intent
+- network device list
 - network device claim
 - child-device
 - homeserver-sbin list
