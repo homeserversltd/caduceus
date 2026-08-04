@@ -14,6 +14,7 @@ STAFF = ROOT / "data/staff-actuators"
 sys.path.insert(0, str(STAFF))
 
 from caduceus_staff.network import dns
+from caduceus_staff.network import identity
 
 
 class DnsActuatorTests(unittest.TestCase):
@@ -296,6 +297,41 @@ class DnsActuatorTests(unittest.TestCase):
         final = self.path.read_bytes()
         self.assertIn(b'local-data: "app.home.arpa. IN A 192.168.123.3"\ninclude-toplevel:', final)
         self.assertEqual(final.split(b"forward-zone:")[1], original.split(b"forward-zone:")[1])
+
+    def test_device_list_separates_infrastructure_service_names_from_real_orphans(self):
+        kea = self.root / "kea.json"
+        leases = self.root / "leases.csv"
+        kea.write_text(json.dumps({"Dhcp4": {"subnet4": [{
+            "subnet": "192.168.123.0/24",
+            "option-data": [{"name": "routers", "data": "192.168.123.1"}],
+            "reservations": [{"hw-address": "aa:bb:cc:dd:ee:01", "ip-address": "192.168.123.10", "hostname": "claimed"}],
+        }]}}))
+        leases.write_text("address,hwaddr,hostname,expire,state\n")
+        self.path.write_text(
+            "server:\n"
+            '  local-data: "claimed.home.arpa. IN A 192.168.123.10"\n'
+            '  local-data: "git.home.arpa. IN A 192.168.123.1"\n'
+            '  local-data: "jellyfin.home.arpa. IN A 192.168.123.1"\n'
+            '  local-data: "stray.home.arpa. IN A 192.168.123.99"\n'
+        )
+        environment = {
+            "CADUCEUS_DHCP_CONFIG": str(kea),
+            "CADUCEUS_DHCP_LEASES": str(leases),
+            "CADUCEUS_UNBOUND_CONFIG": str(self.path),
+            "CADUCEUS_UNBOUND_DROPIN_DIR": str(self.root),
+            "CADUCEUS_UNBOUND_INCLUDE": str(self.root / "missing-include.conf"),
+        }
+        with mock.patch.dict(os.environ, environment, clear=False), mock.patch.object(identity, "emit", return_value=0) as emit:
+            self.assertEqual(identity.main(["device-list"]), 0)
+        payload = emit.call_args.args[0]
+        self.assertEqual(payload["service_names"], [
+            {"name": "git.home.arpa", "address": "192.168.123.1", "provenance": "legacy"},
+            {"name": "jellyfin.home.arpa", "address": "192.168.123.1", "provenance": "legacy"},
+        ])
+        self.assertEqual([row["dns_names"] for row in payload["result"]], [["claimed.home.arpa"], ["stray.home.arpa"]])
+        claimed, stray = payload["result"]
+        self.assertEqual((claimed["claim_state"], claimed["mismatches"]), ("claimed", []))
+        self.assertEqual((stray["claim_state"], stray["mismatches"]), ("partial", ["dns-record-without-reservation"]))
 
     def test_same_inode_content_change_at_install_seam_is_refused_without_clobber(self):
         foreign = b"server:\n# foreign same inode\n"
