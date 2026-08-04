@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import errno
 import fcntl
+import glob
 import hashlib
 import ipaddress
 import json
@@ -661,22 +662,95 @@ class DnsManager:
             return []
         return text.split(self.BEGIN, 1)[1].split(self.END, 1)[0].splitlines()
 
+    _INCLUDE = re.compile(r'^\s*(?:include|include-toplevel)\s*:\s*"([^"\r\n]+)"', re.I)
+    _LOCAL_DATA = re.compile(r'\blocal-data\s*:\s*"([^\s"]+)\.?\s+(?:IN\s+)?(A|PTR|CNAME)\s+([^\s"]+)', re.I)
+
+    def _config_paths(self) -> list[Path]:
+        """Return the root and every recursively referenced Unbound fragment."""
+        paths: list[Path] = []
+        seen: set[Path] = set()
+
+        def visit(path: Path, required: bool) -> None:
+            resolved = path.resolve(strict=False)
+            if resolved in seen:
+                return
+            try:
+                text = path.read_text(encoding="utf-8")
+            except FileNotFoundError:
+                if required:
+                    raise DnsError(f"dns-root-config-unreadable: {path}")
+                return
+            except OSError as exc:
+                raise DnsError(f"dns-config-unreadable: {path}: {exc}") from exc
+            seen.add(resolved)
+            paths.append(path)
+            for line in text.splitlines():
+                match = self._INCLUDE.match(line)
+                if not match:
+                    continue
+                candidate = Path(match.group(1))
+                if not candidate.is_absolute():
+                    candidate = path.parent / candidate
+                matches = sorted(Path(value) for value in glob.glob(str(candidate)))
+                if matches:
+                    for included in matches:
+                        visit(included, required=False)
+                elif not any(character in str(candidate) for character in "*?["):
+                    visit(candidate, required=False)
+
+        visit(self.root_config, required=True)
+        return paths
+
+    def _all_local_records(self) -> list[dict[str, str]]:
+        records: list[dict[str, str]] = []
+        for path in self._config_paths():
+            text = path.read_text(encoding="utf-8")
+            owned = False
+            for line in text.splitlines():
+                if self.BEGIN in line:
+                    owned = True
+                    continue
+                if self.END in line:
+                    owned = False
+                    continue
+                match = self._LOCAL_DATA.search(line)
+                if not match:
+                    continue
+                records.append({
+                    "name": match.group(1).rstrip(".").lower(),
+                    "type": match.group(2).upper(),
+                    "target": match.group(3).rstrip(".").lower(),
+                    "provenance": "owned" if owned else "legacy",
+                })
+        return records
+
     def read(self) -> dict[str, Any]:
-        """Read only Caduceus-owned records; an absent include is an empty well."""
+        """Read every configured local-data identity; ownership only governs writes."""
         devices: dict[str, dict[str, Any]] = {}
         aliases: list[dict[str, str]] = []
-        for line in self._owned_lines():
-            match = re.search(r'local-data:\s+"([^\s]+)\.?\s+IN\s+(A|PTR|CNAME)\s+([^\s"]+)"', line, re.I)
-            if not match:
-                continue
-            name, record_type, target = match.group(1).rstrip(".").lower(), match.group(2).upper(), match.group(3).rstrip(".").lower()
+        for record in self._all_local_records():
+            name, record_type, target, provenance = record["name"], record["type"], record["target"], record["provenance"]
             if record_type == "CNAME":
-                aliases.append({"name": name, "target": target})
-            elif record_type == "A":
-                devices.setdefault(name, {"name": name, "a": [], "ptr": []})["a"].append(target)
+                aliases.append({"name": name, "target": target, "provenance": provenance})
+                continue
+            if record_type == "A":
+                device = devices.setdefault(name, {"name": name, "a": [], "ptr": [], "a_records": [], "ptr_records": [], "provenance": []})
+                if target not in device["a"]:
+                    device["a"].append(target)
+                device["a_records"].append({"address": target, "provenance": provenance})
             else:
-                devices.setdefault(target, {"name": target, "a": [], "ptr": []})["ptr"].append(name)
-        return {"include": str(self.read_include), "exists": self.read_include.is_file(), "devices": [devices[key] for key in sorted(devices)], "aliases": sorted(aliases, key=lambda item: item["name"]), "mutationPerformed": False, "firstMissingSignal": "none"}
+                device = devices.setdefault(target, {"name": target, "a": [], "ptr": [], "a_records": [], "ptr_records": [], "provenance": []})
+                if name not in device["ptr"]:
+                    device["ptr"].append(name)
+                device["ptr_records"].append({"name": name, "provenance": provenance})
+        for device in devices.values():
+            device["a"].sort()
+            device["ptr"].sort()
+            device["a_records"].sort(key=lambda item: (item["address"], item["provenance"]))
+            device["ptr_records"].sort(key=lambda item: (item["name"], item["provenance"]))
+            records_with_provenance = device["a_records"] + device["ptr_records"]
+            device["provenance"] = sorted({item["provenance"] for item in records_with_provenance})
+        return {"include": str(self.read_include), "exists": self.read_include.is_file(), "devices": [devices[key] for key in sorted(devices)], "aliases": sorted(aliases, key=lambda item: (item["name"], item["target"], item["provenance"])), "mutationPerformed": False, "firstMissingSignal": "none"}
 
     @staticmethod
     def canonical_name(hostname: str) -> str:
@@ -733,18 +807,8 @@ class DnsManager:
 
     def _observed_owner_names(self) -> set[str]:
         names: set[str] = set()
-        paths = [self.root_config, self.read_include]
-        if self.dropin_dir.is_dir():
-            paths.extend(path for path in self.dropin_dir.glob("*.conf") if path != self.read_include)
-        for path in paths:
-            try:
-                text = path.read_text(encoding="utf-8")
-            except FileNotFoundError:
-                continue
-            except OSError as exc:
-                raise DnsError(f"dns-observed-record-unreadable: {exc}") from exc
-            for name in re.findall(r'local-data:\s+"([^\s]+)', text, re.I):
-                names.add(name.rstrip(".").lower())
+        for record in self._all_local_records():
+            names.add(record["name"])
         return names
 
     def _validate_candidate(self, lines: list[str], new_owners: set[str]) -> None:
