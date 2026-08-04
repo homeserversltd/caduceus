@@ -628,15 +628,15 @@ fn config_temp_root(tag: &str) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!("caduceus-config-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
-    std::fs::create_dir_all(root.join("etc/tv")).unwrap();
+    std::fs::create_dir_all(root.join("etc/appliance")).unwrap();
     std::fs::copy(
         "tests/fixtures/tv/etc/caduceus/profile.yaml",
         root.join("etc/caduceus/profile.yaml"),
     )
     .unwrap();
     std::fs::copy(
-        "tests/fixtures/tv/etc/tv/config.json",
-        root.join("etc/tv/config.json"),
+        "tests/fixtures/tv/etc/appliance/config.json",
+        root.join("etc/appliance/config.json"),
     )
     .unwrap();
     root
@@ -645,9 +645,9 @@ fn config_temp_root(tag: &str) -> std::path::PathBuf {
 #[test]
 fn config_path_show_get_resolve_each_profile() {
     for (profile, device_path) in [
-        ("tv", "/etc/tv/config.json"),
-        ("console", "/etc/console/config.json"),
-        ("homeserver", "/etc/homeserver/config.json"),
+        ("tv", "/etc/appliance/config.json"),
+        ("console", "/etc/appliance/config.json"),
+        ("homeserver", "/etc/appliance/config.json"),
     ] {
         let fixture = format!("tests/fixtures/{profile}");
         let path = Command::new(bin())
@@ -710,12 +710,13 @@ fn config_set_roundtrip_writes_backup_and_public_safe_receipt() {
     assert_eq!(receipt["ok"], true);
     assert_eq!(receipt["op"], "set");
     assert_eq!(receipt["changed"], true);
-    assert_eq!(receipt["path"], "/etc/tv/config.json");
+    assert_eq!(receipt["path"], "/etc/appliance/config.json");
     assert_eq!(receipt["keysTouched"][0], "display.theme");
 
-    let document: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
-            .unwrap();
+    let document: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(document["display"]["theme"], "light");
     assert_eq!(document["tabs"]["starred"][0], "jellyfin");
 
@@ -751,7 +752,7 @@ fn config_set_roundtrip_writes_backup_and_public_safe_receipt() {
 #[test]
 fn config_set_asserts_declared_file_mode_despite_child_umask() {
     let root = config_temp_root("cli-mode");
-    let config = root.join("etc/tv/config.json");
+    let config = root.join("etc/appliance/config.json");
     std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
     let before = std::fs::metadata(&config).unwrap().permissions().mode() & 0o777;
     assert_eq!(before, 0o600);
@@ -780,7 +781,7 @@ fn config_set_asserts_declared_file_mode_despite_child_umask() {
     );
 
     let after = std::fs::metadata(&config).unwrap().permissions().mode() & 0o777;
-    assert_eq!(after, 0o640, "mutate must override the child umask");
+    assert_eq!(after, 0o660, "mutate must override the child umask");
     eprintln!("config mode transition under umask 077: {before:04o} -> {after:04o}");
     let _ = std::fs::remove_dir_all(root);
 }
@@ -809,9 +810,10 @@ fn config_patch_deep_merge_preserves_starred_unless_explicitly_patched() {
     assert_eq!(receipt["op"], "patch");
     assert_eq!(receipt["changed"], true);
 
-    let document: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
-            .unwrap();
+    let document: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(document["tabs"]["starred"][0], "jellyfin");
     assert_eq!(document["tabs"]["starred"][1], "photos");
     assert_eq!(document["tabs"]["order"][0], "media");
@@ -830,9 +832,10 @@ fn config_patch_deep_merge_preserves_starred_unless_explicitly_patched() {
         .output()
         .unwrap();
     assert!(explicit.status.success());
-    let document: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
-            .unwrap();
+    let document: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(document["tabs"]["starred"], serde_json::json!(["photos"]));
     assert_eq!(document["tabs"]["order"][0], "media");
     let _ = std::fs::remove_dir_all(root);
@@ -873,7 +876,7 @@ fn config_path_injection_is_refused_without_mutation() {
         .contains("caduceus-household-config-path-invalid"));
 
     let root = config_temp_root("cli-inject");
-    let original = std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap();
+    let original = std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap();
     for hostile in ["../../etc/hostile", "/etc/hostile", "tabs..starred"] {
         let set = Command::new(bin())
             .env("CADUCEUS_ROOT", &root)
@@ -893,7 +896,7 @@ fn config_path_injection_is_refused_without_mutation() {
             .contains("caduceus-household-config-path-invalid"));
     }
     assert_eq!(
-        std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap(),
+        std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
         original
     );
     assert!(!root.join("var/lib/caduceus/backups").exists());
@@ -903,7 +906,7 @@ fn config_path_injection_is_refused_without_mutation() {
 #[test]
 fn config_mutation_refuses_missing_and_mismatched_tokens() {
     let root = config_temp_root("cli-token");
-    let original = std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap();
+    let original = std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap();
 
     let missing = Command::new(bin())
         .env("CADUCEUS_ROOT", &root)
@@ -949,7 +952,7 @@ fn config_mutation_refuses_missing_and_mismatched_tokens() {
         .contains("caduceus-capability-scope"));
 
     assert_eq!(
-        std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap(),
+        std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
         original
     );
     let _ = std::fs::remove_dir_all(root);
@@ -999,7 +1002,7 @@ fn config_write_refuses_missing_homeserver_install_without_touching_legacy() {
         .unwrap()
         .contains("caduceus-household-config-installed-path-missing"));
     assert_eq!(std::fs::read_to_string(legacy).unwrap(), legacy_before);
-    assert!(!root.join("etc/homeserver/config.json").exists());
+    assert!(!root.join("etc/appliance/config.json").exists());
     let _ = std::fs::remove_dir_all(root);
 }
 

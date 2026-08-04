@@ -1,0 +1,12 @@
+{
+  "schema": "household.config.v1",
+  "profile": "tv",
+  "display": {
+    "theme": "dark",
+    "sleepMinutes": 30
+  },
+  "tabs": {
+    "starred": ["jellyfin", "photos"],
+    "order": ["home", "media", "settings"]
+  }
+}

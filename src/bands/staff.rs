@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::bands::{actions, dhcp, dns};
-use crate::tools::{config, hyalos};
+use crate::tools::hyalos;
 
 const PROFILE: &str = include_str!("../../data/staff-actuators/profile.json");
 
@@ -463,10 +463,11 @@ fn normalize_systemd_service(service: &str) -> String {
 }
 
 fn portal_service_allowlist() -> Result<Vec<String>, String> {
-    let text = config::read_public_file("var/www/homeserver/src/config/homeserver.json")
-        .map_err(|err| format!("caduceus-homeserver-config-missing: {err}"))?;
-    let value: Value = serde_json::from_str(&text)
-        .map_err(|err| format!("caduceus-homeserver-config-invalid: {err}"))?;
+    let value = crate::bands::config::show_json()
+        .map_err(|err| format!("caduceus-homeserver-config-missing: {err}"))?
+        .get("document")
+        .cloned()
+        .ok_or_else(|| "caduceus-homeserver-config-invalid".to_string())?;
     let portals = value
         .pointer("/tabs/portals/data/portals")
         .and_then(Value::as_array)
@@ -628,9 +629,16 @@ mod tests {
             std::env::temp_dir().join(format!("caduceus-systemctl-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
-        let config_dir = root.join("var/www/homeserver/src/config");
+        let profile_dir = root.join("etc/caduceus");
+        std::fs::create_dir_all(&profile_dir).unwrap();
+        std::fs::write(
+            profile_dir.join("profile.yaml"),
+            "schema: caduceus.profile.v1\nprofile: homeserver\n",
+        )
+        .unwrap();
+        let config_dir = root.join("etc/appliance");
         std::fs::create_dir_all(&config_dir).unwrap();
-        std::fs::write(config_dir.join("homeserver.json"), r#"{"tabs":{"portals":{"data":{"portals":[{"name":"Jellyfin","services":["jellyfin"]}]}}}}"#).unwrap();
+        std::fs::write(config_dir.join("config.json"), r#"{"tabs":{"portals":{"data":{"portals":[{"name":"Jellyfin","services":["jellyfin"]}]}}}}"#).unwrap();
         std::env::set_var("CADUCEUS_ROOT", &root);
         let systemctl = root.join("systemctl");
         std::fs::write(&systemctl, "#!/bin/sh\nif [ \"$1\" = is-active ]; then echo active; exit 0; else printf '%s %s\\n' \"$1\" \"$2\"; fi\n").unwrap();

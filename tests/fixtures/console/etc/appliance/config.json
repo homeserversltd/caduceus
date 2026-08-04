@@ -1,0 +1,12 @@
+{
+  "schema": "household.config.v1",
+  "profile": "console",
+  "display": {
+    "theme": "dark",
+    "sleepMinutes": 20
+  },
+  "tabs": {
+    "starred": ["terminal", "jellyfin"],
+    "order": ["home", "games", "settings"]
+  }
+}

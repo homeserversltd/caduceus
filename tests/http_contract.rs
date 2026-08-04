@@ -965,15 +965,15 @@ fn config_temp_root(tag: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("caduceus-http-config-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
-    std::fs::create_dir_all(root.join("etc/tv")).unwrap();
+    std::fs::create_dir_all(root.join("etc/appliance")).unwrap();
     std::fs::copy(
         "tests/fixtures/tv/etc/caduceus/profile.yaml",
         root.join("etc/caduceus/profile.yaml"),
     )
     .unwrap();
     std::fs::copy(
-        "tests/fixtures/tv/etc/tv/config.json",
-        root.join("etc/tv/config.json"),
+        "tests/fixtures/tv/etc/appliance/config.json",
+        root.join("etc/appliance/config.json"),
     )
     .unwrap();
     root
@@ -998,7 +998,7 @@ async fn config_path_show_get_routes_resolve_tv_profile() {
     let path = body_json(path).await;
     assert_eq!(path["schema"], "caduceus.household-config.path.v1");
     assert_eq!(path["profile"], "tv");
-    assert_eq!(path["path"], "/etc/tv/config.json");
+    assert_eq!(path["path"], "/etc/appliance/config.json");
     assert!(!path["path"].as_str().unwrap().contains("tests/fixtures"));
 
     let show = app
@@ -1015,7 +1015,7 @@ async fn config_path_show_get_routes_resolve_tv_profile() {
     let show = body_json(show).await;
     assert_eq!(show["schema"], "caduceus.household-config.show.v1");
     assert_eq!(show["document"]["schema"], "household.config.v1");
-    assert_eq!(show["path"], "/etc/tv/config.json");
+    assert_eq!(show["path"], "/etc/appliance/config.json");
 
     let get = app
         .oneshot(
@@ -1059,12 +1059,13 @@ async fn config_set_route_mutates_isolated_root_with_valid_capability() {
     assert_eq!(receipt["ok"], true);
     assert_eq!(receipt["op"], "set");
     assert_eq!(receipt["changed"], true);
-    assert_eq!(receipt["path"], "/etc/tv/config.json");
+    assert_eq!(receipt["path"], "/etc/appliance/config.json");
     assert_eq!(receipt["keysTouched"][0], "display.theme");
 
-    let document: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
-            .unwrap();
+    let document: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(document["display"]["theme"], "light");
     assert_eq!(document["tabs"]["starred"][0], "jellyfin");
 
@@ -1107,9 +1108,10 @@ async fn config_patch_route_deep_merge_preserves_starred() {
     assert_eq!(receipt["op"], "patch");
     assert_eq!(receipt["changed"], true);
 
-    let document: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
-            .unwrap();
+    let document: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(document["tabs"]["starred"][0], "jellyfin");
     assert_eq!(document["tabs"]["starred"][1], "photos");
     assert_eq!(document["tabs"]["order"][0], "media");
@@ -1122,7 +1124,7 @@ async fn config_patch_route_deep_merge_preserves_starred() {
 async fn config_mutation_routes_refuse_without_capability() {
     let root = config_temp_root("refuse");
     let _guard = use_fixture(root.to_str().unwrap());
-    let original = std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap();
+    let original = std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap();
     let app = serve::router();
 
     let set = app
@@ -1161,7 +1163,7 @@ async fn config_mutation_routes_refuse_without_capability() {
     );
 
     assert_eq!(
-        std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap(),
+        std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
         original
     );
     assert!(!root.join("var/lib/caduceus/backups").exists());
@@ -1172,7 +1174,7 @@ async fn config_mutation_routes_refuse_without_capability() {
 async fn config_routes_refuse_path_injection_without_mutation() {
     let root = config_temp_root("inject");
     let _guard = use_fixture(root.to_str().unwrap());
-    let original = std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap();
+    let original = std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap();
     let app = serve::router();
 
     let get = app
@@ -1220,7 +1222,7 @@ async fn config_routes_refuse_path_injection_without_mutation() {
     }
 
     assert_eq!(
-        std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap(),
+        std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
         original
     );
     assert!(!root.join("var/lib/caduceus/backups").exists());
@@ -1334,11 +1336,12 @@ async fn guest_config_set_only_allows_tabs_starred_and_writes_installed_path() {
         .unwrap();
     assert_eq!(starred.status(), StatusCode::OK);
     let receipt = body_json(starred).await;
-    assert_eq!(receipt["path"], "/etc/tv/config.json");
+    assert_eq!(receipt["path"], "/etc/appliance/config.json");
     assert_eq!(receipt["changed"], true);
-    let installed: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
-            .unwrap();
+    let installed: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(installed["tabs"]["starred"], serde_json::json!(["photos"]));
 
     let guest_other = app
@@ -1357,9 +1360,10 @@ async fn guest_config_set_only_allows_tabs_starred_and_writes_installed_path() {
         body_json(guest_other).await["firstMissingSignal"],
         "caduceus-capability-unsigned"
     );
-    let installed: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join("etc/tv/config.json")).unwrap())
-            .unwrap();
+    let installed: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(installed["display"]["theme"], "dark");
     let _ = std::fs::remove_dir_all(root);
 }

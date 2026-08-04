@@ -1,7 +1,7 @@
-//! Household config lever band: profile-resolved readback and guarded mutation of
+//! Household config lever band: appliance-config readback and guarded mutation of
 //! the appliance household configuration document.
 //!
-//! All published JSON carries device-logical paths (`/etc/tv/config.json`); the
+//! All published JSON carries the device-logical path (`/etc/appliance/config.json`); the
 //! CADUCEUS_ROOT membrane is applied only at the filesystem boundary.
 
 use crate::tools::config as paths;
@@ -20,12 +20,12 @@ const OWNED_FILE_MODE: u32 = 0o660;
 
 #[derive(Debug, Clone)]
 struct Resolved {
+    /// Receipt-only metadata; it never selects a config path.
     profile: String,
     /// Device-logical path published on receipts; never includes CADUCEUS_ROOT.
     device_path: String,
     /// Root-joined path actually read and written.
     fs_path: PathBuf,
-    factory: Option<String>,
 }
 
 fn state() -> Option<Value> {
@@ -83,73 +83,12 @@ fn resolve() -> Result<Resolved, String> {
                 .and_then(normalize)
         })
         .ok_or_else(|| "caduceus-household-config-profile-unknown".to_string())?;
-    let explicit = state
-        .as_ref()
-        .and_then(|value| value.pointer("/services/household_config/path"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let explicit_factory = state
-        .as_ref()
-        .and_then(|value| value.pointer("/services/household_config/factory"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let (candidates, factory_candidate) = match profile.as_str() {
-        "homeserver" => (
-            vec![
-                "/etc/homeserver/config.json",
-                "/etc/homeserver.json",
-                "/var/www/homeserver/src/config/homeserver.json",
-            ],
-            "/etc/homeserver.factory",
-        ),
-        "console" => (
-            vec!["/etc/console/config.json", "/etc/console.json"],
-            "/etc/console.factory",
-        ),
-        "tv" => (
-            vec!["/etc/tv/config.json", "/etc/tv.json"],
-            "/etc/tv.factory",
-        ),
-        _ => unreachable!(),
-    };
-    let device_path = explicit.unwrap_or_else(|| {
-        candidates
-            .iter()
-            .find(|candidate| paths::path(candidate).exists())
-            .copied()
-            .unwrap_or(candidates[0])
-            .to_string()
-    });
-    let factory = explicit_factory.or_else(|| {
-        paths::path(factory_candidate)
-            .exists()
-            .then(|| factory_candidate.to_string())
-    });
+    let device_path = "/etc/appliance/config.json".to_string();
     Ok(Resolved {
         profile,
         fs_path: paths::path(&device_path),
         device_path,
-        factory,
     })
-}
-
-/// Reads may follow the profile's legacy/quarry chain. Persistence never may:
-/// the installed successor path is the only lawful config writer target.
-fn resolve_write() -> Result<Resolved, String> {
-    let mut resolved = resolve()?;
-    let installed_path = match resolved.profile.as_str() {
-        "homeserver" => "/etc/homeserver/config.json",
-        "console" => "/etc/console/config.json",
-        "tv" => "/etc/tv/config.json",
-        _ => unreachable!(),
-    };
-    let fs_path = paths::path(installed_path);
-    if !fs_path.is_file() {
-        return Err("caduceus-household-config-installed-path-missing".to_string());
-    }
-    resolved.device_path = installed_path.to_string();
-    resolved.fs_path = fs_path;
-    Ok(resolved)
 }
 
 fn read_document(resolved: &Resolved) -> Result<Value, String> {
@@ -177,7 +116,6 @@ pub fn path_json() -> Result<Value, String> {
         "ok": true,
         "profile": resolved.profile,
         "path": resolved.device_path,
-        "factory": resolved.factory,
         "firstMissingSignal": "none",
     }))
 }
@@ -270,7 +208,10 @@ pub fn atomic_write_owned(path: &Path, bytes: &[u8], mode: u32) -> Result<(), St
 }
 
 fn mutate(op: &str, target: &str, update: Value) -> Result<Value, String> {
-    let resolved = resolve_write()?;
+    let resolved = resolve()?;
+    if !resolved.fs_path.is_file() {
+        return Err("caduceus-household-config-installed-path-missing".to_string());
+    }
     let mut document = read_document(&resolved)?;
     let before = document.clone();
     let keys_touched: Vec<String> = if op == "set" {
