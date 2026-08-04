@@ -504,6 +504,21 @@
       "conversionStatus": "sbin-library-admitted",
       "notes": "Atomically converges non-secret Honcho settings and preserves the required API-key value verbatim.",
       "pythonModule": "caduceus_staff.honcho_env"
+    },
+    {
+      "id": "rebis-profile-retire",
+      "family": "identity",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "harmonia-rebis-profile-retirement"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-rebis-profile-retire",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/rebis_profile_retire.py",
+      "dependencies": [],
+      "receiptFamily": "harmonia.rebis_profile_retirement.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Timestamp-retires only the installed Rebis Harmonia profile and returns the remaining installed profile names.",
+      "pythonModule": "caduceus_staff.rebis_profile_retire"
     }
   ]
 }
