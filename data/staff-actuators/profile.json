@@ -52,6 +52,19 @@
       "pythonModule": "caduceus_staff.network.firewall"
     },
     {
+      "id": "child-device",
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-child-device",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/child_device.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.child-device.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Plain child-device registry with observed-MAC readback and rendered nftables/Unbound enforcement; apply does not alter the live gateway without an operator-witnessed installation step.",
+      "pythonModule": "caduceus_staff.network.child_device"
+    },
+    {
       "id": "network-dns",
       "family": "network",
       "actuatorClass": "staff-python",

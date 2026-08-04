@@ -10,8 +10,10 @@ these modules directly.
 |------|------|
 | `caduceus_staff/house_ca.py` | Hestia Anchor household TLS primitives |
 | `caduceus_staff/network/dhcp.py` | Kea DHCP readback and control |
+| `caduceus_staff/network/child_device.py` | Registered child-device website-whitelist registry and gateway-policy renderer |
 
 | `caduceus-house-ca` | Launcher: `python -m caduceus_staff.house_ca` |
+| `caduceus-child-device` | Launcher: `python -m caduceus_staff.network.child_device` |
 | `profile.json` | Actuator catalog (id, launcher, receipt family, notes) |
 
 Harmonia ships actuators to `/usr/local/sbin/caduceus_staff/` on each appliance.
