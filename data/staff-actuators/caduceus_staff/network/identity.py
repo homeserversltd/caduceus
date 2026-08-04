@@ -20,41 +20,44 @@ class IdentityError(RuntimeError):
 
 
 def device_list() -> list[dict[str, Any]]:
-    """Fuse declared DHCP, observed leases, and owned DNS by normalized MAC."""
+    """Fuse declared DHCP, observed leases, and all Unbound local-data identity."""
     dhcp = DhcpManager()
     dns = DnsManager().read()
     records: dict[str, dict[str, Any]] = {}
     for reservation in dhcp.reservations():
-        item = records.setdefault(reservation["mac"], {"mac": reservation["mac"], "observed_lease": None, "declared_reservation": None, "dns_names": [], "mismatches": []})
+        item = records.setdefault(reservation["mac"], {"mac": reservation["mac"], "observed_lease": None, "declared_reservation": None, "dns_names": [], "dns_name_records": [], "mismatches": []})
         item["declared_reservation"] = {"ip": reservation["ip"], "hostname": reservation["hostname"], "provenance": "declared"}
     for lease in dhcp.leases():
-        item = records.setdefault(lease["mac"], {"mac": lease["mac"], "observed_lease": None, "declared_reservation": None, "dns_names": [], "mismatches": []})
+        item = records.setdefault(lease["mac"], {"mac": lease["mac"], "observed_lease": None, "declared_reservation": None, "dns_names": [], "dns_name_records": [], "mismatches": []})
         item["observed_lease"] = {"ip": lease["ip"], "hostname": lease["hostname"], "last_activity": lease["last_activity"], "provenance": "observed"}
-    dns_by_ip: dict[str, list[str]] = {}
+    dns_by_ip: dict[str, list[dict[str, str]]] = {}
     for record in dns["devices"]:
-        for address in record["a"]:
-            dns_by_ip.setdefault(address, []).append(record["name"])
+        for a_record in record.get("a_records", ({"address": address, "provenance": "owned"} for address in record["a"])):
+            dns_by_ip.setdefault(a_record["address"], []).append({"name": record["name"], "provenance": a_record["provenance"]})
     for item in records.values():
         declared, observed = item["declared_reservation"], item["observed_lease"]
         ips = {value["ip"] for value in (declared, observed) if value}
-        item["dns_names"] = sorted({name for ip in ips for name in dns_by_ip.get(ip, [])})
+        names = {(entry["name"], entry["provenance"]) for ip in ips for entry in dns_by_ip.get(ip, [])}
+        item["dns_name_records"] = [{"name": name, "provenance": provenance} for name, provenance in sorted(names)]
+        item["dns_names"] = sorted({name for name, _provenance in names})
         if declared and observed and declared["ip"] != observed["ip"]:
             item["mismatches"].append("reservation-ip-differs-from-observed-lease")
-        if declared and not item["dns_names"]:
+        declared_names = dns_by_ip.get(declared["ip"], []) if declared else []
+        if declared and not declared_names:
             item["mismatches"].append("reservation-without-dns-record")
-        if declared and declared["ip"] in dns_by_ip and not set(dns_by_ip[declared["ip"]]).intersection(item["dns_names"]):
-            item["mismatches"].append("reservation-ip-differs-from-dns-a-target")
-        item["claim_state"] = "claimed" if declared and item["dns_names"] else "partial" if declared or item["dns_names"] or observed else "unclaimed"
+        has_declared_name = bool(declared_names)
+        item["claim_state"] = "claimed" if declared and has_declared_name else "partial" if any((declared, item["dns_names"], observed)) else "unclaimed"
     declared_ips = {item["declared_reservation"]["ip"] for item in records.values() if item["declared_reservation"]}
-    for record in dns["devices"]:
-        for address in record["a"]:
-            if address not in declared_ips:
-                key = f"dns:{record['name']}:{address}"
-                records[key] = {
-                    "mac": None, "observed_lease": None, "declared_reservation": None,
-                    "dns_names": [record["name"]], "claim_state": "partial",
-                    "mismatches": ["dns-record-without-reservation"],
-                }
+    for address, names in dns_by_ip.items():
+        if address in declared_ips:
+            continue
+        for entry in names:
+            key = f"dns:{entry['name']}:{address}:{entry['provenance']}"
+            records[key] = {
+                "mac": None, "observed_lease": None, "declared_reservation": None,
+                "dns_names": [entry["name"]], "dns_name_records": [entry], "claim_state": "partial",
+                "mismatches": ["dns-record-without-reservation"],
+            }
     return [records[key] for key in sorted(records)]
 
 
