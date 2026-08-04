@@ -3,7 +3,7 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    actions, cert, child_device, config, dns, gui, health, help, homeserver_sbin, hyalos,
+    actions, cert, child_device, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos,
     identity, legacy_sbin, local_ai, network, network_read, pjlink, profile, profile_module,
     receipts, serve, source_map, staff, sync, time, update,
 };
@@ -224,7 +224,7 @@ where
             let command = format!("network dhcp {}", rest.join(" "));
             match network_read::named(&command) {
                 Some(read) => read_command(read),
-                None => public_action_not_allowed(),
+                None => dhcp::command(rest),
             }
         }
         [domain, object, rest @ ..]

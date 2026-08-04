@@ -324,7 +324,7 @@ fn staff_actuators_list_backblaze_and_calibre_python_lanes() {
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("schema=caduceus.staff.actuators.v1"));
-    assert!(text.contains("count=25"));
+    assert!(text.contains("count=33"));
     assert!(text.contains("profile-sources-reseed"));
     assert!(text.contains("actuator=network-dhcp"));
     assert!(text.contains("actuator=network-dns"));
@@ -533,21 +533,47 @@ fn cli_refuses_capability_when_household_key_is_not_configured() {
 }
 
 #[test]
-fn network_dhcp_cli_invokes_staff_python_band() {
-    let output = Command::new(bin())
+fn network_dhcp_cli_routes_reads_to_pinned_actuator_and_legacy_verbs_to_dhcp() {
+    let read = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
+        .env("PYTHONPATH", "tests/fixtures/staff")
+        .env(
+            "CADUCEUS_NETWORK_READ_CMD",
+            "python3 -m caduceus_staff.network.dhcp",
+        )
+        .args(["network", "dhcp", "status"])
+        .output()
+        .unwrap();
+    assert!(read.status.success());
+    let stdout = String::from_utf8(read.stdout).unwrap();
+    assert!(stdout.contains("\"actuatorId\":\"network.dhcp.status\""));
+    assert!(stdout.contains("caduceus.network.dhcp.status.v1"));
+    assert!(stdout.contains("caduceus_staff.network.dhcp"));
+
+    let reload = Command::new(bin())
         .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
         .env("PYTHONPATH", "tests/fixtures/staff")
         .env(
             "CADUCEUS_DHCP_CMD",
             "python3 -m caduceus_staff.network.dhcp",
         )
-        .args(["network", "dhcp", "status"])
+        .args(["network", "dhcp", "reload"])
         .output()
         .unwrap();
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("caduceus.network.dhcp.status.v1"));
-    assert!(stdout.contains("caduceus_staff.network.dhcp"));
+    assert!(reload.status.success());
+    let stdout = String::from_utf8(reload.stdout).unwrap();
+    assert!(stdout.contains("caduceus.network.dhcp.reload.v1"));
+    assert!(!stdout.contains("caduceus-public-action-not-allowed"));
+
+    let refusal = Command::new(bin())
+        .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
+        .args(["network", "device", "remove"])
+        .output()
+        .unwrap();
+    assert!(!refusal.status.success());
+    assert!(String::from_utf8(refusal.stderr)
+        .unwrap()
+        .contains("caduceus-public-action-not-allowed"));
 }
 
 #[test]
