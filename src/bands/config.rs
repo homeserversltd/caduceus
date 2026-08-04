@@ -12,10 +12,11 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-/// All household configuration documents are owner-writable and readable only
-/// by the service group. This is asserted after every write, not delegated to
-/// the process umask or directory defaults.
-const OWNED_FILE_MODE: u32 = 0o640;
+/// Household configuration documents are read-write for the service user and
+/// the service group because the owner account is a member of that group by
+/// ruling. This is asserted after every write, not delegated to the process
+/// umask or directory defaults.
+const OWNED_FILE_MODE: u32 = 0o660;
 
 #[derive(Debug, Clone)]
 struct Resolved {
