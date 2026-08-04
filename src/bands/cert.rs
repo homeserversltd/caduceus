@@ -22,6 +22,19 @@ pub fn invoke_json(args: &[String]) -> Result<Value, String> {
     invoke_json_with_stdin(args, None)
 }
 
+fn invoke_receipt(args: &[String]) -> Result<Value, String> {
+    let (program, prefix) = command();
+    let output = Command::new(program)
+        .args(prefix)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .output()
+        .map_err(|e| format!("caduceus-cert-house-ca-unavailable: {e}"))?;
+    serde_json::from_slice(&output.stdout)
+        .map_err(|_| "caduceus-cert-house-ca-invalid-receipt".to_string())
+}
+
 fn invoke_json_with_stdin(args: &[String], stdin: Option<&[u8]>) -> Result<Value, String> {
     let (program, prefix) = command();
     let mut child = Command::new(program)
@@ -79,12 +92,8 @@ fn print(value: Result<Value, String>) -> i32 {
     }
 }
 
-fn call(parts: &[&str]) -> Result<Value, String> {
-    invoke_json(&parts.iter().map(|s| s.to_string()).collect::<Vec<_>>())
-}
-
 pub fn status_json() -> Result<Value, String> {
-    call(&["status"])
+    invoke_receipt(&["status".into()])
 }
 pub fn status() -> i32 {
     print(status_json())

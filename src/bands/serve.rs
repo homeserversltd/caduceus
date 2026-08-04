@@ -1217,16 +1217,24 @@ fn cert_mutation_result<F: FnOnce() -> Result<Value, String>>(
     command: &str,
     primitive: &str,
     aliases: &[&str],
-    target: &str,
     headers: &HeaderMap,
     run: F,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     match cert_admitted_command(command, aliases) {
         Ok(None) => Err(cert_profile_refusal(command, primitive)),
         Err(_) => Err(cert_api_error(command, "caduceus-profile-missing")),
-        Ok(Some(admitted_command)) => {
-            capability_admits(&admitted_command, target, capability_from_headers(headers))
-                .map_err(|signal| cert_api_error(command, &signal))?;
+        Ok(Some(_)) => {
+            let document = headers
+                .get("x-caduceus-document")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("");
+            document_attendance_admits(
+                document,
+                headers
+                    .get("x-caduceus-attendance")
+                    .and_then(|value| value.to_str().ok()),
+            )
+            .map_err(|signal| cert_api_error(command, &signal))?;
             match run() {
                 Ok(value) => Ok((mutation_status(&value), Json(value))),
                 Err(error) => Err(cert_api_error(command, &error)),
@@ -1252,7 +1260,6 @@ async fn cert_ensure_root_route(
         "cert ensure-root",
         "ensure_root",
         &[],
-        "house-root",
         &headers,
         || cert::ensure_root_json(body.dry_run, body.renewal_authority.as_deref()),
     )
@@ -1266,7 +1273,6 @@ async fn cert_issue_leaf_route(
         "cert issue-leaf",
         "issue_leaf",
         &[],
-        target,
         &headers,
         || {
             cert::issue_leaf_json(
@@ -1283,15 +1289,20 @@ async fn cert_csr_sign_route(
     Json(body): Json<CsrSignBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let command = "cert csr sign";
-    let admitted_command = match cert_admitted_command(command, &[]) {
-        Ok(Some(command)) => command,
+    match cert_admitted_command(command, &[]) {
+        Ok(Some(_)) => {}
         Ok(None) => return Err(cert_profile_refusal(command, "sign_csr")),
         Err(_) => return Err(cert_api_error(command, "caduceus-profile-missing")),
     };
-    capability_admits(
-        &admitted_command,
-        "console.home.arpa",
-        capability_from_headers(&headers),
+    let document = headers
+        .get("x-caduceus-document")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    document_attendance_admits(
+        document,
+        headers
+            .get("x-caduceus-attendance")
+            .and_then(|value| value.to_str().ok()),
     )
     .map_err(|signal| cert_api_error(command, &signal))?;
     cert::sign_csr_json(&body.csr_pem)
@@ -1307,7 +1318,6 @@ async fn cert_bundle_route(
         "cert bundle-export",
         "bundle_export",
         &["cert bundle create"],
-        target,
         &headers,
         || cert::bundle_create_json(target, body.dry_run),
     )
@@ -1321,7 +1331,6 @@ async fn cert_constituent_lock_route(
         "cert constituent-lock",
         "constituent_lock",
         &[],
-        portal,
         &headers,
         || cert::constituent_lock_json(portal, body.lan_ip.as_deref().unwrap_or(""), body.dry_run),
     )
@@ -1365,7 +1374,6 @@ async fn cert_apply_route(
         "cert apply-nginx",
         "apply_nginx",
         &["cert apply"],
-        target,
         &headers,
         || {
             cert::apply_json(
@@ -1387,7 +1395,6 @@ async fn cert_trust_route(
         "cert trust-install",
         "trust_install",
         &[],
-        target,
         &headers,
         || {
             cert::trust_install_json(
@@ -1407,7 +1414,6 @@ async fn cert_portal_route(
         "cert portal-admit",
         "portal_admit",
         &[],
-        target,
         &headers,
         || {
             cert::portal_admit_json(
