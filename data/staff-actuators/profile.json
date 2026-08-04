@@ -565,6 +565,21 @@
       "conversionStatus": "sbin-library-admitted",
       "notes": "One Chia profile-refresh actuator owns its Caduceus path/service unit install and uninstall, locks one refresh, and preserves the capsule pack/install/run-profile sequence.",
       "pythonModule": "caduceus_staff.harmonia_profile_refresh"
+    },
+    {
+      "id": "hermes-agent-maintenance",
+      "family": "service",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "hermes-agent-maintenance"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-hermes-agent-maintenance",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/hermes_agent_maintenance.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.hermes-agent-maintenance.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Owns its owner-scoped user service/timer install and uninstall while preserving profile, backup, gateway, lock, and receipt semantics.",
+      "pythonModule": "caduceus_staff.hermes_agent_maintenance"
     }
   ]
 }
