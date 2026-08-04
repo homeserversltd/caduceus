@@ -76,7 +76,31 @@ fn invoke_json_with_stdin(args: &[String], stdin: Option<&[u8]>) -> Result<Value
 pub fn sign_csr_json(csr_pem: &str) -> Result<Value, String> {
     let request = json!({ "csrPem": csr_pem });
     let body = request.to_string();
-    invoke_json_with_stdin(&["sign-csr".into()], Some(body.as_bytes()))
+    let private = invoke_json_with_stdin(&["sign-csr".into()], Some(body.as_bytes()))?;
+    let text = |field: &str| {
+        private
+            .get(field)
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "caduceus-cert-csr-sign-invalid-receipt".to_string())
+    };
+    let leaf_pem = text("leaf_pem")?;
+    if leaf_pem.contains("PRIVATE KEY") {
+        return Err("caduceus-cert-private-key-leaked".to_string());
+    }
+    Ok(json!({
+        "schema": "caduceus.cert.csr_sign.v1",
+        "ok": true,
+        "primitive": "csr_sign",
+        "changed": private.get("changed").and_then(Value::as_bool).unwrap_or(false),
+        "identity": text("identity")?,
+        "sans": private.get("sans").cloned().unwrap_or(Value::Array(Vec::new())),
+        "leaf_pem": leaf_pem,
+        "leaf_fingerprint": text("leaf_fingerprint")?,
+        "ca_fingerprint": text("ca_fingerprint")?,
+        "leaf_expiry": text("leaf_expiry")?,
+        "proof": text("proof")?,
+    }))
 }
 
 fn print(value: Result<Value, String>) -> i32 {
