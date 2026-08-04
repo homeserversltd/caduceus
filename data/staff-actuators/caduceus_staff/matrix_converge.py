@@ -79,7 +79,7 @@ def update_portals(config_url: str) -> list[dict]:
     try:
         document = json.loads(str(shown["stdout"]))["document"]
         portals = document["tabs"]["portals"]["data"]["portals"]
-        visibility = document["tabs"]["portals"]["visibility"]
+        visibility = document["tabs"]["portals"]["visibility"]["elements"]
         if not isinstance(portals, list) or not isinstance(visibility, dict): raise ValueError("shape")
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         raise RuntimeError("caduceus-config-unreachable")
