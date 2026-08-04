@@ -25,14 +25,13 @@ commands:
 - cert portal-admit
 - network dhcp status
 - network dhcp leases
-- network dhcp reservations
-- network dhcp reload
+- network dhcp reservations list
+- network dhcp boundary show
+- network dns status
+- network dns read
+- network device list
 - network notes
 - network notes write
-- network dhcp reservation add
-- network dhcp reservation remove
-- network dns status
-- network dns intent
 - caduceus.network.firewall.read
 - caduceus.network.firewall.put
 - caduceus.network.firewall.delete

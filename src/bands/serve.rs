@@ -1,7 +1,7 @@
 use crate::bands::{
-    actions, cert, config, dhcp, dns, firewall, gui, health, homeserver_sbin, hyalos, identity,
-    legacy_sbin, local_ai, network, network_notes, pjlink, profile, profile_module, receipts,
-    source_map, staff, sync, time, update,
+    actions, cert, config, dns, firewall, gui, health, homeserver_sbin, hyalos, identity,
+    legacy_sbin, local_ai, network, network_notes, network_read, pjlink, profile, profile_module,
+    receipts, source_map, staff, sync, time, update,
 };
 use crate::tools::{attendance, policy};
 use axum::{
@@ -815,8 +815,55 @@ async fn network_notes_write_route(
     }
 }
 
+async fn network_read_route(
+    command: &'static str,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    let Some(read) = network_read::named(command) else {
+        return Err(api_error(command));
+    };
+    match policy::allows_command(command) {
+        Ok(true) => network_read::invoke(read).map(Json).map_err(|error| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: command.to_string(),
+                    first_missing_signal: error,
+                }),
+            )
+        }),
+        Ok(false) => Err(api_error(command)),
+        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+    }
+}
+
 async fn dhcp_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("network dhcp status", dhcp::status_json).await
+    network_read_route("network dhcp status").await
+}
+
+async fn dhcp_leases_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    network_read_route("network dhcp leases").await
+}
+
+async fn dhcp_reservations_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    network_read_route("network dhcp reservations list").await
+}
+
+async fn dhcp_boundary_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    network_read_route("network dhcp boundary show").await
+}
+
+async fn dns_status_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    network_read_route("network dns status").await
+}
+
+async fn dns_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    network_read_route("network dns read").await
+}
+
+async fn device_list_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    network_read_route("network device list").await
 }
 
 fn firewall_status(value: &Value) -> StatusCode {
@@ -1865,6 +1912,15 @@ pub fn router() -> Router {
             get(network_notes_read_route).put(network_notes_write_route),
         )
         .route("/api/v1/network/dhcp/status", get(dhcp_status_route))
+        .route("/api/v1/network/dhcp/leases", get(dhcp_leases_route))
+        .route(
+            "/api/v1/network/dhcp/reservations",
+            get(dhcp_reservations_route),
+        )
+        .route("/api/v1/network/dhcp/boundary", get(dhcp_boundary_route))
+        .route("/api/v1/network/dns/status", get(dns_status_read_route))
+        .route("/api/v1/network/dns/read", get(dns_read_route))
+        .route("/api/v1/network/device", get(device_list_route))
         .route(
             "/api/v1/network/firewall/status",
             get(firewall_status_route),
