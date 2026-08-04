@@ -39,6 +39,58 @@
       "pythonModule": "caduceus_staff.network.dhcp"
     },
     {
+      "id": "network.dhcp.status",
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-network-dhcp",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/dhcp.py#status",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.dhcp.status.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Public read-only DHCP service and configuration status.",
+      "pythonModule": "caduceus_staff.network.dhcp"
+    },
+    {
+      "id": "network.dhcp.leases",
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-network-dhcp",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/dhcp.py#leases",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.dhcp.leases.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Public read-only DHCP lease listing.",
+      "pythonModule": "caduceus_staff.network.dhcp"
+    },
+    {
+      "id": "network.dhcp.reservations",
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-network-dhcp",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/dhcp.py#reservations",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.dhcp.reservations.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Public read-only DHCP reservation listing.",
+      "pythonModule": "caduceus_staff.network.dhcp"
+    },
+    {
+      "id": "network.dhcp.boundary",
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-network-dhcp",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/dhcp.py#boundary",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.dhcp.boundary.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Public read-only DHCP allocation boundary.",
+      "pythonModule": "caduceus_staff.network.dhcp"
+    },
+    {
       "id": "network-firewall",
       "family": "network",
       "actuatorClass": "staff-python",
@@ -76,6 +128,45 @@
       "conversionStatus": "sbin-library-admitted",
       "notes": "Managed Unbound drop-in DNS intent delegates to the typed staff Python actuator; Rust performs no live DNS/UFW work.",
       "pythonModule": "caduceus_staff.network.dns"
+    },
+    {
+      "id": "network.dns.status",
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-network-dns",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/dns.py#status",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.dns.status.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Public read-only DNS service status.",
+      "pythonModule": "caduceus_staff.network.dns"
+    },
+    {
+      "id": "network.dns.read",
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-network-dns",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/dns.py#read",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.dns.read.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Public read-only DNS configuration readback.",
+      "pythonModule": "caduceus_staff.network.dns"
+    },
+    {
+      "id": "network.identity.device_list",
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-child-device",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/child_device.py#list",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.identity.device_list.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Public read-only enrolled device roster.",
+      "pythonModule": "caduceus_staff.network.child_device"
     },
 
     {

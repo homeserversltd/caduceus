@@ -3,9 +3,9 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    actions, cert, child_device, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos,
-    identity, legacy_sbin, local_ai, network, pjlink, profile, profile_module, receipts, serve,
-    source_map, staff, sync, time, update,
+    actions, cert, child_device, config, dns, gui, health, help, homeserver_sbin, hyalos,
+    identity, legacy_sbin, local_ai, network, network_read, pjlink, profile, profile_module,
+    receipts, serve, source_map, staff, sync, time, update,
 };
 
 pub fn run<I, S>(args: I) -> i32
@@ -221,13 +221,27 @@ where
         [domain, object, rest @ ..]
             if domain == "network" && object == "dhcp" && !rest.is_empty() =>
         {
-            dhcp::command(rest)
+            let command = format!("network dhcp {}", rest.join(" "));
+            match network_read::named(&command) {
+                Some(read) => read_command(read),
+                None => public_action_not_allowed(),
+            }
+        }
+        [domain, object, rest @ ..]
+            if domain == "network" && object == "device" && !rest.is_empty() =>
+        {
+            let command = format!("network device {}", rest.join(" "));
+            match network_read::named(&command) {
+                Some(read) => read_command(read),
+                None => public_action_not_allowed(),
+            }
         }
         [domain, object, rest @ ..]
             if domain == "network" && object == "dns" && !rest.is_empty() =>
         {
-            if rest.first().map(String::as_str) == Some("status") {
-                dns::command(rest)
+            let command = format!("network dns {}", rest.join(" "));
+            if let Some(read) = network_read::named(&command) {
+                read_command(read)
             } else {
                 match require_capability("network dns", "/api/dns/unbound/drop-in", rest) {
                     Ok(filtered) => dns::command(&filtered),
@@ -367,6 +381,22 @@ where
             eprintln!("caduceus-public-action-not-allowed");
             print_help();
             2
+        }
+    }
+}
+
+fn public_action_not_allowed() -> i32 {
+    eprintln!("caduceus-public-action-not-allowed");
+    2
+}
+
+fn read_command(read: &network_read::ReadCommand) -> i32 {
+    match policy::allows_command(read.command) {
+        Ok(true) => network_read::command(read),
+        Ok(false) => public_action_not_allowed(),
+        Err(error) => {
+            eprintln!("{error}");
+            1
         }
     }
 }
@@ -577,8 +607,9 @@ fn print_help() {
     println!("  caduceus homeserver-sbin list");
     println!("  caduceus homeserver-sbin show <script-id>");
     println!("  caduceus network status");
-    println!("  caduceus network dhcp <status|leases|reservations|reload|...>");
-    println!("  caduceus network dns <status|intent ...> [--capability TOKEN]");
+    println!("  caduceus network dhcp status|leases|reservations list|boundary show");
+    println!("  caduceus network dns status|read");
+    println!("  caduceus network device list");
     println!("  caduceus service restart coronatio");
     println!("  caduceus pjlink devices");
     println!("  caduceus pjlink scan <device-id> [--dry-run]");
