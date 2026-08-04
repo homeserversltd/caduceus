@@ -534,6 +534,67 @@
       "conversionStatus": "sbin-library-admitted",
       "notes": "Explicit laptop-01/laptop-02 variants preserve installation-capable versus verification-only translator-toolchain behavior.",
       "pythonModule": "caduceus_staff.translator_toolchain"
+    },
+    {
+      "id": "matrix-converge",
+      "family": "service",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "harmonia-matrix-converge"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-matrix-converge",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/matrix_converge.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.matrix.converge.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Asserts the born Matrix floor and preserves Matrix nginx/Unbound material fingerprints while Caduceus remains the portal configuration writer.",
+      "pythonModule": "caduceus_staff.matrix_converge"
+    },
+    {
+      "id": "harmonia-profile-refresh",
+      "family": "service",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "harmonia-profile-refresh",
+        "harmonia-chia-profile-refresh"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-harmonia-profile-refresh",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/harmonia_profile_refresh.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.harmonia.profile-refresh.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "One Chia profile-refresh actuator owns its Caduceus path/service unit install and uninstall, locks one refresh, and preserves the capsule pack/install/run-profile sequence.",
+      "pythonModule": "caduceus_staff.harmonia_profile_refresh"
+    },
+    {
+      "id": "hermes-agent-maintenance",
+      "family": "service",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "hermes-agent-maintenance"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-hermes-agent-maintenance",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/hermes_agent_maintenance.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.hermes-agent-maintenance.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Owns its owner-scoped user service/timer install and uninstall while preserving profile, backup, gateway, lock, and receipt semantics.",
+      "pythonModule": "caduceus_staff.hermes_agent_maintenance"
+    },
+    {
+      "id": "paligenesis-router",
+      "family": "service",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "harmonia-paligenesis-router"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-paligenesis-router",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/paligenesis_router.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.paligenesis.router.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Explicit laptop-01 install-and-converge and laptop-02 provisioned-verify variants retain separate stamps and refusal boundaries.",
+      "pythonModule": "caduceus_staff.paligenesis_router"
     }
   ]
 }
