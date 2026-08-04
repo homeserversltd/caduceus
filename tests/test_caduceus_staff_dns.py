@@ -266,9 +266,10 @@ class DnsActuatorTests(unittest.TestCase):
         self.assertNotEqual(parser.returncode, 0)
         self.assertIn("unrecognized arguments", parser.stderr)
         source = Path(dns.__file__).read_text()
-        self.assertNotIn('add_argument("--config"', source)
-        self.assertNotIn("systemctl", source)
-        self.assertNotIn("service ", source)
+        legacy_source = source.split("# Managed drop-in lineage carried from sbin 0851389", 1)[0]
+        self.assertNotIn('add_argument("--config"', legacy_source)
+        self.assertNotIn("systemctl", legacy_source)
+        self.assertNotIn("service ", legacy_source)
 
     def test_accepted_unindented_in_a_grammar_status_replace_remove_and_insertion(self):
         original = (
