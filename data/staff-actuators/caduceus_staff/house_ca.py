@@ -252,7 +252,7 @@ def sign_csr(csr_pem: Any) -> dict[str, Any]:
         config.write_text("[ext]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=" + ",".join(item.replace("dns:", "DNS:").replace("ip address:", "IP:") for item in requested) + "\n")
         _run(["openssl", "x509", "-req", "-in", str(csr), "-CA", str(directory / "ca.pem"), "-CAkey", str(directory / "ca.key.pem"), "-CAcreateserial", "-out", str(leaf), "-days", "824", "-sha256", "-extfile", str(config), "-extensions", "ext"])
         _run(["openssl", "verify", "-CAfile", str(directory / "ca.pem"), str(leaf)])
-        return _receipt("csr_sign", changed=True, identity=identity, sans=dns + ips, leaf_pem=leaf.read_text(), ca_pem=(directory / "ca.pem").read_text(), ca_fingerprint=_fingerprint(directory / "ca.pem"), leaf_fingerprint=_fingerprint(leaf), proof="csr-chain-verified")
+        return _receipt("csr_sign", changed=True, identity=identity, sans=dns + ips, leaf_pem=leaf.read_text(), ca_pem=(directory / "ca.pem").read_text(), ca_fingerprint=_fingerprint(directory / "ca.pem"), leaf_fingerprint=_fingerprint(leaf), leaf_expiry=_not_after(leaf), proof="csr-chain-verified")
 
 
 def _bundle_metadata(platform: str) -> dict[str, str]:
