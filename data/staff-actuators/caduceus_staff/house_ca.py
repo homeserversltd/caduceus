@@ -345,7 +345,8 @@ def trust_install(bundle: str, platform: str = "linux", *, dry_run: bool = False
     installed = target.is_file() and _assert_ca_only(target) == expected
     if not installed:
         raise RuntimeError("caduceus-cert-trust-store-readback-failed")
-    return _receipt("trust_install", changed=not already, platform=platform, ca_fingerprint=expected, bundle_installed=True, proof="trust-store-readback")
+    committed = state_commit({"root_fingerprint": expected, "bundle_installed": True})
+    return _receipt("trust_install", changed=not already, platform=platform, ca_fingerprint=expected, bundle_installed=True, state_generation=committed["state_generation"], state_commit=committed, proof="trust-store-readback")
 
 
 def apply_nginx(portal: str, upstream: str, certificate: str, key_path: str, *, dry_run: bool = False) -> dict[str, Any]:
@@ -444,14 +445,21 @@ def status() -> dict[str, Any]:
     value = _receipt("status", changed=False, profile=role, root_present=ca.is_file(), bundle_installed=False, portals=[], constituents=[])
     if ca.is_file():
         value.update(ca_fingerprint=_fingerprint(ca), ca_not_after=_not_after(ca))
-    else:
-        value.update(ok=False, firstMissingSignal="caduceus-house-ca-missing")
+    ledger: dict[str, Any] = {}
     if path.is_file():
         ledger = json.loads(path.read_text()).get(SCHEMA, {})
         value.update(bundle_installed=ledger.get("bundle_installed", False), state_generation=ledger.get("generation", 0))
+        if not ca.is_file() and isinstance(ledger.get("root_fingerprint"), str):
+            value["ca_fingerprint"] = ledger["root_fingerprint"]
         if role == "homeserver":
             value["portals"] = ledger.get("portals", [])
             value["constituents"] = ledger.get("constituents", [])
+    if role != "homeserver" and not ledger:
+        target = _path("CADUCEUS_TRUST_STORE", "/usr/local/share/ca-certificates") / "homeserver-house-ca.crt"
+        try:
+            value["bundle_installed"] = target.is_file() and bool(_assert_ca_only(target))
+        except (OSError, ValueError, subprocess.CalledProcessError):
+            value["bundle_installed"] = False
     return value
 
 
