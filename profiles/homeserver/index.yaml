@@ -22,6 +22,7 @@ commands:
 - network dhcp reservation remove
 - network dns status
 - network dns intent
+- child-device
 - homeserver-sbin list
 - homeserver-sbin show
 - staff status

@@ -3,9 +3,9 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    actions, cert, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos, identity,
-    legacy_sbin, local_ai, network, pjlink, profile, profile_module, receipts, serve, source_map,
-    staff, sync, time, update,
+    actions, cert, child_device, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos,
+    identity, legacy_sbin, local_ai, network, pjlink, profile, profile_module, receipts, serve,
+    source_map, staff, sync, time, update,
 };
 
 pub fn run<I, S>(args: I) -> i32
@@ -211,6 +211,13 @@ where
         [domain, verb] if domain == "legacy-sbin" && verb == "list" => legacy_sbin::list(),
         [domain, verb] if domain == "homeserver-sbin" && verb == "list" => homeserver_sbin::list(),
         [domain, verb] if domain == "network" && verb == "status" => network::status(),
+        [domain, rest @ ..] if domain == "child-device" && !rest.is_empty() => {
+            match policy::allows_command("child-device") {
+                Ok(true) => child_device::command(rest),
+                Ok(false) => { eprintln!("caduceus-public-action-not-allowed"); 2 }
+                Err(error) => { eprintln!("{error}"); 1 }
+            }
+        }
         [domain, object, rest @ ..]
             if domain == "network" && object == "dhcp" && !rest.is_empty() =>
         {
