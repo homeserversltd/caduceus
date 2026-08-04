@@ -4,8 +4,8 @@ pub mod tools;
 use crate::tools::policy;
 use bands::{
     actions, cert, child_device, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos,
-    identity, legacy_sbin, local_ai, network, network_read, pjlink, profile, profile_module,
-    receipts, serve, source_map, staff, sync, time, update,
+    identity, legacy_sbin, local_ai, network, network_identity, network_read, pjlink, profile,
+    profile_module, receipts, serve, source_map, staff, sync, time, update,
 };
 
 pub fn run<I, S>(args: I) -> i32
@@ -233,6 +233,18 @@ where
             let command = format!("network device {}", rest.join(" "));
             match network_read::named(&command) {
                 Some(read) => read_command(read),
+                None if command == "network device claim"
+                    || rest.first().is_some_and(|v| v == "claim") =>
+                {
+                    match policy::allows_command("network device claim") {
+                        Ok(true) => network_identity::command(rest),
+                        Ok(false) => public_action_not_allowed(),
+                        Err(error) => {
+                            eprintln!("{error}");
+                            1
+                        }
+                    }
+                }
                 None => public_action_not_allowed(),
             }
         }
@@ -610,6 +622,7 @@ fn print_help() {
     println!("  caduceus network dhcp status|leases|reservations list|boundary show");
     println!("  caduceus network dns status|read");
     println!("  caduceus network device list");
+    println!("  caduceus network device claim --mac <mac> [--ip <ip>|--auto-ip] --hostname <name>");
     println!("  caduceus service restart coronatio");
     println!("  caduceus pjlink devices");
     println!("  caduceus pjlink scan <device-id> [--dry-run]");

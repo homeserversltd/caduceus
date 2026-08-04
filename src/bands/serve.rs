@@ -1,7 +1,7 @@
 use crate::bands::{
     actions, cert, config, dns, firewall, gui, health, homeserver_sbin, hyalos, identity,
-    legacy_sbin, local_ai, network, network_notes, network_read, pjlink, profile, profile_module,
-    receipts, source_map, staff, sync, time, update,
+    legacy_sbin, local_ai, network, network_identity, network_notes, network_read, pjlink, profile,
+    profile_module, receipts, source_map, staff, sync, time, update,
 };
 use crate::tools::{attendance, policy};
 use axum::{
@@ -58,6 +58,16 @@ struct ProfileModuleToggleBody {
 struct NetworkNotesBody {
     mac: String,
     note: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NetworkDeviceClaimBody {
+    mac: String,
+    ip: Option<String>,
+    #[serde(default)]
+    auto_ip: bool,
+    hostname: String,
 }
 
 #[derive(Deserialize)]
@@ -864,6 +874,41 @@ async fn dns_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>
 
 async fn device_list_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     network_read_route("network device list").await
+}
+
+async fn device_claim_route(
+    Json(body): Json<NetworkDeviceClaimBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "network device claim";
+    match policy::allows_command(COMMAND) {
+        Ok(true) => {
+            if body.ip.is_some() == body.auto_ip || body.mac.is_empty() || body.hostname.is_empty()
+            {
+                return Err(api_error_signal(
+                    COMMAND,
+                    "caduceus-network-identity-claim-arguments-invalid",
+                ));
+            }
+            let mut args = vec!["claim".to_string(), "--mac".to_string(), body.mac];
+            if let Some(ip) = body.ip {
+                if ip.is_empty() {
+                    return Err(api_error_signal(
+                        COMMAND,
+                        "caduceus-network-identity-claim-arguments-invalid",
+                    ));
+                }
+                args.extend(["--ip".to_string(), ip]);
+            } else {
+                args.push("--auto-ip".to_string());
+            }
+            args.extend(["--hostname".to_string(), body.hostname]);
+            network_identity::invoke(&args)
+                .map(|receipt| (StatusCode::OK, Json(receipt)))
+                .map_err(|signal| api_error_signal(COMMAND, &signal))
+        }
+        Ok(false) => Err(api_error(COMMAND)),
+        Err(_) => Err(api_error_signal(COMMAND, "caduceus-profile-missing")),
+    }
 }
 
 fn firewall_status(value: &Value) -> StatusCode {
@@ -1921,6 +1966,7 @@ pub fn router() -> Router {
         .route("/api/v1/network/dns/status", get(dns_status_read_route))
         .route("/api/v1/network/dns/read", get(dns_read_route))
         .route("/api/v1/network/device", get(device_list_route))
+        .route("/api/v1/network/device/claim", post(device_claim_route))
         .route(
             "/api/v1/network/firewall/status",
             get(firewall_status_route),

@@ -156,6 +156,19 @@
       "pythonModule": "caduceus_staff.network.dns"
     },
     {
+      "id": "network.identity.claim",
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-network-identity-claim",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/identity.py#claim",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.identity.claim.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Identity claim transaction is owned by the pinned staff actuator; Rust only relays the validated public argv and terminal receipt.",
+      "pythonModule": "caduceus_staff.network.identity"
+    },
+    {
       "id": "network.identity.device_list",
       "family": "network",
       "actuatorClass": "staff-python",

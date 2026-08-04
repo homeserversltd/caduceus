@@ -34,6 +34,7 @@ commands:
 - network dns status
 - network dns read
 - network device list
+- network device claim
 - network notes
 - network notes write
 - caduceus.network.firewall.read
