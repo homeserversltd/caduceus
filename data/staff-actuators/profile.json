@@ -181,7 +181,6 @@
       "notes": "Public read-only enrolled device roster.",
       "pythonModule": "caduceus_staff.network.child_device"
     },
-
     {
       "id": "file-ingress",
       "family": "upload",
@@ -475,6 +474,66 @@
       "conversionStatus": "sbin-library-admitted",
       "notes": "Auxiliary public CA-only bundle reader.",
       "pythonModule": "caduceus_staff.house_ca"
+    },
+    {
+      "id": "forgejo-credential",
+      "family": "identity",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "forgejo-credential-helper"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-forgejo-credential",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/forgejo_credential.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.forgejo.credential.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Owner-scoped Git credential-helper protocol reads the owner token only on get; never persists or emits it outside Git credential output.",
+      "pythonModule": "caduceus_staff.forgejo_credential"
+    },
+    {
+      "id": "honcho-env-converge",
+      "family": "service",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "harmonia-honcho-env-converge"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-honcho-env",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/honcho_env.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.honcho.env.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Atomically converges non-secret Honcho settings and preserves the required API-key value verbatim.",
+      "pythonModule": "caduceus_staff.honcho_env"
+    },
+    {
+      "id": "rebis-profile-retire",
+      "family": "identity",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "harmonia-rebis-profile-retirement"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-rebis-profile-retire",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/rebis_profile_retire.py",
+      "dependencies": [],
+      "receiptFamily": "harmonia.rebis_profile_retirement.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Timestamp-retires only the installed Rebis Harmonia profile and returns the remaining installed profile names.",
+      "pythonModule": "caduceus_staff.rebis_profile_retire"
+    },
+    {
+      "id": "translator-toolchain",
+      "family": "identity",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "harmonia-translator-toolchain"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-translator-toolchain",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/translator_toolchain.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.translator.toolchain.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Explicit laptop-01/laptop-02 variants preserve installation-capable versus verification-only translator-toolchain behavior.",
+      "pythonModule": "caduceus_staff.translator_toolchain"
     }
   ]
 }
