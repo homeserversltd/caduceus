@@ -519,6 +519,21 @@
       "conversionStatus": "sbin-library-admitted",
       "notes": "Timestamp-retires only the installed Rebis Harmonia profile and returns the remaining installed profile names.",
       "pythonModule": "caduceus_staff.rebis_profile_retire"
+    },
+    {
+      "id": "translator-toolchain",
+      "family": "identity",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "harmonia-translator-toolchain"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-translator-toolchain",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/translator_toolchain.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.translator.toolchain.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Explicit laptop-01/laptop-02 variants preserve installation-capable versus verification-only translator-toolchain behavior.",
+      "pythonModule": "caduceus_staff.translator_toolchain"
     }
   ]
 }
