@@ -18,7 +18,7 @@ from typing import Any, Sequence
 from urllib.parse import urlsplit
 
 SCHEMA = "homeserver.device-profile.v1"
-CERTIFICATE_PATH = "/etc/profile.json"
+CERTIFICATE_PATH = "/etc/appliance/profile.json"
 SOURCE_MAP_PATH = "/etc/caduceus/source-map.json"
 COMPONENT = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 CREDENTIAL_MARKERS = ("password", "passwd", "secret", "token", "private-key", "private_key")
