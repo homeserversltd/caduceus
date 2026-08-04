@@ -11,6 +11,19 @@
   },
   "actuators": [
     {
+      "id": "harmonia-module-toggle",
+      "family": "harmonia",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-harmonia-module-toggle",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/harmonia_module_toggle.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.harmonia.module-toggle.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "The sole live writer of harmonia.disabled_modules in /etc/appliance/config.json; atomically preserves a backup and all unrelated document bytes.",
+      "pythonModule": "caduceus_staff.harmonia_module_toggle"
+    },
+    {
       "id": "profile-sources-reseed",
       "family": "identity",
       "actuatorClass": "staff-python",
