@@ -489,6 +489,21 @@
       "conversionStatus": "sbin-library-admitted",
       "notes": "Owner-scoped Git credential-helper protocol reads the owner token only on get; never persists or emits it outside Git credential output.",
       "pythonModule": "caduceus_staff.forgejo_credential"
+    },
+    {
+      "id": "honcho-env-converge",
+      "family": "service",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "harmonia-honcho-env-converge"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-honcho-env",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/honcho_env.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.honcho.env.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Atomically converges non-secret Honcho settings and preserves the required API-key value verbatim.",
+      "pythonModule": "caduceus_staff.honcho_env"
     }
   ]
 }
