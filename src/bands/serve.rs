@@ -707,9 +707,14 @@ fn config_mutation(
             // This narrowly permits only its stored selection; all other config
             // mutations remain subject to capability and current attendance.
             if target != "tabs.starred" {
-                if let Err(reason) =
-                    capability_admits(command, target, capability_from_headers(headers))
-                {
+                let token = capability_from_headers(headers);
+                let admission = headers
+                    .get("x-caduceus-document")
+                    .and_then(|value| value.to_str().ok())
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|document| document_attendance_admits(document, token))
+                    .unwrap_or_else(|| capability_admits(command, target, token));
+                if let Err(reason) = admission {
                     return Err(api_error_signal(command, &reason));
                 }
             }
