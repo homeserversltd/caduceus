@@ -7,7 +7,6 @@
 use serde_json::{json, Value};
 use std::{
     env,
-    io::Write,
     process::{Command, Stdio},
 };
 
@@ -35,52 +34,105 @@ fn dns_cmd() -> (String, Vec<String>) {
     )
 }
 
-pub fn invoke(intent: &Value) -> Result<Value, String> {
+fn public_receipt(value: Value) -> Value {
+    // The staff receipt remains authoritative, but its paths and command output
+    // do not cross the Rust public membrane.
+    let primitive = value
+        .get("actuator")
+        .or_else(|| value.get("action"))
+        .cloned()
+        .unwrap_or_else(|| json!("network.dns"));
+    let reload = value
+        .get("reload")
+        .or_else(|| value.get("reload_outcome"))
+        .or_else(|| value.pointer("/verification/reload_outcome"))
+        .cloned()
+        .unwrap_or_else(|| json!("not-run"));
+    let proof = json!({
+        "stagedValidation": value.get("stagedValidation").cloned().unwrap_or(Value::Null),
+        "liveValidation": value.get("liveValidation").cloned().unwrap_or(Value::Null),
+        "rollback": value.get("rollback").cloned().unwrap_or(Value::Null),
+        "restorationVerified": value.get("restoration_verified").cloned().unwrap_or(Value::Null),
+        "state": value.get("state").cloned().unwrap_or(Value::Null),
+    });
+    json!({
+        "schema": "caduceus.network.dns.public_receipt.v1",
+        "ok": value.get("ok").and_then(Value::as_bool).unwrap_or(false),
+        "primitive": primitive,
+        "changed": value.get("mutationPerformed").or_else(|| value.get("changed")).and_then(Value::as_bool).unwrap_or(false),
+        "reloadOutcome": reload,
+        "proof": proof,
+        "firstMissingSignal": value.get("firstMissingSignal").or_else(|| value.get("error")).cloned().unwrap_or_else(|| json!("none")),
+    })
+}
+
+fn invoke(args: &[String]) -> Result<Value, String> {
     let (program, prefix) = dns_cmd();
-    let encoded = serde_json::to_vec(intent)
-        .map_err(|err| format!("caduceus-network-dns-intent-invalid: {err}"))?;
-    let mut child = Command::new(program)
+    let output = Command::new(program)
         .args(prefix)
-        .stdin(Stdio::piped())
+        .args(args)
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
+        .output()
         .map_err(|err| format!("caduceus-network-dns-unavailable: {err}"))?;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| "caduceus-network-dns-stdin-unavailable".to_string())?
-        .write_all(&encoded)
-        .map_err(|err| format!("caduceus-network-dns-stdin-failed: {err}"))?;
-    let output = child
-        .wait_with_output()
-        .map_err(|err| format!("caduceus-network-dns-wait-failed: {err}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if stdout.is_empty() {
-        return Err(format!(
-            "caduceus-network-dns-empty: status={} stderr={}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
     let value: Value = serde_json::from_str(&stdout)
-        .map_err(|err| format!("caduceus-network-dns-invalid-json: {err}"))?;
+        .map_err(|_| "caduceus-network-dns-invalid-receipt".to_string())?;
     if !output.status.success() || value.get("ok") == Some(&json!(false)) {
-        return Err(format!(
-            "caduceus-network-dns-failed: {}",
-            value
-                .get("firstMissingSignal")
-                .or_else(|| value.get("error"))
-                .and_then(Value::as_str)
-                .unwrap_or("nonzero-exit")
-        ));
+        return Err(value
+            .get("firstMissingSignal")
+            .or_else(|| value.get("error"))
+            .and_then(Value::as_str)
+            .unwrap_or("caduceus-network-dns-failed")
+            .to_string());
     }
-    Ok(value)
+    Ok(public_receipt(value))
+}
+
+pub fn command_admission(args: &[String]) -> Option<(&'static str, &'static str)> {
+    match args {
+        [verb] if verb == "status" => Some(("network dns status", "/api/dns/status")),
+        [verb] if verb == "read" => Some(("network dns read", "/api/dns/read")),
+        [verb, action, ..] if verb == "device-name" && action == "create" => Some((
+            "network dns device-name create",
+            "/api/dns/device-name/create",
+        )),
+        [verb, action, ..] if verb == "device-name" && action == "remove" => Some((
+            "network dns device-name remove",
+            "/api/dns/device-name/remove",
+        )),
+        [verb, action, ..] if verb == "alias" && action == "create" => {
+            Some(("network dns alias create", "/api/dns/alias/create"))
+        }
+        [verb, action, ..] if verb == "alias" && action == "remove" => {
+            Some(("network dns alias remove", "/api/dns/alias/remove"))
+        }
+        [verb, ..] if verb == "intent" => Some(("network dns intent", "/api/dns/unbound/drop-in")),
+        _ => None,
+    }
 }
 
 pub fn command_json(args: &[String]) -> Result<Value, String> {
     match args {
         [verb] if verb == "status" => status_json(),
+        [verb] if verb == "read" => read_json(),
+        [verb, action, hostname_flag, hostname, ip_flag, ip]
+            if verb == "device-name"
+                && ["create", "remove"].contains(&action.as_str())
+                && hostname_flag == "--hostname"
+                && ip_flag == "--ip" =>
+        {
+            device_name_json(action, hostname, ip)
+        }
+        [verb, action, label_flag, label, hostname_flag, hostname]
+            if verb == "alias"
+                && ["create", "remove"].contains(&action.as_str())
+                && label_flag == "--label"
+                && hostname_flag == "--hostname" =>
+        {
+            alias_json(action, label, hostname)
+        }
         [verb, method, route, flag, metadata] if verb == "intent" && flag == "--metadata-json" => {
             let metadata = serde_json::from_str(metadata)
                 .map_err(|err| format!("caduceus-network-dns-metadata-invalid: {err}"))?;
@@ -105,14 +157,54 @@ pub fn command(args: &[String]) -> i32 {
 }
 
 pub fn status_json() -> Result<Value, String> {
-    invoke(&json!({"action":"status"}))
+    invoke(&["status".into()])
+}
+
+pub fn read_json() -> Result<Value, String> {
+    invoke(&["read".into()])
+}
+
+pub fn device_name_json(action: &str, hostname: &str, ip: &str) -> Result<Value, String> {
+    if !["create", "remove"].contains(&action) || hostname.is_empty() || ip.is_empty() {
+        return Err("caduceus-network-dns-device-name-invalid".into());
+    }
+    invoke(&[
+        "device-name".into(),
+        action.into(),
+        "--hostname".into(),
+        hostname.into(),
+        "--ip".into(),
+        ip.into(),
+    ])
+}
+
+pub fn alias_json(action: &str, label: &str, hostname: &str) -> Result<Value, String> {
+    if !["create", "remove"].contains(&action) || label.is_empty() || hostname.is_empty() {
+        return Err("caduceus-network-dns-alias-invalid".into());
+    }
+    invoke(&[
+        "alias".into(),
+        action.into(),
+        "--label".into(),
+        label.into(),
+        "--hostname".into(),
+        hostname.into(),
+    ])
 }
 
 pub fn intent_json(method: &str, route: &str, metadata: Value) -> Result<Value, String> {
     if method != DNS_INTENT_METHOD || route != DNS_INTENT_ROUTE {
         return Err("caduceus-network-dns-intent-route-refused".into());
     }
-    invoke(&metadata)
+    let metadata = serde_json::to_string(&metadata)
+        .map_err(|err| format!("caduceus-network-dns-metadata-invalid: {err}"))?;
+    invoke(&[
+        "intent".into(),
+        method.into(),
+        route.into(),
+        "--metadata-json".into(),
+        metadata,
+    ])
 }
 
 #[cfg(test)]
@@ -146,11 +238,12 @@ mod tests {
         std::env::set_var("CADUCEUS_DNS_CMD", script.to_str().unwrap());
         let result =
             intent_json("POST", "/api/dns/unbound/drop-in", json!({"dryRun":true})).unwrap();
-        assert_eq!(result["schema"], "caduceus.network.dns.intent.v1");
-        assert_eq!(std::fs::read_to_string(args_log).unwrap(), "");
-        let forwarded: Value =
-            serde_json::from_str(&std::fs::read_to_string(stdin_log).unwrap()).unwrap();
-        assert_eq!(forwarded, json!({"dryRun":true}));
+        assert_eq!(result["schema"], "caduceus.network.dns.public_receipt.v1");
+        assert_eq!(
+            std::fs::read_to_string(args_log).unwrap(),
+            "intent POST /api/dns/unbound/drop-in --metadata-json {\"dryRun\":true}"
+        );
+        assert_eq!(std::fs::read_to_string(stdin_log).unwrap(), "");
         std::env::remove_var("CADUCEUS_DNS_CMD");
         let _ = std::fs::remove_dir_all(root);
     }

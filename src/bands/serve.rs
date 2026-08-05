@@ -1159,64 +1159,109 @@ async fn time_state_route(
     gated_json("time state", time::state_json).await
 }
 
-async fn network_dns_route(
-    headers: HeaderMap,
-    Json(metadata): Json<Value>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    // The staff actuator remains the typed authority for mutation-action
-    // validation. Only its declared read-only status action selects the status
-    // profile command; every other payload reaches typed intent validation.
-    let command = if metadata.get("action").and_then(Value::as_str) == Some("status") {
-        "network dns status"
-    } else {
-        "network dns intent"
-    };
-    let target = "/api/dns/unbound/drop-in";
+fn dns_mutation_admits(
+    command: &'static str,
+    target: &'static str,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
-        Ok(true) => {
-            let document = headers
-                .get("x-caduceus-document")
-                .and_then(|value| value.to_str().ok())
-                .filter(|value| !value.trim().is_empty());
-            if let Some(document) = document {
-                document_attendance_admits(
-                    document,
-                    headers
-                        .get("x-caduceus-attendance")
-                        .and_then(|value| value.to_str().ok()),
-                )
-                .map_err(|signal| api_error_signal(command, &signal))?;
-            } else if let Err(reason) = capability_admits(
-                command,
-                target,
-                standalone_capability_from_headers(&headers),
-            ) {
-                return Err(api_error_signal(command, &reason));
-            }
-            match dns::intent_json("POST", target, metadata) {
-                Ok(value) => Ok((mutation_status(&value), Json(value))),
-                Err(err) => Err((
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Json(ApiErrorBody {
-                        schema: "caduceus.api.error.v1",
-                        ok: false,
-                        command: command.to_string(),
-                        first_missing_signal: err,
-                    }),
-                )),
-            }
-        }
-        Ok(false) => Err(api_error(command)),
-        Err(_) => Err((
+        Ok(true) => {}
+        Ok(false) => return Err(api_error(command)),
+        Err(_) => return Err(api_error_signal(command, "caduceus-profile-missing")),
+    }
+    let document = headers
+        .get("x-caduceus-document")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty());
+    if let Some(document) = document {
+        document_attendance_admits(
+            document,
+            headers
+                .get("x-caduceus-attendance")
+                .and_then(|value| value.to_str().ok()),
+        )
+        .map_err(|signal| api_error_signal(command, &signal))
+    } else {
+        capability_admits(command, target, standalone_capability_from_headers(headers))
+            .map_err(|signal| api_error_signal(command, &signal))
+    }
+}
+
+fn dns_mutation_response(
+    command: &'static str,
+    result: Result<Value, String>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    result.map(|value| (mutation_status(&value), Json(value))).map_err(|err| {
+        (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ApiErrorBody {
                 schema: "caduceus.api.error.v1",
                 ok: false,
                 command: command.to_string(),
-                first_missing_signal: "caduceus-profile-missing".to_string(),
+                first_missing_signal: err,
             }),
-        )),
-    }
+        )
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DnsDeviceNameBody {
+    hostname: String,
+    ip: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DnsAliasBody {
+    label: String,
+    hostname: String,
+}
+
+async fn network_dns_route(
+    headers: HeaderMap,
+    Json(metadata): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "network dns intent";
+    const TARGET: &str = "/api/dns/unbound/drop-in";
+    dns_mutation_admits(COMMAND, TARGET, &headers)?;
+    dns_mutation_response(COMMAND, dns::intent_json("POST", TARGET, metadata))
+}
+
+async fn dns_device_name_create_route(
+    headers: HeaderMap,
+    Json(body): Json<DnsDeviceNameBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "network dns device-name create";
+    dns_mutation_admits(COMMAND, "/api/dns/device-name/create", &headers)?;
+    dns_mutation_response(COMMAND, dns::device_name_json("create", &body.hostname, &body.ip))
+}
+
+async fn dns_device_name_remove_route(
+    headers: HeaderMap,
+    Json(body): Json<DnsDeviceNameBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "network dns device-name remove";
+    dns_mutation_admits(COMMAND, "/api/dns/device-name/remove", &headers)?;
+    dns_mutation_response(COMMAND, dns::device_name_json("remove", &body.hostname, &body.ip))
+}
+
+async fn dns_alias_create_route(
+    headers: HeaderMap,
+    Json(body): Json<DnsAliasBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "network dns alias create";
+    dns_mutation_admits(COMMAND, "/api/dns/alias/create", &headers)?;
+    dns_mutation_response(COMMAND, dns::alias_json("create", &body.label, &body.hostname))
+}
+
+async fn dns_alias_remove_route(
+    headers: HeaderMap,
+    Json(body): Json<DnsAliasBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "network dns alias remove";
+    dns_mutation_admits(COMMAND, "/api/dns/alias/remove", &headers)?;
+    dns_mutation_response(COMMAND, dns::alias_json("remove", &body.label, &body.hostname))
 }
 
 #[derive(Deserialize, Default)]
@@ -1983,6 +2028,10 @@ pub fn router() -> Router {
         )
         .route("/api/v1/time/state", get(time_state_route))
         .route("/api/v1/network/dns", post(network_dns_route))
+        .route("/api/v1/network/dns/device-name/create", post(dns_device_name_create_route))
+        .route("/api/v1/network/dns/device-name/remove", post(dns_device_name_remove_route))
+        .route("/api/v1/network/dns/alias/create", post(dns_alias_create_route))
+        .route("/api/v1/network/dns/alias/remove", post(dns_alias_remove_route))
         .route("/api/v1/cert/status", get(cert_status_route))
         .route("/api/v1/cert/ensure-root", post(cert_ensure_root_route))
         .route("/api/v1/cert/issue-leaf", post(cert_issue_leaf_route))

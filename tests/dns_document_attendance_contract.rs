@@ -112,10 +112,11 @@ async fn dns_http_uses_exact_document_attendance_or_declared_scoped_capability()
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(fs::read_to_string(&args_log).unwrap(), "");
-    let forwarded: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&stdin_log).unwrap()).unwrap();
-    assert_eq!(forwarded, serde_json::json!({"action":"status"}));
+    assert_eq!(
+        fs::read_to_string(&args_log).unwrap(),
+        "intent POST /api/dns/unbound/drop-in --metadata-json {\"action\":\"status\"}"
+    );
+    assert_eq!(fs::read_to_string(&stdin_log).unwrap(), "");
 
     attendance::reset_for_tests();
     match old_root {

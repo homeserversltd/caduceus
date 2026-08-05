@@ -33,6 +33,11 @@ commands:
 - network dhcp reservation remove
 - network dns status
 - network dns read
+- network dns intent
+- network dns device-name create
+- network dns device-name remove
+- network dns alias create
+- network dns alias remove
 - network device list
 - network device claim
 - network notes
