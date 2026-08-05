@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import pwd
@@ -12,6 +11,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Sequence
+
+from caduceus_staff.reload import FingerprintGate, reload_services
 
 SCHEMA = "caduceus.matrix.converge.v1"
 FLOOR = ("matrix-synapse-py3", "nginx", "postgresql-client", "logrotate", "openssl", "unbound", "ca-certificates", "curl", "tar", "python3")
@@ -31,15 +32,6 @@ def require_floor() -> None:
             raise RuntimeError("matrix-floor-missing:" + signal)
 
 
-def material_fingerprint(paths: Sequence[Path]) -> str:
-    material: list[str] = []
-    for path in paths:
-        if path.is_symlink(): material.append(f"link {path} {os.readlink(path)}")
-        elif path.is_file(): material.append(f"file {path} {hashlib.sha256(path.read_bytes()).hexdigest()}")
-        else: material.append(f"absent {path}")
-    return hashlib.sha256(("\n".join(material) + "\n").encode()).hexdigest()
-
-
 def atomic_text(path: Path, text: str, mode: int = 0o644) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False) as out:
@@ -48,19 +40,15 @@ def atomic_text(path: Path, text: str, mode: int = 0o644) -> None:
 
 
 def reload_if_material_changed(service: str, paths: Sequence[Path], state_root: Path, plan: bool) -> dict:
-    digest = material_fingerprint(paths)
-    state = state_root / f"matrix-{service}-material.sha256"
-    prior = state.read_text(encoding="utf-8").strip() if state.is_file() else ""
-    changed = digest != prior
-    step = {"service": service, "fingerprint": digest, "previousFingerprint": prior or None, "changed": changed, "reloaded": False}
-    if plan or not changed: return step
-    active = result(["systemctl", "is-active", "--quiet", service])
-    if active["exit"] == 0:
-        reload = result(["systemctl", "reload", service])
-        if reload["exit"] != 0: raise RuntimeError(f"matrix-{service}-reload-failed")
-        step["reloaded"] = True
-    atomic_text(state, digest + "\n")
-    return step
+    receipt = reload_services(
+        [service],
+        dry_run=plan,
+        fingerprint_gates={service: FingerprintGate(paths, state_root / f"matrix-{service}-material.sha256")},
+    )
+    step = receipt["services"][0]
+    if not receipt["ok"]:
+        raise RuntimeError(receipt["firstMissingSignal"])
+    return {**step, "reloaded": step["reload_outcome"] == "reloaded"}
 
 
 def ensure_secret(path: Path) -> bool:

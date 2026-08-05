@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from ..reload import reload_services
+
 SCHEMA = "caduceus.network.dns.receipt.v2"
 DEFAULT_CONFIG = Path("/etc/unbound/unbound.conf")
 CHECKCONF = Path("/usr/sbin/unbound-checkconf")
@@ -511,6 +513,13 @@ class DnsManager:
             raise DnsError(f"command failed: {' '.join(command)}: {detail}")
         return result
 
+    def _reload_service(self) -> dict[str, Any]:
+        receipt = reload_services([self.SERVICE], command_runner=self._command_runner)
+        step = receipt["services"][0]
+        if not receipt["ok"]:
+            raise DnsError(receipt["firstMissingSignal"])
+        return step
+
     @staticmethod
     def _digest(payload: bytes | None) -> str | None:
         return hashlib.sha256(payload).hexdigest() if payload is not None else None
@@ -630,7 +639,7 @@ class DnsManager:
         else:
             self._replace_bytes(self.target, previous, mode)
         self._validate_live()
-        self._command(["systemctl", "reload", self.SERVICE])
+        self._reload_service()
 
     def status(self) -> dict[str, Any]:
         return {
@@ -839,7 +848,7 @@ class DnsManager:
             self._validate_owned_staged(candidate)
             receipt["config_valid"] = True
             self._replace_bytes(self.read_include, candidate, mode)
-            self._command(["systemctl", "reload", self.SERVICE])
+            self._reload_service()
             receipt["reload_outcome"] = "reloaded"
             for record_type, owner in expected:
                 result = self._command(["unbound-host", "-t", record_type, owner])
@@ -853,7 +862,7 @@ class DnsManager:
                     self.read_include.unlink(missing_ok=True)
                 else:
                     self._replace_bytes(self.read_include, previous, mode)
-                self._command(["systemctl", "reload", self.SERVICE])
+                self._reload_service()
                 receipt["candidate"] = "restored"
             except DnsError as rollback:
                 receipt["candidate"] = "restore-failed"
@@ -870,7 +879,7 @@ class DnsManager:
         else:
             self._replace_bytes(self.read_include, previous, mode)
         self._validate_live()
-        self._command(["systemctl", "reload", self.SERVICE])
+        self._reload_service()
         restored = self.read_include.read_bytes() if self.read_include.exists() else None
         if restored != previous:
             raise DnsError("dns-preimage-restoration-mismatch")
@@ -955,7 +964,7 @@ class DnsManager:
             self._replace_bytes(target, candidate, mode)
             self._validate_live()
             receipt["liveValidation"] = True
-            self._command(["systemctl", "reload", self.SERVICE])
+            self._reload_service()
             receipt["reload"] = "reloaded"
             receipt["mutationPerformed"] = True
             return receipt
