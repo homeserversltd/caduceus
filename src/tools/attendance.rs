@@ -74,13 +74,16 @@ fn crossing(bin: &str, input: &Value) -> Result<Value, String> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
-    let payload = serde_json::to_vec(input)
-        .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
-    child.stdin.take()
+    let payload =
+        serde_json::to_vec(input).map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
+    child
+        .stdin
+        .take()
         .ok_or_else(|| "caduceus-pin-not-yet-provisioned".to_string())?
         .write_all(&payload)
         .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
-    let output = child.wait_with_output()
+    let output = child
+        .wait_with_output()
         .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
     let value: Value = serde_json::from_slice(&output.stdout)
         .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
@@ -104,7 +107,10 @@ fn bound_verifier(value: &Value) -> Option<BoundVerifier> {
         Value::Number(value) => Some(value.to_string()),
         _ => None,
     })?;
-    Some(BoundVerifier { public_key: public_key.to_string(), epoch })
+    Some(BoundVerifier {
+        public_key: public_key.to_string(),
+        epoch,
+    })
 }
 
 /// Bind only public verifier material at process startup. Any unsuccessful crossing is UNBOUND.
@@ -119,11 +125,14 @@ pub fn bind() {
     if let Ok(mut guard) = state().lock() {
         guard.verifier = bound;
     }
-    eprintln!("{}", json!({
-        "event": "caduceus-access-bind",
-        "posture": posture,
-        "firstMissingSignal": signal,
-    }));
+    eprintln!(
+        "{}",
+        json!({
+            "event": "caduceus-access-bind",
+            "posture": posture,
+            "firstMissingSignal": signal,
+        })
+    );
 }
 
 fn verifier() -> Result<BoundVerifier, String> {
@@ -136,9 +145,12 @@ fn verifier() -> Result<BoundVerifier, String> {
 }
 
 fn pin_verified(pin: &str, public_key: &str) -> bool {
-    crossing(VERIFY_LAUNCHER, &json!({ "pin": pin, "publicKey": public_key }))
-        .ok()
-        .and_then(|value| value.get("verified").and_then(Value::as_bool))
+    crossing(
+        VERIFY_LAUNCHER,
+        &json!({ "pin": pin, "publicKey": public_key }),
+    )
+    .ok()
+    .and_then(|value| value.get("verified").and_then(Value::as_bool))
         == Some(true)
 }
 
@@ -151,7 +163,9 @@ pub fn open_json(body: &Value) -> Result<Value, String> {
         return Ok(envelope(false, "caduceus-attendance-pin-refused"));
     }
     let now = Instant::now();
-    let mut guard = state().lock().map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+    let mut guard = state()
+        .lock()
+        .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
     evict_expired(&mut guard.current, now);
     let attendance = format!("attendance-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     guard.current.insert(
@@ -176,13 +190,18 @@ pub fn validate_json(body: &Value) -> Result<Value, String> {
     let attendance = text(body, "attendance")?;
     let document_id = text(body, "documentId")?;
     let document_incarnation = text(body, "documentIncarnation")?;
-    let mut guard = state().lock().map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+    let mut guard = state()
+        .lock()
+        .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
     evict_expired(&mut guard.current, Instant::now());
     let Some(current) = guard.current.get(&attendance) else {
         return Ok(envelope(false, "caduceus-attendance-not-current"));
     };
     if current.document_id != document_id || current.document_incarnation != document_incarnation {
-        return Ok(envelope(false, "caduceus-attendance-document-incarnation-mismatch"));
+        return Ok(envelope(
+            false,
+            "caduceus-attendance-document-incarnation-mismatch",
+        ));
     }
     Ok(envelope(true, "none"))
 }
@@ -192,13 +211,18 @@ pub fn touch_json(body: &Value) -> Result<Value, String> {
     let document_id = text(body, "documentId")?;
     let document_incarnation = text(body, "documentIncarnation")?;
     let now = Instant::now();
-    let mut guard = state().lock().map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+    let mut guard = state()
+        .lock()
+        .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
     evict_expired(&mut guard.current, now);
     let Some(current) = guard.current.get_mut(&attendance) else {
         return Ok(envelope(false, "caduceus-attendance-not-current"));
     };
     if current.document_id != document_id || current.document_incarnation != document_incarnation {
-        return Ok(envelope(false, "caduceus-attendance-document-incarnation-mismatch"));
+        return Ok(envelope(
+            false,
+            "caduceus-attendance-document-incarnation-mismatch",
+        ));
     }
     current.last_touch = now;
     Ok(envelope(true, "none"))
@@ -211,15 +235,22 @@ pub fn change_pin_json(body: &Value) -> Result<Value, String> {
     let current_pin = text(body, "currentPin")?;
     let new_pin = text(body, "newPin")?;
     let now = Instant::now();
-    let mut guard = state().lock().map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+    let mut guard = state()
+        .lock()
+        .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
     evict_expired(&mut guard.current, now);
     let Some(current) = guard.current.get(&attendance) else {
         return Ok(envelope(false, "caduceus-attendance-not-current"));
     };
     if current.document_id != document_id || current.document_incarnation != document_incarnation {
-        return Ok(envelope(false, "caduceus-attendance-document-incarnation-mismatch"));
+        return Ok(envelope(
+            false,
+            "caduceus-attendance-document-incarnation-mismatch",
+        ));
     }
-    let verifier = guard.verifier.clone()
+    let verifier = guard
+        .verifier
+        .clone()
         .ok_or_else(|| "caduceus-pin-not-yet-provisioned".to_string())?;
     if !pin_verified(&current_pin, &verifier.public_key) {
         return Ok(envelope(false, "caduceus-attendance-pin-refused"));
@@ -247,13 +278,18 @@ pub fn invalidate_json(body: &Value) -> Result<Value, String> {
     let attendance = text(body, "attendance")?;
     let document_id = text(body, "documentId")?;
     let document_incarnation = text(body, "documentIncarnation")?;
-    let mut guard = state().lock().map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+    let mut guard = state()
+        .lock()
+        .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
     evict_expired(&mut guard.current, Instant::now());
     let Some(current) = guard.current.get(&attendance) else {
         return Ok(envelope(false, "caduceus-attendance-not-current"));
     };
     if current.document_id != document_id || current.document_incarnation != document_incarnation {
-        return Ok(envelope(false, "caduceus-attendance-document-incarnation-mismatch"));
+        return Ok(envelope(
+            false,
+            "caduceus-attendance-document-incarnation-mismatch",
+        ));
     }
     guard.current.remove(&attendance);
     Ok(envelope(true, "none"))
@@ -263,7 +299,8 @@ pub fn admits(attendance: &str, document_id: &str, document_incarnation: &str) -
     state().lock().ok().is_some_and(|mut guard| {
         evict_expired(&mut guard.current, Instant::now());
         guard.current.get(attendance).is_some_and(|current| {
-            current.document_id == document_id && current.document_incarnation == document_incarnation
+            current.document_id == document_id
+                && current.document_incarnation == document_incarnation
         })
     })
 }

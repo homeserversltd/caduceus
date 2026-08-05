@@ -214,8 +214,14 @@ where
         [domain, rest @ ..] if domain == "child-device" && !rest.is_empty() => {
             match policy::allows_command("child-device") {
                 Ok(true) => child_device::command(rest),
-                Ok(false) => { eprintln!("caduceus-public-action-not-allowed"); 2 }
-                Err(error) => { eprintln!("{error}"); 1 }
+                Ok(false) => {
+                    eprintln!("caduceus-public-action-not-allowed");
+                    2
+                }
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
             }
         }
         [domain, object, rest @ ..]
