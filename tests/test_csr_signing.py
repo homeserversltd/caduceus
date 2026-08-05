@@ -17,14 +17,19 @@ class CsrSigningTests(unittest.TestCase):
         self.env["CADUCEUS_ROOT"] = self.temp.name
         self.old = os.environ.get("CADUCEUS_ROOT")
         os.environ["CADUCEUS_ROOT"] = self.temp.name
+        appliance = Path(self.temp.name) / "etc/appliance"
+        appliance.mkdir(parents=True)
+        (appliance / "profile.json").write_text(
+            '{"fqdn":"fixture-csr.home.arpa","ip":"192.0.2.42"}\n'
+        )
         house_ca.ensure_root()
         self.req = Path(self.temp.name) / "req"
         self.req.mkdir()
         config = self.req / "req.cnf"
         config.write_text(
             "[req]\nprompt=no\ndistinguished_name=dn\nreq_extensions=ext\n"
-            "[dn]\nCN=console.home.arpa\n"
-            "[ext]\nsubjectAltName=DNS:console.home.arpa,IP:192.168.123.19\n"
+            "[dn]\nCN=fixture-csr.home.arpa\n"
+            "[ext]\nsubjectAltName=DNS:fixture-csr.home.arpa,IP:192.0.2.42\n"
         )
         subprocess.run(
             ["openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes",
@@ -49,14 +54,15 @@ class CsrSigningTests(unittest.TestCase):
         self.assertNotIn("key_path", receipt)
         self.assertNotIn("certificate", receipt)
         self.assertTrue(receipt["changed"])
-        self.assertEqual(receipt["sans"], ["console.home.arpa", "192.168.123.19"])
+        self.assertEqual(receipt["identity"], "fixture-csr.home.arpa")
+        self.assertEqual(receipt["sans"], ["fixture-csr.home.arpa", "192.0.2.42"])
 
     def test_malformed_san_identity_and_oversized_requests_refuse(self):
         wrong_config = self.req / "wrong.cnf"
         wrong_config.write_text(
             "[req]\nprompt=no\ndistinguished_name=dn\nreq_extensions=ext\n"
-            "[dn]\nCN=console.home.arpa\n"
-            "[ext]\nsubjectAltName=DNS:console.home.arpa,IP:192.0.2.10\n"
+            "[dn]\nCN=fixture-csr.home.arpa\n"
+            "[ext]\nsubjectAltName=DNS:fixture-csr.home.arpa,IP:192.0.2.10\n"
         )
         subprocess.run(
             ["openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes",

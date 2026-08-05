@@ -13,6 +13,7 @@ import ipaddress
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -22,9 +23,6 @@ from typing import Any, Sequence
 SCHEMA = "caduceus.household.tls.v1"
 PLATFORMS = {"windows", "android", "chromeos", "linux", "macos"}
 CSR_MAX_BYTES = 64 * 1024
-CSR_IDENTITY = "console.home.arpa"
-CSR_DNS_NAMES = (CSR_IDENTITY,)
-CSR_IP_ADDRESSES = ("192.168.123.19",)
 BUNDLE_METADATA = {
     platform: {
         "filename": f"homeserver-house-ca-{platform}{'.cer' if platform == 'windows' else '.crt'}",
@@ -75,6 +73,44 @@ def _profile() -> str:
             if line.startswith("profile:"):
                 return line.split(":", 1)[1].strip()
     return os.environ.get("CADUCEUS_PROFILE", "homeserver")
+
+
+def _csr_identity() -> tuple[str, list[str]]:
+    """Read this body's CSR claim from its appliance declaration."""
+    profile: dict[str, Any] = {}
+    path = _path("CADUCEUS_APPLIANCE_PROFILE_PATH", "/etc/appliance/profile.json")
+    if path.is_file():
+        try:
+            value = json.loads(path.read_text())
+            if isinstance(value, dict):
+                profile = value
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    identity = next(
+        (
+            value.strip()
+            for key in ("fqdn", "hostname")
+            if isinstance(value := profile.get(key), str) and value.strip()
+        ),
+        "",
+    )
+    if not identity:
+        hostname = _path("CADUCEUS_HOSTNAME_PATH", "/etc/hostname")
+        if hostname.is_file():
+            identity = hostname.read_text().strip()
+    if not identity:
+        identity = socket.getfqdn().strip()
+
+    ip = next(
+        (
+            value.strip()
+            for key in ("ip", "ip_address", "lan_ip")
+            if isinstance(value := profile.get(key), str) and value.strip()
+        ),
+        "",
+    )
+    return identity, [ip] if ip else []
 
 
 def _generation() -> int:
@@ -230,8 +266,8 @@ def sign_csr(csr_pem: Any) -> dict[str, Any]:
         raise ValueError("caduceus-cert-csr-too-large")
     if "PRIVATE KEY" in csr_pem or any(ord(char) < 32 and char not in "\n\t" for char in csr_pem):
         raise ValueError("caduceus-cert-csr-private-key-or-control")
-    identity = CSR_IDENTITY
-    dns, ips = _split_sans([*CSR_DNS_NAMES, *CSR_IP_ADDRESSES])
+    identity, declared_ips = _csr_identity()
+    dns, ips = _split_sans([identity, *declared_ips])
     requested = [*(f"dns:{name}" for name in dns), *(f"ip address:{ip}" for ip in ips)]
     directory = cert_dir()
     if not (directory / "ca.pem").is_file() or not (directory / "ca.key.pem").is_file():
