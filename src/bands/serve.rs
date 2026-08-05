@@ -1196,17 +1196,19 @@ fn dns_mutation_response(
     command: &'static str,
     result: Result<Value, String>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    result.map(|value| (mutation_status(&value), Json(value))).map_err(|err| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiErrorBody {
-                schema: "caduceus.api.error.v1",
-                ok: false,
-                command: command.to_string(),
-                first_missing_signal: err,
-            }),
-        )
-    })
+    result
+        .map(|value| (mutation_status(&value), Json(value)))
+        .map_err(|err| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: command.to_string(),
+                    first_missing_signal: err,
+                }),
+            )
+        })
 }
 
 #[derive(Deserialize)]
@@ -1239,7 +1241,10 @@ async fn dns_device_name_create_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns device-name create";
     dns_mutation_admits(COMMAND, "/api/dns/device-name/create", &headers)?;
-    dns_mutation_response(COMMAND, dns::device_name_json("create", &body.hostname, &body.ip))
+    dns_mutation_response(
+        COMMAND,
+        dns::device_name_json("create", &body.hostname, &body.ip),
+    )
 }
 
 async fn dns_device_name_remove_route(
@@ -1248,7 +1253,10 @@ async fn dns_device_name_remove_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns device-name remove";
     dns_mutation_admits(COMMAND, "/api/dns/device-name/remove", &headers)?;
-    dns_mutation_response(COMMAND, dns::device_name_json("remove", &body.hostname, &body.ip))
+    dns_mutation_response(
+        COMMAND,
+        dns::device_name_json("remove", &body.hostname, &body.ip),
+    )
 }
 
 async fn dns_alias_create_route(
@@ -1257,7 +1265,10 @@ async fn dns_alias_create_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns alias create";
     dns_mutation_admits(COMMAND, "/api/dns/alias/create", &headers)?;
-    dns_mutation_response(COMMAND, dns::alias_json("create", &body.label, &body.hostname))
+    dns_mutation_response(
+        COMMAND,
+        dns::alias_json("create", &body.label, &body.hostname),
+    )
 }
 
 async fn dns_alias_remove_route(
@@ -1266,7 +1277,10 @@ async fn dns_alias_remove_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns alias remove";
     dns_mutation_admits(COMMAND, "/api/dns/alias/remove", &headers)?;
-    dns_mutation_response(COMMAND, dns::alias_json("remove", &body.label, &body.hostname))
+    dns_mutation_response(
+        COMMAND,
+        dns::alias_json("remove", &body.label, &body.hostname),
+    )
 }
 
 #[derive(Deserialize, Default)]
@@ -1304,11 +1318,7 @@ fn cert_api_error(command: &str, signal: &str) -> (StatusCode, Json<Value>) {
     cert_value_error(StatusCode::FORBIDDEN, command, signal)
 }
 
-fn cert_value_error(
-    status: StatusCode,
-    command: &str,
-    signal: &str,
-) -> (StatusCode, Json<Value>) {
+fn cert_value_error(status: StatusCode, command: &str, signal: &str) -> (StatusCode, Json<Value>) {
     (
         status,
         Json(serde_json::json!({
@@ -1398,33 +1408,23 @@ async fn cert_ensure_root_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    cert_mutation_result(
-        "cert ensure-root",
-        "ensure_root",
-        &[],
-        &headers,
-        || cert::ensure_root_json(body.dry_run, body.renewal_authority.as_deref()),
-    )
+    cert_mutation_result("cert ensure-root", "ensure_root", &[], &headers, || {
+        cert::ensure_root_json(body.dry_run, body.renewal_authority.as_deref())
+    })
 }
 async fn cert_issue_leaf_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.identity.as_deref().unwrap_or("home.arpa");
-    cert_mutation_result(
-        "cert issue-leaf",
-        "issue_leaf",
-        &[],
-        &headers,
-        || {
-            cert::issue_leaf_json(
-                target,
-                body.sans.as_deref().unwrap_or(&[]),
-                body.ips.as_deref().unwrap_or(&[]),
-                body.dry_run,
-            )
-        },
-    )
+    cert_mutation_result("cert issue-leaf", "issue_leaf", &[], &headers, || {
+        cert::issue_leaf_json(
+            target,
+            body.sans.as_deref().unwrap_or(&[]),
+            body.ips.as_deref().unwrap_or(&[]),
+            body.dry_run,
+        )
+    })
 }
 async fn cert_csr_sign_route(
     headers: HeaderMap,
@@ -1533,40 +1533,28 @@ async fn cert_trust_route(
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.bundle.as_deref().unwrap_or("");
-    cert_mutation_result(
-        "cert trust-install",
-        "trust_install",
-        &[],
-        &headers,
-        || {
-            cert::trust_install_json(
-                target,
-                body.platform.as_deref().unwrap_or("linux"),
-                body.dry_run,
-            )
-        },
-    )
+    cert_mutation_result("cert trust-install", "trust_install", &[], &headers, || {
+        cert::trust_install_json(
+            target,
+            body.platform.as_deref().unwrap_or("linux"),
+            body.dry_run,
+        )
+    })
 }
 async fn cert_portal_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.portal.as_deref().unwrap_or("");
-    cert_mutation_result(
-        "cert portal-admit",
-        "portal_admit",
-        &[],
-        &headers,
-        || {
-            cert::portal_admit_json(
-                target,
-                body.lan_ip.as_deref().unwrap_or(""),
-                body.upstream.as_deref().unwrap_or(""),
-                body.aliases.as_deref().unwrap_or(&[]),
-                body.dry_run,
-            )
-        },
-    )
+    cert_mutation_result("cert portal-admit", "portal_admit", &[], &headers, || {
+        cert::portal_admit_json(
+            target,
+            body.lan_ip.as_deref().unwrap_or(""),
+            body.upstream.as_deref().unwrap_or(""),
+            body.aliases.as_deref().unwrap_or(&[]),
+            body.dry_run,
+        )
+    })
 }
 
 async fn pjlink_devices_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -2033,10 +2021,22 @@ pub fn router() -> Router {
         )
         .route("/api/v1/time/state", get(time_state_route))
         .route("/api/v1/network/dns", post(network_dns_route))
-        .route("/api/v1/network/dns/device-name/create", post(dns_device_name_create_route))
-        .route("/api/v1/network/dns/device-name/remove", post(dns_device_name_remove_route))
-        .route("/api/v1/network/dns/alias/create", post(dns_alias_create_route))
-        .route("/api/v1/network/dns/alias/remove", post(dns_alias_remove_route))
+        .route(
+            "/api/v1/network/dns/device-name/create",
+            post(dns_device_name_create_route),
+        )
+        .route(
+            "/api/v1/network/dns/device-name/remove",
+            post(dns_device_name_remove_route),
+        )
+        .route(
+            "/api/v1/network/dns/alias/create",
+            post(dns_alias_create_route),
+        )
+        .route(
+            "/api/v1/network/dns/alias/remove",
+            post(dns_alias_remove_route),
+        )
         .route("/api/v1/cert/status", get(cert_status_route))
         .route("/api/v1/cert/ensure-root", post(cert_ensure_root_route))
         .route("/api/v1/cert/issue-leaf", post(cert_issue_leaf_route))

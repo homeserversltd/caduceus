@@ -1076,7 +1076,10 @@ fn profile_sources_reseed_crosses_public_cli_launcher_staff_and_is_idempotent() 
         Command::new("sudo")
             .args(["-n", "env"])
             .arg(format!("CADUCEUS_ROOT={}", root.display()))
-            .arg(format!("CADUCEUS_PROFILE_SOURCES_RESEED_CMD={}", launcher.display()))
+            .arg(format!(
+                "CADUCEUS_PROFILE_SOURCES_RESEED_CMD={}",
+                launcher.display()
+            ))
             .arg("CADUCEUS_STAFF_PYTHON=/usr/bin/python3")
             .arg(format!("PYTHONPATH={}", staff.display()))
             .arg(bin())
@@ -1085,7 +1088,11 @@ fn profile_sources_reseed_crosses_public_cli_launcher_staff_and_is_idempotent() 
             .unwrap()
     };
     let first = run();
-    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
     let first_receipt: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
     assert_eq!(first_receipt["ok"], true);
     assert_eq!(first_receipt["changed"], true);
@@ -1096,9 +1103,19 @@ fn profile_sources_reseed_crosses_public_cli_launcher_staff_and_is_idempotent() 
     assert_eq!(metadata.uid(), 0);
     assert_eq!(metadata.gid(), 0);
     let second = run();
-    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
     let second_receipt: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
     assert_eq!(second_receipt["changed"], false);
-    assert_eq!(certificate, std::fs::read(root.join("etc/appliance/profile.json")).unwrap());
-    let _ = Command::new("sudo").args(["-n", "rm", "-rf"]).arg(&root).status();
+    assert_eq!(
+        certificate,
+        std::fs::read(root.join("etc/appliance/profile.json")).unwrap()
+    );
+    let _ = Command::new("sudo")
+        .args(["-n", "rm", "-rf"])
+        .arg(&root)
+        .status();
 }
