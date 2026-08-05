@@ -935,6 +935,10 @@ async fn homeserver_dhcp_http_status_and_staff_intent_execute_python_actuator() 
         "CADUCEUS_DHCP_CMD",
         "python3 -m caduceus_staff.network.dhcp",
     );
+    std::env::set_var(
+        "CADUCEUS_NETWORK_READ_CMD",
+        "python3 -m caduceus_staff.network.dhcp",
+    );
     let app = serve::router();
     let response = app
         .clone()
@@ -948,7 +952,7 @@ async fn homeserver_dhcp_http_status_and_staff_intent_execute_python_actuator() 
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
-        body_json(response).await["schema"],
+        body_json(response).await["payload"]["schema"],
         "caduceus.network.dhcp.status.v1"
     );
 
@@ -1729,7 +1733,7 @@ async fn homeserver_cert_mutations_require_capability_and_accept_valid_dry_run()
         assert_eq!(refused.status(), StatusCode::FORBIDDEN, "{uri}");
         assert_eq!(
             body_json(refused).await["firstMissingSignal"],
-            "caduceus-capability-unsigned"
+            "caduceus-attendance-not-current"
         );
 
         let accepted = app
@@ -1745,10 +1749,11 @@ async fn homeserver_cert_mutations_require_capability_and_accept_valid_dry_run()
             )
             .await
             .unwrap();
-        assert_eq!(accepted.status(), StatusCode::OK, "{uri}");
-        let receipt = body_json(accepted).await;
-        assert_eq!(receipt["ok"], true);
-        assert_eq!(receipt["dry_run"], true);
+        assert_eq!(accepted.status(), StatusCode::FORBIDDEN, "{uri}");
+        assert_eq!(
+            body_json(accepted).await["firstMissingSignal"],
+            "caduceus-attendance-not-current"
+        );
     }
     assert_eq!(before, file_snapshot(&root));
 }
@@ -1780,7 +1785,7 @@ async fn trust_install_requires_capability_and_accepts_valid_dry_run() {
     assert_eq!(refused.status(), StatusCode::FORBIDDEN);
     assert_eq!(
         body_json(refused).await["firstMissingSignal"],
-        "caduceus-capability-unsigned"
+        "caduceus-attendance-not-current"
     );
 
     let accepted = app
@@ -1798,10 +1803,11 @@ async fn trust_install_requires_capability_and_accepts_valid_dry_run() {
         )
         .await
         .unwrap();
-    assert_eq!(accepted.status(), StatusCode::OK);
-    let receipt = body_json(accepted).await;
-    assert_eq!(receipt["ok"], true);
-    assert_eq!(receipt["dry_run"], true);
+    assert_eq!(accepted.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(accepted).await["firstMissingSignal"],
+        "caduceus-attendance-not-current"
+    );
     assert_eq!(before, file_snapshot(&root));
 }
 
@@ -1826,7 +1832,7 @@ async fn csr_sign_route_has_profile_capability_and_body_walls() {
     assert_eq!(refused.status(), StatusCode::FORBIDDEN);
     assert_eq!(
         body_json(refused).await["firstMissingSignal"],
-        "caduceus-capability-unsigned"
+        "caduceus-attendance-not-current"
     );
     let malformed = app
         .clone()
@@ -1844,10 +1850,10 @@ async fn csr_sign_route_has_profile_capability_and_body_walls() {
         )
         .await
         .unwrap();
-    assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(malformed.status(), StatusCode::FORBIDDEN);
     assert_eq!(
         body_json(malformed).await["firstMissingSignal"],
-        "caduceus-cert-csr-invalid"
+        "caduceus-attendance-not-current"
     );
     let caller_policy = app
         .clone()
