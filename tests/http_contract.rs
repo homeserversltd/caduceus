@@ -1733,7 +1733,7 @@ async fn homeserver_cert_mutations_require_capability_and_accept_valid_dry_run()
         assert_eq!(refused.status(), StatusCode::FORBIDDEN, "{uri}");
         assert_eq!(
             body_json(refused).await["firstMissingSignal"],
-            "caduceus-attendance-not-current"
+            "caduceus-capability-unsigned"
         );
 
         let accepted = app
@@ -1749,11 +1749,7 @@ async fn homeserver_cert_mutations_require_capability_and_accept_valid_dry_run()
             )
             .await
             .unwrap();
-        assert_eq!(accepted.status(), StatusCode::FORBIDDEN, "{uri}");
-        assert_eq!(
-            body_json(accepted).await["firstMissingSignal"],
-            "caduceus-attendance-not-current"
-        );
+        assert_eq!(accepted.status(), StatusCode::OK, "{uri}");
     }
     assert_eq!(before, file_snapshot(&root));
 }
@@ -1785,7 +1781,7 @@ async fn trust_install_requires_capability_and_accepts_valid_dry_run() {
     assert_eq!(refused.status(), StatusCode::FORBIDDEN);
     assert_eq!(
         body_json(refused).await["firstMissingSignal"],
-        "caduceus-attendance-not-current"
+        "caduceus-capability-unsigned"
     );
 
     let accepted = app
@@ -1803,11 +1799,7 @@ async fn trust_install_requires_capability_and_accepts_valid_dry_run() {
         )
         .await
         .unwrap();
-    assert_eq!(accepted.status(), StatusCode::FORBIDDEN);
-    assert_eq!(
-        body_json(accepted).await["firstMissingSignal"],
-        "caduceus-attendance-not-current"
-    );
+    assert_eq!(accepted.status(), StatusCode::OK);
     assert_eq!(before, file_snapshot(&root));
 }
 

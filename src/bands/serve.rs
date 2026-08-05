@@ -1367,6 +1367,7 @@ fn cert_admitted_command(command: &str, aliases: &[&str]) -> Result<Option<Strin
 
 fn cert_mutation_result<F: FnOnce() -> Result<Value, String>>(
     command: &str,
+    target: &str,
     primitive: &str,
     aliases: &[&str],
     headers: &HeaderMap,
@@ -1375,18 +1376,9 @@ fn cert_mutation_result<F: FnOnce() -> Result<Value, String>>(
     match cert_admitted_command(command, aliases) {
         Ok(None) => Err(cert_profile_refusal(command, primitive)),
         Err(_) => Err(cert_api_error(command, "caduceus-profile-missing")),
-        Ok(Some(_)) => {
-            let document = headers
-                .get("x-caduceus-document")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or("");
-            document_attendance_admits(
-                document,
-                headers
-                    .get("x-caduceus-attendance")
-                    .and_then(|value| value.to_str().ok()),
-            )
-            .map_err(|signal| cert_api_error(command, &signal))?;
+        Ok(Some(admitted_command)) => {
+            capability_admits(&admitted_command, target, capability_from_headers(headers))
+                .map_err(|signal| cert_api_error(command, &signal))?;
             match run() {
                 Ok(value) => Ok((mutation_status(&value), Json(value))),
                 Err(error) => Err(cert_api_error(command, &error)),
@@ -1408,7 +1400,7 @@ async fn cert_ensure_root_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    cert_mutation_result("cert ensure-root", "ensure_root", &[], &headers, || {
+    cert_mutation_result("cert ensure-root", "local", "ensure_root", &[], &headers, || {
         cert::ensure_root_json(body.dry_run, body.renewal_authority.as_deref())
     })
 }
@@ -1417,7 +1409,7 @@ async fn cert_issue_leaf_route(
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.identity.as_deref().unwrap_or("home.arpa");
-    cert_mutation_result("cert issue-leaf", "issue_leaf", &[], &headers, || {
+    cert_mutation_result("cert issue-leaf", target, "issue_leaf", &[], &headers, || {
         cert::issue_leaf_json(
             target,
             body.sans.as_deref().unwrap_or(&[]),
@@ -1458,6 +1450,7 @@ async fn cert_bundle_route(
     let target = body.platform.as_deref().unwrap_or("linux");
     cert_mutation_result(
         "cert bundle-export",
+        target,
         "bundle_export",
         &["cert bundle create"],
         &headers,
@@ -1471,6 +1464,7 @@ async fn cert_constituent_lock_route(
     let portal = body.portal.as_deref().unwrap_or("");
     cert_mutation_result(
         "cert constituent-lock",
+        portal,
         "constituent_lock",
         &[],
         &headers,
@@ -1514,6 +1508,7 @@ async fn cert_apply_route(
     let target = body.portal.as_deref().unwrap_or("");
     cert_mutation_result(
         "cert apply-nginx",
+        target,
         "apply_nginx",
         &["cert apply"],
         &headers,
@@ -1533,7 +1528,7 @@ async fn cert_trust_route(
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.bundle.as_deref().unwrap_or("");
-    cert_mutation_result("cert trust-install", "trust_install", &[], &headers, || {
+    cert_mutation_result("cert trust-install", target, "trust_install", &[], &headers, || {
         cert::trust_install_json(
             target,
             body.platform.as_deref().unwrap_or("linux"),
@@ -1546,7 +1541,7 @@ async fn cert_portal_route(
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.portal.as_deref().unwrap_or("");
-    cert_mutation_result("cert portal-admit", "portal_admit", &[], &headers, || {
+    cert_mutation_result("cert portal-admit", target, "portal_admit", &[], &headers, || {
         cert::portal_admit_json(
             target,
             body.lan_ip.as_deref().unwrap_or(""),
