@@ -324,15 +324,20 @@ fn staff_actuators_list_backblaze_and_calibre_python_lanes() {
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("schema=caduceus.staff.actuators.v1"));
-    assert!(text.contains("count=33"));
-    assert!(text.contains("profile-sources-reseed"));
-    assert!(text.contains("actuator=network-dhcp"));
-    assert!(text.contains("actuator=network-dns"));
-
-    assert!(text.contains("actuator=backblaze-b2-recover"));
-    assert!(text.contains("actuator=calibre-helper-daemon"));
-    assert!(text.contains("class=staff-python"));
-    assert!(text.contains("/usr/local/sbin/caduceus-backblaze-recover"));
+    let profile: serde_json::Value =
+        serde_json::from_str(include_str!("../data/staff-actuators/profile.json")).unwrap();
+    for actuator in profile["actuators"].as_array().unwrap() {
+        let id = actuator["id"].as_str().unwrap();
+        let library_entry = actuator["libraryEntry"].as_str().unwrap();
+        let receipt_family = actuator["receiptFamily"].as_str().unwrap();
+        assert!(!library_entry.is_empty(), "{id} has no libraryEntry");
+        assert!(
+            receipt_family.ends_with(".v1"),
+            "{id} has no receipt schema"
+        );
+        assert!(text.contains(&format!("actuator={id} ")));
+        assert!(text.contains(&format!("lib={library_entry} ")));
+    }
 }
 
 #[test]

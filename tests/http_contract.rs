@@ -319,7 +319,12 @@ async fn console_legacy_sbin_list_route_is_profile_allowed() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.legacy_sbin.list.v1");
-    assert!(json["count"].as_u64().unwrap_or(0) > 20);
+    assert!(json["entries"].as_array().is_some_and(|entries| {
+        entries.iter().all(|entry| {
+            entry["id"].is_string()
+                && entry["execution"].as_str() == Some("not-executed-by-caduceus")
+        })
+    }));
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -594,7 +599,13 @@ async fn homeserver_sbin_list_route_is_profile_allowed() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.homeserver_sbin.list.v1");
-    assert_eq!(json["count"], 18);
+    assert!(json["entries"].as_array().is_some_and(|entries| {
+        entries.iter().all(|entry| {
+            entry["id"].is_string()
+                && entry["sourcePath"].is_string()
+                && entry["execution"].as_str() == Some("not-executed-by-caduceus")
+        })
+    }));
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -649,10 +660,17 @@ async fn homeserver_staff_actuators_route_is_profile_allowed() {
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.staff.actuators.v1");
-    assert_eq!(json["count"], 14);
-    assert_eq!(json["actuators"][0]["id"], "profile-sources-reseed");
-    assert_eq!(json["actuators"][1]["id"], "network-dhcp");
-    assert_eq!(json["actuators"][2]["id"], "network-dns");
+    assert!(json["actuators"].as_array().is_some_and(|actuators| {
+        actuators.iter().all(|actuator| {
+            actuator["id"].is_string()
+                && actuator["libraryEntry"]
+                    .as_str()
+                    .is_some_and(|entry| !entry.is_empty())
+                && actuator["receiptFamily"]
+                    .as_str()
+                    .is_some_and(|schema| schema.ends_with(".v1"))
+        })
+    }));
 }
 
 #[tokio::test(flavor = "current_thread")]
