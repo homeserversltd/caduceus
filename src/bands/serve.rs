@@ -1,12 +1,12 @@
 use crate::bands::{
-    actions, cert, config, dns, firewall, gui, health, homeserver_sbin, hyalos, identity,
+    cert, config, dns, firewall, gui, health, homeserver_sbin, hyalos, identity,
     legacy_sbin, local_ai, network, network_identity, network_notes, network_read, pjlink, profile,
     profile_module, receipts, source_map, staff, sync, time, update,
 };
 use crate::tools::{attendance, policy};
 use axum::{
     body::Body,
-    extract::{connect_info::ConnectInfo, DefaultBodyLimit, OriginalUri, Query},
+    extract::{connect_info::ConnectInfo, DefaultBodyLimit, OriginalUri, Path, Query},
     http::{
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
         HeaderMap, HeaderValue, StatusCode,
@@ -118,15 +118,6 @@ struct PjlinkDeviceBody {
 #[serde(rename_all = "camelCase")]
 struct PjlinkRemoveBody {
     id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StaffIntentBody {
-    method: String,
-    route: String,
-    classification: Option<String>,
-    metadata: Option<Value>,
 }
 
 fn api_error_signal(command: &str, signal: &str) -> (StatusCode, Json<ApiErrorBody>) {
@@ -346,64 +337,39 @@ async fn attendance_route(
     }
 }
 
-async fn admin_action_admission_route(
+async fn registered_service_restart_route(
     connect_info: Option<ConnectInfo<SocketAddr>>,
-    Json(body): Json<Value>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    let action = body
-        .get("action")
-        .and_then(Value::as_str)
-        .and_then(actions::by_id)
-        .or_else(|| {
-            body.get("method")
-                .and_then(Value::as_str)
-                .zip(body.get("route").and_then(Value::as_str))
-                .and_then(|(method, route)| actions::by_legacy(method, route))
-        });
-    let result = match action {
-        Some(action) => Ok((
-            StatusCode::NOT_IMPLEMENTED,
-            Json(actions::unavailable_receipt(action, "legacy-admin-action")),
-        )),
-        None => Err(api_error_signal("admin action", "caduceus-action-unmapped")),
-    };
-    let signal = match &result {
-        Ok((_, Json(value))) => value
-            .get("firstMissingSignal")
-            .or_else(|| value.get("code"))
-            .and_then(Value::as_str)
-            .unwrap_or("none"),
-        Err((_, Json(error))) => error.first_missing_signal.as_str(),
-    };
-    eprintln!(
-        "{}",
-        serde_json::json!({
-            "event": "caduceus-access-request",
-            "route": "/api/v1/admin/action",
-            "firstMissingSignal": signal,
-            "documentId": body.get("documentId").and_then(Value::as_str),
-            "attendanceId": body.get("attendance").and_then(Value::as_str),
-            "peer": connect_info.map(|ConnectInfo(peer)| peer.to_string()).unwrap_or_else(|| "unknown".to_string()),
-        })
-    );
-    result
-}
-
-async fn registered_service_action_route(
+    headers: HeaderMap,
+    Path(service): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     if body != serde_json::json!({}) {
         return Err(api_error_signal(
-            "service restart coronatio",
+            "service restart",
             "caduceus-action-request-malformed",
         ));
     }
-    let action = actions::by_http("POST", "/api/v1/service/coronatio/restart")
-        .ok_or_else(|| api_error_signal("service restart coronatio", "caduceus-action-unmapped"))?;
-    Ok((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(actions::unavailable_receipt(action, "http")),
-    ))
+    match policy::allows_command("staff intent") {
+        Ok(true) => {
+            let loopback = connect_info
+                .as_ref()
+                .is_some_and(|ConnectInfo(peer)| peer.ip().is_loopback());
+            if !loopback {
+                if let Err(reason) = capability_admits(
+                    "staff intent",
+                    &service,
+                    capability_from_headers(&headers),
+                ) {
+                    return Err(api_error_signal("staff intent", &reason));
+                }
+            }
+            staff::restart_registered_service(&service)
+                .map(|value| (mutation_status(&value), Json(value)))
+                .map_err(|reason| api_error_signal("staff intent", &reason))
+        }
+        Ok(false) => Err(api_error("staff intent")),
+        Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
+    }
 }
 
 async fn identity_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -598,48 +564,36 @@ async fn hyalos_tail_route(
     hyalos_result("hyalos tail", || hyalos::tail_json(filters))
 }
 
-async fn staff_intent_route(
-    connect_info: Option<ConnectInfo<SocketAddr>>,
+fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Json<ApiErrorBody>)> {
+    match route {
+        "/api/v1/network/dhcp" => Ok("network-dhcp"),
+        "/api/v1/file/ingress" => Ok("file-ingress"),
+        "/api/v1/upload/force-permissions" => Ok("upload-force-permissions"),
+        "/api/v1/backblaze/recover" => Ok("backblaze-b2-recover"),
+        "/api/v1/backblaze/forgejo/b2/push" => Ok("backblaze-forgejo-b2-push"),
+        "/api/v1/backblaze/forgejo/migrate" => Ok("backblaze-forgejo-migrate"),
+        "/api/v1/calibre/helper-daemon" => Ok("calibre-helper-daemon"),
+        "/api/v1/calibre/watch" => Ok("calibre-watch"),
+        _ => Err(api_error_signal("staff intent", "caduceus-staff-actuator-unmapped")),
+    }
+}
+
+async fn named_staff_actuator_route(
     headers: HeaderMap,
-    Json(body): Json<StaffIntentBody>,
+    OriginalUri(uri): OriginalUri,
+    Json(metadata): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("staff intent") {
         Ok(true) => {
-            let loopback_portal_service = connect_info
-                .as_ref()
-                .is_some_and(|ConnectInfo(peer)| peer.ip().is_loopback())
-                && body.classification.as_deref() == Some("portal-service")
-                && body.method == "POST"
-                && body.route == "/api/service/control";
-            if !loopback_portal_service {
-                if let Err(reason) = capability_admits(
-                    "staff intent",
-                    &body.route,
-                    capability_from_headers(&headers),
-                ) {
-                    return Err(api_error_signal("staff intent", &reason));
-                }
+            if let Err(reason) = capability_admits("staff intent", uri.path(), capability_from_headers(&headers)) {
+                return Err(api_error_signal("staff intent", &reason));
             }
-            match staff::intent_json(
-                &body.method,
-                &body.route,
-                body.classification.as_deref(),
-                body.metadata,
-            ) {
-                Ok(value) => Ok((StatusCode::ACCEPTED, Json(value))),
-                Err(err) => Err(api_error_signal("staff intent", &err)),
-            }
+            staff::named_actuator_json(named_actuator_for_route(uri.path())?, metadata)
+                .map(|value| (mutation_status(&value), Json(value)))
+                .map_err(|reason| api_error_signal("staff intent", &reason))
         }
         Ok(false) => Err(api_error("staff intent")),
-        Err(_) => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiErrorBody {
-                schema: "caduceus.api.error.v1",
-                ok: false,
-                command: "staff intent".to_string(),
-                first_missing_signal: "caduceus-profile-missing".to_string(),
-            }),
-        )),
+        Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
     }
 }
 
@@ -1367,6 +1321,7 @@ fn cert_admitted_command(command: &str, aliases: &[&str]) -> Result<Option<Strin
 
 fn cert_mutation_result<F: FnOnce() -> Result<Value, String>>(
     command: &str,
+    target: &str,
     primitive: &str,
     aliases: &[&str],
     headers: &HeaderMap,
@@ -1375,18 +1330,9 @@ fn cert_mutation_result<F: FnOnce() -> Result<Value, String>>(
     match cert_admitted_command(command, aliases) {
         Ok(None) => Err(cert_profile_refusal(command, primitive)),
         Err(_) => Err(cert_api_error(command, "caduceus-profile-missing")),
-        Ok(Some(_)) => {
-            let document = headers
-                .get("x-caduceus-document")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or("");
-            document_attendance_admits(
-                document,
-                headers
-                    .get("x-caduceus-attendance")
-                    .and_then(|value| value.to_str().ok()),
-            )
-            .map_err(|signal| cert_api_error(command, &signal))?;
+        Ok(Some(admitted_command)) => {
+            capability_admits(&admitted_command, target, capability_from_headers(headers))
+                .map_err(|signal| cert_api_error(command, &signal))?;
             match run() {
                 Ok(value) => Ok((mutation_status(&value), Json(value))),
                 Err(error) => Err(cert_api_error(command, &error)),
@@ -1408,7 +1354,7 @@ async fn cert_ensure_root_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    cert_mutation_result("cert ensure-root", "ensure_root", &[], &headers, || {
+    cert_mutation_result("cert ensure-root", "local", "ensure_root", &[], &headers, || {
         cert::ensure_root_json(body.dry_run, body.renewal_authority.as_deref())
     })
 }
@@ -1417,7 +1363,7 @@ async fn cert_issue_leaf_route(
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.identity.as_deref().unwrap_or("home.arpa");
-    cert_mutation_result("cert issue-leaf", "issue_leaf", &[], &headers, || {
+    cert_mutation_result("cert issue-leaf", target, "issue_leaf", &[], &headers, || {
         cert::issue_leaf_json(
             target,
             body.sans.as_deref().unwrap_or(&[]),
@@ -1458,6 +1404,7 @@ async fn cert_bundle_route(
     let target = body.platform.as_deref().unwrap_or("linux");
     cert_mutation_result(
         "cert bundle-export",
+        target,
         "bundle_export",
         &["cert bundle create"],
         &headers,
@@ -1471,6 +1418,7 @@ async fn cert_constituent_lock_route(
     let portal = body.portal.as_deref().unwrap_or("");
     cert_mutation_result(
         "cert constituent-lock",
+        portal,
         "constituent_lock",
         &[],
         &headers,
@@ -1514,6 +1462,7 @@ async fn cert_apply_route(
     let target = body.portal.as_deref().unwrap_or("");
     cert_mutation_result(
         "cert apply-nginx",
+        target,
         "apply_nginx",
         &["cert apply"],
         &headers,
@@ -1533,7 +1482,7 @@ async fn cert_trust_route(
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.bundle.as_deref().unwrap_or("");
-    cert_mutation_result("cert trust-install", "trust_install", &[], &headers, || {
+    cert_mutation_result("cert trust-install", target, "trust_install", &[], &headers, || {
         cert::trust_install_json(
             target,
             body.platform.as_deref().unwrap_or("linux"),
@@ -1546,7 +1495,7 @@ async fn cert_portal_route(
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.portal.as_deref().unwrap_or("");
-    cert_mutation_result("cert portal-admit", "portal_admit", &[], &headers, || {
+    cert_mutation_result("cert portal-admit", target, "portal_admit", &[], &headers, || {
         cert::portal_admit_json(
             target,
             body.lan_ip.as_deref().unwrap_or(""),
@@ -1961,10 +1910,9 @@ pub fn router() -> Router {
         .route("/api/v1/attendance/touch", post(attendance_route))
         .route("/api/v1/attendance/change-pin", post(attendance_route))
         .route("/api/v1/attendance/invalidate", post(attendance_route))
-        .route("/api/v1/admin/action", post(admin_action_admission_route))
         .route(
-            "/api/v1/service/coronatio/restart",
-            post(registered_service_action_route),
+            "/api/v1/service/:service/restart",
+            post(registered_service_restart_route),
         );
     Router::new()
         .merge(attendance_routes)
@@ -2076,7 +2024,14 @@ pub fn router() -> Router {
         .route("/api/v1/pjlink/power", post(pjlink_power_route))
         .route("/api/v1/staff/status", get(staff_status_route))
         .route("/api/v1/staff/actuators", get(staff_actuators_route))
-        .route("/api/v1/staff/intent", post(staff_intent_route))
+        .route("/api/v1/network/dhcp", post(named_staff_actuator_route))
+        .route("/api/v1/file/ingress", post(named_staff_actuator_route))
+        .route("/api/v1/upload/force-permissions", post(named_staff_actuator_route))
+        .route("/api/v1/backblaze/recover", post(named_staff_actuator_route))
+        .route("/api/v1/backblaze/forgejo/b2/push", post(named_staff_actuator_route))
+        .route("/api/v1/backblaze/forgejo/migrate", post(named_staff_actuator_route))
+        .route("/api/v1/calibre/helper-daemon", post(named_staff_actuator_route))
+        .route("/api/v1/calibre/watch", post(named_staff_actuator_route))
         .route("/api/v1/hyalos/reflect", post(hyalos_reflect_route))
         .route("/api/v1/hyalos/append", post(hyalos_append_route))
         .route("/api/v1/hyalos/tail", get(hyalos_tail_route))

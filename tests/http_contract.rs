@@ -690,30 +690,24 @@ async fn locked_profile_rejects_staff_actuators() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn homeserver_staff_intent_route_refuses_unmapped_coronatio_button_intent() {
+async fn homeserver_retired_admin_action_route_is_not_found() {
     let _guard = use_fixture("tests/fixtures/homeserver");
     let app = serve::router();
     let response = app
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/v1/staff/intent")
-                .header("x-caduceus-capability", capability("staff intent", "/api/admin/system/restart", 60))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"method":"POST","route":"/api/admin/system/restart","classification":"crown-legacy"}"#,
-                ))
+                .uri("/api/v1/admin/action")
+                .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let json = body_json(response).await;
-    assert_eq!(json["firstMissingSignal"], "caduceus-action-unmapped");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn loopback_portal_service_skips_capability_but_remote_does_not() {
+async fn loopback_registered_service_restart_skips_capability_but_remote_does_not() {
     let _guard = use_fixture("tests/fixtures/homeserver");
     let root = std::env::temp_dir().join(format!("caduceus-http-systemctl-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -728,11 +722,11 @@ async fn loopback_portal_service_skips_capability_but_remote_does_not() {
     std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
     std::fs::set_permissions(&systemctl, permissions).unwrap();
     std::env::set_var("CADUCEUS_SYSTEMCTL_BIN", &systemctl);
-    let body = r#"{"method":"POST","route":"/api/service/control","classification":"portal-service","metadata":{"service":"jellyfin","action":"restart","systemdService":"jellyfin.service"}}"#;
+    let body = r#"{}"#;
 
     let mut request = Request::builder()
         .method("POST")
-        .uri("/api/v1/staff/intent")
+        .uri("/api/v1/service/jellyfin/restart")
         .header("content-type", "application/json")
         .body(Body::from(body))
         .unwrap();
@@ -740,7 +734,7 @@ async fn loopback_portal_service_skips_capability_but_remote_does_not() {
         "127.0.0.1:43210".parse::<std::net::SocketAddr>().unwrap(),
     ));
     let response = serve::router().oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         body_json(response).await["systemdService"],
         "jellyfin.service"
@@ -748,7 +742,7 @@ async fn loopback_portal_service_skips_capability_but_remote_does_not() {
 
     let mut request = Request::builder()
         .method("POST")
-        .uri("/api/v1/staff/intent")
+        .uri("/api/v1/service/jellyfin/restart")
         .header("content-type", "application/json")
         .body(Body::from(body))
         .unwrap();
@@ -764,7 +758,7 @@ async fn loopback_portal_service_skips_capability_but_remote_does_not() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn homeserver_staff_intent_route_executes_upload_bytes() {
+async fn homeserver_named_file_ingress_route_executes_upload_bytes() {
     let _guard = use_fixture("tests/fixtures/homeserver");
     let root = std::env::temp_dir().join(format!("caduceus-http-upload-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -781,17 +775,17 @@ async fn homeserver_staff_intent_route_executes_upload_bytes() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/v1/staff/intent")
-                .header("x-caduceus-capability", capability("staff intent", "/api/files/upload", 60))
+                .uri("/api/v1/file/ingress")
+                .header("x-caduceus-capability", capability("staff intent", "/api/v1/file/ingress", 60))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"method":"POST","route":"/api/files/upload","classification":"file-ingress","metadata":{"filename":"proof.txt","bytes":5,"destination":"/mnt/nas","payload":[104,101,108,108,111]}}"#,
+                    r#"{"filename":"proof.txt","bytes":5,"destination":"/mnt/nas","payload":[104,101,108,108,111]}"#,
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.staff.file_ingress.v1");
     assert_eq!(json["mutationPerformed"], true);
@@ -928,7 +922,7 @@ async fn http_capability_walls_cover_fresh_expired_scope_tampered_and_missing() 
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn homeserver_dhcp_http_status_and_staff_intent_execute_python_actuator() {
+async fn homeserver_dhcp_http_status_and_named_actuator_execute_python_actuator() {
     let _guard = use_fixture("tests/fixtures/homeserver");
     std::env::set_var("PYTHONPATH", "tests/fixtures/staff");
     std::env::set_var(
@@ -960,20 +954,20 @@ async fn homeserver_dhcp_http_status_and_staff_intent_execute_python_actuator() 
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/v1/staff/intent")
+                .uri("/api/v1/network/dhcp")
                 .header(
                     "x-caduceus-capability",
-                    capability("staff intent", "/api/dhcp/reservations", 60),
+                    capability("staff intent", "/api/v1/network/dhcp", 60),
                 )
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"method":"POST","route":"/api/dhcp/reservations","metadata":{"ip":"192.168.1.7"}}"#,
+                    r#"{"ip":"192.168.1.7"}"#,
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
     assert_eq!(json["classification"], "network-control");
     assert_eq!(json["mutationPerformed"], true);
@@ -1733,7 +1727,7 @@ async fn homeserver_cert_mutations_require_capability_and_accept_valid_dry_run()
         assert_eq!(refused.status(), StatusCode::FORBIDDEN, "{uri}");
         assert_eq!(
             body_json(refused).await["firstMissingSignal"],
-            "caduceus-attendance-not-current"
+            "caduceus-capability-unsigned"
         );
 
         let accepted = app
@@ -1749,11 +1743,7 @@ async fn homeserver_cert_mutations_require_capability_and_accept_valid_dry_run()
             )
             .await
             .unwrap();
-        assert_eq!(accepted.status(), StatusCode::FORBIDDEN, "{uri}");
-        assert_eq!(
-            body_json(accepted).await["firstMissingSignal"],
-            "caduceus-attendance-not-current"
-        );
+        assert_eq!(accepted.status(), StatusCode::OK, "{uri}");
     }
     assert_eq!(before, file_snapshot(&root));
 }
@@ -1785,7 +1775,7 @@ async fn trust_install_requires_capability_and_accepts_valid_dry_run() {
     assert_eq!(refused.status(), StatusCode::FORBIDDEN);
     assert_eq!(
         body_json(refused).await["firstMissingSignal"],
-        "caduceus-attendance-not-current"
+        "caduceus-capability-unsigned"
     );
 
     let accepted = app
@@ -1803,11 +1793,7 @@ async fn trust_install_requires_capability_and_accepts_valid_dry_run() {
         )
         .await
         .unwrap();
-    assert_eq!(accepted.status(), StatusCode::FORBIDDEN);
-    assert_eq!(
-        body_json(accepted).await["firstMissingSignal"],
-        "caduceus-attendance-not-current"
-    );
+    assert_eq!(accepted.status(), StatusCode::OK);
     assert_eq!(before, file_snapshot(&root));
 }
 
@@ -1866,9 +1852,7 @@ async fn csr_sign_route_has_profile_capability_and_body_walls() {
                     capability("cert csr sign", "console.home.arpa", 60),
                 )
                 .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"csrPem":"not a csr","ips":["192.0.2.10"]}"#,
-                ))
+                .body(Body::from(r#"{"csrPem":"not a csr","ips":["192.0.2.10"]}"#))
                 .unwrap(),
         )
         .await
