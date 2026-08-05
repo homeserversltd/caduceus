@@ -111,9 +111,8 @@ impl DnsCommandFixture {
         fs::read_to_string(self.root.join("launcher-args")).unwrap()
     }
 
-    fn launcher_stdin(&self) -> serde_json::Value {
-        serde_json::from_str(&fs::read_to_string(self.root.join("launcher-stdin")).unwrap())
-            .unwrap()
+    fn launcher_stdin(&self) -> String {
+        fs::read_to_string(self.root.join("launcher-stdin")).unwrap()
     }
 }
 
@@ -551,17 +550,16 @@ async fn network_dns_mutation_invokes_staff_launcher_with_valid_scoped_capabilit
 
     assert_eq!(response.status(), StatusCode::OK);
     let receipt = body_json(response).await;
-    assert_eq!(receipt["schema"], "caduceus.network.dns.intent.v1");
-    assert_eq!(receipt["receipt"], "fixture-actuator-receipt");
+    assert_eq!(receipt["schema"], "caduceus.network.dns.public_receipt.v1");
+    assert!(receipt.get("receipt").is_none());
     assert!(receipt.get("dropIn").is_none());
     assert!(!receipt.to_string().contains("home.arpa."));
 
-    let launcher_args = fixture.launcher_args();
-    assert_eq!(launcher_args, "");
     assert_eq!(
-        fixture.launcher_stdin(),
-        serde_json::from_str::<serde_json::Value>(payload).unwrap()
+        fixture.launcher_args(),
+        "intent POST /api/dns/unbound/drop-in --metadata-json {\"dropIn\":\"server: local-zone: \\\"home.arpa.\\\" transparent\",\"dryRun\":true}"
     );
+    assert_eq!(fixture.launcher_stdin(), "");
 }
 
 #[tokio::test(flavor = "current_thread")]

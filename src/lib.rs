@@ -254,11 +254,13 @@ where
             let command = format!("network dns {}", rest.join(" "));
             if let Some(read) = network_read::named(&command) {
                 read_command(read)
-            } else {
-                match require_capability("network dns", "/api/dns/unbound/drop-in", rest) {
+            } else if let Some((command, target)) = dns::command_admission(rest) {
+                match require_capability(command, target, rest) {
                     Ok(filtered) => dns::command(&filtered),
                     Err(code) => code,
                 }
+            } else {
+                public_action_not_allowed()
             }
         }
         [domain, verb] if domain == "time" && verb == "state" => {
@@ -621,6 +623,9 @@ fn print_help() {
     println!("  caduceus network status");
     println!("  caduceus network dhcp status|leases|reservations list|boundary show");
     println!("  caduceus network dns status|read");
+    println!("  caduceus network dns intent POST /api/dns/unbound/drop-in --metadata-json <json> [--capability TOKEN]");
+    println!("  caduceus network dns device-name <create|remove> --hostname <name> --ip <ip> [--capability TOKEN]");
+    println!("  caduceus network dns alias <create|remove> --label <label> --hostname <name> [--capability TOKEN]");
     println!("  caduceus network device list");
     println!("  caduceus network device claim --mac <mac> [--ip <ip>|--auto-ip] --hostname <name>");
     println!("  caduceus service restart coronatio");
