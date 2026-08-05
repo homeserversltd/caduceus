@@ -1,9 +1,9 @@
 use serde_json::{json, Value};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
-use crate::bands::{actions, dhcp, dns};
+use crate::bands::{dhcp, dns};
 use crate::tools::hyalos;
 
 const PROFILE: &str = include_str!("../../data/staff-actuators/profile.json");
@@ -133,11 +133,6 @@ pub fn intent_json(
     classification: Option<&str>,
     metadata: Option<Value>,
 ) -> Result<Value, String> {
-    if route.starts_with("/api/admin/") {
-        let action = actions::by_legacy(method, route)
-            .ok_or_else(|| "caduceus-action-unmapped".to_string())?;
-        return Ok(actions::unavailable_receipt(action, "legacy-staff-intent"));
-    }
     let profile = profile_json()?;
     let actuator_count = profile
         .get("actuators")
@@ -212,6 +207,30 @@ pub fn intent_json(
         "firstMissingSignal": if privileged && actuator_count == 0 { "caduceus-staff-actuator-missing" } else { "none" },
         "nextBoundary": if route.contains("/api/files/upload") { "typed upload actuator execution receipt" } else if privileged { "typed staff actuator execution receipt" } else { "Coronatio readback route" }
     }))
+}
+
+pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, String> {
+    match actuator_id {
+        "network-dhcp" => dhcp::intent_json("POST", "/api/dhcp/reservations", metadata),
+        "file-ingress" => execute_file_ingress(metadata),
+        "upload-force-permissions" => execute_force_permissions(metadata),
+        id @ ("backblaze-b2-recover" | "backblaze-forgejo-b2-push" | "backblaze-forgejo-migrate" | "calibre-helper-daemon" | "calibre-watch") => execute_registered_actuator(id, metadata),
+        _ => Err("caduceus-staff-actuator-unmapped".to_string()),
+    }
+}
+
+fn execute_registered_actuator(actuator_id: &str, metadata: Value) -> Result<Value, String> {
+    let profile = profile_json()?;
+    let actuator = profile.get("actuators").and_then(Value::as_array).and_then(|items| items.iter().find(|item| item.get("id").and_then(Value::as_str) == Some(actuator_id))).ok_or_else(|| "caduceus-staff-actuator-unmapped".to_string())?;
+    let launcher = actuator.get("launcher").and_then(Value::as_str).filter(|value| value.starts_with('/') && !value.contains(' ')).ok_or_else(|| "caduceus-staff-launcher-invalid".to_string())?;
+    let input = serde_json::to_vec(&json!({"actuator":actuator_id,"metadata":metadata})).map_err(|_| "caduceus-staff-request-invalid".to_string())?;
+    let mut child = Command::new(launcher).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|_| "caduceus-staff-unavailable".to_string())?;
+    use std::io::Write;
+    child.stdin.take().ok_or_else(|| "caduceus-staff-unavailable".to_string())?.write_all(&input).map_err(|_| "caduceus-staff-unavailable".to_string())?;
+    let output = child.wait_with_output().map_err(|_| "caduceus-staff-unavailable".to_string())?;
+    let receipt: Value = serde_json::from_slice(&output.stdout).map_err(|_| "caduceus-staff-invalid-receipt".to_string())?;
+    if !output.status.success() || receipt.get("ok").and_then(Value::as_bool) == Some(false) { return Err(receipt.get("firstMissingSignal").and_then(Value::as_str).unwrap_or("caduceus-staff-refused").to_string()); }
+    Ok(json!({"schema":"caduceus.staff.named_actuator.v1","ok":true,"accepted":true,"actuatorId":actuator_id,"receiptFamily":actuator.get("receiptFamily"),"receipt":receipt,"mutationPerformed":true,"firstMissingSignal":"none"}))
 }
 
 fn ingress_root() -> PathBuf {
@@ -388,6 +407,14 @@ fn execute_portal_service(metadata: Value) -> Result<Value, String> {
     let systemctl =
         std::env::var("CADUCEUS_SYSTEMCTL_BIN").unwrap_or_else(|_| "systemctl".to_string());
     execute_portal_service_with(metadata, &systemctl)
+}
+
+pub fn restart_registered_service(service: &str) -> Result<Value, String> {
+    execute_portal_service(json!({
+        "service": service,
+        "action": "restart",
+        "systemdService": normalize_systemd_service(service),
+    }))
 }
 
 fn execute_portal_service_with(metadata: Value, systemctl: &str) -> Result<Value, String> {

@@ -3,7 +3,7 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    actions, cert, child_device, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos,
+    cert, child_device, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos,
     identity, legacy_sbin, local_ai, network, network_identity, network_read, pjlink, profile,
     profile_module, receipts, serve, source_map, staff, sync, time, update,
 };
@@ -204,9 +204,6 @@ where
             }
         }
         [domain] if domain == "serve" => serve::run(),
-        [domain, verb, target] if domain == "service" && verb == "restart" => {
-            actions::command(&vec![domain.clone(), verb.clone(), target.clone()])
-        }
         [domain, rest @ ..] if domain == "hyalos" => hyalos::command(rest),
         [domain, verb] if domain == "legacy-sbin" && verb == "list" => legacy_sbin::list(),
         [domain, verb] if domain == "homeserver-sbin" && verb == "list" => homeserver_sbin::list(),
