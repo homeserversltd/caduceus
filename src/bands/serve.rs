@@ -578,6 +578,15 @@ fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Js
         | "/api/v1/keyman/update-key"
         | "/api/v1/keyman/admin-password"
         | "/api/v1/keyman/key-status" => Ok("keyman-doors"),
+        "/api/admin/ssh/status"
+        | "/api/admin/ssh/toggle"
+        | "/api/admin/ssh/service/status"
+        | "/api/admin/ssh/service"
+        | "/api/admin/samba/status"
+        | "/api/admin/samba/service"
+        | "/api/admin/system/restart"
+        | "/api/admin/system/shutdown"
+        | "/api/admin/services/hard-reset" => Ok("service-control-doors"),
         _ => Err(api_error_signal("staff intent", "caduceus-staff-actuator-unmapped")),
     }
 }
@@ -618,6 +627,33 @@ async fn keyman_staff_actuator_route(
         .ok_or_else(|| api_error_signal("staff intent", "caduceus-keyman-request-invalid"))?;
     if object.contains_key("action") {
         return Err(api_error_signal("staff intent", "caduceus-keyman-action-client-supplied"));
+    }
+    object.insert("action".to_string(), Value::String(action.to_string()));
+    named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
+}
+
+async fn service_control_staff_actuator_route(
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Json(mut metadata): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let action = match uri.path() {
+        "/api/admin/ssh/status" => "ssh-password-authentication-status",
+        "/api/admin/ssh/toggle" => "ssh-password-authentication-toggle",
+        "/api/admin/ssh/service/status" => "ssh-service-status",
+        "/api/admin/ssh/service" => "ssh-service-toggle",
+        "/api/admin/samba/status" => "samba-service-status",
+        "/api/admin/samba/service" => "samba-service-toggle",
+        "/api/admin/system/restart" => "system-restart",
+        "/api/admin/system/shutdown" => "system-shutdown",
+        "/api/admin/services/hard-reset" => "website-hard-reset",
+        _ => return Err(api_error_signal("staff intent", "caduceus-service-route-invalid")),
+    };
+    let object = metadata
+        .as_object_mut()
+        .ok_or_else(|| api_error_signal("staff intent", "caduceus-service-request-invalid"))?;
+    if object.contains_key("action") {
+        return Err(api_error_signal("staff intent", "caduceus-service-action-client-supplied"));
     }
     object.insert("action".to_string(), Value::String(action.to_string()));
     named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
@@ -2062,6 +2098,15 @@ pub fn router() -> Router {
         .route("/api/v1/keyman/update-key", post(keyman_staff_actuator_route))
         .route("/api/v1/keyman/admin-password", post(keyman_staff_actuator_route))
         .route("/api/v1/keyman/key-status", post(keyman_staff_actuator_route))
+        .route("/api/admin/ssh/status", post(service_control_staff_actuator_route))
+        .route("/api/admin/ssh/toggle", post(service_control_staff_actuator_route))
+        .route("/api/admin/ssh/service/status", post(service_control_staff_actuator_route))
+        .route("/api/admin/ssh/service", post(service_control_staff_actuator_route))
+        .route("/api/admin/samba/status", post(service_control_staff_actuator_route))
+        .route("/api/admin/samba/service", post(service_control_staff_actuator_route))
+        .route("/api/admin/system/restart", post(service_control_staff_actuator_route))
+        .route("/api/admin/system/shutdown", post(service_control_staff_actuator_route))
+        .route("/api/admin/services/hard-reset", post(service_control_staff_actuator_route))
         .route("/api/v1/hyalos/reflect", post(hyalos_reflect_route))
         .route("/api/v1/hyalos/append", post(hyalos_append_route))
         .route("/api/v1/hyalos/tail", get(hyalos_tail_route))
