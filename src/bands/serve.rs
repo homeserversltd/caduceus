@@ -1,7 +1,7 @@
 use crate::bands::{
     cert, config, disk, dns, drive_test, firewall, gui, health, homeserver_sbin, hyalos, identity,
     legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read, pjlink, profile,
-    profile_module, receipts, source_map, staff, sync, tailscale, time, update, vpn,
+    profile_module, receipts, source_map, speedtest, staff, sync, tailscale, time, update, vpn,
 };
 use crate::tools::{attendance, policy};
 use axum::{
@@ -622,6 +622,7 @@ async fn hyalos_tail_route(
 fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Json<ApiErrorBody>)> {
     match route {
         "/api/v1/network/dhcp" => Ok("network-dhcp"),
+        "/api/v1/network/speedtest" => Ok("network-speedtest"),
         "/api/v1/file/ingress" => Ok("file-ingress"),
         "/api/v1/upload/force-permissions" => Ok("upload-force-permissions"),
         "/api/v1/backblaze/recover" => Ok("backblaze-b2-recover"),
@@ -656,7 +657,11 @@ async fn named_staff_actuator_route(
             if let Err(reason) = capability_admits("staff intent", uri.path(), capability_from_headers(&headers)) {
                 return Err(api_error_signal("staff intent", &reason));
             }
-            staff::named_actuator_json(named_actuator_for_route(uri.path())?, metadata)
+            let actuator_id = named_actuator_for_route(uri.path())?;
+            match actuator_id {
+                "network-speedtest" => speedtest::run_json(),
+                _ => staff::named_actuator_json(actuator_id, metadata),
+            }
                 .map(|value| (mutation_status(&value), Json(value)))
                 .map_err(|reason| api_error_signal("staff intent", &reason))
         }
@@ -2205,6 +2210,7 @@ pub fn router() -> Router {
         .route("/api/v1/staff/status", get(staff_status_route))
         .route("/api/v1/staff/actuators", get(staff_actuators_route))
         .route("/api/v1/network/dhcp", post(named_staff_actuator_route))
+        .route("/api/v1/network/speedtest", post(named_staff_actuator_route))
         .route("/api/v1/file/ingress", post(named_staff_actuator_route))
         .route("/api/v1/upload/force-permissions", post(named_staff_actuator_route))
         .route("/api/v1/backblaze/recover", post(named_staff_actuator_route))
