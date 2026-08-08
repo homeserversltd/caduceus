@@ -9,6 +9,8 @@ commands:
 - identity show
 - profile show
 - health
+- logs read
+- logs clear
 - legacy-sbin list
 - legacy-sbin show
 - network status

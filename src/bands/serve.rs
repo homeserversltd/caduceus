@@ -1,6 +1,6 @@
 use crate::bands::{
     cert, config, disk, dns, drive_test, firewall, gui, health, homeserver_sbin, hyalos, identity,
-    legacy_sbin, local_ai, network, network_identity, network_notes, network_read, pjlink, profile,
+    legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read, pjlink, profile,
     profile_module, receipts, source_map, staff, sync, tailscale, time, update, vpn,
 };
 use crate::tools::{attendance, policy};
@@ -414,6 +414,25 @@ async fn health_api_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBod
 
 async fn disk_census_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("disk census", disk::census_json).await
+}
+
+async fn appliance_logs_read_route(Query(query): Query<HashMap<String, String>>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "logs read";
+    match policy::allows_command(COMMAND) {
+        Ok(true) => {
+            let offset = query.get("offset").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
+            let limit = query.get("limit").and_then(|value| value.parse::<usize>().ok()).unwrap_or(logs::DEFAULT_LIMIT).min(logs::MAX_LIMIT);
+            let receipt = logs::read_json(offset, limit);
+            let status = if logs::is_missing(&receipt) { StatusCode::NOT_FOUND } else if logs::is_failure(&receipt) { StatusCode::SERVICE_UNAVAILABLE } else { StatusCode::OK };
+            Ok((status, Json(receipt)))
+        }
+        Ok(false) => Err(api_error(COMMAND)),
+        Err(_) => Err(api_error_signal(COMMAND, "caduceus-profile-missing")),
+    }
+}
+
+async fn appliance_logs_clear_route(headers: HeaderMap) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    gated_mutation("logs clear", logs::LOG_PATH, capability_from_headers(&headers), logs::clear_json).await
 }
 
 #[derive(Deserialize)]
@@ -2073,6 +2092,8 @@ pub fn router() -> Router {
         )
         .route("/api/v1/health", get(health_api_route))
         .route("/api/v1/disk/census", get(disk_census_route))
+        .route("/api/admin/logs/homeserver", get(appliance_logs_read_route))
+        .route("/api/admin/logs/homeserver/clear", post(appliance_logs_clear_route))
         .route("/api/admin/hard-drive-test/progress", get(hard_drive_test_progress_route))
         .route("/api/admin/hard-drive-test/results", get(hard_drive_test_results_route))
         .route("/api/admin/hard-drive-test/start", post(hard_drive_test_start_route))
