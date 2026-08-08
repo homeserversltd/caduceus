@@ -21,6 +21,22 @@ def _whole_disk(v:Any)->str:
  if not re.fullmatch(r"(?:sd[a-z]+|nvme\d+n\d+)",d[5:]): raise Refusal("caduceus-disk-whole-disk-required")
  return d
 def _partition(d:str)->str: return f"{d}p1" if re.fullmatch(r"(?:nvme\d+n\d+|mmcblk\d+)",d[5:]) else f"{d}1"
+_NAS_PARTITION=re.compile(r"(?:sd[a-z]+\d+|nvme\d+n\d+p\d+|mmcblk\d+p\d+)$")
+def _nas_target(v:Any)->tuple[str,str,str]:
+ d=_device(v); n=d[5:]
+ if re.fullmatch(r"(?:sd[a-z]+|nvme\d+n\d+)",n): return d,d,"1"
+ if not _NAS_PARTITION.fullmatch(n): raise Refusal("caduceus-disk-nas-device-invalid")
+ if n.startswith("nvme") or n.startswith("mmcblk"): disk=re.sub(r"p\d+$","",d)
+ else: disk=re.sub(r"\d+$","",d)
+ part=n[len(disk)-5:] if disk.startswith("/dev/") else ""
+ if part.startswith("p"): part=part[1:]
+ if not part.isdigit(): raise Refusal("caduceus-disk-nas-device-invalid")
+ return d,disk,part
+def assign_nas(p:dict[str,Any],planned:bool,role:str,label:str)->dict[str,Any]:
+ device,disk,partition=_nas_target(p.get("device")); cmd=_sudo([SGDISK,"-c",f"{partition}:{label}",disk]); trigger=_sudo([UDEVADM,"trigger","--subsystem-match=block","--action=change"]); cmds=[cmd,trigger]
+ if planned:return _receipt(role,True,cmds,device=device,disk=disk,partition=partition,partlabel=label,roleBinding="PARTLABEL")
+ if _run(cmd).returncode!=0 or _run(trigger).returncode!=0: raise Refusal("caduceus-disk-nas-role-refused")
+ return _receipt(role,False,cmds,device=device,disk=disk,partition=partition,partlabel=label,roleBinding="PARTLABEL")
 def _mapper(v:Any)->str:
  if not isinstance(v,str) or not _MAPPER.fullmatch(v): raise Refusal("caduceus-disk-mapper-invalid")
  return v
@@ -133,6 +149,9 @@ def dispatch(x:dict[str,Any])->dict[str,Any]:
  if a=="unlock": return unlock(p,planned)
  if a=="mount": return mount(p,planned)
  if a=="unmount": return unmount(p,planned)
+ if a=="assign-primary-nas": return assign_nas(p,planned,a,"homeserver-primary-nas")
+ if a=="assign-nas-backup": return assign_nas(p,planned,a,"homeserver-backup-nas")
+ if a=="unassign-nas": return assign_nas(p,planned,a,"data")
  raise Refusal("caduceus-disk-action-invalid")
 def main(argv:Sequence[str]|None=None)->int:
  del argv
