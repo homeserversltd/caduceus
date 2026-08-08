@@ -3,7 +3,7 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    cert, child_device, config, dhcp, disk, dns, gui, health, help, homeserver_sbin, hyalos,
+    cert, child_device, config, dhcp, disk, dns, drive_test, gui, health, help, homeserver_sbin, hyalos,
     identity, legacy_sbin, local_ai, network, network_identity, network_read, pjlink, profile,
     profile_module, receipts, serve, source_map, staff, sync, time, update,
 };
@@ -46,6 +46,35 @@ where
                 Err(error) => {
                     eprintln!("{error}");
                     1
+                }
+            }
+        }
+        [domain, object, verb] if domain == "disk" && object == "test" && verb == "progress" => {
+            match policy::allows_command("disk test progress") {
+                Ok(true) => drive_test_print(drive_test::progress_json()),
+                Ok(false) => public_action_not_allowed(),
+                Err(error) => { eprintln!("{error}"); 1 }
+            }
+        }
+        [domain, object, verb] if domain == "disk" && object == "test" && verb == "results" => {
+            match policy::allows_command("disk test results") {
+                Ok(true) => drive_test_print(drive_test::results_json()),
+                Ok(false) => public_action_not_allowed(),
+                Err(error) => { eprintln!("{error}"); 1 }
+            }
+        }
+        [domain, object, verb, device, test_type, rest @ ..]
+            if domain == "disk" && object == "test" && verb == "start" => {
+            if rest.iter().any(|arg| arg == "--dry-run") {
+                match policy::allows_command("disk test start") {
+                    Ok(true) => drive_test_print(drive_test::start_json(device, test_type, true)),
+                    Ok(false) => public_action_not_allowed(),
+                    Err(error) => { eprintln!("{error}"); 1 }
+                }
+            } else {
+                match require_capability("disk test start", device, rest) {
+                    Ok(_) => drive_test_print(drive_test::start_json(device, test_type, false)),
+                    Err(code) => code,
                 }
             }
         }
@@ -422,6 +451,13 @@ fn public_action_not_allowed() -> i32 {
     2
 }
 
+fn drive_test_print(result: Result<serde_json::Value, String>) -> i32 {
+    match result {
+        Ok(value) => { println!("{value}"); 0 }
+        Err(error) => { eprintln!("{error}"); 1 }
+    }
+}
+
 fn read_command(read: &network_read::ReadCommand) -> i32 {
     match policy::allows_command(read.command) {
         Ok(true) => network_read::command(read),
@@ -624,6 +660,9 @@ fn print_help() {
     println!("  caduceus profile show");
     println!("  caduceus profile sources reseed [--capability TOKEN]");
     println!("  caduceus health");
+    println!("  caduceus disk test progress");
+    println!("  caduceus disk test results");
+    println!("  caduceus disk test start <device> <quick|full|ultimate> [--dry-run] [--capability TOKEN]");
     println!("  caduceus cert status");
     println!("  caduceus cert refresh-root");
     println!("  caduceus cert ensure-root [--dry-run] [--renewal-authority AUTHORITY]");
