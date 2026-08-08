@@ -651,7 +651,9 @@ fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Js
         | "/api/admin/diskman/wipe"
         | "/api/admin/diskman/assign-primary-nas"
         | "/api/admin/diskman/assign-nas-backup"
-        | "/api/admin/diskman/unassign-nas" => Ok("disk-doors"),
+        | "/api/admin/diskman/unassign-nas"
+        | "/api/admin/diskman/setup-nas"
+        | "/api/admin/diskman/import-to-nas" => Ok("disk-doors"),
         _ => Err(api_error_signal("staff intent", "caduceus-staff-actuator-unmapped")),
     }
 }
@@ -716,6 +718,8 @@ async fn disk_staff_actuator_route(
         "/api/admin/diskman/assign-primary-nas" => "assign-primary-nas",
         "/api/admin/diskman/assign-nas-backup" => "assign-nas-backup",
         "/api/admin/diskman/unassign-nas" => "unassign-nas",
+        "/api/admin/diskman/setup-nas" => "setup-nas",
+        "/api/admin/diskman/import-to-nas" => "import-to-nas",
         _ => return Err(api_error_signal("staff intent", "caduceus-disk-route-invalid")),
     };
     let object = metadata
@@ -725,7 +729,29 @@ async fn disk_staff_actuator_route(
         return Err(api_error_signal("staff intent", "caduceus-disk-action-client-supplied"));
     }
     object.insert("action".to_string(), Value::String(action.to_string()));
-    if matches!(action, "format" | "encrypt" | "wipe" | "assign-primary-nas" | "assign-nas-backup" | "unassign-nas") { let target=object.get("device").and_then(Value::as_str).ok_or_else(|| api_error_signal("staff intent","caduceus-disk-device-invalid"))?; disk::mutation_target_admitted(target).map_err(|signal| api_error_signal("staff intent", &signal))?; }
+    let target_key = if action == "import-to-nas" {
+        "sourceDevice"
+    } else {
+        "device"
+    };
+    if matches!(
+        action,
+        "format"
+            | "encrypt"
+            | "wipe"
+            | "assign-primary-nas"
+            | "assign-nas-backup"
+            | "unassign-nas"
+            | "setup-nas"
+            | "import-to-nas"
+    ) {
+        let target = object
+            .get(target_key)
+            .and_then(Value::as_str)
+            .ok_or_else(|| api_error_signal("staff intent", "caduceus-disk-device-invalid"))?;
+        disk::mutation_target_admitted(target)
+            .map_err(|signal| api_error_signal("staff intent", &signal))?;
+    }
     named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
 }
 
@@ -2277,6 +2303,14 @@ pub fn router() -> Router {
         .route("/api/admin/diskman/assign-primary-nas", post(disk_staff_actuator_route))
         .route("/api/admin/diskman/assign-nas-backup", post(disk_staff_actuator_route))
         .route("/api/admin/diskman/unassign-nas", post(disk_staff_actuator_route))
+        .route(
+            "/api/admin/diskman/setup-nas",
+            post(disk_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/diskman/import-to-nas",
+            post(disk_staff_actuator_route),
+        )
         .route("/api/v1/hyalos/reflect", post(hyalos_reflect_route))
         .route("/api/v1/hyalos/append", post(hyalos_append_route))
         .route("/api/v1/hyalos/tail", get(hyalos_tail_route))

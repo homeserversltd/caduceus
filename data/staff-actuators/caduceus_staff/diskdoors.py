@@ -5,6 +5,7 @@ from typing import Any, Sequence
 SCHEMA="caduceus.disk.door.v1"; MAX_INPUT_BYTES=64*1024
 EXPORT_NAS="/vault/scripts/exportNAS.sh"; MOUNT_DRIVE="/vault/scripts/mountDrive.sh"; UNMOUNT_DRIVE="/vault/scripts/unmountDrive.sh"
 CRYPTSETUP="/usr/sbin/cryptsetup"; FINDMNT="/usr/bin/findmnt"; BASH="/usr/bin/bash"; TEST="/usr/bin/test"
+SETUP_NAS="/usr/local/sbin/setupNAS.sh"; DU="/usr/bin/du"; MKDIR="/usr/bin/mkdir"; CHOWN="/usr/bin/chown"; RSYNC="/usr/bin/rsync"
 WIPEFS="/usr/sbin/wipefs"; SGDISK="/usr/sbin/sgdisk"; UDEVADM="/usr/sbin/udevadm"; MKFS_XFS="/usr/sbin/mkfs.xfs"
 _COMPONENT=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"); _MAPPER=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}_crypt$"); _FORBIDDEN=re.compile(r"(?:ssh|lan\.key|authorized_keys)",re.I)
 class Refusal(ValueError): pass
@@ -139,6 +140,21 @@ def wipe_disk(p:dict[str,Any],planned:bool)->dict[str,Any]:
  if _run(cmds[0]).returncode!=0: raise Refusal("caduceus-disk-wipe-refused")
  return _receipt("wipe",False,cmds,device=d,target=d)
 
+def setup_nas(p:dict[str,Any],planned:bool)->dict[str,Any]:
+ d=_device(p.get("device")); apps=p.get("apps",[])
+ if not isinstance(apps,list) or any(not isinstance(app,str) or not _COMPONENT.fullmatch(app) for app in apps): raise Refusal("caduceus-disk-nas-apps-invalid")
+ cmd=_sudo([BASH,SETUP_NAS,*apps])
+ if planned:return _receipt("setup-nas",True,[cmd],device=d,apps=apps)
+ if _run(cmd).returncode!=0: raise Refusal("caduceus-disk-nas-setup-refused")
+ return _receipt("setup-nas",False,[cmd],device=d,apps=apps)
+
+def import_to_nas(p:dict[str,Any])->dict[str,Any]:
+ source=_device(p.get("sourceDevice")); destination=_mountpoint(p.get("destination")); temp=_mountpoint(p.get("temporaryMountpoint","/mnt/caduceus-import"))
+ owner=p.get("owner","caduceus"); group=p.get("group","caduceus")
+ if not isinstance(owner,str) or not _COMPONENT.fullmatch(owner) or not isinstance(group,str) or not _COMPONENT.fullmatch(group): raise Refusal("caduceus-disk-nas-owner-invalid")
+ mount=_sudo([BASH,MOUNT_DRIVE,"mount",source,temp]); estimate=_sudo([DU,"-sx","--bytes",temp]); mkdir=_sudo([MKDIR,"-p",destination]); chown=_sudo([CHOWN,"-R",f"{owner}:{group}",destination]); rsync=_sudo([RSYNC,"-a",f"{temp}/",f"{destination}/"]); unmount=_sudo([BASH,UNMOUNT_DRIVE,"unmount",source,temp]); cmds=[mount,estimate,mkdir,chown,rsync,unmount]
+ return _receipt("import-to-nas",True,cmds,sourceDevice=source,temporaryMountpoint=temp,destination=destination,owner=owner,group=group,estimatedBytes=None,cleanupRequired=True)
+
 def dispatch(x:dict[str,Any])->dict[str,Any]:
  if set(x)-{"actuator","metadata"} or not isinstance(x.get("metadata"),dict): raise Refusal("caduceus-disk-request-invalid")
  p=x["metadata"]; _forbid(p); a=p.get("action"); planned=p.get("dryRun",p.get("planned",False))
@@ -152,6 +168,8 @@ def dispatch(x:dict[str,Any])->dict[str,Any]:
  if a=="assign-primary-nas": return assign_nas(p,planned,a,"homeserver-primary-nas")
  if a=="assign-nas-backup": return assign_nas(p,planned,a,"homeserver-backup-nas")
  if a=="unassign-nas": return assign_nas(p,planned,a,"data")
+ if a=="setup-nas": return setup_nas(p,planned)
+ if a=="import-to-nas": return import_to_nas(p)
  raise Refusal("caduceus-disk-action-invalid")
 def main(argv:Sequence[str]|None=None)->int:
  del argv
