@@ -8,6 +8,7 @@ pub fn show() -> i32 {
     println!("  update-check      caduceus update status");
     println!("  update-status     caduceus receipts latest");
     println!("  health            caduceus health");
+    println!("  disk-census       caduceus disk census");
     println!();
     println!("Caduceus routes to Harmonia; Harmonia converges profile state.");
     println!("Fulcrum/Azoth/Kether remain on the land — not on the appliance.");
