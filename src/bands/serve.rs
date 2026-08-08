@@ -577,7 +577,16 @@ fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Js
         "/api/v1/keyman/create-key"
         | "/api/v1/keyman/update-key"
         | "/api/v1/keyman/admin-password"
-        | "/api/v1/keyman/key-status" => Ok("keyman-doors"),
+        | "/api/v1/keyman/key-status"
+        | "/api/admin/ssh/status"
+        | "/api/admin/ssh/toggle"
+        | "/api/admin/ssh/service/status"
+        | "/api/admin/ssh/service"
+        | "/api/admin/samba/status"
+        | "/api/admin/samba/service"
+        | "/api/admin/system/restart"
+        | "/api/admin/system/shutdown"
+        | "/api/admin/services/hard-reset" => Ok("keyman-doors"),
         _ => Err(api_error_signal("staff intent", "caduceus-staff-actuator-unmapped")),
     }
 }
@@ -611,6 +620,15 @@ async fn keyman_staff_actuator_route(
         "/api/v1/keyman/update-key" => "update-key",
         "/api/v1/keyman/admin-password" => "admin-password",
         "/api/v1/keyman/key-status" => "key-status",
+        "/api/admin/ssh/status" => "ssh-password-authentication-status",
+        "/api/admin/ssh/toggle" => "ssh-password-authentication-toggle",
+        "/api/admin/ssh/service/status" => "ssh-service-status",
+        "/api/admin/ssh/service" => "ssh-service-toggle",
+        "/api/admin/samba/status" => "samba-service-status",
+        "/api/admin/samba/service" => "samba-service-toggle",
+        "/api/admin/system/restart" => "system-restart",
+        "/api/admin/system/shutdown" => "system-shutdown",
+        "/api/admin/services/hard-reset" => "website-hard-reset",
         _ => return Err(api_error_signal("staff intent", "caduceus-keyman-route-invalid")),
     };
     let object = metadata
@@ -2062,6 +2080,15 @@ pub fn router() -> Router {
         .route("/api/v1/keyman/update-key", post(keyman_staff_actuator_route))
         .route("/api/v1/keyman/admin-password", post(keyman_staff_actuator_route))
         .route("/api/v1/keyman/key-status", post(keyman_staff_actuator_route))
+        .route("/api/admin/ssh/status", post(keyman_staff_actuator_route))
+        .route("/api/admin/ssh/toggle", post(keyman_staff_actuator_route))
+        .route("/api/admin/ssh/service/status", post(keyman_staff_actuator_route))
+        .route("/api/admin/ssh/service", post(keyman_staff_actuator_route))
+        .route("/api/admin/samba/status", post(keyman_staff_actuator_route))
+        .route("/api/admin/samba/service", post(keyman_staff_actuator_route))
+        .route("/api/admin/system/restart", post(keyman_staff_actuator_route))
+        .route("/api/admin/system/shutdown", post(keyman_staff_actuator_route))
+        .route("/api/admin/services/hard-reset", post(keyman_staff_actuator_route))
         .route("/api/v1/hyalos/reflect", post(hyalos_reflect_route))
         .route("/api/v1/hyalos/append", post(hyalos_append_route))
         .route("/api/v1/hyalos/tail", get(hyalos_tail_route))
