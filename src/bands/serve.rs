@@ -1,5 +1,5 @@
 use crate::bands::{
-    cert, config, dns, firewall, gui, health, homeserver_sbin, hyalos, identity,
+    cert, config, disk, dns, firewall, gui, health, homeserver_sbin, hyalos, identity,
     legacy_sbin, local_ai, network, network_identity, network_notes, network_read, pjlink, profile,
     profile_module, receipts, source_map, staff, sync, time, update,
 };
@@ -410,6 +410,10 @@ async fn profile_sources_reseed_route(
 
 async fn health_api_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("health", health::read_json).await
+}
+
+async fn disk_census_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("disk census", disk::census_json).await
 }
 
 async fn legacy_sbin_list_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -2028,6 +2032,7 @@ pub fn router() -> Router {
             post(profile_sources_reseed_route),
         )
         .route("/api/v1/health", get(health_api_route))
+        .route("/api/v1/disk/census", get(disk_census_route))
         .route("/api/v1/legacy-sbin", get(legacy_sbin_list_route))
         .route("/api/v1/legacy-sbin/show", get(legacy_sbin_show_route))
         .route("/api/v1/homeserver-sbin", get(homeserver_sbin_list_route))

@@ -3,7 +3,7 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    cert, child_device, config, dhcp, dns, gui, health, help, homeserver_sbin, hyalos,
+    cert, child_device, config, dhcp, disk, dns, gui, health, help, homeserver_sbin, hyalos,
     identity, legacy_sbin, local_ai, network, network_identity, network_read, pjlink, profile,
     profile_module, receipts, serve, source_map, staff, sync, time, update,
 };
@@ -39,6 +39,16 @@ where
             }
         }
         [domain] if domain == "health" => health::show(),
+        [domain, verb] if domain == "disk" && verb == "census" => {
+            match policy::allows_command("disk census") {
+                Ok(true) => disk::show(),
+                Ok(false) => public_action_not_allowed(),
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
+            }
+        }
         [domain, verb] if domain == "cert" && verb == "status" => {
             cert_command("cert status", "status", &[], cert::status)
         }

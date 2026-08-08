@@ -2,6 +2,7 @@ pub mod cert;
 pub mod child_device;
 pub mod config;
 pub mod dhcp;
+pub mod disk;
 pub mod dns;
 pub mod firewall;
 pub mod gui;

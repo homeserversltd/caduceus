@@ -3,6 +3,7 @@
   "children": [
     "cert",
     "config",
+    "disk",
     "health",
     "homeserver-sbin",
     "hyalos",
