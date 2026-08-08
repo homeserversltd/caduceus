@@ -1,7 +1,7 @@
 use crate::bands::{
     cert, config, disk, dns, firewall, gui, health, homeserver_sbin, hyalos, identity,
     legacy_sbin, local_ai, network, network_identity, network_notes, network_read, pjlink, profile,
-    profile_module, receipts, source_map, staff, sync, time, update,
+    profile_module, receipts, source_map, staff, sync, tailscale, time, update, vpn,
 };
 use crate::tools::{attendance, policy};
 use axum::{
@@ -798,6 +798,14 @@ async fn update_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiError
 
 async fn network_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("network status", network::status_json).await
+}
+
+async fn tailscale_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("tailscale status", tailscale::status_json).await
+}
+
+async fn vpn_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("vpn status", vpn::status_json).await
 }
 
 async fn network_notes_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -2047,6 +2055,8 @@ pub fn router() -> Router {
         .route("/api/v1/config/patch", post(config_patch_route))
         .route("/api/v1/update/status", get(update_status_route))
         .route("/api/v1/network/status", get(network_status_route))
+        .route("/api/v1/tailscale/status", get(tailscale_status_route))
+        .route("/api/v1/vpn/status", get(vpn_status_route))
         .route(
             "/api/v1/network/notes",
             get(network_notes_read_route).put(network_notes_write_route),

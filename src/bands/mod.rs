@@ -25,5 +25,7 @@ pub mod serve;
 pub mod source_map;
 pub mod staff;
 pub mod sync;
+pub mod tailscale;
 pub mod time;
 pub mod update;
+pub mod vpn;
