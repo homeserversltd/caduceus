@@ -37,6 +37,24 @@
       "pythonModule": "caduceus_staff.source_map"
     },
     {
+      "id": "keyman-doors",
+      "family": "keyman",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "/vault/keyman/newkey.sh",
+        "/vault/scripts/exportNAS.sh",
+        "/vault/scripts/exportServiceSuite.sh",
+        "/vault/keyman/change_service_suite_key.sh"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-keyman",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/keyman.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.keyman.door.v1",
+      "conversionStatus": "sbin-caller-admitted",
+      "notes": "Thin redacting caller for the standing Vault Keyman and LUKS scripts; it never reads or writes SSH, lan.key, or authorized_keys material.",
+      "pythonModule": "caduceus_staff.keyman"
+    },
+    {
       "id": "network-dhcp",
       "family": "network",
       "actuatorClass": "staff-python",
