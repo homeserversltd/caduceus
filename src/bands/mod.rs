@@ -3,6 +3,7 @@ pub mod child_device;
 pub mod config;
 pub mod dhcp;
 pub mod disk;
+pub mod speedtest;
 pub mod drive_test;
 pub mod dns;
 pub mod firewall;

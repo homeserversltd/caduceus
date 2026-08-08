@@ -19,6 +19,7 @@ commands:
 - network notes
 - network notes write
 - network dhcp status
+- network speedtest
 - network dhcp leases
 - network dhcp reservations list
 - network dhcp boundary show
