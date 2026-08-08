@@ -68,6 +68,19 @@
       "pythonModule": "caduceus_staff.diskdoors"
     },
     {
+      "id": "wake-on-lan",
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-wake-on-lan",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/wake_on_lan.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.wake-on-lan.door.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Dependency-free wake-on-LAN sender and ICMP reachability probe.",
+      "pythonModule": "caduceus_staff.wake_on_lan"
+    },
+    {
       "id": "service-control-doors",
       "family": "services",
       "actuatorClass": "staff-python",
