@@ -58,7 +58,12 @@
       "id": "disk-doors",
       "family": "disk",
       "actuatorClass": "staff-python",
-      "sourceScripts": ["/vault/scripts/exportNAS.sh", "/vault/scripts/mountDrive.sh", "/vault/scripts/unmountDrive.sh", "/usr/local/sbin/setupNAS.sh"],
+      "sourceScripts": [
+        "/vault/scripts/exportNAS.sh",
+        "/vault/scripts/mountDrive.sh",
+        "/vault/scripts/unmountDrive.sh",
+        "/usr/local/sbin/setupNAS.sh"
+      ],
       "launcher": "/usr/local/sbin/caduceus-disk-doors",
       "libraryEntry": "/usr/local/sbin/caduceus_staff/diskdoors.py",
       "dependencies": [],
@@ -665,6 +670,21 @@
       "conversionStatus": "sbin-library-admitted",
       "notes": "Explicit laptop-01 install-and-converge and laptop-02 provisioned-verify variants retain separate stamps and refusal boundaries.",
       "pythonModule": "caduceus_staff.paligenesis_router"
+    },
+    {
+      "id": "nas-sync",
+      "family": "nas-sync",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "/usr/local/sbin/safe-nas-sync.sh"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-nas-sync",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/nas_sync.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.nas.sync.v1",
+      "conversionStatus": "sbin-caller-admitted",
+      "notes": "Dedicated NAS Sync Now and systemd-owned Auto Sync actuator; safe-nas-sync.sh remains sole sync authority.",
+      "pythonModule": "caduceus_staff.nas_sync"
     }
   ]
 }
