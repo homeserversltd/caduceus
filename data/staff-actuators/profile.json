@@ -55,6 +55,19 @@
       "pythonModule": "caduceus_staff.keyman"
     },
     {
+      "id": "service-control-doors",
+      "family": "services",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-service-control",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/servicecontrol.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.service.door.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Owns bounded SSH, Samba, system-power, and delayed website-reset service doors; it never reads or writes Keyman/Vault materials, SSH keys, or authorized_keys.",
+      "pythonModule": "caduceus_staff.servicecontrol"
+    },
+    {
       "id": "network-dhcp",
       "family": "network",
       "actuatorClass": "staff-python",
