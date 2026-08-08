@@ -38,6 +38,7 @@ commands:
 - staff actuators
 - staff intent
 - cert status
+- cert refresh-root
 - cert ensure-root
 - cert issue-leaf
 - cert bundle-export

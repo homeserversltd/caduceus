@@ -4,8 +4,12 @@ use base64::Engine;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::env;
+use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
+
+const LEGACY_CERT_BUNDLE_SCRIPT: &str = "/usr/local/sbin/createCertBundle.sh";
+const LEGACY_CERT_REFRESH_SCRIPT: &str = "/usr/local/sbin/sslKey.sh";
 
 fn command() -> (String, Vec<String>) {
     if let Ok(value) = env::var("CADUCEUS_HOUSE_CA_CMD") {
@@ -239,6 +243,79 @@ pub fn bundle_download_json(platform: &str) -> Result<BundleDownload, String> {
         fingerprint: receipt.fingerprint,
         client_reinstall_required: receipt.client_reinstall_required,
     })
+}
+
+fn legacy_bundle_metadata(
+    platform: &str,
+) -> Result<(&'static str, &'static str, &'static str), String> {
+    match platform {
+        "windows" => Ok((
+            "/tmp/homeserver_certs/homeserver_ca.cer",
+            "homeserver_ca.cer",
+            "application/x-x509-ca-cert",
+        )),
+        "android" | "chromeos" => Ok((
+            "/tmp/homeserver_certs/homeserver_ca.crt",
+            "homeserver_ca.crt",
+            "application/x-x509-ca-cert",
+        )),
+        "linux" | "macos" => Ok((
+            "/tmp/homeserver_certs/homeserver_ca.p12",
+            "homeserver_ca.p12",
+            "application/x-pkcs12",
+        )),
+        _ => Err("caduceus-cert-platform-invalid".into()),
+    }
+}
+
+/// Executes the preserved legacy bundle maker for the Crown compatibility door.
+/// The script owns conversion; Rust only validates the platform and carries bytes.
+pub fn legacy_bundle_download(platform: &str) -> Result<BundleDownload, String> {
+    let (path, filename, mime_type) = legacy_bundle_metadata(platform)?;
+    let output = Command::new("/usr/bin/sudo")
+        .args(["/bin/bash", LEGACY_CERT_BUNDLE_SCRIPT, platform])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|_| "caduceus-cert-bundle-script-unavailable".to_string())?;
+    if !output.status.success() {
+        return Err("caduceus-cert-bundle-script-failed".into());
+    }
+    let bytes = fs::read(path).map_err(|_| "caduceus-cert-bundle-artifact-missing".to_string())?;
+    if bytes.is_empty() {
+        return Err("caduceus-cert-bundle-empty".into());
+    }
+    let _ = fs::remove_file(path);
+    Ok(BundleDownload {
+        bytes,
+        filename: filename.to_string(),
+        mime_type: mime_type.to_string(),
+        fingerprint: String::new(),
+        client_reinstall_required: true,
+    })
+}
+
+/// Executes the preserved root-refresh script. Its successful renewal always
+/// requires clients to reinstall the refreshed certificate bundle.
+pub fn legacy_refresh_root_json() -> Result<Value, String> {
+    let output = Command::new("/usr/bin/sudo")
+        .args(["/bin/bash", LEGACY_CERT_REFRESH_SCRIPT])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|_| "caduceus-cert-refresh-script-unavailable".to_string())?;
+    if !output.status.success() {
+        return Err("caduceus-cert-refresh-script-failed".into());
+    }
+    Ok(json!({
+        "schema": "caduceus.cert.refresh_root.v1",
+        "ok": true,
+        "primitive": "refresh_root",
+        "changed": true,
+        "requiresReinstall": true,
+    }))
 }
 
 pub fn apply_json(

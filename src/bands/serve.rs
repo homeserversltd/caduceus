@@ -1481,6 +1481,48 @@ async fn cert_bundle_download_route(
         .body(Body::from(bundle.bytes))
         .map_err(|_| cert_api_error(command, "caduceus-cert-bundle-response-invalid"))
 }
+async fn legacy_cert_bundle_download_route(
+    Query(query): Query<CertQuery>,
+) -> Result<Response<Body>, (StatusCode, Json<Value>)> {
+    let command = "cert bundle create";
+    match cert_admitted_command(command, &["cert bundle-export"]) {
+        Ok(Some(_)) => {}
+        Ok(None) => return Err(cert_profile_refusal(command, "bundle_export")),
+        Err(_) => return Err(cert_api_error(command, "caduceus-profile-missing")),
+    }
+    let platform = query.platform.as_deref().unwrap_or("linux");
+    let bundle = cert::legacy_bundle_download(platform).map_err(|signal| {
+        let status = match signal.as_str() {
+            "caduceus-cert-platform-invalid" => StatusCode::BAD_REQUEST,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        cert_value_error(status, command, &signal)
+    })?;
+    let disposition = HeaderValue::from_str(&format!(r#"attachment; filename="{}""#, bundle.filename))
+        .map_err(|_| cert_api_error(command, "caduceus-cert-bundle-filename-invalid"))?;
+    let content_type = HeaderValue::from_str(&bundle.mime_type)
+        .map_err(|_| cert_api_error(command, "caduceus-cert-bundle-mime-invalid"))?;
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, content_type)
+        .header(CONTENT_DISPOSITION, disposition)
+        .body(Body::from(bundle.bytes))
+        .map_err(|_| cert_api_error(command, "caduceus-cert-bundle-response-invalid"))
+}
+
+async fn legacy_cert_refresh_route(
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    cert_mutation_result(
+        "cert refresh-root",
+        "root-ca",
+        "refresh_root",
+        &[],
+        &headers,
+        cert::legacy_refresh_root_json,
+    )
+}
+
 async fn cert_apply_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
@@ -2025,6 +2067,11 @@ pub fn router() -> Router {
             "/api/v1/cert/bundle/download",
             get(cert_bundle_download_route),
         )
+        .route(
+            "/api/admin/download-root-crt",
+            get(legacy_cert_bundle_download_route),
+        )
+        .route("/api/admin/refresh-root-crt", post(legacy_cert_refresh_route))
         .route("/api/v1/cert/apply", post(cert_apply_route))
         .route("/api/v1/cert/apply-nginx", post(cert_apply_route))
         .route(
