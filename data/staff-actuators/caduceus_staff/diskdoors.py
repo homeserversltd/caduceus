@@ -5,6 +5,7 @@ from typing import Any, Sequence
 SCHEMA="caduceus.disk.door.v1"; MAX_INPUT_BYTES=64*1024
 EXPORT_NAS="/vault/scripts/exportNAS.sh"; MOUNT_DRIVE="/vault/scripts/mountDrive.sh"; UNMOUNT_DRIVE="/vault/scripts/unmountDrive.sh"
 CRYPTSETUP="/usr/sbin/cryptsetup"; FINDMNT="/usr/bin/findmnt"; BASH="/usr/bin/bash"; TEST="/usr/bin/test"
+WIPEFS="/usr/sbin/wipefs"; SGDISK="/usr/sbin/sgdisk"; UDEVADM="/usr/sbin/udevadm"; MKFS_XFS="/usr/sbin/mkfs.xfs"
 _COMPONENT=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"); _MAPPER=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}_crypt$"); _FORBIDDEN=re.compile(r"(?:ssh|lan\.key|authorized_keys)",re.I)
 class Refusal(ValueError): pass
 def _sudo(a:Sequence[str])->list[str]: return ["sudo","-n",*a]
@@ -14,6 +15,12 @@ def _fail(signal:str)->dict[str,Any]: return {"schema":SCHEMA,"ok":False,"action
 def _device(v:Any)->str:
  if not isinstance(v,str) or not v.startswith("/dev/") or "\x00" in v or "/" in v[5:] or not _COMPONENT.fullmatch(v[5:]): raise Refusal("caduceus-disk-device-invalid")
  return v
+def _is_partition_name(n:str)->bool: return bool(re.fullmatch(r"(?:[a-z]+\d+|nvme\d+n\d+p\d+|mmcblk\d+p\d+)",n))
+def _whole_disk(v:Any)->str:
+ d=_device(v)
+ if not re.fullmatch(r"(?:sd[a-z]+|nvme\d+n\d+)",d[5:]): raise Refusal("caduceus-disk-whole-disk-required")
+ return d
+def _partition(d:str)->str: return f"{d}p1" if re.fullmatch(r"(?:nvme\d+n\d+|mmcblk\d+)",d[5:]) else f"{d}1"
 def _mapper(v:Any)->str:
  if not isinstance(v,str) or not _MAPPER.fullmatch(v): raise Refusal("caduceus-disk-mapper-invalid")
  return v
@@ -45,9 +52,7 @@ def unlock(p:dict[str,Any],planned:bool)->dict[str,Any]:
  export=_sudo([BASH,EXPORT_NAS]); op=_sudo([CRYPTSETUP,"open",d,mapper]); mr=_mapper_cmd(mapper); cmds=[export,op,mr]
  if planned:return _receipt("unlock",True,cmds,device=d,mapper=mapper,mapperReadback={"path":_mapper_path(mapper),"exists":None,"planned":True})
  r=_run(export); secret=r.stdout.strip() if r.returncode==0 else ""
- if not secret:
-  secret=p.get("manualPassword")
-  if not isinstance(secret,str) or not secret: raise Refusal("caduceus-disk-vault-export-failed")
+ if not secret: raise Refusal("caduceus-disk-vault-export-failed")
  opened=_run(op,secret); readback=_mapper_readback(mapper)
  if opened.returncode!=0: raise Refusal("caduceus-disk-cryptsetup-open-refused")
  if not readback["exists"]: raise Refusal("caduceus-disk-mapper-readback-missing")
@@ -85,10 +90,46 @@ def unmount(p:dict[str,Any],planned:bool)->dict[str,Any]:
  if script.returncode!=0 and (mount_readback["mounted"] or (mapper_readback and mapper_readback["exists"])): raise Refusal("caduceus-disk-unmount-refused")
  return _receipt("unmount",False,cmds,device=d,mountpoint=m,mapper=mapper,mountReadback=mount_readback,mapperReadback=mapper_readback)
 
+def _format_commands(d:str)->list[list[str]]:
+ return [_sudo([WIPEFS,"-a",d]),_sudo([SGDISK,"-o",d]),_sudo([SGDISK,"-n","1:0:0",d]),_sudo([SGDISK,"-t","1:8300",d]),_sudo([UDEVADM,"trigger","--subsystem-match=block","--action=change"]),_sudo([TEST,"-b",_partition(d)]),_sudo([MKFS_XFS,"-f",_partition(d)])]
+def format_disk(p:dict[str,Any],planned:bool)->dict[str,Any]:
+ d=_whole_disk(p.get("device")); cmds=_format_commands(d)
+ if planned:return _receipt("format",True,cmds,device=d,target=_partition(d),partition=_partition(d))
+ for cmd in cmds:
+  if _run(cmd).returncode!=0: raise Refusal("caduceus-disk-format-refused")
+ return _receipt("format",False,cmds,device=d,target=_partition(d),partition=_partition(d))
+def _encrypt_target(v:Any)->tuple[str,list[list[str]],str]:
+ d=_device(v); n=d[5:]
+ if not _is_partition_name(n):
+  target=_partition(d)
+  return target,[_sudo([WIPEFS,"-a",d]),_sudo([SGDISK,"-o",d]),_sudo([SGDISK,"-n","1:0:0",d]),_sudo([SGDISK,"-t","1:8300",d]),_sudo([UDEVADM,"trigger","--subsystem-match=block","--action=change"]),_sudo([TEST,"-b",target])],d
+ return d,[_sudo([WIPEFS,"-a",d])],d
+
+def encrypt_disk(p:dict[str,Any],planned:bool)->dict[str,Any]:
+ target,prep,requested=_encrypt_target(p.get("device")); mapper=_mapper(f"{posixpath.basename(target)}_crypt")
+ export=_sudo([BASH,EXPORT_NAS]); key=["--key-file","-"]; luks=_sudo([CRYPTSETUP,"luksFormat","--type","luks2",*key,target,"-q","--batch-mode"]); op=_sudo([CRYPTSETUP,"open",*key,target,mapper]); mkfs=_sudo([MKFS_XFS,"-f",_mapper_path(mapper)])
+ cmds=prep+[export,luks,op,mkfs,_mapper_cmd(mapper)]
+ if planned:return _receipt("encrypt",True,cmds,device=requested,target=target,mapper=mapper,keyMaterial="redacted",keyInput="stdin",mapperReadback={"path":_mapper_path(mapper),"exists":None,"planned":True})
+ for cmd in prep:
+  if _run(cmd).returncode!=0: raise Refusal("caduceus-disk-encrypt-refused")
+ secret_proc=_run(export); secret=secret_proc.stdout.strip() if secret_proc.returncode==0 else ""
+ if not isinstance(secret,str) or not secret: raise Refusal("caduceus-disk-vault-export-failed")
+ if _run(luks,secret).returncode!=0 or _run(op,secret).returncode!=0 or _run(mkfs).returncode!=0: raise Refusal("caduceus-disk-encrypt-refused")
+ if not _mapper_readback(mapper)["exists"]: raise Refusal("caduceus-disk-mapper-readback-missing")
+ return _receipt("encrypt",False,cmds,device=requested,target=target,mapper=mapper,keyMaterial="redacted",keyInput="stdin",mapperReadback=_mapper_readback(mapper))
+def wipe_disk(p:dict[str,Any],planned:bool)->dict[str,Any]:
+ d=_device(p.get("device")); cmds=[_sudo([WIPEFS,"-a",d])]
+ if planned:return _receipt("wipe",True,cmds,device=d,target=d)
+ if _run(cmds[0]).returncode!=0: raise Refusal("caduceus-disk-wipe-refused")
+ return _receipt("wipe",False,cmds,device=d,target=d)
+
 def dispatch(x:dict[str,Any])->dict[str,Any]:
  if set(x)-{"actuator","metadata"} or not isinstance(x.get("metadata"),dict): raise Refusal("caduceus-disk-request-invalid")
  p=x["metadata"]; _forbid(p); a=p.get("action"); planned=p.get("dryRun",p.get("planned",False))
  if not isinstance(planned,bool): raise Refusal("caduceus-disk-planned-invalid")
+ if a=="format": return format_disk(p,planned)
+ if a=="encrypt": return encrypt_disk(p,planned)
+ if a=="wipe": return wipe_disk(p,planned)
  if a=="unlock": return unlock(p,planned)
  if a=="mount": return mount(p,planned)
  if a=="unmount": return unmount(p,planned)

@@ -64,7 +64,7 @@
       "dependencies": [],
       "receiptFamily": "caduceus.disk.door.v1",
       "conversionStatus": "sbin-caller-admitted",
-      "notes": "Bounded unlock, mount, and unmount doors with redacted plans and authoritative findmnt/cryptsetup readback; never reads or writes SSH, lan.key, or authorized_keys.",
+      "notes": "Bounded format, encrypt, wipe, unlock, mount, and unmount doors with redacted plans and authoritative disk readback; never reads or writes SSH, lan.key, or authorized_keys.",
       "pythonModule": "caduceus_staff.diskdoors"
     },
     {

@@ -212,3 +212,33 @@ fn string<'a>(entry: &'a Value, key: &str) -> Option<&'a str> {
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
 }
+
+
+pub fn mutation_target_admitted(target: &str) -> Result<(), String> {
+    let wanted = target
+        .strip_prefix("/dev/")
+        .filter(|name| {
+            !name.is_empty()
+                && name.len() <= 128
+                && name.as_bytes()[0].is_ascii_alphanumeric()
+                && name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+        })
+        .ok_or_else(|| "caduceus-disk-device-invalid".to_string())?;
+    let census = census_json()?;
+    let admitted = census
+        .get("devices")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|entry| {
+            string(entry, "name") == Some(wanted)
+                || string(entry, "partition") == Some(wanted)
+        });
+    if admitted {
+        Ok(())
+    } else {
+        Err("caduceus-disk-target-census-excluded".to_string())
+    }
+}
