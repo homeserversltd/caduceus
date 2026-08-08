@@ -574,6 +574,10 @@ fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Js
         "/api/v1/backblaze/forgejo/migrate" => Ok("backblaze-forgejo-migrate"),
         "/api/v1/calibre/helper-daemon" => Ok("calibre-helper-daemon"),
         "/api/v1/calibre/watch" => Ok("calibre-watch"),
+        "/api/v1/keyman/create-key"
+        | "/api/v1/keyman/update-key"
+        | "/api/v1/keyman/admin-password"
+        | "/api/v1/keyman/key-status" => Ok("keyman-doors"),
         _ => Err(api_error_signal("staff intent", "caduceus-staff-actuator-unmapped")),
     }
 }
@@ -595,6 +599,28 @@ async fn named_staff_actuator_route(
         Ok(false) => Err(api_error("staff intent")),
         Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
     }
+}
+
+async fn keyman_staff_actuator_route(
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Json(mut metadata): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let action = match uri.path() {
+        "/api/v1/keyman/create-key" => "create-key",
+        "/api/v1/keyman/update-key" => "update-key",
+        "/api/v1/keyman/admin-password" => "admin-password",
+        "/api/v1/keyman/key-status" => "key-status",
+        _ => return Err(api_error_signal("staff intent", "caduceus-keyman-route-invalid")),
+    };
+    let object = metadata
+        .as_object_mut()
+        .ok_or_else(|| api_error_signal("staff intent", "caduceus-keyman-request-invalid"))?;
+    if object.contains_key("action") {
+        return Err(api_error_signal("staff intent", "caduceus-keyman-action-client-supplied"));
+    }
+    object.insert("action".to_string(), Value::String(action.to_string()));
+    named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
 }
 
 #[derive(Deserialize)]
@@ -2032,6 +2058,10 @@ pub fn router() -> Router {
         .route("/api/v1/backblaze/forgejo/migrate", post(named_staff_actuator_route))
         .route("/api/v1/calibre/helper-daemon", post(named_staff_actuator_route))
         .route("/api/v1/calibre/watch", post(named_staff_actuator_route))
+        .route("/api/v1/keyman/create-key", post(keyman_staff_actuator_route))
+        .route("/api/v1/keyman/update-key", post(keyman_staff_actuator_route))
+        .route("/api/v1/keyman/admin-password", post(keyman_staff_actuator_route))
+        .route("/api/v1/keyman/key-status", post(keyman_staff_actuator_route))
         .route("/api/v1/hyalos/reflect", post(hyalos_reflect_route))
         .route("/api/v1/hyalos/append", post(hyalos_append_route))
         .route("/api/v1/hyalos/tail", get(hyalos_tail_route))
