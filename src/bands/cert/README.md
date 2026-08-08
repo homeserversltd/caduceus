@@ -93,6 +93,8 @@ Bind default: `CADUCEUS_BIND=0.0.0.0:8787` (`caduceus serve`).
 | POST | `/api/v1/cert/apply` | yes | no |
 | POST | `/api/v1/cert/trust-install` | no | yes |
 | POST | `/api/v1/cert/portal-admit` | yes | no |
+| GET | `/api/admin/download-root-crt?platform=<platform>` | yes | no |
+| POST | `/api/admin/refresh-root-crt` | yes | no |
 
 POST bodies accept JSON fields such as `identity`, `sans`, `ips`, `platform`,
 `bundle`, `portal`, `lan_ip`, `upstream`, `aliases`, and `dry_run`. Responses
@@ -100,6 +102,15 @@ are JSON receipts with `ok`, `primitive`, `changed`, and `firstMissingSignal`.
 
 Front ends (Arcadia, Coronatio) should call these routes instead of shelling
 OpenSSL or duplicating file paths.
+
+`GET /api/admin/download-root-crt` calls the installed
+`/usr/local/sbin/createCertBundle.sh` and preserves Crown filenames and MIME:
+Windows yields `homeserver_ca.cer` (`application/x-x509-ca-cert`), Android and
+ChromeOS yield `homeserver_ca.crt` (`application/x-x509-ca-cert`), and Linux
+and macOS yield `homeserver_ca.p12` (`application/x-pkcs12`).
+
+`POST /api/admin/refresh-root-crt` calls `/usr/local/sbin/sslKey.sh`; its
+successful receipt carries `requiresReinstall: true`.
 
 ## Storage (defaults)
 

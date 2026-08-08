@@ -42,6 +42,11 @@ where
         [domain, verb] if domain == "cert" && verb == "status" => {
             cert_command("cert status", "status", &[], cert::status)
         }
+        [domain, verb] if domain == "cert" && verb == "refresh-root" => {
+            cert_command("cert refresh-root", "refresh_root", &[], || {
+                cert_print(cert::legacy_refresh_root_json())
+            })
+        }
         [domain, verb, rest @ ..] if domain == "cert" && verb == "ensure-root" => {
             cert_command("cert ensure-root", "ensure_root", &[], || {
                 cert_print(cert::ensure_root_json(
@@ -610,6 +615,7 @@ fn print_help() {
     println!("  caduceus profile sources reseed [--capability TOKEN]");
     println!("  caduceus health");
     println!("  caduceus cert status");
+    println!("  caduceus cert refresh-root");
     println!("  caduceus cert ensure-root [--dry-run] [--renewal-authority AUTHORITY]");
     println!("  caduceus cert issue-leaf [identity] [--sans h1,h2] [--ips a,b] [--dry-run]");
     println!("  caduceus cert bundle-export [platform] [--dry-run]");
