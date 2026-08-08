@@ -645,7 +645,7 @@ fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Js
         | "/api/admin/services/hard-reset" => Ok("service-control-doors"),
         "/api/admin/diskman/unlock"
         | "/api/admin/diskman/mount"
-        | "/api/admin/diskman/unmount" => Ok("disk-doors"),
+        | "/api/admin/diskman/unmount" | "/api/admin/diskman/format" | "/api/admin/diskman/encrypt" | "/api/admin/diskman/wipe" => Ok("disk-doors"),
         _ => Err(api_error_signal("staff intent", "caduceus-staff-actuator-unmapped")),
     }
 }
@@ -704,6 +704,9 @@ async fn disk_staff_actuator_route(
         "/api/admin/diskman/unlock" => "unlock",
         "/api/admin/diskman/mount" => "mount",
         "/api/admin/diskman/unmount" => "unmount",
+        "/api/admin/diskman/format" => "format",
+        "/api/admin/diskman/encrypt" => "encrypt",
+        "/api/admin/diskman/wipe" => "wipe",
         _ => return Err(api_error_signal("staff intent", "caduceus-disk-route-invalid")),
     };
     let object = metadata
@@ -713,6 +716,7 @@ async fn disk_staff_actuator_route(
         return Err(api_error_signal("staff intent", "caduceus-disk-action-client-supplied"));
     }
     object.insert("action".to_string(), Value::String(action.to_string()));
+    if matches!(action, "format" | "encrypt" | "wipe") { let target=object.get("device").and_then(Value::as_str).ok_or_else(|| api_error_signal("staff intent","caduceus-disk-device-invalid"))?; disk::mutation_target_admitted(target).map_err(|signal| api_error_signal("staff intent", &signal))?; }
     named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
 }
 
@@ -2258,6 +2262,9 @@ pub fn router() -> Router {
         .route("/api/admin/diskman/unlock", post(disk_staff_actuator_route))
         .route("/api/admin/diskman/mount", post(disk_staff_actuator_route))
         .route("/api/admin/diskman/unmount", post(disk_staff_actuator_route))
+        .route("/api/admin/diskman/format", post(disk_staff_actuator_route))
+        .route("/api/admin/diskman/encrypt", post(disk_staff_actuator_route))
+        .route("/api/admin/diskman/wipe", post(disk_staff_actuator_route))
         .route("/api/v1/hyalos/reflect", post(hyalos_reflect_route))
         .route("/api/v1/hyalos/append", post(hyalos_append_route))
         .route("/api/v1/hyalos/tail", get(hyalos_tail_route))
