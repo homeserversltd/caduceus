@@ -4,7 +4,7 @@ pub mod tools;
 use crate::tools::policy;
 use bands::{
     cert, child_device, config, dhcp, disk, dns, drive_test, gui, health, help, homeserver_sbin, hyalos,
-    identity, legacy_sbin, local_ai, network, network_identity, network_read, pjlink, profile,
+    identity, legacy_sbin, local_ai, logs, network, network_identity, network_read, pjlink, profile,
     profile_module, receipts, serve, source_map, staff, sync, time, update,
 };
 
@@ -39,6 +39,15 @@ where
             }
         }
         [domain] if domain == "health" => health::show(),
+        [domain, verb, rest @ ..] if domain == "logs" && verb == "read" => match policy::allows_command("logs read") {
+            Ok(true) => logs::show(option_usize(rest, "--offset", 0), option_usize(rest, "--limit", logs::DEFAULT_LIMIT).min(logs::MAX_LIMIT)),
+            Ok(false) => public_action_not_allowed(),
+            Err(error) => { eprintln!("{error}"); 1 }
+        },
+        [domain, verb, rest @ ..] if domain == "logs" && verb == "clear" => match require_capability("logs clear", logs::LOG_PATH, rest) {
+            Ok(_) => logs::clear(),
+            Err(code) => code,
+        },
         [domain, verb] if domain == "disk" && verb == "census" => {
             match policy::allows_command("disk census") {
                 Ok(true) => disk::show(),
@@ -620,6 +629,10 @@ fn option_value<'a>(rest: &'a [String], name: &str) -> Option<&'a str> {
         .map(String::as_str)
 }
 
+fn option_usize(rest: &[String], name: &str, default: usize) -> usize {
+    option_value(rest, name).and_then(|value| value.parse::<usize>().ok()).unwrap_or(default)
+}
+
 fn option_list(rest: &[String], name: &str) -> Vec<String> {
     option_value(rest, name)
         .map(|v| {
@@ -660,6 +673,8 @@ fn print_help() {
     println!("  caduceus profile show");
     println!("  caduceus profile sources reseed [--capability TOKEN]");
     println!("  caduceus health");
+    println!("  caduceus logs read [--offset N] [--limit N]");
+    println!("  caduceus logs clear --capability TOKEN");
     println!("  caduceus disk test progress");
     println!("  caduceus disk test results");
     println!("  caduceus disk test start <device> <quick|full|ultimate> [--dry-run] [--capability TOKEN]");

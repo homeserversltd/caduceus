@@ -14,6 +14,7 @@ pub mod hyalos;
 pub mod identity;
 pub mod legacy_sbin;
 pub mod local_ai;
+pub mod logs;
 pub mod network;
 pub mod network_identity;
 pub mod network_notes;
