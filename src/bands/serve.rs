@@ -17,7 +17,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
@@ -655,6 +655,10 @@ fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Js
         | "/api/admin/diskman/setup-nas"
         | "/api/admin/diskman/import-to-nas" => Ok("disk-doors"),
         "/api/admin/wake-on-lan/send" | "/api/admin/wake-on-lan/probe" => Ok("wake-on-lan"),
+        "/api/admin/diskman/sync-now"
+        | "/api/admin/diskman/sync-schedule"
+        | "/api/admin/diskman/sync-schedule-update"
+        | "/api/admin/diskman/sync-job-status" => Ok("nas-sync"),
         _ => Err(api_error_signal("staff intent", "caduceus-staff-actuator-unmapped")),
     }
 }
@@ -754,6 +758,33 @@ async fn disk_staff_actuator_route(
             .map_err(|signal| api_error_signal("staff intent", &signal))?;
     }
     named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
+}
+
+async fn nas_sync_staff_actuator_route(
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Json(mut metadata): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let action = match uri.path() {
+        "/api/admin/diskman/sync-now" => "sync-now",
+        "/api/admin/diskman/sync-schedule" => "sync-schedule",
+        "/api/admin/diskman/sync-schedule-update" => "sync-schedule-update",
+        "/api/admin/diskman/sync-job-status" => "sync-job-status",
+        _ => return Err(api_error_signal("staff intent", "caduceus-nas-sync-route-invalid")),
+    };
+    let object = metadata.as_object_mut().ok_or_else(|| api_error_signal("staff intent", "caduceus-nas-sync-request-invalid"))?;
+    if object.contains_key("action") {
+        return Err(api_error_signal("staff intent", "caduceus-nas-sync-action-client-supplied"));
+    }
+    object.insert("action".to_string(), Value::String(action.to_string()));
+    named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
+}
+
+async fn nas_sync_schedule_read_route(
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    nas_sync_staff_actuator_route(headers, OriginalUri(uri), Json(json!({}))).await
 }
 
 async fn wake_on_lan_staff_actuator_route(
@@ -2317,6 +2348,10 @@ pub fn router() -> Router {
         .route("/api/admin/services/hard-reset", post(service_control_staff_actuator_route))
         .route("/api/admin/wake-on-lan/send", post(wake_on_lan_staff_actuator_route))
         .route("/api/admin/wake-on-lan/probe", post(wake_on_lan_staff_actuator_route))
+        .route("/api/admin/diskman/sync-now", post(nas_sync_staff_actuator_route))
+        .route("/api/admin/diskman/sync-schedule", get(nas_sync_schedule_read_route))
+        .route("/api/admin/diskman/sync-schedule-update", post(nas_sync_staff_actuator_route))
+        .route("/api/admin/diskman/sync-job-status", post(nas_sync_staff_actuator_route))
         .route("/api/admin/diskman/unlock", post(disk_staff_actuator_route))
         .route("/api/admin/diskman/mount", post(disk_staff_actuator_route))
         .route("/api/admin/diskman/unmount", post(disk_staff_actuator_route))
