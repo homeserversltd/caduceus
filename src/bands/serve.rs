@@ -1,5 +1,5 @@
 use crate::bands::{
-    cert, config, disk, dns, firewall, gui, health, homeserver_sbin, hyalos, identity,
+    cert, config, disk, dns, drive_test, firewall, gui, health, homeserver_sbin, hyalos, identity,
     legacy_sbin, local_ai, network, network_identity, network_notes, network_read, pjlink, profile,
     profile_module, receipts, source_map, staff, sync, tailscale, time, update, vpn,
 };
@@ -414,6 +414,38 @@ async fn health_api_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBod
 
 async fn disk_census_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("disk census", disk::census_json).await
+}
+
+#[derive(Deserialize)]
+struct HardDriveTestStartBody {
+    device: String,
+    test_type: String,
+    #[serde(default, alias = "dryRun")]
+    dry_run: bool,
+}
+
+async fn hard_drive_test_progress_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("disk test progress", drive_test::progress_json).await
+}
+
+async fn hard_drive_test_results_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("disk test results", drive_test::results_json).await
+}
+
+async fn hard_drive_test_start_route(headers: HeaderMap, Json(body): Json<HardDriveTestStartBody>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "disk test start";
+    match policy::allows_command(COMMAND) {
+        Ok(true) => {}
+        Ok(false) => return Err(api_error(COMMAND)),
+        Err(_) => return Err(api_error_signal(COMMAND, "caduceus-profile-missing")),
+    }
+    if !body.dry_run {
+        capability_admits(COMMAND, &body.device, capability_from_headers(&headers))
+            .map_err(|signal| api_error_signal(COMMAND, &signal))?;
+    }
+    drive_test::start_json(&body.device, &body.test_type, body.dry_run)
+        .map(|value| (mutation_status(&value), Json(value)))
+        .map_err(|signal| api_error_signal(COMMAND, &signal))
 }
 
 async fn legacy_sbin_list_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -2041,6 +2073,9 @@ pub fn router() -> Router {
         )
         .route("/api/v1/health", get(health_api_route))
         .route("/api/v1/disk/census", get(disk_census_route))
+        .route("/api/admin/hard-drive-test/progress", get(hard_drive_test_progress_route))
+        .route("/api/admin/hard-drive-test/results", get(hard_drive_test_results_route))
+        .route("/api/admin/hard-drive-test/start", post(hard_drive_test_start_route))
         .route("/api/v1/legacy-sbin", get(legacy_sbin_list_route))
         .route("/api/v1/legacy-sbin/show", get(legacy_sbin_show_route))
         .route("/api/v1/homeserver-sbin", get(homeserver_sbin_list_route))
