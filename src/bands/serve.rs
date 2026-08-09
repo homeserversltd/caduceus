@@ -637,6 +637,12 @@ fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Js
     match route {
         "/api/v1/network/dhcp" => Ok("network-dhcp"),
         "/api/v1/network/speedtest" => Ok("network-speedtest"),
+        "/api/v1/linker/browse"
+        | "/api/v1/linker/deploy"
+        | "/api/v1/linker/delete"
+        | "/api/v1/linker/rename"
+        | "/api/v1/linker/mkdir"
+        | "/api/v1/linker/hardlink-scan" => Ok("linker"),
         "/api/v1/file/ingress" => Ok("file-ingress"),
         "/api/v1/upload/force-permissions" => Ok("upload-force-permissions"),
         "/api/v1/backblaze/recover" => Ok("backblaze-b2-recover"),
@@ -771,6 +777,30 @@ async fn disk_staff_actuator_route(
         disk::mutation_target_admitted(target)
             .map_err(|signal| api_error_signal("staff intent", &signal))?;
     }
+    named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
+}
+
+async fn linker_staff_actuator_route(
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Json(mut metadata): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let operation = match uri.path() {
+        "/api/v1/linker/browse" => "browse",
+        "/api/v1/linker/deploy" => "deploy",
+        "/api/v1/linker/delete" => "delete",
+        "/api/v1/linker/rename" => "rename",
+        "/api/v1/linker/mkdir" => "mkdir",
+        "/api/v1/linker/hardlink-scan" => "hardlink-scan",
+        _ => return Err(api_error_signal("staff intent", "caduceus-linker-route-invalid")),
+    };
+    let object = metadata
+        .as_object_mut()
+        .ok_or_else(|| api_error_signal("staff intent", "caduceus-linker-request-invalid"))?;
+    if object.contains_key("operation") {
+        return Err(api_error_signal("staff intent", "caduceus-linker-operation-client-supplied"));
+    }
+    object.insert("operation".to_string(), Value::String(operation.to_string()));
     named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
 }
 
@@ -2341,6 +2371,12 @@ pub fn router() -> Router {
         .route("/api/v1/staff/actuators", get(staff_actuators_route))
         .route("/api/v1/network/dhcp", post(named_staff_actuator_route))
         .route("/api/v1/network/speedtest", post(named_staff_actuator_route))
+        .route("/api/v1/linker/browse", post(linker_staff_actuator_route))
+        .route("/api/v1/linker/deploy", post(linker_staff_actuator_route))
+        .route("/api/v1/linker/delete", post(linker_staff_actuator_route))
+        .route("/api/v1/linker/rename", post(linker_staff_actuator_route))
+        .route("/api/v1/linker/mkdir", post(linker_staff_actuator_route))
+        .route("/api/v1/linker/hardlink-scan", post(linker_staff_actuator_route))
         .route("/api/v1/file/ingress", post(named_staff_actuator_route))
         .route("/api/v1/upload/force-permissions", post(named_staff_actuator_route))
         .route("/api/v1/backblaze/recover", post(named_staff_actuator_route))
