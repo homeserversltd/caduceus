@@ -547,6 +547,7 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("caduceus-file-ingress-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
+        std::env::set_var("CADUCEUS_ROOT", &root);
         std::env::set_var("CADUCEUS_FILE_INGRESS_ROOT", &root);
         let result = intent_json("POST", "/api/files/upload", Some("file-ingress"), Some(json!({"filename":"proof.txt","destination":"/mnt/nas/test","payload":[104,101,108,108,111]}))).unwrap();
         assert_eq!(result["mutationPerformed"], true);
@@ -601,6 +602,7 @@ mod tests {
             0o775
         );
         std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
+        std::env::remove_var("CADUCEUS_ROOT");
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -617,6 +619,7 @@ mod tests {
         let mut permissions = std::fs::metadata(&destination).unwrap().permissions();
         permissions.set_mode(0o700);
         std::fs::set_permissions(&destination, permissions).unwrap();
+        std::env::set_var("CADUCEUS_ROOT", &root);
         std::env::set_var("CADUCEUS_FILE_INGRESS_ROOT", &root);
 
         let failed = root.join("failed-command");
@@ -647,6 +650,7 @@ mod tests {
         );
 
         std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
+        std::env::remove_var("CADUCEUS_ROOT");
         let _ = std::fs::remove_dir_all(root);
     }
 

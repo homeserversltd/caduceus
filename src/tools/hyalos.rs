@@ -7,7 +7,8 @@ use std::io::Write;
 
 pub const EVENT_SCHEMA: &str = "hyalos.channel.event.v2";
 pub const EVENT_SCHEMA_V1: &str = "hyalos.channel.event.v1";
-const CHANNEL_PATH: &str = "var/log/hyalos/channel.jsonl";
+const CHANNEL_PATH: &str = "var/log/appliance/appliance.log";
+const LEGACY_CHANNEL_PATH: &str = "var/log/hyalos/channel.jsonl";
 
 const LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error", "fatal"];
 
@@ -224,7 +225,27 @@ pub fn append_json(input: Value) -> Result<Value, String> {
     }))
 }
 
+fn migrate_legacy_channel() -> Result<(), String> {
+    let path = config::path(CHANNEL_PATH);
+    let legacy_path = config::path(LEGACY_CHANNEL_PATH);
+    if path
+        .try_exists()
+        .map_err(|err| format!("{}: {err}", path.display()))?
+        || !legacy_path
+            .try_exists()
+            .map_err(|err| format!("{}: {err}", legacy_path.display()))?
+    {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
+    }
+    fs::rename(&legacy_path, &path)
+        .map_err(|err| format!("{} -> {}: {err}", legacy_path.display(), path.display()))
+}
+
 fn append(event: &ChannelEvent) -> Result<(), String> {
+    migrate_legacy_channel()?;
     let path = config::path(CHANNEL_PATH);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
