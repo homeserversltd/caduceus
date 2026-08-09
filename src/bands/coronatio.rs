@@ -7,7 +7,6 @@ use std::time::Duration;
 const SCHEMA: &str = "caduceus.coronatio.source_currency.v1";
 const DEFAULT_FORGEJO: &str = "http://git.home.arpa";
 const REPOSITORY: &str = "HOMESERVERSLTD/coronatio";
-const TOKEN_FILE: &str = "/home/owner/.ssh/forgejo-token";
 fn valid_sha(v: &str) -> bool {
     v.len() == 40 && v.bytes().all(|b| b.is_ascii_hexdigit())
 }
@@ -25,17 +24,42 @@ fn response(
     b
 }
 fn credential() -> Result<(String, String), String> {
-    let p = std::env::var("CADUCEUS_FORGEJO_TOKEN_FILE").unwrap_or_else(|_| TOKEN_FILE.into());
-    let t = std::fs::read_to_string(p)
+    if let Ok(p) = std::env::var("CADUCEUS_FORGEJO_TOKEN_FILE") {
+        let t = std::fs::read_to_string(p)
+            .map_err(|_| "caduceus-forgejo-credential-missing".to_string())?;
+        let mut u = None;
+        let mut k = None;
+        for l in t.lines() {
+            if let Some(v) = l.strip_prefix("FORGEJO_USERNAME=") {
+                u = Some(v)
+            }
+            if let Some(v) = l.strip_prefix("FORGEJO_TOKEN=") {
+                k = Some(v)
+            }
+        }
+        return match (u.filter(|v| !v.is_empty()), k.filter(|v| !v.is_empty())) {
+            (Some(u), Some(k)) => Ok((u.into(), k.into())),
+            _ => Err("caduceus-forgejo-credential-missing".into()),
+        };
+    }
+
+    let output = std::process::Command::new("sudo")
+        .args(["-n", "/usr/local/sbin/caduceus-forgejo-credential", "get"])
+        .output()
+        .map_err(|_| "caduceus-forgejo-credential-missing".to_string())?;
+    if !output.status.success() {
+        return Err("caduceus-forgejo-credential-missing".to_string());
+    }
+    let t = String::from_utf8(output.stdout)
         .map_err(|_| "caduceus-forgejo-credential-missing".to_string())?;
     let mut u = None;
     let mut k = None;
     for l in t.lines() {
-        if let Some(v) = l.strip_prefix("FORGEJO_USERNAME=") {
-            u = Some(v)
+        if let Some(v) = l.strip_prefix("username=") {
+            u = Some(v);
         }
-        if let Some(v) = l.strip_prefix("FORGEJO_TOKEN=") {
-            k = Some(v)
+        if let Some(v) = l.strip_prefix("password=") {
+            k = Some(v);
         }
     }
     match (u.filter(|v| !v.is_empty()), k.filter(|v| !v.is_empty())) {
