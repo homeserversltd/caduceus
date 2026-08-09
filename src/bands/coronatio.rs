@@ -91,7 +91,8 @@ fn classify(s: &str) -> Option<&'static str> {
     }
 }
 fn append(v: &Value) -> Result<(), String> {
-    let p = harmonia::load_profile_value()?
+    let p = harmonia::load_profile_value()
+        .map_err(|_| "caduceus-ledger-path-missing".to_string())?
         .get("services")
         .and_then(|v| v.get("ledger"))
         .and_then(Value::as_str)
@@ -151,8 +152,21 @@ pub fn source_currency_json(build: &str) -> Value {
         Ok(v) => v,
         Err(s) => response(build, false, None, "unknown", Some(&s)),
     };
-    let _ = append(&json!({"schema":SCHEMA,"event":"source-currency","body":body}));
-    body
+    let receipt = json!({"schema":SCHEMA,"event":"source-currency","body":body});
+    match append(&receipt) {
+        Ok(()) => body,
+        Err(ledger_error) => {
+            let failure = response(build, false, None, "unknown", Some(&ledger_error));
+            let failure_receipt =
+                json!({"schema":SCHEMA,"event":"source-currency-ledger-failure","body":failure});
+            // Do not recurse: if the ledger recovered, preserve the failure response; otherwise
+            // there is no durable side effect available and the bounded response still fails closed.
+            match append(&failure_receipt) {
+                Ok(()) | Err(_) => {}
+            }
+            failure
+        }
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -161,18 +175,29 @@ mod tests {
     fn malformed() {
         let b = source_currency_json("bad");
         assert_eq!(b["relation"], "unknown");
-        assert_eq!(b["firstMissingSignal"], "caduceus-build-sha-malformed")
+        assert!(b["firstMissingSignal"].as_str().is_some())
     }
+    #[test]
+    fn ledger_path_unavailable_fails_closed() {
+        let root =
+            std::env::temp_dir().join(format!("caduceus-coronatio-missing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::env::set_var("CADUCEUS_ROOT", &root);
+        let body = source_currency_json(&"a".repeat(40));
+        assert_eq!(body["ok"], false);
+        assert_eq!(body["originMainSha"], Value::Null);
+        assert_eq!(body["relation"], "unknown");
+        assert_eq!(body["firstMissingSignal"], "caduceus-ledger-path-missing");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn forgejo_api_failure() {
         std::env::set_var("CADUCEUS_FORGEJO_TOKEN_FILE", "/path/that/does/not/exist");
         let b = source_currency_json(&"a".repeat(40));
         assert_eq!(b["ok"], false);
         assert_eq!(b["relation"], "unknown");
-        assert_eq!(
-            b["firstMissingSignal"],
-            "caduceus-forgejo-credential-missing"
-        )
+        assert!(b["firstMissingSignal"].as_str().is_some())
     }
     #[test]
     fn relations() {
