@@ -180,57 +180,103 @@ def render(state: dict[str, Any], kea_config: Path) -> dict[str, str]:
     return {"nftables": "\n".join(nft), "unbound": "\n".join(unbound) + "\n"}
 
 
+def _envelope() -> tuple[str, dict[str, Any]]:
+    try:
+        envelope = json.load(sys.stdin)
+    except (json.JSONDecodeError, OSError) as exc:
+        raise Refused("child-device-envelope-invalid") from exc
+    if not isinstance(envelope, dict) or envelope.get("actuator") != "child-device":
+        raise Refused("child-device-envelope-actuator-invalid")
+    metadata = envelope.get("metadata")
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("action"), str):
+        raise Refused("child-device-envelope-metadata-invalid")
+    return metadata["action"], {key: value for key, value in metadata.items() if key != "action"}
+
+
+def _hosts_value(values: dict[str, Any]) -> str:
+    if "hosts" in values and "hostnames" in values:
+        raise Refused("child-device-whitelist-hosts-invalid")
+    value = values.get("hosts", values.get("hostnames"))
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return ",".join(value)
+    if isinstance(value, str):
+        return value
+    raise Refused("child-device-whitelist-hosts-invalid")
+
+
+def _dispatch(action: str, values: dict[str, Any], state_path: Path, kea_leases: Path, kea_config: Path) -> dict[str, Any]:
+    if action == "observed":
+        if values: raise Refused("child-device-request-invalid")
+        devices = observed(kea_leases)
+        return receipt("observed", devices=devices, count=len(devices), message="Observed MAC addresses from Kea leases and the neighbor table.")
+    if action == "list":
+        if values: raise Refused("child-device-request-invalid")
+        state = load_state(state_path)
+        return receipt("list", devices=[{"mac": item_mac, **item} for item_mac, item in sorted(state["devices"].items())], registry=str(state_path), message="Registered child devices and their website whitelists.")
+    if action == "apply":
+        if values: raise Refused("child-device-request-invalid")
+        generated = render(load_state(state_path), kea_config)
+        return receipt("apply", registry=str(state_path), mode="render-only", enforcement="registered MACs: LAN plus DNS; all other forwarded destinations blocked; website resolution limited by Unbound views", generated=generated, message="Rendered gateway nftables and Unbound policy. No live gateway change was made.")
+    if action not in {"register", "unregister", "whitelist get", "whitelist set"}: raise Refused("child-device-action-invalid")
+    value = values.get("mac")
+    if not isinstance(value, str): raise Refused("child-device-mac-invalid")
+    item_mac = mac(value)
+    state = load_state(state_path); devices = state["devices"]
+    if action == "register":
+        if set(values) - {"mac", "name"}: raise Refused("child-device-request-invalid")
+        name = values.get("name")
+        if name is not None and not isinstance(name, str): raise Refused("child-device-name-invalid")
+        label = (name or f"Child device {item_mac}").strip()
+        if not label or len(label) > 80 or any(ord(char) < 32 for char in label): raise Refused("child-device-name-invalid")
+        existing = devices.get(item_mac, {})
+        devices[item_mac] = {"name": label, "whitelist": existing.get("whitelist", [])}
+        save_state(state_path, state)
+        return receipt("register", device={"mac": item_mac, **devices[item_mac]}, registry=str(state_path), message=f"Registered {item_mac} as a child device.")
+    if action == "unregister":
+        if set(values) != {"mac"}: raise Refused("child-device-request-invalid")
+        if item_mac not in devices: raise Refused("child-device-not-registered")
+        removed = devices.pop(item_mac); save_state(state_path, state)
+        return receipt("unregister", device={"mac": item_mac, **removed}, registry=str(state_path), message=f"Removed {item_mac}; it is no longer subject to child-device enforcement.")
+    if action == "whitelist get":
+        if set(values) != {"mac"}: raise Refused("child-device-request-invalid")
+        if item_mac not in devices: raise Refused("child-device-not-registered")
+        return receipt("whitelist get", device={"mac": item_mac, **devices[item_mac]}, message=f"Website whitelist for {item_mac}.")
+    if set(values) - {"mac", "hosts", "hostnames"}: raise Refused("child-device-request-invalid")
+    if item_mac not in devices: raise Refused("child-device-not-registered")
+    devices[item_mac]["whitelist"] = hosts(_hosts_value(values)); save_state(state_path, state)
+    return receipt("whitelist set", device={"mac": item_mac, **devices[item_mac]}, registry=str(state_path), message=f"Updated website whitelist for {item_mac}.")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    if not raw_argv:
+        try:
+            action, values = _envelope()
+            output = _dispatch(action, values, Path(os.environ.get("CADUCEUS_CHILD_DEVICE_STATE", DEFAULT_STATE)), Path(os.environ.get("CADUCEUS_KEA_LEASES", DEFAULT_KEA_LEASES)), Path(os.environ.get("CADUCEUS_KEA_CONFIG", DEFAULT_KEA_CONFIG)))
+        except Refused as error:
+            output = receipt("invalid", False, error=str(error))
+        print(json.dumps(output, indent=2, sort_keys=True))
+        return 0 if output["ok"] else 1
     parser = argparse.ArgumentParser(prog="caduceus child-device", description="Caduceus child-device registry and policy renderer")
     parser.add_argument("--state", type=Path, default=Path(os.environ.get("CADUCEUS_CHILD_DEVICE_STATE", DEFAULT_STATE)))
     parser.add_argument("--kea-leases", type=Path, default=Path(os.environ.get("CADUCEUS_KEA_LEASES", DEFAULT_KEA_LEASES)))
     parser.add_argument("--kea-config", type=Path, default=Path(os.environ.get("CADUCEUS_KEA_CONFIG", DEFAULT_KEA_CONFIG)))
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("observed")
-    commands.add_parser("list")
+    commands.add_parser("observed"); commands.add_parser("list")
     register = commands.add_parser("register"); register.add_argument("mac"); register.add_argument("--name", default=None)
     unregister = commands.add_parser("unregister"); unregister.add_argument("mac")
     whitelist = commands.add_parser("whitelist"); whitelist_sub = whitelist.add_subparsers(dest="whitelist_command", required=True)
     whitelist_get = whitelist_sub.add_parser("get"); whitelist_get.add_argument("mac")
     whitelist_set = whitelist_sub.add_parser("set"); whitelist_set.add_argument("mac"); whitelist_set.add_argument("hosts")
     commands.add_parser("apply")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
     try:
-        if args.command == "observed":
-            values = observed(args.kea_leases)
-            output = receipt("observed", devices=values, count=len(values), message="Observed MAC addresses from Kea leases and the neighbor table.")
-        else:
-            state = load_state(args.state)
-            devices = state["devices"]
-            if args.command == "list":
-                output = receipt("list", devices=[{"mac": item_mac, **item} for item_mac, item in sorted(devices.items())], registry=str(args.state), message="Registered child devices and their website whitelists.")
-            elif args.command == "register":
-                item_mac = mac(args.mac)
-                label = (args.name or f"Child device {item_mac}").strip()
-                if not label or len(label) > 80 or any(ord(char) < 32 for char in label):
-                    raise Refused("child-device-name-invalid")
-                existing = devices.get(item_mac, {})
-                devices[item_mac] = {"name": label, "whitelist": existing.get("whitelist", [])}
-                save_state(args.state, state)
-                output = receipt("register", device={"mac": item_mac, **devices[item_mac]}, registry=str(args.state), message=f"Registered {item_mac} as a child device.")
-            elif args.command == "unregister":
-                item_mac = mac(args.mac)
-                if item_mac not in devices:
-                    raise Refused("child-device-not-registered")
-                removed = devices.pop(item_mac); save_state(args.state, state)
-                output = receipt("unregister", device={"mac": item_mac, **removed}, registry=str(args.state), message=f"Removed {item_mac}; it is no longer subject to child-device enforcement.")
-            elif args.command == "whitelist":
-                item_mac = mac(args.mac)
-                if item_mac not in devices:
-                    raise Refused("child-device-not-registered")
-                if args.whitelist_command == "get":
-                    output = receipt("whitelist get", device={"mac": item_mac, **devices[item_mac]}, message=f"Website whitelist for {item_mac}.")
-                else:
-                    devices[item_mac]["whitelist"] = hosts(args.hosts); save_state(args.state, state)
-                    output = receipt("whitelist set", device={"mac": item_mac, **devices[item_mac]}, registry=str(args.state), message=f"Updated website whitelist for {item_mac}.")
-            else:
-                generated = render(state, args.kea_config)
-                output = receipt("apply", registry=str(args.state), mode="render-only", enforcement="registered MACs: LAN plus DNS; all other forwarded destinations blocked; website resolution limited by Unbound views", generated=generated, message="Rendered gateway nftables and Unbound policy. No live gateway change was made.")
+        action = args.command if args.command != "whitelist" else f"whitelist {args.whitelist_command}"
+        values: dict[str, Any] = {}
+        if hasattr(args, "mac"): values["mac"] = args.mac
+        if args.command == "register" and args.name is not None: values["name"] = args.name
+        if action == "whitelist set": values["hosts"] = args.hosts
+        output = _dispatch(action, values, args.state, args.kea_leases, args.kea_config)
     except Refused as error:
         output = receipt(getattr(args, "command", "invalid"), False, error=str(error))
     print(json.dumps(output, indent=2, sort_keys=True))
