@@ -698,6 +698,21 @@
       "conversionStatus": "sbin-caller-admitted",
       "notes": "Dedicated NAS Sync Now and systemd-owned Auto Sync actuator; safe-nas-sync.sh remains sole sync authority.",
       "pythonModule": "caduceus_staff.nas_sync"
+    },
+    {
+      "id": "linker",
+      "family": "linker",
+      "actuatorClass": "staff-root-launcher",
+      "sourceScripts": [
+        "/usr/local/lib/linker/linker_json.py"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-linker",
+      "libraryEntry": "/usr/local/lib/linker/linker_json.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.linker.actuator.v1",
+      "conversionStatus": "retained-linker-adapter",
+      "notes": "Thin root-owned launcher for retained Linker JSON adapter; Linker source remains Harmonia-managed at /usr/local/lib/linker.",
+      "pythonModule": "retained-linker.linker_json"
     }
   ]
 }

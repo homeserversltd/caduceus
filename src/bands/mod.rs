@@ -15,6 +15,7 @@ pub mod homeserver_sbin;
 pub mod hyalos;
 pub mod identity;
 pub mod legacy_sbin;
+pub mod linker;
 pub mod local_ai;
 pub mod logs;
 pub mod network;
