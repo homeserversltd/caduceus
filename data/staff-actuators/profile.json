@@ -99,6 +99,19 @@
       "pythonModule": "caduceus_staff.servicecontrol"
     },
     {
+      "id": "ssh-exposure",
+      "family": "services",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-ssh-exposure",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/ssh_exposure.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.ssh.exposure.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Generic post-birth SSH exposure control: literal replacement of PasswordAuthentication and PubkeyAuthentication, sshd validation, then separate enable|disable and start|stop calls for sshd.service; it never carries or changes SSH identity material.",
+      "pythonModule": "caduceus_staff.ssh_exposure"
+    },
+    {
       "id": "network-dhcp",
       "family": "network",
       "actuatorClass": "staff-python",
