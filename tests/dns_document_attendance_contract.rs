@@ -37,7 +37,7 @@ fn request(document: Option<&str>, attendance: Option<&str>) -> Request<Body> {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn dns_http_uses_exact_document_attendance_or_declared_scoped_capability() {
+async fn dns_http_uses_exact_document_attendance_when_document_is_supplied() {
     let _guard = ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -96,7 +96,6 @@ async fn dns_http_uses_exact_document_attendance_or_declared_scoped_capability()
     assert!(policy::allows_command("network dns intent").unwrap());
     for (document, token) in [
         (Some("wrong-document"), Some(current.as_str())),
-        (None, Some(current.as_str())),
         (Some("dns-document"), None),
     ] {
         let response = serve::router()

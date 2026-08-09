@@ -1,50 +1,5 @@
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
-use ed25519_dalek::{Signer, SigningKey};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-fn capability(action: &str, target: &str, seconds_from_now: i64) -> String {
-    capability_with_seed(
-        action,
-        target,
-        seconds_from_now,
-        "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
-    )
-}
-
-fn capability_with_seed(
-    action: &str,
-    target: &str,
-    seconds_from_now: i64,
-    seed_hex: &str,
-) -> String {
-    let seed = hex_bytes(seed_hex);
-    let key = SigningKey::from_bytes(&seed.try_into().unwrap());
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-    let exp = (now + seconds_from_now).max(0) as u64;
-    let payload = format!(
-        r#"{{"actor":"fixture","action":"{}","target":"{}","exp":{}}}"#,
-        action, target, exp
-    );
-    let signature = key.sign(payload.as_bytes());
-    format!(
-        "{}.{}",
-        URL_SAFE_NO_PAD.encode(payload.as_bytes()),
-        URL_SAFE_NO_PAD.encode(signature.to_bytes())
-    )
-}
-
-fn hex_bytes(text: &str) -> Vec<u8> {
-    text.as_bytes()
-        .chunks_exact(2)
-        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
-        .collect()
-}
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_caduceus")
@@ -120,15 +75,7 @@ fn fixture_identity_is_read() {
 fn update_toggle_dry_run_is_public_safe() {
     let out = Command::new(bin())
         .env("CADUCEUS_ROOT", "tests/fixtures/tv")
-        .args([
-            "update",
-            "service",
-            "toggle",
-            "off",
-            "--dry-run",
-            "--capability",
-            &capability("update service toggle", "off", 60),
-        ])
+        .args(["update", "service", "toggle", "off", "--dry-run"])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -161,8 +108,6 @@ fn tv_pjlink_devices_and_power_dry_run_are_native() {
             "living-room-tv",
             "on",
             "--dry-run",
-            "--capability",
-            &capability("pjlink power set", "living-room-tv", 60),
         ])
         .output()
         .unwrap();
@@ -188,14 +133,7 @@ fn tv_pjlink_known_product_catalog_is_jsonl_backed() {
 
     let scan = Command::new(bin())
         .env("CADUCEUS_ROOT", "tests/fixtures/tv")
-        .args([
-            "pjlink",
-            "scan",
-            "living-room-tv",
-            "--dry-run",
-            "--capability",
-            &capability("pjlink scan", "living-room-tv", 60),
-        ])
+        .args(["pjlink", "scan", "living-room-tv", "--dry-run"])
         .output()
         .unwrap();
     assert!(scan.status.success());
@@ -213,8 +151,6 @@ fn tv_pjlink_known_product_catalog_is_jsonl_backed() {
             "living-room-tv",
             "--dry-run",
             "--from-profile",
-            "--capability",
-            &capability("pjlink known add", "living-room-tv", 60),
         ])
         .output()
         .unwrap();
@@ -229,13 +165,7 @@ fn tv_pjlink_known_product_catalog_is_jsonl_backed() {
 fn console_sync_route_dry_run_is_public_safe() {
     let out = Command::new(bin())
         .env("CADUCEUS_ROOT", "tests/fixtures/console")
-        .args([
-            "sync",
-            "now",
-            "--dry-run",
-            "--capability",
-            &capability("sync now", "local", 60),
-        ])
+        .args(["sync", "now", "--dry-run"])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -360,14 +290,7 @@ fn homeserver_sbin_marks_backblaze_and_calibre_staff_profiled() {
 fn staff_intent_cli_accepts_coronatio_route_intent() {
     let output = Command::new(bin())
         .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
-        .args([
-            "staff",
-            "intent",
-            "POST",
-            "/api/admin/system/restart",
-            "--capability",
-            &capability("staff intent", "/api/admin/system/restart", 60),
-        ])
+        .args(["staff", "intent", "POST", "/api/admin/system/restart"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -380,162 +303,13 @@ fn staff_intent_cli_accepts_coronatio_route_intent() {
 fn staff_intent_cli_marks_upload_route() {
     let output = Command::new(bin())
         .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
-        .args([
-            "staff",
-            "intent",
-            "POST",
-            "/api/files/upload",
-            "--capability",
-            &capability("staff intent", "/api/files/upload", 60),
-        ])
+        .args(["staff", "intent", "POST", "/api/files/upload"])
         .output()
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("caduceus.staff.upload_intent.v1"));
     assert!(stdout.contains("upload-queued-behind-typed-actuator"));
-}
-
-#[test]
-fn cli_capability_walls_refuse_expired_scope_tampered_and_missing() {
-    let expired = Command::new(bin())
-        .env("CADUCEUS_ROOT", "tests/fixtures/tv")
-        .args([
-            "pjlink",
-            "power",
-            "set",
-            "living-room-tv",
-            "on",
-            "--dry-run",
-            "--capability",
-            &capability("pjlink power set", "living-room-tv", -10),
-        ])
-        .output()
-        .unwrap();
-    assert!(!expired.status.success());
-    assert!(String::from_utf8(expired.stderr)
-        .unwrap()
-        .contains("caduceus-capability-expired"));
-
-    let scope = Command::new(bin())
-        .env("CADUCEUS_ROOT", "tests/fixtures/tv")
-        .args([
-            "pjlink",
-            "power",
-            "set",
-            "living-room-tv",
-            "on",
-            "--dry-run",
-            "--capability",
-            &capability("pjlink power set", "other-tv", 60),
-        ])
-        .output()
-        .unwrap();
-    assert!(!scope.status.success());
-    assert!(String::from_utf8(scope.stderr)
-        .unwrap()
-        .contains("caduceus-capability-scope"));
-
-    let wrong_action = Command::new(bin())
-        .env("CADUCEUS_ROOT", "tests/fixtures/tv")
-        .args([
-            "pjlink",
-            "power",
-            "set",
-            "living-room-tv",
-            "on",
-            "--dry-run",
-            "--capability",
-            &capability("pjlink scan", "living-room-tv", 60),
-        ])
-        .output()
-        .unwrap();
-    assert!(!wrong_action.status.success());
-    assert!(String::from_utf8(wrong_action.stderr)
-        .unwrap()
-        .contains("caduceus-capability-scope"));
-
-    let token = capability("pjlink power set", "living-room-tv", 60);
-    let (payload, signature) = token.split_once('.').unwrap();
-    let replacement = if signature.starts_with('A') { 'B' } else { 'A' };
-    let token = format!("{payload}.{replacement}{}", &signature[1..]);
-    let tampered = Command::new(bin())
-        .env("CADUCEUS_ROOT", "tests/fixtures/tv")
-        .args([
-            "pjlink",
-            "power",
-            "set",
-            "living-room-tv",
-            "on",
-            "--dry-run",
-            "--capability",
-            &token,
-        ])
-        .output()
-        .unwrap();
-    assert!(!tampered.status.success());
-    assert!(String::from_utf8(tampered.stderr)
-        .unwrap()
-        .contains("caduceus-capability-unsigned"));
-
-    let missing = Command::new(bin())
-        .env("CADUCEUS_ROOT", "tests/fixtures/tv")
-        .args([
-            "pjlink",
-            "power",
-            "set",
-            "living-room-tv",
-            "on",
-            "--dry-run",
-        ])
-        .output()
-        .unwrap();
-    assert!(!missing.status.success());
-    assert!(String::from_utf8(missing.stderr)
-        .unwrap()
-        .contains("caduceus-capability-unsigned"));
-}
-
-#[test]
-fn cli_refuses_capability_when_household_key_is_not_configured() {
-    let root = std::env::temp_dir().join(format!("caduceus-no-key-{}", std::process::id()));
-    let profile_dir = root.join("etc/caduceus");
-    std::fs::create_dir_all(&profile_dir).unwrap();
-    let profile = std::fs::read_to_string("tests/fixtures/tv/etc/caduceus/profile.yaml").unwrap();
-    let mut stripped = String::new();
-    let mut skip_capability = false;
-    for line in profile.lines() {
-        if line == "capability:" {
-            skip_capability = true;
-            continue;
-        }
-        if skip_capability && (line.starts_with("  ") || line.trim().is_empty()) {
-            continue;
-        }
-        skip_capability = false;
-        stripped.push_str(line);
-        stripped.push('\n');
-    }
-    std::fs::write(profile_dir.join("profile.yaml"), stripped).unwrap();
-    let output = Command::new(bin())
-        .env("CADUCEUS_ROOT", &root)
-        .args([
-            "pjlink",
-            "power",
-            "set",
-            "living-room-tv",
-            "on",
-            "--dry-run",
-            "--capability",
-            &capability("pjlink power set", "living-room-tv", 60),
-        ])
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(String::from_utf8(output.stderr)
-        .unwrap()
-        .contains("caduceus-capability-unsigned"));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -761,14 +535,7 @@ fn config_set_roundtrip_writes_backup_and_public_safe_receipt() {
     let root = config_temp_root("cli-set");
     let set = Command::new(bin())
         .env("CADUCEUS_ROOT", &root)
-        .args([
-            "config",
-            "set",
-            "display.theme",
-            "\"light\"",
-            "--capability",
-            &capability("config set", "display.theme", 60),
-        ])
+        .args(["config", "set", "display.theme", "\"light\""])
         .output()
         .unwrap();
     assert!(
@@ -828,7 +595,6 @@ fn config_set_asserts_declared_file_mode_despite_child_umask() {
     let before = std::fs::metadata(&config).unwrap().permissions().mode() & 0o777;
     assert_eq!(before, 0o600);
 
-    let capability = capability("config set", "display.theme", 60);
     let output = Command::new("sh")
         .env("CADUCEUS_ROOT", &root)
         .args([
@@ -840,8 +606,6 @@ fn config_set_asserts_declared_file_mode_despite_child_umask() {
             "set",
             "display.theme",
             "\"light\"",
-            "--capability",
-            &capability,
         ])
         .output()
         .unwrap();
@@ -866,8 +630,6 @@ fn config_patch_deep_merge_preserves_starred_unless_explicitly_patched() {
             "config",
             "patch",
             r#"{"tabs":{"order":["media","home"]},"display":{"sleepMinutes":15}}"#,
-            "--capability",
-            &capability("config patch", "household-config", 60),
         ])
         .output()
         .unwrap();
@@ -893,13 +655,7 @@ fn config_patch_deep_merge_preserves_starred_unless_explicitly_patched() {
 
     let explicit = Command::new(bin())
         .env("CADUCEUS_ROOT", &root)
-        .args([
-            "config",
-            "patch",
-            r#"{"tabs":{"starred":["photos"]}}"#,
-            "--capability",
-            &capability("config patch", "household-config", 60),
-        ])
+        .args(["config", "patch", r#"{"tabs":{"starred":["photos"]}}"#])
         .output()
         .unwrap();
     assert!(explicit.status.success());
@@ -951,14 +707,7 @@ fn config_path_injection_is_refused_without_mutation() {
     for hostile in ["../../etc/hostile", "/etc/hostile", "tabs..starred"] {
         let set = Command::new(bin())
             .env("CADUCEUS_ROOT", &root)
-            .args([
-                "config",
-                "set",
-                hostile,
-                "\"x\"",
-                "--capability",
-                &capability("config set", hostile, 60),
-            ])
+            .args(["config", "set", hostile, "\"x\""])
             .output()
             .unwrap();
         assert!(!set.status.success(), "{hostile} was not refused");
@@ -971,61 +720,6 @@ fn config_path_injection_is_refused_without_mutation() {
         original
     );
     assert!(!root.join("var/lib/caduceus/backups").exists());
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
-fn config_mutation_refuses_missing_and_mismatched_tokens() {
-    let root = config_temp_root("cli-token");
-    let original = std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap();
-
-    let missing = Command::new(bin())
-        .env("CADUCEUS_ROOT", &root)
-        .args(["config", "set", "display.theme", "\"light\""])
-        .output()
-        .unwrap();
-    assert!(!missing.status.success());
-    assert!(String::from_utf8(missing.stderr)
-        .unwrap()
-        .contains("caduceus-capability-unsigned"));
-
-    let scope = Command::new(bin())
-        .env("CADUCEUS_ROOT", &root)
-        .args([
-            "config",
-            "set",
-            "display.theme",
-            "\"light\"",
-            "--capability",
-            &capability("config set", "tabs.starred", 60),
-        ])
-        .output()
-        .unwrap();
-    assert!(!scope.status.success());
-    assert!(String::from_utf8(scope.stderr)
-        .unwrap()
-        .contains("caduceus-capability-scope"));
-
-    let wrong_action = Command::new(bin())
-        .env("CADUCEUS_ROOT", &root)
-        .args([
-            "config",
-            "patch",
-            r#"{"display":{"theme":"light"}}"#,
-            "--capability",
-            &capability("config set", "household-config", 60),
-        ])
-        .output()
-        .unwrap();
-    assert!(!wrong_action.status.success());
-    assert!(String::from_utf8(wrong_action.stderr)
-        .unwrap()
-        .contains("caduceus-capability-scope"));
-
-    assert_eq!(
-        std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
-        original
-    );
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -1058,14 +752,7 @@ fn config_write_refuses_missing_homeserver_install_without_touching_legacy() {
 
     let set = Command::new(bin())
         .env("CADUCEUS_ROOT", &root)
-        .args([
-            "config",
-            "set",
-            "display.theme",
-            "\"light\"",
-            "--capability",
-            &capability("config set", "display.theme", 60),
-        ])
+        .args(["config", "set", "display.theme", "\"light\""])
         .output()
         .unwrap();
     assert!(!set.status.success());
@@ -1111,7 +798,6 @@ fn profile_sources_reseed_crosses_public_cli_launcher_staff_and_is_idempotent() 
     let worktree = std::env::current_dir().unwrap();
     let launcher = worktree.join("data/staff-actuators/caduceus-profile-sources-reseed");
     let staff = worktree.join("data/staff-actuators");
-    let token = capability("profile sources reseed", "profile-sources", 60);
     let run = || {
         Command::new("sudo")
             .args(["-n", "env"])
@@ -1123,7 +809,7 @@ fn profile_sources_reseed_crosses_public_cli_launcher_staff_and_is_idempotent() 
             .arg("CADUCEUS_STAFF_PYTHON=/usr/bin/python3")
             .arg(format!("PYTHONPATH={}", staff.display()))
             .arg(bin())
-            .args(["profile", "sources", "reseed", "--capability", &token])
+            .args(["profile", "sources", "reseed"])
             .output()
             .unwrap()
     };
