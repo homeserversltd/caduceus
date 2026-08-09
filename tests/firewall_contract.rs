@@ -69,11 +69,6 @@ impl Drop for Fixture {
 fn body(enabled: bool) -> String {
     serde_json::json!({"schema":"caduceus.network.firewall.policy.v1","mac":MAC,"mode":"allow-only","sites":["example.com"],"expectedRevision":REVISION,"enabled":enabled,"enforcement":"dns-policy"}).to_string()
 }
-fn capability() -> String {
-    // fixture verifier accepts only signed capabilities; malformed credentials must refuse before staff.
-    "not-a-capability".into()
-}
-
 #[tokio::test(flavor = "current_thread")]
 async fn firewall_routes_are_exactly_gated_and_globally_bounded() {
     let _lock = LOCK.lock().unwrap_or_else(|p| p.into_inner());
@@ -92,21 +87,6 @@ async fn firewall_routes_are_exactly_gated_and_globally_bounded() {
         .await
         .unwrap();
     assert_eq!(guest.status(), StatusCode::FORBIDDEN);
-    assert_eq!(fixture.calls(), 0);
-    let bad = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("PUT")
-                .uri(format!("/api/v1/network/firewall/policies/{MAC}"))
-                .header("content-type", "application/json")
-                .header("x-caduceus-capability", capability())
-                .body(Body::from(body(true)))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(bad.status(), StatusCode::FORBIDDEN);
     assert_eq!(fixture.calls(), 0);
     let oversized = app
         .clone()

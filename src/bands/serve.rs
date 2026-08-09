@@ -1,7 +1,8 @@
 use crate::bands::{
-    cert, config, coronatio, disk, dns, drive_test, firewall, gui, health, homeserver_sbin, hyalos, identity,
-    legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read, pjlink, profile,
-    profile_module, receipts, source_map, speedtest, staff, sync, tailscale, time, update, vpn,
+    cert, config, coronatio, disk, dns, drive_test, firewall, gui, health, homeserver_sbin, hyalos,
+    identity, legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read,
+    pjlink, profile, profile_module, receipts, source_map, speedtest, staff, sync, tailscale, time,
+    update, vpn,
 };
 use crate::tools::{attendance, policy};
 use axum::{
@@ -207,15 +208,10 @@ async fn health_route() -> Json<LivenessBody> {
 
 async fn gated_mutation(
     command: &str,
-    target: &str,
-    token: Option<&str>,
     run: fn() -> Value,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
         Ok(true) => {
-            if let Err(signal) = capability_admits(command, target, token) {
-                return Err(api_error_signal(command, &signal));
-            }
             let value = run();
             Ok((mutation_status(&value), Json(value)))
         }
@@ -247,43 +243,6 @@ fn document_attendance_admits(document: &str, token: Option<&str>) -> Result<(),
         Ok(())
     } else {
         Err("caduceus-attendance-not-current".to_string())
-    }
-}
-
-fn capability_from_headers(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get("x-caduceus-attendance")
-        .or_else(|| headers.get("x-caduceus-capability"))
-        .and_then(|value| value.to_str().ok())
-        .or_else(|| {
-            headers
-                .get("authorization")
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| value.strip_prefix("Bearer "))
-        })
-}
-
-fn standalone_capability_from_headers(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get("x-caduceus-capability")
-        .and_then(|value| value.to_str().ok())
-        .or_else(|| {
-            headers
-                .get("authorization")
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| value.strip_prefix("Bearer "))
-        })
-}
-
-fn capability_admits(command: &str, target: &str, token: Option<&str>) -> Result<(), String> {
-    if token.is_some_and(|token| attendance::admits_target(token, target)) {
-        return Ok(());
-    }
-    if env::var_os("CADUCEUS_DOCUMENT_INCARNATION").is_some() {
-        attendance_admits(target, token).map_err(|_| "caduceus-attendance-not-current".to_string())
-    } else {
-        policy::capability_admits(command, target, token)
-            .map_err(|reason| reason.signal().to_string())
     }
 }
 
@@ -355,23 +314,9 @@ async fn registered_service_restart_route(
         ));
     }
     match policy::allows_command("staff intent") {
-        Ok(true) => {
-            let loopback = connect_info
-                .as_ref()
-                .is_some_and(|ConnectInfo(peer)| peer.ip().is_loopback());
-            if !loopback {
-                if let Err(reason) = capability_admits(
-                    "staff intent",
-                    &service,
-                    capability_from_headers(&headers),
-                ) {
-                    return Err(api_error_signal("staff intent", &reason));
-                }
-            }
-            staff::restart_registered_service(&service)
-                .map(|value| (mutation_status(&value), Json(value)))
-                .map_err(|reason| api_error_signal("staff intent", &reason))
-        }
+        Ok(true) => staff::restart_registered_service(&service)
+            .map(|value| (mutation_status(&value), Json(value)))
+            .map_err(|reason| api_error_signal("staff intent", &reason)),
         Ok(false) => Err(api_error("staff intent")),
         Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
     }
@@ -395,21 +340,16 @@ async fn profile_sources_reseed_route(
             "caduceus-source-map-reseed-arguments-forbidden",
         ));
     }
-    gated_mutation(
-        source_map::public_command(),
-        source_map::target(),
-        capability_from_headers(&headers),
-        || {
-            source_map::reseed_json().unwrap_or_else(|signal| {
-                serde_json::json!({
-                    "schema": "caduceus.profile.sources.reseed.v1",
-                    "ok": false,
-                    "changed": false,
-                    "firstMissingSignal": signal,
-                })
+    gated_mutation(source_map::public_command(), || {
+        source_map::reseed_json().unwrap_or_else(|signal| {
+            serde_json::json!({
+                "schema": "caduceus.profile.sources.reseed.v1",
+                "ok": false,
+                "changed": false,
+                "firstMissingSignal": signal,
             })
-        },
-    )
+        })
+    })
     .await
 }
 
@@ -421,14 +361,29 @@ async fn disk_census_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBo
     gated_json("disk census", disk::census_json).await
 }
 
-async fn appliance_logs_read_route(Query(query): Query<HashMap<String, String>>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+async fn appliance_logs_read_route(
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "logs read";
     match policy::allows_command(COMMAND) {
         Ok(true) => {
-            let offset = query.get("offset").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
-            let limit = query.get("limit").and_then(|value| value.parse::<usize>().ok()).unwrap_or(logs::DEFAULT_LIMIT).min(logs::MAX_LIMIT);
+            let offset = query
+                .get("offset")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(0);
+            let limit = query
+                .get("limit")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(logs::DEFAULT_LIMIT)
+                .min(logs::MAX_LIMIT);
             let receipt = logs::read_json(offset, limit);
-            let status = if logs::is_missing(&receipt) { StatusCode::NOT_FOUND } else if logs::is_failure(&receipt) { StatusCode::SERVICE_UNAVAILABLE } else { StatusCode::OK };
+            let status = if logs::is_missing(&receipt) {
+                StatusCode::NOT_FOUND
+            } else if logs::is_failure(&receipt) {
+                StatusCode::SERVICE_UNAVAILABLE
+            } else {
+                StatusCode::OK
+            };
             Ok((status, Json(receipt)))
         }
         Ok(false) => Err(api_error(COMMAND)),
@@ -436,8 +391,10 @@ async fn appliance_logs_read_route(Query(query): Query<HashMap<String, String>>)
     }
 }
 
-async fn appliance_logs_clear_route(headers: HeaderMap) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation("logs clear", logs::LOG_PATH, capability_from_headers(&headers), logs::clear_json).await
+async fn appliance_logs_clear_route(
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    gated_mutation("logs clear", logs::clear_json).await
 }
 
 #[derive(Deserialize)]
@@ -456,16 +413,15 @@ async fn hard_drive_test_results_route() -> Result<Json<Value>, (StatusCode, Jso
     gated_json("disk test results", drive_test::results_json).await
 }
 
-async fn hard_drive_test_start_route(headers: HeaderMap, Json(body): Json<HardDriveTestStartBody>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+async fn hard_drive_test_start_route(
+    headers: HeaderMap,
+    Json(body): Json<HardDriveTestStartBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "disk test start";
     match policy::allows_command(COMMAND) {
         Ok(true) => {}
         Ok(false) => return Err(api_error(COMMAND)),
         Err(_) => return Err(api_error_signal(COMMAND, "caduceus-profile-missing")),
-    }
-    if !body.dry_run {
-        capability_admits(COMMAND, &body.device, capability_from_headers(&headers))
-            .map_err(|signal| api_error_signal(COMMAND, &signal))?;
     }
     drive_test::start_json(&body.device, &body.test_type, body.dry_run)
         .map(|value| (mutation_status(&value), Json(value)))
@@ -570,7 +526,11 @@ async fn coronatio_source_currency_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let build_sha = query.get("buildSha").map(String::as_str).unwrap_or("");
     let body = coronatio::source_currency_json(build_sha);
-    let status = if body["ok"].as_bool() == Some(true) { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+    let status = if body["ok"].as_bool() == Some(true) {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
     Ok((status, Json(body)))
 }
 
@@ -679,7 +639,10 @@ fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Js
         | "/api/admin/diskman/sync-schedule"
         | "/api/admin/diskman/sync-schedule-update"
         | "/api/admin/diskman/sync-job-status" => Ok("nas-sync"),
-        _ => Err(api_error_signal("staff intent", "caduceus-staff-actuator-unmapped")),
+        _ => Err(api_error_signal(
+            "staff intent",
+            "caduceus-staff-actuator-unmapped",
+        )),
     }
 }
 
@@ -690,16 +653,13 @@ async fn named_staff_actuator_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("staff intent") {
         Ok(true) => {
-            if let Err(reason) = capability_admits("staff intent", uri.path(), capability_from_headers(&headers)) {
-                return Err(api_error_signal("staff intent", &reason));
-            }
             let actuator_id = named_actuator_for_route(uri.path())?;
             match actuator_id {
                 "network-speedtest" => speedtest::run_json(),
                 _ => staff::named_actuator_json(actuator_id, metadata),
             }
-                .map(|value| (mutation_status(&value), Json(value)))
-                .map_err(|reason| api_error_signal("staff intent", &reason))
+            .map(|value| (mutation_status(&value), Json(value)))
+            .map_err(|reason| api_error_signal("staff intent", &reason))
         }
         Ok(false) => Err(api_error("staff intent")),
         Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
@@ -716,13 +676,21 @@ async fn keyman_staff_actuator_route(
         "/api/v1/keyman/update-key" => "update-key",
         "/api/v1/keyman/admin-password" => "admin-password",
         "/api/v1/keyman/key-status" => "key-status",
-        _ => return Err(api_error_signal("staff intent", "caduceus-keyman-route-invalid")),
+        _ => {
+            return Err(api_error_signal(
+                "staff intent",
+                "caduceus-keyman-route-invalid",
+            ))
+        }
     };
     let object = metadata
         .as_object_mut()
         .ok_or_else(|| api_error_signal("staff intent", "caduceus-keyman-request-invalid"))?;
     if object.contains_key("action") {
-        return Err(api_error_signal("staff intent", "caduceus-keyman-action-client-supplied"));
+        return Err(api_error_signal(
+            "staff intent",
+            "caduceus-keyman-action-client-supplied",
+        ));
     }
     object.insert("action".to_string(), Value::String(action.to_string()));
     named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
@@ -745,13 +713,21 @@ async fn disk_staff_actuator_route(
         "/api/admin/diskman/unassign-nas" => "unassign-nas",
         "/api/admin/diskman/setup-nas" => "setup-nas",
         "/api/admin/diskman/import-to-nas" => "import-to-nas",
-        _ => return Err(api_error_signal("staff intent", "caduceus-disk-route-invalid")),
+        _ => {
+            return Err(api_error_signal(
+                "staff intent",
+                "caduceus-disk-route-invalid",
+            ))
+        }
     };
     let object = metadata
         .as_object_mut()
         .ok_or_else(|| api_error_signal("staff intent", "caduceus-disk-request-invalid"))?;
     if object.contains_key("action") {
-        return Err(api_error_signal("staff intent", "caduceus-disk-action-client-supplied"));
+        return Err(api_error_signal(
+            "staff intent",
+            "caduceus-disk-action-client-supplied",
+        ));
     }
     object.insert("action".to_string(), Value::String(action.to_string()));
     let target_key = if action == "import-to-nas" {
@@ -792,15 +768,26 @@ async fn linker_staff_actuator_route(
         "/api/v1/linker/rename" => "rename",
         "/api/v1/linker/mkdir" => "mkdir",
         "/api/v1/linker/hardlink-scan" => "hardlink-scan",
-        _ => return Err(api_error_signal("staff intent", "caduceus-linker-route-invalid")),
+        _ => {
+            return Err(api_error_signal(
+                "staff intent",
+                "caduceus-linker-route-invalid",
+            ))
+        }
     };
     let object = metadata
         .as_object_mut()
         .ok_or_else(|| api_error_signal("staff intent", "caduceus-linker-request-invalid"))?;
     if object.contains_key("operation") {
-        return Err(api_error_signal("staff intent", "caduceus-linker-operation-client-supplied"));
+        return Err(api_error_signal(
+            "staff intent",
+            "caduceus-linker-operation-client-supplied",
+        ));
     }
-    object.insert("operation".to_string(), Value::String(operation.to_string()));
+    object.insert(
+        "operation".to_string(),
+        Value::String(operation.to_string()),
+    );
     named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
 }
 
@@ -814,11 +801,21 @@ async fn nas_sync_staff_actuator_route(
         "/api/admin/diskman/sync-schedule" => "sync-schedule",
         "/api/admin/diskman/sync-schedule-update" => "sync-schedule-update",
         "/api/admin/diskman/sync-job-status" => "sync-job-status",
-        _ => return Err(api_error_signal("staff intent", "caduceus-nas-sync-route-invalid")),
+        _ => {
+            return Err(api_error_signal(
+                "staff intent",
+                "caduceus-nas-sync-route-invalid",
+            ))
+        }
     };
-    let object = metadata.as_object_mut().ok_or_else(|| api_error_signal("staff intent", "caduceus-nas-sync-request-invalid"))?;
+    let object = metadata
+        .as_object_mut()
+        .ok_or_else(|| api_error_signal("staff intent", "caduceus-nas-sync-request-invalid"))?;
     if object.contains_key("action") {
-        return Err(api_error_signal("staff intent", "caduceus-nas-sync-action-client-supplied"));
+        return Err(api_error_signal(
+            "staff intent",
+            "caduceus-nas-sync-action-client-supplied",
+        ));
     }
     object.insert("action".to_string(), Value::String(action.to_string()));
     named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
@@ -839,13 +836,21 @@ async fn wake_on_lan_staff_actuator_route(
     let action = match uri.path() {
         "/api/admin/wake-on-lan/send" => "send",
         "/api/admin/wake-on-lan/probe" => "probe",
-        _ => return Err(api_error_signal("staff intent", "caduceus-wake-on-lan-route-invalid")),
+        _ => {
+            return Err(api_error_signal(
+                "staff intent",
+                "caduceus-wake-on-lan-route-invalid",
+            ))
+        }
     };
     let object = metadata
         .as_object_mut()
         .ok_or_else(|| api_error_signal("staff intent", "caduceus-wake-on-lan-request-invalid"))?;
     if object.contains_key("action") {
-        return Err(api_error_signal("staff intent", "caduceus-wake-on-lan-action-client-supplied"));
+        return Err(api_error_signal(
+            "staff intent",
+            "caduceus-wake-on-lan-action-client-supplied",
+        ));
     }
     object.insert("action".to_string(), Value::String(action.to_string()));
     named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
@@ -866,13 +871,21 @@ async fn service_control_staff_actuator_route(
         "/api/admin/system/restart" => "system-restart",
         "/api/admin/system/shutdown" => "system-shutdown",
         "/api/admin/services/hard-reset" => "website-hard-reset",
-        _ => return Err(api_error_signal("staff intent", "caduceus-service-route-invalid")),
+        _ => {
+            return Err(api_error_signal(
+                "staff intent",
+                "caduceus-service-route-invalid",
+            ))
+        }
     };
     let object = metadata
         .as_object_mut()
         .ok_or_else(|| api_error_signal("staff intent", "caduceus-service-request-invalid"))?;
     if object.contains_key("action") {
-        return Err(api_error_signal("staff intent", "caduceus-service-action-client-supplied"));
+        return Err(api_error_signal(
+            "staff intent",
+            "caduceus-service-action-client-supplied",
+        ));
     }
     object.insert("action".to_string(), Value::String(action.to_string()));
     named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
@@ -942,13 +955,19 @@ fn config_mutation(
             // This narrowly permits only its stored selection; all other config
             // mutations remain subject to capability and current attendance.
             if target != "tabs.starred" {
-                let token = capability_from_headers(headers);
                 let admission = headers
                     .get("x-caduceus-document")
                     .and_then(|value| value.to_str().ok())
                     .filter(|value| !value.trim().is_empty())
-                    .map(|document| document_attendance_admits(document, token))
-                    .unwrap_or_else(|| capability_admits(command, target, token));
+                    .map(|document| {
+                        document_attendance_admits(
+                            document,
+                            headers
+                                .get("x-caduceus-attendance")
+                                .and_then(|value| value.to_str().ok()),
+                        )
+                    })
+                    .unwrap_or(Ok(()));
                 if let Err(reason) = admission {
                     return Err(api_error_signal(command, &reason));
                 }
@@ -1331,10 +1350,11 @@ async fn firewall_put_route(
             ))
         }
     }
-    capability_admits(
-        command,
+    attendance_admits(
         FIREWALL_DOCUMENT_TARGET,
-        capability_from_headers(&headers),
+        headers
+            .get("x-caduceus-attendance")
+            .and_then(|value| value.to_str().ok()),
     )
     .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
     let intent = if body.enabled {
@@ -1381,10 +1401,11 @@ async fn firewall_delete_route(
             ))
         }
     }
-    capability_admits(
-        command,
+    attendance_admits(
         FIREWALL_DOCUMENT_TARGET,
-        capability_from_headers(&headers),
+        headers
+            .get("x-caduceus-attendance")
+            .and_then(|value| value.to_str().ok()),
     )
     .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
     firewall::invoke(
@@ -1409,7 +1430,6 @@ async fn time_state_route(
 
 fn dns_mutation_admits(
     command: &'static str,
-    target: &'static str,
     headers: &HeaderMap,
 ) -> Result<(), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
@@ -1430,8 +1450,7 @@ fn dns_mutation_admits(
         )
         .map_err(|signal| api_error_signal(command, &signal))
     } else {
-        capability_admits(command, target, standalone_capability_from_headers(headers))
-            .map_err(|signal| api_error_signal(command, &signal))
+        Ok(())
     }
 }
 
@@ -1474,7 +1493,7 @@ async fn network_dns_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns intent";
     const TARGET: &str = "/api/dns/unbound/drop-in";
-    dns_mutation_admits(COMMAND, TARGET, &headers)?;
+    dns_mutation_admits(COMMAND, &headers)?;
     dns_mutation_response(COMMAND, dns::intent_json("POST", TARGET, metadata))
 }
 
@@ -1483,7 +1502,7 @@ async fn dns_device_name_create_route(
     Json(body): Json<DnsDeviceNameBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns device-name create";
-    dns_mutation_admits(COMMAND, "/api/dns/device-name/create", &headers)?;
+    dns_mutation_admits(COMMAND, &headers)?;
     dns_mutation_response(
         COMMAND,
         dns::device_name_json("create", &body.hostname, &body.ip),
@@ -1495,7 +1514,7 @@ async fn dns_device_name_remove_route(
     Json(body): Json<DnsDeviceNameBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns device-name remove";
-    dns_mutation_admits(COMMAND, "/api/dns/device-name/remove", &headers)?;
+    dns_mutation_admits(COMMAND, &headers)?;
     dns_mutation_response(
         COMMAND,
         dns::device_name_json("remove", &body.hostname, &body.ip),
@@ -1507,7 +1526,7 @@ async fn dns_alias_create_route(
     Json(body): Json<DnsAliasBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns alias create";
-    dns_mutation_admits(COMMAND, "/api/dns/alias/create", &headers)?;
+    dns_mutation_admits(COMMAND, &headers)?;
     dns_mutation_response(
         COMMAND,
         dns::alias_json("create", &body.label, &body.hostname),
@@ -1519,7 +1538,7 @@ async fn dns_alias_remove_route(
     Json(body): Json<DnsAliasBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns alias remove";
-    dns_mutation_admits(COMMAND, "/api/dns/alias/remove", &headers)?;
+    dns_mutation_admits(COMMAND, &headers)?;
     dns_mutation_response(
         COMMAND,
         dns::alias_json("remove", &body.label, &body.hostname),
@@ -1610,18 +1629,15 @@ fn cert_admitted_command(command: &str, aliases: &[&str]) -> Result<Option<Strin
 
 fn cert_mutation_result<F: FnOnce() -> Result<Value, String>>(
     command: &str,
-    target: &str,
     primitive: &str,
     aliases: &[&str],
-    headers: &HeaderMap,
     run: F,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     match cert_admitted_command(command, aliases) {
         Ok(None) => Err(cert_profile_refusal(command, primitive)),
         Err(_) => Err(cert_api_error(command, "caduceus-profile-missing")),
         Ok(Some(admitted_command)) => {
-            capability_admits(&admitted_command, target, capability_from_headers(headers))
-                .map_err(|signal| cert_api_error(command, &signal))?;
+            let _ = admitted_command;
             match run() {
                 Ok(value) => Ok((mutation_status(&value), Json(value))),
                 Err(error) => Err(cert_api_error(command, &error)),
@@ -1643,7 +1659,7 @@ async fn cert_ensure_root_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    cert_mutation_result("cert ensure-root", "local", "ensure_root", &[], &headers, || {
+    cert_mutation_result("cert ensure-root", "ensure_root", &[], || {
         cert::ensure_root_json(body.dry_run, body.renewal_authority.as_deref())
     })
 }
@@ -1652,7 +1668,7 @@ async fn cert_issue_leaf_route(
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.identity.as_deref().unwrap_or("home.arpa");
-    cert_mutation_result("cert issue-leaf", target, "issue_leaf", &[], &headers, || {
+    cert_mutation_result("cert issue-leaf", "issue_leaf", &[], || {
         cert::issue_leaf_json(
             target,
             body.sans.as_deref().unwrap_or(&[]),
@@ -1693,10 +1709,8 @@ async fn cert_bundle_route(
     let target = body.platform.as_deref().unwrap_or("linux");
     cert_mutation_result(
         "cert bundle-export",
-        target,
         "bundle_export",
         &["cert bundle create"],
-        &headers,
         || cert::bundle_create_json(target, body.dry_run),
     )
 }
@@ -1705,14 +1719,9 @@ async fn cert_constituent_lock_route(
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let portal = body.portal.as_deref().unwrap_or("");
-    cert_mutation_result(
-        "cert constituent-lock",
-        portal,
-        "constituent_lock",
-        &[],
-        &headers,
-        || cert::constituent_lock_json(portal, body.lan_ip.as_deref().unwrap_or(""), body.dry_run),
-    )
+    cert_mutation_result("cert constituent-lock", "constituent_lock", &[], || {
+        cert::constituent_lock_json(portal, body.lan_ip.as_deref().unwrap_or(""), body.dry_run)
+    })
 }
 async fn cert_bundle_download_route(
     Query(query): Query<CertQuery>,
@@ -1761,8 +1770,9 @@ async fn legacy_cert_bundle_download_route(
         };
         cert_value_error(status, command, &signal)
     })?;
-    let disposition = HeaderValue::from_str(&format!(r#"attachment; filename="{}""#, bundle.filename))
-        .map_err(|_| cert_api_error(command, "caduceus-cert-bundle-filename-invalid"))?;
+    let disposition =
+        HeaderValue::from_str(&format!(r#"attachment; filename="{}""#, bundle.filename))
+            .map_err(|_| cert_api_error(command, "caduceus-cert-bundle-filename-invalid"))?;
     let content_type = HeaderValue::from_str(&bundle.mime_type)
         .map_err(|_| cert_api_error(command, "caduceus-cert-bundle-mime-invalid"))?;
     Response::builder()
@@ -1778,10 +1788,8 @@ async fn legacy_cert_refresh_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     cert_mutation_result(
         "cert refresh-root",
-        "root-ca",
         "refresh_root",
         &[],
-        &headers,
         cert::legacy_refresh_root_json,
     )
 }
@@ -1791,29 +1799,22 @@ async fn cert_apply_route(
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.portal.as_deref().unwrap_or("");
-    cert_mutation_result(
-        "cert apply-nginx",
-        target,
-        "apply_nginx",
-        &["cert apply"],
-        &headers,
-        || {
-            cert::apply_json(
-                target,
-                body.upstream.as_deref().unwrap_or(""),
-                body.certificate.as_deref().unwrap_or(""),
-                body.key_path.as_deref().unwrap_or(""),
-                body.dry_run,
-            )
-        },
-    )
+    cert_mutation_result("cert apply-nginx", "apply_nginx", &["cert apply"], || {
+        cert::apply_json(
+            target,
+            body.upstream.as_deref().unwrap_or(""),
+            body.certificate.as_deref().unwrap_or(""),
+            body.key_path.as_deref().unwrap_or(""),
+            body.dry_run,
+        )
+    })
 }
 async fn cert_trust_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.bundle.as_deref().unwrap_or("");
-    cert_mutation_result("cert trust-install", target, "trust_install", &[], &headers, || {
+    cert_mutation_result("cert trust-install", "trust_install", &[], || {
         cert::trust_install_json(
             target,
             body.platform.as_deref().unwrap_or("linux"),
@@ -1826,7 +1827,7 @@ async fn cert_portal_route(
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.portal.as_deref().unwrap_or("");
-    cert_mutation_result("cert portal-admit", target, "portal_admit", &[], &headers, || {
+    cert_mutation_result("cert portal-admit", "portal_admit", &[], || {
         cert::portal_admit_json(
             target,
             body.lan_ip.as_deref().unwrap_or(""),
@@ -1850,27 +1851,18 @@ async fn pjlink_scan_route(
     Json(body): Json<PjlinkDeviceBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("pjlink scan") {
-        Ok(true) => {
-            if let Err(reason) = capability_admits(
-                "pjlink scan",
-                &body.device_id,
-                capability_from_headers(&headers),
-            ) {
-                return Err(api_error_signal("pjlink scan", &reason));
-            }
-            match pjlink::scan_product_json(&body.device_id, body.dry_run) {
-                Ok(value) => Ok((mutation_status(&value), Json(value))),
-                Err(err) => Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(ApiErrorBody {
-                        schema: "caduceus.api.error.v1",
-                        ok: false,
-                        command: "pjlink scan".to_string(),
-                        first_missing_signal: err,
-                    }),
-                )),
-            }
-        }
+        Ok(true) => match pjlink::scan_product_json(&body.device_id, body.dry_run) {
+            Ok(value) => Ok((mutation_status(&value), Json(value))),
+            Err(err) => Err((
+                StatusCode::BAD_REQUEST,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: "pjlink scan".to_string(),
+                    first_missing_signal: err,
+                }),
+            )),
+        },
         Ok(false) => Err(api_error("pjlink scan")),
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -1890,13 +1882,6 @@ async fn pjlink_known_add_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("pjlink known add") {
         Ok(true) => {
-            if let Err(reason) = capability_admits(
-                "pjlink known add",
-                &body.device_id,
-                capability_from_headers(&headers),
-            ) {
-                return Err(api_error_signal("pjlink known add", &reason));
-            }
             match pjlink::add_known_product_json(&body.device_id, body.dry_run, body.from_profile) {
                 Ok(value) => Ok((StatusCode::OK, Json(value))),
                 Err(err) => Err((
@@ -1928,27 +1913,18 @@ async fn pjlink_known_remove_route(
     Json(body): Json<PjlinkRemoveBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("pjlink known remove") {
-        Ok(true) => {
-            if let Err(reason) = capability_admits(
-                "pjlink known remove",
-                &body.id,
-                capability_from_headers(&headers),
-            ) {
-                return Err(api_error_signal("pjlink known remove", &reason));
-            }
-            match pjlink::remove_known_product_json(&body.id) {
-                Ok(value) => Ok((StatusCode::OK, Json(value))),
-                Err(err) => Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(ApiErrorBody {
-                        schema: "caduceus.api.error.v1",
-                        ok: false,
-                        command: "pjlink known remove".to_string(),
-                        first_missing_signal: err,
-                    }),
-                )),
-            }
-        }
+        Ok(true) => match pjlink::remove_known_product_json(&body.id) {
+            Ok(value) => Ok((StatusCode::OK, Json(value))),
+            Err(err) => Err((
+                StatusCode::BAD_REQUEST,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: "pjlink known remove".to_string(),
+                    first_missing_signal: err,
+                }),
+            )),
+        },
         Ok(false) => Err(api_error("pjlink known remove")),
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -2010,27 +1986,18 @@ async fn pjlink_power_route(
     Json(body): Json<PjlinkPowerBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("pjlink power set") {
-        Ok(true) => {
-            if let Err(reason) = capability_admits(
-                "pjlink power set",
-                &body.device_id,
-                capability_from_headers(&headers),
-            ) {
-                return Err(api_error_signal("pjlink power set", &reason));
-            }
-            match pjlink::power_json(&body.device_id, &body.state, body.dry_run) {
-                Ok(value) => Ok((mutation_status(&value), Json(value))),
-                Err(err) => Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(ApiErrorBody {
-                        schema: "caduceus.api.error.v1",
-                        ok: false,
-                        command: "pjlink power set".to_string(),
-                        first_missing_signal: err,
-                    }),
-                )),
-            }
-        }
+        Ok(true) => match pjlink::power_json(&body.device_id, &body.state, body.dry_run) {
+            Ok(value) => Ok((mutation_status(&value), Json(value))),
+            Err(err) => Err((
+                StatusCode::BAD_REQUEST,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: "pjlink power set".to_string(),
+                    first_missing_signal: err,
+                }),
+            )),
+        },
         Ok(false) => Err(api_error("pjlink power set")),
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -2047,25 +2014,13 @@ async fn pjlink_power_route(
 async fn update_now_route(
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation(
-        "update now",
-        "local",
-        capability_from_headers(&headers),
-        || update::invoke_now_json(&[]),
-    )
-    .await
+    gated_mutation("update now", || update::invoke_now_json(&[])).await
 }
 
 async fn update_check_route(
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation(
-        "update check",
-        "local",
-        capability_from_headers(&headers),
-        || update::invoke_check_json(&[]),
-    )
-    .await
+    gated_mutation("update check", || update::invoke_check_json(&[])).await
 }
 
 async fn sync_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -2075,13 +2030,7 @@ async fn sync_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBo
 async fn sync_now_route(
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation(
-        "sync now",
-        "local",
-        capability_from_headers(&headers),
-        || sync::invoke_now_json(&[]),
-    )
-    .await
+    gated_mutation("sync now", || sync::invoke_now_json(&[])).await
 }
 
 async fn receipts_latest_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -2133,13 +2082,7 @@ async fn update_service_status_route() -> Result<Json<Value>, (StatusCode, Json<
 async fn gui_update_now_route(
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation(
-        "gui update now",
-        "local",
-        capability_from_headers(&headers),
-        || gui::invoke_update_now_json(&[]),
-    )
-    .await
+    gated_mutation("gui update now", || gui::invoke_update_now_json(&[])).await
 }
 
 async fn local_ai_runtime_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -2153,12 +2096,9 @@ async fn local_ai_runtime_check_route() -> Result<Json<Value>, (StatusCode, Json
 async fn local_ai_runtime_update_route(
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation(
-        "local-ai runtime update",
-        "local",
-        capability_from_headers(&headers),
-        || local_ai::invoke_runtime_update_json(&[]),
-    )
+    gated_mutation("local-ai runtime update", || {
+        local_ai::invoke_runtime_update_json(&[])
+    })
     .await
 }
 
@@ -2168,27 +2108,18 @@ async fn profile_module_toggle_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let module_id = body.module_id;
     match policy::allows_command("profile module toggle") {
-        Ok(true) => {
-            if let Err(reason) = capability_admits(
-                "profile module toggle",
-                &module_id,
-                capability_from_headers(&headers),
-            ) {
-                return Err(api_error_signal("profile module toggle", &reason));
-            }
-            match profile_module::toggle_json(&module_id, body.enabled) {
-                Ok(value) => Ok((StatusCode::OK, Json(value))),
-                Err(_) => Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(ApiErrorBody {
-                        schema: "caduceus.api.error.v1",
-                        ok: false,
-                        command: "profile module toggle".to_string(),
-                        first_missing_signal: "caduceus-profile-module-toggle-failed".to_string(),
-                    }),
-                )),
-            }
-        }
+        Ok(true) => match profile_module::toggle_json(&module_id, body.enabled) {
+            Ok(value) => Ok((StatusCode::OK, Json(value))),
+            Err(_) => Err((
+                StatusCode::BAD_REQUEST,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: "profile module toggle".to_string(),
+                    first_missing_signal: "caduceus-profile-module-toggle-failed".to_string(),
+                }),
+            )),
+        },
         Ok(false) => Err(api_error("profile module toggle")),
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -2208,19 +2139,10 @@ async fn update_service_toggle_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let state = body.state;
     match policy::allows_command("update service toggle") {
-        Ok(true) => {
-            if let Err(reason) = capability_admits(
-                "update service toggle",
-                &state,
-                capability_from_headers(&headers),
-            ) {
-                return Err(api_error_signal("update service toggle", &reason));
-            }
-            match update::service_toggle_json(&state, &[]) {
-                Ok(value) => Ok((StatusCode::OK, Json(value))),
-                Err(_) => Err(api_error("update service toggle")),
-            }
-        }
+        Ok(true) => match update::service_toggle_json(&state, &[]) {
+            Ok(value) => Ok((StatusCode::OK, Json(value))),
+            Err(_) => Err(api_error("update service toggle")),
+        },
         Ok(false) => Err(api_error("update service toggle")),
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -2257,10 +2179,22 @@ pub fn router() -> Router {
         .route("/api/v1/health", get(health_api_route))
         .route("/api/v1/disk/census", get(disk_census_route))
         .route("/api/admin/logs/homeserver", get(appliance_logs_read_route))
-        .route("/api/admin/logs/homeserver/clear", post(appliance_logs_clear_route))
-        .route("/api/admin/hard-drive-test/progress", get(hard_drive_test_progress_route))
-        .route("/api/admin/hard-drive-test/results", get(hard_drive_test_results_route))
-        .route("/api/admin/hard-drive-test/start", post(hard_drive_test_start_route))
+        .route(
+            "/api/admin/logs/homeserver/clear",
+            post(appliance_logs_clear_route),
+        )
+        .route(
+            "/api/admin/hard-drive-test/progress",
+            get(hard_drive_test_progress_route),
+        )
+        .route(
+            "/api/admin/hard-drive-test/results",
+            get(hard_drive_test_results_route),
+        )
+        .route(
+            "/api/admin/hard-drive-test/start",
+            post(hard_drive_test_start_route),
+        )
         .route("/api/v1/legacy-sbin", get(legacy_sbin_list_route))
         .route("/api/v1/legacy-sbin/show", get(legacy_sbin_show_route))
         .route("/api/v1/homeserver-sbin", get(homeserver_sbin_list_route))
@@ -2342,7 +2276,10 @@ pub fn router() -> Router {
             "/api/admin/download-root-crt",
             get(legacy_cert_bundle_download_route),
         )
-        .route("/api/admin/refresh-root-crt", post(legacy_cert_refresh_route))
+        .route(
+            "/api/admin/refresh-root-crt",
+            post(legacy_cert_refresh_route),
+        )
         .route("/api/v1/cert/apply", post(cert_apply_route))
         .route("/api/v1/cert/apply-nginx", post(cert_apply_route))
         .route(
@@ -2367,51 +2304,147 @@ pub fn router() -> Router {
         )
         .route("/api/v1/pjlink/power", post(pjlink_power_route))
         .route("/api/v1/staff/status", get(staff_status_route))
-        .route("/api/v1/coronatio/source-currency", get(coronatio_source_currency_route))
+        .route(
+            "/api/v1/coronatio/source-currency",
+            get(coronatio_source_currency_route),
+        )
         .route("/api/v1/staff/actuators", get(staff_actuators_route))
         .route("/api/v1/network/dhcp", post(named_staff_actuator_route))
-        .route("/api/v1/network/speedtest", post(named_staff_actuator_route))
+        .route(
+            "/api/v1/network/speedtest",
+            post(named_staff_actuator_route),
+        )
         .route("/api/v1/linker/browse", post(linker_staff_actuator_route))
         .route("/api/v1/linker/deploy", post(linker_staff_actuator_route))
         .route("/api/v1/linker/delete", post(linker_staff_actuator_route))
         .route("/api/v1/linker/rename", post(linker_staff_actuator_route))
         .route("/api/v1/linker/mkdir", post(linker_staff_actuator_route))
-        .route("/api/v1/linker/hardlink-scan", post(linker_staff_actuator_route))
+        .route(
+            "/api/v1/linker/hardlink-scan",
+            post(linker_staff_actuator_route),
+        )
         .route("/api/v1/file/ingress", post(named_staff_actuator_route))
-        .route("/api/v1/upload/force-permissions", post(named_staff_actuator_route))
-        .route("/api/v1/backblaze/recover", post(named_staff_actuator_route))
-        .route("/api/v1/backblaze/forgejo/b2/push", post(named_staff_actuator_route))
-        .route("/api/v1/backblaze/forgejo/migrate", post(named_staff_actuator_route))
-        .route("/api/v1/calibre/helper-daemon", post(named_staff_actuator_route))
+        .route(
+            "/api/v1/upload/force-permissions",
+            post(named_staff_actuator_route),
+        )
+        .route(
+            "/api/v1/backblaze/recover",
+            post(named_staff_actuator_route),
+        )
+        .route(
+            "/api/v1/backblaze/forgejo/b2/push",
+            post(named_staff_actuator_route),
+        )
+        .route(
+            "/api/v1/backblaze/forgejo/migrate",
+            post(named_staff_actuator_route),
+        )
+        .route(
+            "/api/v1/calibre/helper-daemon",
+            post(named_staff_actuator_route),
+        )
         .route("/api/v1/calibre/watch", post(named_staff_actuator_route))
-        .route("/api/v1/keyman/create-key", post(keyman_staff_actuator_route))
-        .route("/api/v1/keyman/update-key", post(keyman_staff_actuator_route))
-        .route("/api/v1/keyman/admin-password", post(keyman_staff_actuator_route))
-        .route("/api/v1/keyman/key-status", post(keyman_staff_actuator_route))
-        .route("/api/admin/ssh/status", post(service_control_staff_actuator_route))
-        .route("/api/admin/ssh/toggle", post(service_control_staff_actuator_route))
-        .route("/api/admin/ssh/service/status", post(service_control_staff_actuator_route))
-        .route("/api/admin/ssh/service", post(service_control_staff_actuator_route))
-        .route("/api/admin/samba/status", post(service_control_staff_actuator_route))
-        .route("/api/admin/samba/service", post(service_control_staff_actuator_route))
-        .route("/api/admin/system/restart", post(service_control_staff_actuator_route))
-        .route("/api/admin/system/shutdown", post(service_control_staff_actuator_route))
-        .route("/api/admin/services/hard-reset", post(service_control_staff_actuator_route))
-        .route("/api/admin/wake-on-lan/send", post(wake_on_lan_staff_actuator_route))
-        .route("/api/admin/wake-on-lan/probe", post(wake_on_lan_staff_actuator_route))
-        .route("/api/admin/diskman/sync-now", post(nas_sync_staff_actuator_route))
-        .route("/api/admin/diskman/sync-schedule", get(nas_sync_schedule_read_route))
-        .route("/api/admin/diskman/sync-schedule-update", post(nas_sync_staff_actuator_route))
-        .route("/api/admin/diskman/sync-job-status", post(nas_sync_staff_actuator_route))
+        .route(
+            "/api/v1/keyman/create-key",
+            post(keyman_staff_actuator_route),
+        )
+        .route(
+            "/api/v1/keyman/update-key",
+            post(keyman_staff_actuator_route),
+        )
+        .route(
+            "/api/v1/keyman/admin-password",
+            post(keyman_staff_actuator_route),
+        )
+        .route(
+            "/api/v1/keyman/key-status",
+            post(keyman_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/ssh/status",
+            post(service_control_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/ssh/toggle",
+            post(service_control_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/ssh/service/status",
+            post(service_control_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/ssh/service",
+            post(service_control_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/samba/status",
+            post(service_control_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/samba/service",
+            post(service_control_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/system/restart",
+            post(service_control_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/system/shutdown",
+            post(service_control_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/services/hard-reset",
+            post(service_control_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/wake-on-lan/send",
+            post(wake_on_lan_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/wake-on-lan/probe",
+            post(wake_on_lan_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/diskman/sync-now",
+            post(nas_sync_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/diskman/sync-schedule",
+            get(nas_sync_schedule_read_route),
+        )
+        .route(
+            "/api/admin/diskman/sync-schedule-update",
+            post(nas_sync_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/diskman/sync-job-status",
+            post(nas_sync_staff_actuator_route),
+        )
         .route("/api/admin/diskman/unlock", post(disk_staff_actuator_route))
         .route("/api/admin/diskman/mount", post(disk_staff_actuator_route))
-        .route("/api/admin/diskman/unmount", post(disk_staff_actuator_route))
+        .route(
+            "/api/admin/diskman/unmount",
+            post(disk_staff_actuator_route),
+        )
         .route("/api/admin/diskman/format", post(disk_staff_actuator_route))
-        .route("/api/admin/diskman/encrypt", post(disk_staff_actuator_route))
+        .route(
+            "/api/admin/diskman/encrypt",
+            post(disk_staff_actuator_route),
+        )
         .route("/api/admin/diskman/wipe", post(disk_staff_actuator_route))
-        .route("/api/admin/diskman/assign-primary-nas", post(disk_staff_actuator_route))
-        .route("/api/admin/diskman/assign-nas-backup", post(disk_staff_actuator_route))
-        .route("/api/admin/diskman/unassign-nas", post(disk_staff_actuator_route))
+        .route(
+            "/api/admin/diskman/assign-primary-nas",
+            post(disk_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/diskman/assign-nas-backup",
+            post(disk_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/diskman/unassign-nas",
+            post(disk_staff_actuator_route),
+        )
         .route(
             "/api/admin/diskman/setup-nas",
             post(disk_staff_actuator_route),

@@ -1,10 +1,7 @@
 use axum::body::{to_bytes, Body};
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
 use caduceus::bands::serve;
-use ed25519_dalek::{Signer, SigningKey};
 use std::{
     env,
     ffi::OsString,
@@ -16,47 +13,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tower::ServiceExt;
-
-fn capability(action: &str, target: &str, seconds_from_now: i64) -> String {
-    capability_with_seed(
-        action,
-        target,
-        seconds_from_now,
-        "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
-    )
-}
-
-fn capability_with_seed(
-    action: &str,
-    target: &str,
-    seconds_from_now: i64,
-    seed_hex: &str,
-) -> String {
-    let seed = hex_bytes(seed_hex);
-    let key = SigningKey::from_bytes(&seed.try_into().unwrap());
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-    let exp = (now + seconds_from_now).max(0) as u64;
-    let payload = format!(
-        r#"{{"actor":"fixture","action":"{}","target":"{}","exp":{}}}"#,
-        action, target, exp
-    );
-    let signature = key.sign(payload.as_bytes());
-    format!(
-        "{}.{}",
-        URL_SAFE_NO_PAD.encode(payload.as_bytes()),
-        URL_SAFE_NO_PAD.encode(signature.to_bytes())
-    )
-}
-
-fn hex_bytes(text: &str) -> Vec<u8> {
-    text.as_bytes()
-        .chunks_exact(2)
-        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
-        .collect()
-}
 
 static FIXTURE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -187,10 +143,6 @@ async fn tv_pjlink_http_routes_are_profile_allowed_and_safe() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/pjlink/power")
-                .header(
-                    "x-caduceus-capability",
-                    capability("pjlink power set", "living-room-tv", 60),
-                )
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"deviceId":"living-room-tv","state":"on","dryRun":true}"#,
@@ -228,10 +180,6 @@ async fn tv_pjlink_http_routes_are_profile_allowed_and_safe() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/pjlink/product/scan")
-                .header(
-                    "x-caduceus-capability",
-                    capability("pjlink scan", "living-room-tv", 60),
-                )
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"deviceId":"living-room-tv","dryRun":true}"#))
                 .unwrap(),
@@ -248,10 +196,6 @@ async fn tv_pjlink_http_routes_are_profile_allowed_and_safe() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/pjlink/known-products")
-                .header(
-                    "x-caduceus-capability",
-                    capability("pjlink known add", "living-room-tv", 60),
-                )
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"deviceId":"living-room-tv","dryRun":true}"#))
                 .unwrap(),
@@ -397,7 +341,6 @@ async fn console_sync_now_route_is_profile_allowed() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/sync/now")
-                .header("x-caduceus-capability", capability("sync now", "local", 60))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -417,10 +360,6 @@ async fn console_gui_update_route_is_profile_allowed() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/gui/update/now")
-                .header(
-                    "x-caduceus-capability",
-                    capability("gui update now", "local", 60),
-                )
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -458,10 +397,6 @@ async fn locked_profile_rejects_console_update_now() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/update/now")
-                .header(
-                    "x-caduceus-capability",
-                    capability("update now", "local", 60),
-                )
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -493,47 +428,7 @@ async fn console_network_status_route_is_profile_allowed() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn network_dns_mutation_requires_scoped_unexpired_capability() {
-    let _guard = use_fixture("tests/fixtures/homeserver");
-    let request = |token: Option<String>| {
-        let mut builder = Request::builder()
-            .method("POST")
-            .uri("/api/v1/network/dns")
-            .header("content-type", "application/json");
-        if let Some(token) = token {
-            builder = builder.header("x-caduceus-capability", token);
-        }
-        builder
-            .body(Body::from(
-                r#"{"dropIn":"server: local-zone: \\\"home.arpa. transparent\\\""}"#,
-            ))
-            .unwrap()
-    };
-
-    for (token, signal) in [
-        (None, "caduceus-capability-unsigned".to_string()),
-        (
-            Some(capability("wrong action", "/api/dns/unbound/drop-in", 60)),
-            "caduceus-capability-scope".to_string(),
-        ),
-        (
-            Some(capability(
-                "network dns intent",
-                "/api/dns/unbound/drop-in",
-                -1,
-            )),
-            "caduceus-capability-expired".to_string(),
-        ),
-    ] {
-        let response = serve::router().oneshot(request(token)).await.unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        let json = body_json(response).await;
-        assert_eq!(json["firstMissingSignal"], signal);
-    }
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn network_dns_mutation_invokes_staff_launcher_with_valid_scoped_capability() {
+async fn network_dns_mutation_invokes_staff_launcher_when_profile_allowed() {
     let _guard = use_fixture("tests/fixtures/homeserver");
     let fixture = DnsCommandFixture::new();
     let payload = r#"{"dropIn":"server: local-zone: \"home.arpa.\" transparent","dryRun":true}"#;
@@ -542,10 +437,6 @@ async fn network_dns_mutation_invokes_staff_launcher_with_valid_scoped_capabilit
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/network/dns")
-                .header(
-                    "x-caduceus-capability",
-                    capability("network dns intent", "/api/dns/unbound/drop-in", 60),
-                )
                 .header("content-type", "application/json")
                 .body(Body::from(payload))
                 .unwrap(),
@@ -707,7 +598,7 @@ async fn homeserver_retired_admin_action_route_is_not_found() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn loopback_registered_service_restart_skips_capability_but_remote_does_not() {
+async fn registered_service_restart_is_profile_allowed_for_loopback_and_remote_peers() {
     let _guard = use_fixture("tests/fixtures/homeserver");
     let root = std::env::temp_dir().join(format!("caduceus-http-systemctl-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -751,7 +642,7 @@ async fn loopback_registered_service_restart_skips_capability_but_remote_does_no
     ));
     assert_eq!(
         serve::router().oneshot(request).await.unwrap().status(),
-        StatusCode::FORBIDDEN
+        StatusCode::OK
     );
     std::env::remove_var("CADUCEUS_SYSTEMCTL_BIN");
     let _ = std::fs::remove_dir_all(root);
@@ -776,7 +667,7 @@ async fn homeserver_named_file_ingress_route_executes_upload_bytes() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/file/ingress")
-                .header("x-caduceus-capability", capability("staff intent", "/api/v1/file/ingress", 60))
+
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"filename":"proof.txt","bytes":5,"destination":"/mnt/nas","payload":[104,101,108,108,111]}"#,
@@ -800,125 +691,6 @@ async fn homeserver_named_file_ingress_route_executes_upload_bytes() {
     assert!(!root.join("var/log/hyalos/projections/upload.log").exists());
     std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
     let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn http_capability_walls_cover_fresh_expired_scope_tampered_and_missing() {
-    let _guard = use_fixture("tests/fixtures/tv");
-    let app = serve::router();
-
-    let fresh = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/pjlink/power")
-                .header(
-                    "x-caduceus-capability",
-                    capability("pjlink power set", "living-room-tv", 60),
-                )
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"deviceId":"living-room-tv","state":"on","dryRun":true}"#,
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(fresh.status(), StatusCode::OK);
-    assert_eq!(body_json(fresh).await["mutation"], false);
-
-    let expired = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/pjlink/power")
-                .header(
-                    "x-caduceus-capability",
-                    capability("pjlink power set", "living-room-tv", -10),
-                )
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"deviceId":"living-room-tv","state":"on","dryRun":true}"#,
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(expired.status(), StatusCode::FORBIDDEN);
-    assert_eq!(
-        body_json(expired).await["firstMissingSignal"],
-        "caduceus-capability-expired"
-    );
-
-    let scope = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/pjlink/power")
-                .header(
-                    "x-caduceus-capability",
-                    capability("pjlink power set", "other-tv", 60),
-                )
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"deviceId":"living-room-tv","state":"on","dryRun":true}"#,
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(scope.status(), StatusCode::FORBIDDEN);
-    assert_eq!(
-        body_json(scope).await["firstMissingSignal"],
-        "caduceus-capability-scope"
-    );
-
-    let token = capability("pjlink power set", "living-room-tv", 60);
-    let (payload, signature) = token.split_once('.').unwrap();
-    let replacement = if signature.starts_with('A') { 'B' } else { 'A' };
-    let token = format!("{payload}.{replacement}{}", &signature[1..]);
-    let tampered = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/pjlink/power")
-                .header("x-caduceus-capability", token)
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"deviceId":"living-room-tv","state":"on","dryRun":true}"#,
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(tampered.status(), StatusCode::FORBIDDEN);
-    assert_eq!(
-        body_json(tampered).await["firstMissingSignal"],
-        "caduceus-capability-unsigned"
-    );
-
-    let missing = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/pjlink/power")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"deviceId":"living-room-tv","state":"on","dryRun":true}"#,
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(missing.status(), StatusCode::FORBIDDEN);
-    assert_eq!(
-        body_json(missing).await["firstMissingSignal"],
-        "caduceus-capability-unsigned"
-    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -955,14 +727,8 @@ async fn homeserver_dhcp_http_status_and_named_actuator_execute_python_actuator(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/network/dhcp")
-                .header(
-                    "x-caduceus-capability",
-                    capability("staff intent", "/api/v1/network/dhcp", 60),
-                )
                 .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"ip":"192.168.1.7"}"#,
-                ))
+                .body(Body::from(r#"{"ip":"192.168.1.7"}"#))
                 .unwrap(),
         )
         .await
@@ -1057,10 +823,6 @@ async fn config_set_route_mutates_isolated_root_with_valid_capability() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/config/set")
-                .header(
-                    "x-caduceus-capability",
-                    capability("config set", "display.theme", 60),
-                )
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"path":"display.theme","value":"light"}"#))
                 .unwrap(),
@@ -1104,10 +866,7 @@ async fn config_patch_route_deep_merge_preserves_starred() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/config/patch")
-                .header(
-                    "x-caduceus-capability",
-                    capability("config patch", "household-config", 60),
-                )
+
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"merge":{"tabs":{"order":["media","home"]},"display":{"sleepMinutes":15}}}"#,
@@ -1131,56 +890,6 @@ async fn config_patch_route_deep_merge_preserves_starred() {
     assert_eq!(document["tabs"]["order"][0], "media");
     assert_eq!(document["display"]["sleepMinutes"], 15);
     assert_eq!(document["display"]["theme"], "dark");
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn config_mutation_routes_refuse_without_capability() {
-    let root = config_temp_root("refuse");
-    let _guard = use_fixture(root.to_str().unwrap());
-    let original = std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap();
-    let app = serve::router();
-
-    let set = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/config/set")
-                .header("content-type", "application/json")
-                .body(Body::from(r#"{"path":"display.theme","value":"light"}"#))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(set.status(), StatusCode::FORBIDDEN);
-    assert_eq!(
-        body_json(set).await["firstMissingSignal"],
-        "caduceus-capability-unsigned"
-    );
-
-    let patch = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/config/patch")
-                .header("content-type", "application/json")
-                .body(Body::from(r#"{"merge":{"display":{"theme":"light"}}}"#))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(patch.status(), StatusCode::FORBIDDEN);
-    assert_eq!(
-        body_json(patch).await["firstMissingSignal"],
-        "caduceus-capability-unsigned"
-    );
-
-    assert_eq!(
-        std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
-        original
-    );
-    assert!(!root.join("var/lib/caduceus/backups").exists());
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -1214,10 +923,6 @@ async fn config_routes_refuse_path_injection_without_mutation() {
                 Request::builder()
                     .method("POST")
                     .uri("/api/v1/config/set")
-                    .header(
-                        "x-caduceus-capability",
-                        capability("config set", hostile, 60),
-                    )
                     .header("content-type", "application/json")
                     .body(Body::from(format!(r#"{{"path":"{hostile}","value":"x"}}"#)))
                     .unwrap(),
@@ -1331,7 +1036,7 @@ async fn hyalos_http_reflect_tail_filters_and_no_projection_route() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn guest_config_set_only_allows_tabs_starred_and_writes_installed_path() {
+async fn profile_allowed_config_set_writes_installed_path() {
     let root = config_temp_root("guest");
     let _guard = use_fixture(root.to_str().unwrap());
     let app = serve::router();
@@ -1369,16 +1074,12 @@ async fn guest_config_set_only_allows_tabs_starred_and_writes_installed_path() {
         )
         .await
         .unwrap();
-    assert_eq!(guest_other.status(), StatusCode::FORBIDDEN);
-    assert_eq!(
-        body_json(guest_other).await["firstMissingSignal"],
-        "caduceus-capability-unsigned"
-    );
+    assert_eq!(guest_other.status(), StatusCode::OK);
     let installed: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(root.join("etc/appliance/config.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(installed["display"]["theme"], "dark");
+    assert_eq!(installed["display"]["theme"], "light");
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -1680,125 +1381,7 @@ async fn cert_bundle_download_is_public_deterministic_and_read_only() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn homeserver_cert_mutations_require_capability_and_accept_valid_dry_run() {
-    let fixture = CertFixture::new("mutations", "homeserver");
-    let root = fixture.root();
-    let app = serve::router();
-    let before = file_snapshot(&root);
-    let cases = [
-        (
-            "/api/v1/cert/issue-leaf",
-            "cert issue-leaf",
-            "home.arpa",
-            r#"{"identity":"home.arpa","dryRun":true}"#,
-        ),
-        (
-            "/api/v1/cert/bundle/create",
-            "cert bundle create",
-            "linux",
-            r#"{"platform":"linux","dryRun":true}"#,
-        ),
-        (
-            "/api/v1/cert/apply",
-            "cert apply",
-            "portal.home.arpa",
-            r#"{"portal":"portal.home.arpa","upstream":"http://127.0.0.1:8080","certificate":"/fixture/cert.pem","keyPath":"/fixture/key.pem","dryRun":true}"#,
-        ),
-        (
-            "/api/v1/cert/portal-admit",
-            "cert portal-admit",
-            "portal.home.arpa",
-            r#"{"portal":"portal.home.arpa","lanIp":"192.168.123.20","upstream":"http://127.0.0.1:8080","dryRun":true}"#,
-        ),
-    ];
-    for (uri, action, target, body) in cases {
-        let refused = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri(uri)
-                    .header("content-type", "application/json")
-                    .body(Body::from(body))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(refused.status(), StatusCode::FORBIDDEN, "{uri}");
-        assert_eq!(
-            body_json(refused).await["firstMissingSignal"],
-            "caduceus-capability-unsigned"
-        );
-
-        let accepted = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri(uri)
-                    .header("x-caduceus-capability", capability(action, target, 60))
-                    .header("content-type", "application/json")
-                    .body(Body::from(body))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(accepted.status(), StatusCode::OK, "{uri}");
-    }
-    assert_eq!(before, file_snapshot(&root));
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn trust_install_requires_capability_and_accepts_valid_dry_run() {
-    let fixture = CertFixture::new("trust", "console");
-    let root = fixture.root();
-    run_house_ca(root, &["ensure-root"]);
-    let bundle = root.join("var/lib/caduceus/certs/ca.pem");
-    let app = serve::router();
-    let before = file_snapshot(&root);
-    let body = format!(
-        r#"{{"bundle":"{}","platform":"linux","dryRun":true}}"#,
-        bundle.display()
-    );
-    let refused = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/cert/trust-install")
-                .header("content-type", "application/json")
-                .body(Body::from(body.clone()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
-    assert_eq!(
-        body_json(refused).await["firstMissingSignal"],
-        "caduceus-capability-unsigned"
-    );
-
-    let accepted = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/cert/trust-install")
-                .header(
-                    "x-caduceus-capability",
-                    capability("cert trust-install", bundle.to_str().unwrap(), 60),
-                )
-                .header("content-type", "application/json")
-                .body(Body::from(body))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(accepted.status(), StatusCode::OK);
-    assert_eq!(before, file_snapshot(&root));
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn csr_sign_route_has_profile_capability_and_body_walls() {
+async fn csr_sign_route_has_profile_and_body_walls() {
     let fixture = CertFixture::new("csr-walls", "homeserver");
     run_house_ca(fixture.root(), &["ensure-root"]);
     let app = serve::router();
@@ -1826,10 +1409,6 @@ async fn csr_sign_route_has_profile_capability_and_body_walls() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/cert/csr/sign")
-                .header(
-                    "x-caduceus-capability",
-                    capability("cert csr sign", "console.home.arpa", 60),
-                )
                 .header("content-type", "application/json")
                 .body(Body::from(body))
                 .unwrap(),
@@ -1847,10 +1426,6 @@ async fn csr_sign_route_has_profile_capability_and_body_walls() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/cert/csr/sign")
-                .header(
-                    "x-caduceus-capability",
-                    capability("cert csr sign", "console.home.arpa", 60),
-                )
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"csrPem":"not a csr","ips":["192.0.2.10"]}"#))
                 .unwrap(),

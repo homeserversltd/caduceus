@@ -3,9 +3,9 @@ pub mod tools;
 
 use crate::tools::policy;
 use bands::{
-    cert, child_device, config, dhcp, disk, dns, drive_test, gui, health, help, homeserver_sbin, hyalos,
-    identity, legacy_sbin, local_ai, logs, network, network_identity, network_read, pjlink, profile,
-    profile_module, receipts, serve, source_map, staff, sync, time, update,
+    cert, child_device, config, dhcp, disk, dns, drive_test, gui, health, help, homeserver_sbin,
+    hyalos, identity, legacy_sbin, local_ai, logs, network, network_identity, network_read, pjlink,
+    profile, profile_module, receipts, serve, source_map, staff, sync, time, update,
 };
 
 pub fn run<I, S>(args: I) -> i32
@@ -29,7 +29,7 @@ where
         [domain, object, verb, rest @ ..]
             if domain == "profile" && object == "sources" && verb == "reseed" =>
         {
-            match require_capability(source_map::public_command(), source_map::target(), rest) {
+            match require_policy(source_map::public_command(), rest) {
                 Ok(filtered) if filtered.is_empty() => source_map::command(),
                 Ok(_) => {
                     eprintln!("caduceus-source-map-reseed-arguments-forbidden");
@@ -39,15 +39,25 @@ where
             }
         }
         [domain] if domain == "health" => health::show(),
-        [domain, verb, rest @ ..] if domain == "logs" && verb == "read" => match policy::allows_command("logs read") {
-            Ok(true) => logs::show(option_usize(rest, "--offset", 0), option_usize(rest, "--limit", logs::DEFAULT_LIMIT).min(logs::MAX_LIMIT)),
-            Ok(false) => public_action_not_allowed(),
-            Err(error) => { eprintln!("{error}"); 1 }
-        },
-        [domain, verb, rest @ ..] if domain == "logs" && verb == "clear" => match require_capability("logs clear", logs::LOG_PATH, rest) {
-            Ok(_) => logs::clear(),
-            Err(code) => code,
-        },
+        [domain, verb, rest @ ..] if domain == "logs" && verb == "read" => {
+            match policy::allows_command("logs read") {
+                Ok(true) => logs::show(
+                    option_usize(rest, "--offset", 0),
+                    option_usize(rest, "--limit", logs::DEFAULT_LIMIT).min(logs::MAX_LIMIT),
+                ),
+                Ok(false) => public_action_not_allowed(),
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
+            }
+        }
+        [domain, verb, rest @ ..] if domain == "logs" && verb == "clear" => {
+            match require_policy("logs clear", rest) {
+                Ok(_) => logs::clear(),
+                Err(code) => code,
+            }
+        }
         [domain, verb] if domain == "disk" && verb == "census" => {
             match policy::allows_command("disk census") {
                 Ok(true) => disk::show(),
@@ -62,26 +72,36 @@ where
             match policy::allows_command("disk test progress") {
                 Ok(true) => drive_test_print(drive_test::progress_json()),
                 Ok(false) => public_action_not_allowed(),
-                Err(error) => { eprintln!("{error}"); 1 }
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
             }
         }
         [domain, object, verb] if domain == "disk" && object == "test" && verb == "results" => {
             match policy::allows_command("disk test results") {
                 Ok(true) => drive_test_print(drive_test::results_json()),
                 Ok(false) => public_action_not_allowed(),
-                Err(error) => { eprintln!("{error}"); 1 }
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
             }
         }
         [domain, object, verb, device, test_type, rest @ ..]
-            if domain == "disk" && object == "test" && verb == "start" => {
+            if domain == "disk" && object == "test" && verb == "start" =>
+        {
             if rest.iter().any(|arg| arg == "--dry-run") {
                 match policy::allows_command("disk test start") {
                     Ok(true) => drive_test_print(drive_test::start_json(device, test_type, true)),
                     Ok(false) => public_action_not_allowed(),
-                    Err(error) => { eprintln!("{error}"); 1 }
+                    Err(error) => {
+                        eprintln!("{error}");
+                        1
+                    }
                 }
             } else {
-                match require_capability("disk test start", device, rest) {
+                match require_policy("disk test start", rest) {
                     Ok(_) => drive_test_print(drive_test::start_json(device, test_type, false)),
                     Err(code) => code,
                 }
@@ -245,13 +265,13 @@ where
             config_command("config get", || config::get_json(key))
         }
         [domain, verb, key, value, rest @ ..] if domain == "config" && verb == "set" => {
-            match require_capability("config set", key, rest) {
+            match require_policy("config set", rest) {
                 Ok(_) => config_print(config::set_json(key, parse_json_value(value))),
                 Err(code) => code,
             }
         }
         [domain, verb, merge, rest @ ..] if domain == "config" && verb == "patch" => {
-            match require_capability("config patch", "household-config", rest) {
+            match require_policy("config patch", rest) {
                 Ok(_) => config_print(config::patch_json(parse_json_value(merge))),
                 Err(code) => code,
             }
@@ -311,7 +331,7 @@ where
             if let Some(read) = network_read::named(&command) {
                 read_command(read)
             } else if let Some((command, target)) = dns::command_admission(rest) {
-                match require_capability(command, target, rest) {
+                match require_policy(command, rest) {
                     Ok(filtered) => dns::command(&filtered),
                     Err(code) => code,
                 }
@@ -338,7 +358,7 @@ where
             pjlink::known_products()
         }
         [domain, verb, device_id, rest @ ..] if domain == "pjlink" && verb == "scan" => {
-            match require_capability("pjlink scan", device_id, rest) {
+            match require_policy("pjlink scan", rest) {
                 Ok(filtered) => pjlink::scan_product(device_id, &filtered),
                 Err(code) => code,
             }
@@ -351,7 +371,7 @@ where
         [domain, object, verb, device_id, rest @ ..]
             if domain == "pjlink" && object == "known" && verb == "add" =>
         {
-            match require_capability("pjlink known add", device_id, rest) {
+            match require_policy("pjlink known add", rest) {
                 Ok(filtered) => pjlink::add_known_product(device_id, &filtered),
                 Err(code) => code,
             }
@@ -359,7 +379,7 @@ where
         [domain, object, verb, entry_id, rest @ ..]
             if domain == "pjlink" && object == "known" && verb == "remove" =>
         {
-            match require_capability("pjlink known remove", entry_id, rest) {
+            match require_policy("pjlink known remove", rest) {
                 Ok(_) => pjlink::remove_known_product(entry_id),
                 Err(code) => code,
             }
@@ -367,7 +387,7 @@ where
         [domain, verb] if domain == "staff" && verb == "status" => staff::status(),
         [domain, verb] if domain == "staff" && verb == "actuators" => staff::actuators(),
         [domain, verb, method, route, rest @ ..] if domain == "staff" && verb == "intent" => {
-            match require_capability("staff intent", route, rest) {
+            match require_policy("staff intent", rest) {
                 Ok(_) => staff::intent(method, route),
                 Err(code) => code,
             }
@@ -381,20 +401,20 @@ where
         [domain, verb] if domain == "receipts" && verb == "latest" => receipts::latest(),
         [domain, verb] if domain == "update" && verb == "status" => update::status(),
         [domain, verb, rest @ ..] if domain == "update" && verb == "now" => {
-            match require_capability("update now", "local", rest) {
+            match require_policy("update now", rest) {
                 Ok(filtered) => update::now(&filtered),
                 Err(code) => code,
             }
         }
         [domain, verb, rest @ ..] if domain == "update" && verb == "check" => {
-            match require_capability("update check", "local", rest) {
+            match require_policy("update check", rest) {
                 Ok(filtered) => update::check(&filtered),
                 Err(code) => code,
             }
         }
         [domain, verb] if domain == "sync" && verb == "status" => sync::status(),
         [domain, verb, rest @ ..] if domain == "sync" && verb == "now" => {
-            match require_capability("sync now", "local", rest) {
+            match require_policy("sync now", rest) {
                 Ok(filtered) => sync::now(&filtered),
                 Err(code) => code,
             }
@@ -402,7 +422,7 @@ where
         [domain, object, verb, rest @ ..]
             if domain == "gui" && object == "update" && verb == "now" =>
         {
-            match require_capability("gui update now", "local", rest) {
+            match require_policy("gui update now", rest) {
                 Ok(filtered) => gui::update_now(&filtered),
                 Err(code) => code,
             }
@@ -415,7 +435,7 @@ where
         [domain, object, verb, rest @ ..]
             if domain == "local-ai" && object == "runtime" && verb == "update" =>
         {
-            match require_capability("local-ai runtime update", "local", rest) {
+            match require_policy("local-ai runtime update", rest) {
                 Ok(filtered) => local_ai::runtime_update(&filtered),
                 Err(code) => code,
             }
@@ -423,7 +443,7 @@ where
         [domain, object, verb, module_id, state, rest @ ..]
             if domain == "profile" && object == "module" && verb == "toggle" =>
         {
-            match require_capability("profile module toggle", module_id, rest) {
+            match require_policy("profile module toggle", rest) {
                 Ok(_) => profile_module::toggle(module_id, state),
                 Err(code) => code,
             }
@@ -434,7 +454,7 @@ where
         [domain, object, verb, state, rest @ ..]
             if domain == "update" && object == "service" && verb == "toggle" =>
         {
-            match require_capability("update service toggle", state, rest) {
+            match require_policy("update service toggle", rest) {
                 Ok(filtered) => update::service_toggle(state, &filtered),
                 Err(code) => code,
             }
@@ -442,7 +462,7 @@ where
         [domain, object, verb, device_id, state, rest @ ..]
             if domain == "pjlink" && object == "power" && verb == "set" =>
         {
-            match require_capability("pjlink power set", device_id, rest) {
+            match require_policy("pjlink power set", rest) {
                 Ok(filtered) => pjlink::power(device_id, state, &filtered),
                 Err(code) => code,
             }
@@ -462,8 +482,14 @@ fn public_action_not_allowed() -> i32 {
 
 fn drive_test_print(result: Result<serde_json::Value, String>) -> i32 {
     match result {
-        Ok(value) => { println!("{value}"); 0 }
-        Err(error) => { eprintln!("{error}"); 1 }
+        Ok(value) => {
+            println!("{value}");
+            0
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            1
+        }
     }
 }
 
@@ -478,39 +504,18 @@ fn read_command(read: &network_read::ReadCommand) -> i32 {
     }
 }
 
-fn require_capability(command: &str, target: &str, rest: &[String]) -> Result<Vec<String>, i32> {
+fn require_policy(command: &str, rest: &[String]) -> Result<Vec<String>, i32> {
     match policy::allows_command(command) {
-        Ok(true) => {}
+        Ok(true) => Ok(rest.to_vec()),
         Ok(false) => {
             eprintln!("caduceus-public-action-not-allowed");
-            return Err(2);
+            Err(2)
         }
         Err(_) => {
             eprintln!("caduceus-profile-missing");
-            return Err(1);
+            Err(1)
         }
     }
-    let token = capability_arg(rest);
-    if let Err(reason) = policy::capability_admits(command, target, token) {
-        eprintln!("{}", reason.signal());
-        return Err(2);
-    }
-    Ok(rest_without_capability(rest))
-}
-
-fn capability_arg(rest: &[String]) -> Option<&str> {
-    let mut index = 0;
-    while index < rest.len() {
-        let arg = rest[index].as_str();
-        if arg == "--capability" {
-            return rest.get(index + 1).map(String::as_str);
-        }
-        if let Some(value) = arg.strip_prefix("--capability=") {
-            return Some(value);
-        }
-        index += 1;
-    }
-    None
 }
 
 fn config_command<F: FnOnce() -> Result<serde_json::Value, String>>(command: &str, read: F) -> i32 {
@@ -630,7 +635,9 @@ fn option_value<'a>(rest: &'a [String], name: &str) -> Option<&'a str> {
 }
 
 fn option_usize(rest: &[String], name: &str, default: usize) -> usize {
-    option_value(rest, name).and_then(|value| value.parse::<usize>().ok()).unwrap_or(default)
+    option_value(rest, name)
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(default)
 }
 
 fn option_list(rest: &[String], name: &str) -> Vec<String> {
@@ -644,25 +651,6 @@ fn option_list(rest: &[String], name: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn rest_without_capability(rest: &[String]) -> Vec<String> {
-    let mut filtered = Vec::new();
-    let mut index = 0;
-    while index < rest.len() {
-        let arg = &rest[index];
-        if arg == "--capability" {
-            index += 2;
-            continue;
-        }
-        if arg.starts_with("--capability=") {
-            index += 1;
-            continue;
-        }
-        filtered.push(arg.clone());
-        index += 1;
-    }
-    filtered
-}
-
 fn print_help() {
     println!("caduceus 0.1.0");
     println!("public appliance-control lever");
@@ -671,13 +659,13 @@ fn print_help() {
     println!("  caduceus help");
     println!("  caduceus identity show");
     println!("  caduceus profile show");
-    println!("  caduceus profile sources reseed [--capability TOKEN]");
+    println!("  caduceus profile sources reseed");
     println!("  caduceus health");
     println!("  caduceus logs read [--offset N] [--limit N]");
-    println!("  caduceus logs clear --capability TOKEN");
+    println!("  caduceus logs clear");
     println!("  caduceus disk test progress");
     println!("  caduceus disk test results");
-    println!("  caduceus disk test start <device> <quick|full|ultimate> [--dry-run] [--capability TOKEN]");
+    println!("  caduceus disk test start <device> <quick|full|ultimate> [--dry-run]");
     println!("  caduceus cert status");
     println!("  caduceus cert refresh-root");
     println!("  caduceus cert ensure-root [--dry-run] [--renewal-authority AUTHORITY]");
@@ -696,9 +684,9 @@ fn print_help() {
     println!("  caduceus network status");
     println!("  caduceus network dhcp status|leases|reservations list|boundary show");
     println!("  caduceus network dns status|read");
-    println!("  caduceus network dns intent POST /api/dns/unbound/drop-in --metadata-json <json> [--capability TOKEN]");
-    println!("  caduceus network dns device-name <create|remove> --hostname <name> --ip <ip> [--capability TOKEN]");
-    println!("  caduceus network dns alias <create|remove> --label <label> --hostname <name> [--capability TOKEN]");
+    println!("  caduceus network dns intent POST /api/dns/unbound/drop-in --metadata-json <json>");
+    println!("  caduceus network dns device-name <create|remove> --hostname <name> --ip <ip>");
+    println!("  caduceus network dns alias <create|remove> --label <label> --hostname <name>");
     println!("  caduceus network device list");
     println!("  caduceus network device claim --mac <mac> [--ip <ip>|--auto-ip] --hostname <name>");
     println!("  caduceus service restart coronatio");
