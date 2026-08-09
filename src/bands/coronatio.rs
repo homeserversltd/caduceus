@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 const SCHEMA: &str = "caduceus.coronatio.source_currency.v1";
-const DEFAULT_FORGEJO: &str = "http://git.home.arpa";
+const DEFAULT_FORGEJO: &str = "http://127.0.0.1:3000";
 const REPOSITORY: &str = "HOMESERVERSLTD/coronatio";
 fn valid_sha(v: &str) -> bool {
     v.len() == 40 && v.bytes().all(|b| b.is_ascii_hexdigit())
