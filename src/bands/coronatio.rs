@@ -1,7 +1,6 @@
-use crate::tools::harmonia;
+use crate::tools::hyalos;
 use base64::Engine;
 use serde_json::{json, Value};
-use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -90,21 +89,6 @@ fn classify(s: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-fn append(v: &Value) -> Result<(), String> {
-    let p = harmonia::load_profile_value()
-        .map_err(|_| "caduceus-ledger-path-missing".to_string())?
-        .get("services")
-        .and_then(|v| v.get("ledger"))
-        .and_then(Value::as_str)
-        .ok_or_else(|| "caduceus-ledger-path-missing".to_string())?
-        .to_string();
-    let mut f = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(p)
-        .map_err(|_| "caduceus-ledger-write-failed")?;
-    writeln!(f, "{v}").map_err(|_| "caduceus-ledger-write-failed".into())
-}
 pub fn source_currency_json(build: &str) -> Value {
     let result: Result<Value, String> = if !valid_sha(build) {
         Err("caduceus-build-sha-malformed".into())
@@ -152,21 +136,19 @@ pub fn source_currency_json(build: &str) -> Value {
         Ok(v) => v,
         Err(s) => response(build, false, None, "unknown", Some(&s)),
     };
-    let receipt = json!({"schema":SCHEMA,"event":"source-currency","body":body});
-    match append(&receipt) {
-        Ok(()) => body,
-        Err(ledger_error) => {
-            let failure = response(build, false, None, "unknown", Some(&ledger_error));
-            let failure_receipt =
-                json!({"schema":SCHEMA,"event":"source-currency-ledger-failure","body":failure});
-            // Do not recurse: if the ledger recovered, preserve the failure response; otherwise
-            // there is no durable side effect available and the bounded response still fails closed.
-            match append(&failure_receipt) {
-                Ok(()) | Err(_) => {}
-            }
-            failure
+    let ok = body.get("ok").and_then(Value::as_bool).unwrap_or(false);
+    let _ = hyalos::reflect_json(json!({
+        "organ": "coronatio-source-currency",
+        "kind": "source-currency-check",
+        "ok": ok,
+        "message": if ok { "source-currency-checked" } else { "source-currency-check-failed" },
+        "attributes_redacted": {
+            "buildSha": body.get("buildSha").cloned().unwrap_or(Value::Null),
+            "originMainSha": body.get("originMainSha").cloned().unwrap_or(Value::Null),
+            "relation": body.get("relation").cloned().unwrap_or(Value::Null)
         }
-    }
+    }));
+    body
 }
 #[cfg(test)]
 mod tests {
@@ -178,16 +160,28 @@ mod tests {
         assert!(b["firstMissingSignal"].as_str().is_some())
     }
     #[test]
-    fn ledger_path_unavailable_fails_closed() {
+    fn source_currency_reflects_to_hyalos_without_changing_the_response() {
         let root =
-            std::env::temp_dir().join(format!("caduceus-coronatio-missing-{}", std::process::id()));
+            std::env::temp_dir().join(format!("caduceus-coronatio-hyalos-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::env::set_var("CADUCEUS_ROOT", &root);
-        let body = source_currency_json(&"a".repeat(40));
+        let body = source_currency_json("bad");
         assert_eq!(body["ok"], false);
+        assert_eq!(body["schema"], SCHEMA);
         assert_eq!(body["originMainSha"], Value::Null);
         assert_eq!(body["relation"], "unknown");
-        assert_eq!(body["firstMissingSignal"], "caduceus-ledger-path-missing");
+        assert_eq!(body["firstMissingSignal"], "caduceus-build-sha-malformed");
+        let channel = std::fs::read_to_string(root.join("var/log/hyalos/channel.jsonl")).unwrap();
+        let event: Value = serde_json::from_str(channel.trim()).unwrap();
+        assert_eq!(event["organ"], "coronatio-source-currency");
+        assert_eq!(event["kind"], "source-currency-check");
+        assert_eq!(event["ok"], false);
+        assert_eq!(event["message"], "source-currency-check-failed");
+        assert_eq!(event["attributes_redacted"]["buildSha"], "bad");
+        assert_eq!(event["attributes_redacted"]["originMainSha"], Value::Null);
+        assert_eq!(event["attributes_redacted"]["relation"], "unknown");
+        assert!(!root.join("var/lib/caduceus/receipts").exists());
+        std::env::remove_var("CADUCEUS_ROOT");
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -225,9 +219,19 @@ mod tests {
         assert!(!s.contains("password"))
     }
     #[test]
-    fn receipt_ledger_shape() {
-        let s=json!({"schema":SCHEMA,"event":"source-currency","body":response(&"a".repeat(40),false,None,"unknown",Some("failed"))}).to_string();
-        assert!(serde_json::from_str::<Value>(&s).is_ok());
+    fn hyalos_reflection_attributes_are_secret_free() {
+        let reflection = json!({
+            "organ": "coronatio-source-currency",
+            "kind": "source-currency-check",
+            "ok": false,
+            "message": "source-currency-check-failed",
+            "attributes_redacted": {
+                "buildSha": "a".repeat(40),
+                "originMainSha": Value::Null,
+                "relation": "unknown"
+            }
+        });
+        let s = reflection.to_string();
         assert!(!s.contains("token"));
         assert!(!s.contains("password"))
     }
