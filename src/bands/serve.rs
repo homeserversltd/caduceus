@@ -1,5 +1,5 @@
 use crate::bands::{
-    cert, config, disk, dns, drive_test, firewall, gui, health, homeserver_sbin, hyalos, identity,
+    cert, config, coronatio, disk, dns, drive_test, firewall, gui, health, homeserver_sbin, hyalos, identity,
     legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read, pjlink, profile,
     profile_module, receipts, source_map, speedtest, staff, sync, tailscale, time, update, vpn,
 };
@@ -558,6 +558,15 @@ async fn homeserver_sbin_show_route(
             }),
         )),
     }
+}
+
+async fn coronatio_source_currency_route(
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let build_sha = query.get("buildSha").map(String::as_str).unwrap_or("");
+    let body = coronatio::source_currency_json(build_sha);
+    let status = if body["ok"].as_bool() == Some(true) { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+    Ok((status, Json(body)))
 }
 
 async fn staff_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -2323,6 +2332,7 @@ pub fn router() -> Router {
         )
         .route("/api/v1/pjlink/power", post(pjlink_power_route))
         .route("/api/v1/staff/status", get(staff_status_route))
+        .route("/api/v1/coronatio/source-currency", get(coronatio_source_currency_route))
         .route("/api/v1/staff/actuators", get(staff_actuators_route))
         .route("/api/v1/network/dhcp", post(named_staff_actuator_route))
         .route("/api/v1/network/speedtest", post(named_staff_actuator_route))

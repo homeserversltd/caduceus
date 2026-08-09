@@ -1,4 +1,5 @@
 pub mod cert;
+pub mod coronatio;
 pub mod child_device;
 pub mod config;
 pub mod dhcp;
