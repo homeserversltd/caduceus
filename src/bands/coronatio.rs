@@ -171,7 +171,8 @@ mod tests {
         assert_eq!(body["originMainSha"], Value::Null);
         assert_eq!(body["relation"], "unknown");
         assert_eq!(body["firstMissingSignal"], "caduceus-build-sha-malformed");
-        let channel = std::fs::read_to_string(root.join("var/log/hyalos/channel.jsonl")).unwrap();
+        let channel =
+            std::fs::read_to_string(root.join("var/log/appliance/appliance.log")).unwrap();
         let event: Value = serde_json::from_str(channel.trim()).unwrap();
         assert_eq!(event["organ"], "coronatio-source-currency");
         assert_eq!(event["kind"], "source-currency-check");

@@ -793,7 +793,7 @@ async fn homeserver_named_file_ingress_route_executes_upload_bytes() {
     assert_eq!(json["hyalos"]["event"]["kind"], "upload");
     assert_eq!(std::fs::read(root.join("proof.txt")).unwrap(), b"hello");
     assert!(
-        std::fs::read_to_string(root.join("var/log/hyalos/channel.jsonl"))
+        std::fs::read_to_string(root.join("var/log/appliance/appliance.log"))
             .unwrap()
             .contains("proof.txt")
     );
@@ -1586,10 +1586,10 @@ async fn cert_bundle_download_is_public_deterministic_and_read_only() {
         )
         .await
         .unwrap();
-    assert_eq!(absent.status(), StatusCode::NOT_FOUND);
+    assert_eq!(absent.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(
         body_json(absent).await["firstMissingSignal"],
-        "caduceus-cert-bundle-missing"
+        "caduceus-house-ca-refused"
     );
     assert_eq!(before_absent, file_snapshot(&root));
     assert!(!root.join("var/lib/caduceus/certs").exists());

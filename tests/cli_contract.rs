@@ -357,7 +357,7 @@ fn homeserver_sbin_marks_backblaze_and_calibre_staff_profiled() {
 }
 
 #[test]
-fn staff_intent_cli_refuses_unmapped_coronatio_route() {
+fn staff_intent_cli_accepts_coronatio_route_intent() {
     let output = Command::new(bin())
         .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
         .args([
@@ -370,9 +370,10 @@ fn staff_intent_cli_refuses_unmapped_coronatio_route() {
         ])
         .output()
         .unwrap();
-    assert!(!output.status.success());
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("caduceus-action-unmapped"));
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("caduceus.staff.intent.v1"));
+    assert!(stdout.contains("queued-behind-typed-actuator"));
 }
 
 #[test]
@@ -611,7 +612,7 @@ fn hyalos_cli_reflects_redacts_tails_with_filters_and_no_projection() {
         "{}",
         String::from_utf8_lossy(&reflected.stderr)
     );
-    let channel = std::fs::read_to_string(root.join("var/log/hyalos/channel.jsonl")).unwrap();
+    let channel = std::fs::read_to_string(root.join("var/log/appliance/appliance.log")).unwrap();
     assert!(channel.contains("hyalos.channel.event.v2"));
     assert!(channel.contains("attributes_redacted"));
     assert!(channel.contains(r#""level":"info""#));
@@ -644,6 +645,45 @@ fn hyalos_cli_reflects_redacts_tails_with_filters_and_no_projection() {
         .unwrap();
     assert!(!project.status.success());
     assert!(!root.join("var/log/hyalos/projections/upload.log").exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn hyalos_cli_migrates_legacy_channel_before_append() {
+    let root =
+        std::env::temp_dir().join(format!("caduceus-hyalos-migration-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+    std::fs::copy(
+        "tests/fixtures/homeserver/etc/caduceus/profile.yaml",
+        root.join("etc/caduceus/profile.yaml"),
+    )
+    .unwrap();
+    let legacy = root.join("var/log/hyalos/channel.jsonl");
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    std::fs::write(&legacy, "known legacy line\n").unwrap();
+
+    let reflected = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args([
+            "hyalos",
+            "reflect",
+            "caduceus",
+            "receipt",
+            "new-channel-event",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        reflected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&reflected.stderr)
+    );
+
+    let channel = std::fs::read_to_string(root.join("var/log/appliance/appliance.log")).unwrap();
+    assert!(channel.contains("known legacy line"));
+    assert!(channel.contains("new-channel-event"));
+    assert!(!legacy.exists());
     let _ = std::fs::remove_dir_all(root);
 }
 
