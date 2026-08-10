@@ -211,6 +211,17 @@ where
                 }
             })
         }
+        [domain, verb, flag]
+            if domain == "cert" && verb == "trust-fetch" && (flag == "--help" || flag == "-h") =>
+        {
+            println!("caduceus cert trust-fetch <server-ip-or-host>");
+            0
+        }
+        [domain, verb, server] if domain == "cert" && verb == "trust-fetch" => {
+            cert_command("cert trust-fetch", "trust_fetch", &[], || {
+                cert_print(cert::trust_fetch_json(server, "linux"))
+            })
+        }
         [domain, verb, bundle, rest @ ..] if domain == "cert" && verb == "trust-install" => {
             cert_command("cert trust-install", "trust_install", &[], || {
                 let platform = option_value(rest, "--platform").unwrap_or("linux");
@@ -674,6 +685,7 @@ fn print_help() {
     println!("  caduceus cert constituent-lock <portal> <lan-ip> [--dry-run]");
     println!("  caduceus cert apply-nginx <portal> <upstream> <certificate> <key> [--dry-run]");
     println!("  caduceus cert trust-install <bundle> [--platform linux] [--dry-run]");
+    println!("  caduceus cert trust-fetch <server-ip-or-host>");
     println!(
         "  caduceus cert portal-admit <portal> <lan-ip> <upstream> [--aliases a,b] [--dry-run]"
     );

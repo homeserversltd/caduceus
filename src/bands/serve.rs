@@ -1707,6 +1707,7 @@ struct CertBody {
     key_path: Option<String>,
     aliases: Option<Vec<String>>,
     renewal_authority: Option<String>,
+    server: Option<String>,
     #[serde(default, alias = "dry_run")]
     dry_run: bool,
 }
@@ -1865,6 +1866,25 @@ async fn cert_constituent_lock_route(
         cert::constituent_lock_json(portal, body.lan_ip.as_deref().unwrap_or(""), body.dry_run)
     })
 }
+async fn cert_bundle_public_route() -> Result<Response<Body>, (StatusCode, Json<Value>)> {
+    let command = "cert bundle read";
+    match cert_admitted_command(command, &[]) {
+        Ok(Some(_)) => {}
+        Ok(None) => return Err(cert_profile_refusal(command, "bundle_read")),
+        Err(_) => return Err(cert_api_error(command, "caduceus-profile-missing")),
+    }
+    let bundle = cert::bundle_download_json("linux")
+        .map_err(|signal| cert_value_error(StatusCode::SERVICE_UNAVAILABLE, command, &signal))?;
+    let fingerprint = HeaderValue::from_str(&bundle.fingerprint)
+        .map_err(|_| cert_api_error(command, "caduceus-cert-bundle-fingerprint-invalid"))?;
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "application/x-pem-file")
+        .header("x-caduceus-ca-fingerprint", fingerprint)
+        .body(Body::from(bundle.bytes))
+        .map_err(|_| cert_api_error(command, "caduceus-cert-bundle-response-invalid"))
+}
+
 async fn cert_bundle_download_route(
     Query(query): Query<CertQuery>,
 ) -> Result<Response<Body>, (StatusCode, Json<Value>)> {
@@ -1951,6 +1971,15 @@ async fn cert_apply_route(
         )
     })
 }
+async fn cert_trust_fetch_route(
+    Json(body): Json<CertBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let server = body.server.as_deref().unwrap_or("");
+    cert_mutation_result("cert trust-fetch", "trust_fetch", &[], || {
+        cert::trust_fetch_json(server, body.platform.as_deref().unwrap_or("linux"))
+    })
+}
+
 async fn cert_trust_route(
     headers: HeaderMap,
     Json(body): Json<CertBody>,
@@ -2410,7 +2439,10 @@ pub fn router() -> Router {
             "/api/v1/cert/csr/sign",
             post(cert_csr_sign_route).layer(DefaultBodyLimit::max(65536)),
         )
-        .route("/api/v1/cert/bundle", post(cert_bundle_route))
+        .route(
+            "/api/v1/cert/bundle",
+            get(cert_bundle_public_route).post(cert_bundle_route),
+        )
         .route("/api/v1/cert/bundle/create", post(cert_bundle_route))
         .route("/api/v1/cert/bundle-export", post(cert_bundle_route))
         .route(
@@ -2432,6 +2464,7 @@ pub fn router() -> Router {
             post(cert_constituent_lock_route),
         )
         .route("/api/v1/cert/trust-install", post(cert_trust_route))
+        .route("/api/v1/cert/trust-fetch", post(cert_trust_fetch_route))
         .route("/api/v1/cert/portal-admit", post(cert_portal_route))
         .route("/api/v1/pjlink/devices", get(pjlink_devices_route))
         .route(
