@@ -17,6 +17,7 @@ VAULT_NEWKEY = "/vault/keyman/newkey.sh"
 EXPORT_NAS = "/vault/scripts/exportNAS.sh"
 EXPORT_SUITE = "/vault/scripts/exportServiceSuite.sh"
 CHANGE_SUITE = "/vault/keyman/change_service_suite_key.sh"
+CAPABILITY_ROTATE = "/usr/local/sbin/caduceus-keyman-rotate-capability"
 CRYPTSETUP = "/usr/sbin/cryptsetup"
 CHPASSWD = "/usr/sbin/chpasswd"
 SMBPASSWD = "/usr/bin/smbpasswd"
@@ -254,6 +255,16 @@ def admin_password(payload: dict[str, Any], *, planned: bool) -> dict[str, Any]:
     return _receipt("admin-password", True, planned=False, commands=commands, sambaUser=samba_user)
 
 
+def rotate_capability(payload: dict[str, Any], *, planned: bool) -> dict[str, Any]:
+    if set(payload) - {"action", "dryRun"}:
+        raise Refusal("caduceus-keyman-capability-arguments-forbidden")
+    command = [CAPABILITY_ROTATE]
+    if planned:
+        return _receipt("rotate-capability", True, planned=True, commands=[_redacted(command)])
+    _must(_run(command), "caduceus-keyman-capability-rotate-refused")
+    return _receipt("rotate-capability", True, planned=False, commands=[_redacted(command)])
+
+
 def key_status(payload: dict[str, Any], *, planned: bool) -> dict[str, Any]:
     device = _device(payload.get("device"))
     commands, dump = _luks_dump(device, planned=planned)
@@ -273,6 +284,7 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any]:
     if action == "create-key": return create(metadata, planned=planned)
     if action == "update-key": return update(metadata, planned=planned)
     if action == "admin-password": return admin_password(metadata, planned=planned)
+    if action == "rotate-capability": return rotate_capability(metadata, planned=planned)
     if action == "key-status": return key_status(metadata, planned=planned)
     raise Refusal("caduceus-keyman-action-invalid")
 

@@ -159,6 +159,28 @@ def service_toggle(payload: dict[str, Any], *, planned: bool, action: str) -> di
     return _receipt(action, True, planned=False, commands=[*commands, *observed], enabled=enabled, services=states)
 
 
+def portal_service(payload: dict[str, Any], *, planned: bool) -> dict[str, Any]:
+    service = payload.get("systemdService", payload.get("service"))
+    service_action = payload.get("serviceAction")
+    if not isinstance(service, str) or not re.fullmatch(r"[A-Za-z0-9@_.-]+\.service", service):
+        raise Refusal("caduceus-service-portal-unit-invalid")
+    if service_action not in {"start", "stop", "restart"}:
+        raise Refusal("caduceus-service-portal-action-invalid")
+    before, observed_before = _unit_state(service)
+    if not before["present"]:
+        raise Refusal("caduceus-service-unit-missing")
+    command = _sudo([SYSTEMCTL, str(service_action), service])
+    commands = [*observed_before, _redacted(command)]
+    if planned:
+        return _receipt("portal-service", True, planned=True, commands=commands, serviceAction=service_action, service=before)
+    _must(_run(command), "caduceus-service-control-refused")
+    after, observed_after = _unit_state(service)
+    expected_active = service_action != "stop"
+    if after["active"] != expected_active:
+        raise Refusal("caduceus-service-portal-readback-mismatch")
+    return _receipt("portal-service", True, planned=False, commands=[*commands, *observed_after], serviceAction=service_action, service=after)
+
+
 def system_power(payload: dict[str, Any], *, planned: bool, action: str) -> dict[str, Any]:
     del payload
     verb = "reboot" if action == "system-restart" else "poweroff"
@@ -196,6 +218,7 @@ def dispatch(payload: dict[str, Any]) -> dict[str, Any]:
     if action == "ssh-password-authentication-toggle": return ssh_password_authentication_toggle(metadata, planned=planned)
     if action in {"ssh-service-status", "samba-service-status"}: return service_status(metadata, planned=planned, action=action)
     if action in {"ssh-service-toggle", "samba-service-toggle"}: return service_toggle(metadata, planned=planned, action=action)
+    if action == "portal-service": return portal_service(metadata, planned=planned)
     if action in {"system-restart", "system-shutdown"}: return system_power(metadata, planned=planned, action=action)
     if action == "website-hard-reset": return website_hard_reset(metadata, planned=planned)
     raise Refusal("caduceus-service-action-invalid")
