@@ -34,3 +34,4 @@ pub mod tailscale;
 pub mod time;
 pub mod update;
 pub mod vpn;
+pub mod vault;

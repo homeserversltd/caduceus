@@ -2,7 +2,7 @@ use crate::bands::{
     cert, config, coronatio, disk, dns, drive_test, firewall, gui, health, homeserver_sbin, hyalos,
     identity, legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read,
     pjlink, profile, profile_module, receipts, source_map, speedtest, staff, sync, tailscale, time,
-    update, vpn,
+    update, vault, vpn,
 };
 use crate::tools::{attendance, policy};
 use axum::{
@@ -194,6 +194,31 @@ fn mutation_status(value: &Value) -> StatusCode {
         StatusCode::OK
     } else {
         StatusCode::SERVICE_UNAVAILABLE
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VaultUnlockBody { password: String }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VaultAutoBody { enabled: bool }
+
+async fn vault_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("staff intent", || Ok(vault::status_json())).await
+}
+async fn vault_unlock_route(Json(body): Json<VaultUnlockBody>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("staff intent") {
+        Ok(true) => Ok((StatusCode::OK, Json(vault::unlock_json(&body.password)))),
+        Ok(false) => Err(api_error("staff intent")),
+        Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
+    }
+}
+async fn vault_auto_route(Json(body): Json<VaultAutoBody>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("staff intent") {
+        Ok(true) => Ok((StatusCode::OK, Json(vault::auto_decrypt_json(body.enabled)))),
+        Ok(false) => Err(api_error("staff intent")),
+        Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
     }
 }
 
@@ -2288,6 +2313,9 @@ pub fn router() -> Router {
         .merge(attendance_routes)
         .route("/health", get(health_route))
         .route("/api/v1/identity", get(identity_route))
+        .route("/api/v1/vault/status", get(vault_status_route))
+        .route("/api/v1/vault/unlock", post(vault_unlock_route))
+        .route("/api/v1/vault/auto-decrypt", post(vault_auto_route))
         .route("/api/v1/profile", get(profile_route))
         .route(
             "/api/v1/profile/sources/reseed",
