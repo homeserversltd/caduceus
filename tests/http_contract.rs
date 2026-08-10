@@ -560,6 +560,16 @@ async fn homeserver_staff_actuators_route_is_profile_allowed() {
                 && actuator["receiptFamily"]
                     .as_str()
                     .is_some_and(|schema| schema.ends_with(".v1"))
+                && actuator["httpDoor"].as_array().is_some_and(|doors| {
+                    doors.iter().all(|door| {
+                        door["method"]
+                            .as_str()
+                            .is_some_and(|method| !method.is_empty())
+                            && door["path"]
+                                .as_str()
+                                .is_some_and(|path| path.starts_with('/'))
+                    })
+                })
         })
     }));
 }

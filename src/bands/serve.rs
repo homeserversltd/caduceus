@@ -13,7 +13,7 @@ use axum::{
         HeaderMap, HeaderValue, StatusCode,
     },
     response::Response,
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde::Deserialize;
@@ -613,7 +613,8 @@ fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Js
         "/api/v1/keyman/create-key"
         | "/api/v1/keyman/update-key"
         | "/api/v1/keyman/admin-password"
-        | "/api/v1/keyman/key-status" => Ok("keyman-doors"),
+        | "/api/v1/keyman/key-status"
+        | "/api/v1/keyman/rotate-capability" => Ok("keyman-doors"),
         "/api/admin/ssh/status"
         | "/api/admin/ssh/toggle"
         | "/api/admin/ssh/service/status"
@@ -622,7 +623,8 @@ fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Js
         | "/api/admin/samba/service"
         | "/api/admin/system/restart"
         | "/api/admin/system/shutdown"
-        | "/api/admin/services/hard-reset" => Ok("service-control-doors"),
+        | "/api/admin/services/hard-reset"
+        | "/api/v1/service/control" => Ok("service-control-doors"),
         "/api/admin/diskman/unlock"
         | "/api/admin/diskman/mount"
         | "/api/admin/diskman/unmount"
@@ -666,6 +668,86 @@ async fn named_staff_actuator_route(
     }
 }
 
+async fn dhcp_staff_actuator_route(
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Json(metadata): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let (method, route) = match uri.path() {
+        "/api/v1/network/dhcp" | "/api/v1/network/dhcp/reservations" => {
+            ("POST", "/api/dhcp/reservations")
+        }
+        "/api/v1/network/dhcp/pool-boundary" => ("POST", "/api/dhcp/pool-boundary"),
+        _ => {
+            return Err(api_error_signal(
+                "staff intent",
+                "caduceus-dhcp-route-invalid",
+            ))
+        }
+    };
+    match policy::allows_command("staff intent") {
+        Ok(true) => crate::bands::dhcp::intent_json(method, route, metadata)
+            .map(|value| (mutation_status(&value), Json(value)))
+            .map_err(|reason| api_error_signal("staff intent", &reason)),
+        Ok(false) => Err(api_error("staff intent")),
+        Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
+    }
+}
+
+async fn dhcp_reservation_staff_actuator_route(
+    method: axum::http::Method,
+    Path(reservation_id): Path<String>,
+    Json(mut metadata): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let object = metadata
+        .as_object_mut()
+        .ok_or_else(|| api_error_signal("staff intent", "caduceus-dhcp-request-invalid"))?;
+    if object.contains_key("reservationId") {
+        return Err(api_error_signal(
+            "staff intent",
+            "caduceus-dhcp-reservation-client-supplied",
+        ));
+    }
+    object.insert(
+        "reservationId".to_string(),
+        Value::String(reservation_id.clone()),
+    );
+    let route = format!("/api/dhcp/reservations/{reservation_id}");
+    match policy::allows_command("staff intent") {
+        Ok(true) => crate::bands::dhcp::intent_json(method.as_str(), &route, metadata)
+            .map(|value| (mutation_status(&value), Json(value)))
+            .map_err(|reason| api_error_signal("staff intent", &reason)),
+        Ok(false) => Err(api_error("staff intent")),
+        Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
+    }
+}
+
+async fn portal_service_control_staff_actuator_route(
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Json(mut metadata): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let object = metadata
+        .as_object_mut()
+        .ok_or_else(|| api_error_signal("staff intent", "caduceus-service-request-invalid"))?;
+    if object.contains_key("serviceAction") {
+        return Err(api_error_signal(
+            "staff intent",
+            "caduceus-service-action-client-supplied",
+        ));
+    }
+    let service_action = object
+        .remove("action")
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .ok_or_else(|| api_error_signal("staff intent", "caduceus-service-action-required"))?;
+    object.insert("serviceAction".to_string(), Value::String(service_action));
+    object.insert(
+        "action".to_string(),
+        Value::String("portal-service".to_string()),
+    );
+    named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
+}
+
 async fn keyman_staff_actuator_route(
     headers: HeaderMap,
     OriginalUri(uri): OriginalUri,
@@ -676,6 +758,7 @@ async fn keyman_staff_actuator_route(
         "/api/v1/keyman/update-key" => "update-key",
         "/api/v1/keyman/admin-password" => "admin-password",
         "/api/v1/keyman/key-status" => "key-status",
+        "/api/v1/keyman/rotate-capability" => "rotate-capability",
         _ => {
             return Err(api_error_signal(
                 "staff intent",
@@ -871,6 +954,7 @@ async fn service_control_staff_actuator_route(
         "/api/admin/system/restart" => "system-restart",
         "/api/admin/system/shutdown" => "system-shutdown",
         "/api/admin/services/hard-reset" => "website-hard-reset",
+        "/api/v1/service/control" => "portal-service",
         _ => {
             return Err(api_error_signal(
                 "staff intent",
@@ -2309,7 +2393,20 @@ pub fn router() -> Router {
             get(coronatio_source_currency_route),
         )
         .route("/api/v1/staff/actuators", get(staff_actuators_route))
-        .route("/api/v1/network/dhcp", post(named_staff_actuator_route))
+        .route("/api/v1/network/dhcp", post(dhcp_staff_actuator_route))
+        .route(
+            "/api/v1/network/dhcp/reservations",
+            post(dhcp_staff_actuator_route),
+        )
+        .route(
+            "/api/v1/network/dhcp/reservations/:reservation_id",
+            put(dhcp_reservation_staff_actuator_route)
+                .delete(dhcp_reservation_staff_actuator_route),
+        )
+        .route(
+            "/api/v1/network/dhcp/pool-boundary",
+            post(dhcp_staff_actuator_route),
+        )
         .route(
             "/api/v1/network/speedtest",
             post(named_staff_actuator_route),
@@ -2360,6 +2457,14 @@ pub fn router() -> Router {
         .route(
             "/api/v1/keyman/key-status",
             post(keyman_staff_actuator_route),
+        )
+        .route(
+            "/api/v1/keyman/rotate-capability",
+            post(keyman_staff_actuator_route),
+        )
+        .route(
+            "/api/v1/service/control",
+            post(portal_service_control_staff_actuator_route),
         )
         .route(
             "/api/admin/ssh/status",

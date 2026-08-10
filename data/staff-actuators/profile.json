@@ -12,6 +12,9 @@
   "actuators": [
     {
       "id": "harmonia-module-toggle",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/profile/module/toggle"}
+      ],
       "family": "harmonia",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -25,6 +28,9 @@
     },
     {
       "id": "profile-sources-reseed",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/profile/sources/reseed"}
+      ],
       "family": "identity",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -38,13 +44,21 @@
     },
     {
       "id": "keyman-doors",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/keyman/create-key"},
+        {"method": "POST", "path": "/api/v1/keyman/update-key"},
+        {"method": "POST", "path": "/api/v1/keyman/admin-password"},
+        {"method": "POST", "path": "/api/v1/keyman/key-status"},
+        {"method": "POST", "path": "/api/v1/keyman/rotate-capability"}
+      ],
       "family": "keyman",
       "actuatorClass": "staff-python",
       "sourceScripts": [
         "/vault/keyman/newkey.sh",
         "/vault/scripts/exportNAS.sh",
         "/vault/scripts/exportServiceSuite.sh",
-        "/vault/keyman/change_service_suite_key.sh"
+        "/vault/keyman/change_service_suite_key.sh",
+        "/usr/local/sbin/caduceus-keyman-rotate-capability"
       ],
       "launcher": "/usr/local/sbin/caduceus-keyman",
       "libraryEntry": "/usr/local/sbin/caduceus_staff/keyman.py",
@@ -56,6 +70,19 @@
     },
     {
       "id": "disk-doors",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/admin/diskman/unlock"},
+        {"method": "POST", "path": "/api/admin/diskman/mount"},
+        {"method": "POST", "path": "/api/admin/diskman/unmount"},
+        {"method": "POST", "path": "/api/admin/diskman/format"},
+        {"method": "POST", "path": "/api/admin/diskman/encrypt"},
+        {"method": "POST", "path": "/api/admin/diskman/wipe"},
+        {"method": "POST", "path": "/api/admin/diskman/assign-primary-nas"},
+        {"method": "POST", "path": "/api/admin/diskman/assign-nas-backup"},
+        {"method": "POST", "path": "/api/admin/diskman/unassign-nas"},
+        {"method": "POST", "path": "/api/admin/diskman/setup-nas"},
+        {"method": "POST", "path": "/api/admin/diskman/import-to-nas"}
+      ],
       "family": "disk",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -74,6 +101,10 @@
     },
     {
       "id": "wake-on-lan",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/admin/wake-on-lan/send"},
+        {"method": "POST", "path": "/api/admin/wake-on-lan/probe"}
+      ],
       "family": "network",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -87,6 +118,18 @@
     },
     {
       "id": "service-control-doors",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/service/control"},
+        {"method": "POST", "path": "/api/admin/ssh/status"},
+        {"method": "POST", "path": "/api/admin/ssh/toggle"},
+        {"method": "POST", "path": "/api/admin/ssh/service/status"},
+        {"method": "POST", "path": "/api/admin/ssh/service"},
+        {"method": "POST", "path": "/api/admin/samba/status"},
+        {"method": "POST", "path": "/api/admin/samba/service"},
+        {"method": "POST", "path": "/api/admin/system/restart"},
+        {"method": "POST", "path": "/api/admin/system/shutdown"},
+        {"method": "POST", "path": "/api/admin/services/hard-reset"}
+      ],
       "family": "services",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -100,6 +143,8 @@
     },
     {
       "id": "ssh-exposure",
+      "httpDoor": [
+      ],
       "family": "services",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -113,6 +158,13 @@
     },
     {
       "id": "network-dhcp",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/network/dhcp"},
+        {"method": "POST", "path": "/api/v1/network/dhcp/reservations"},
+        {"method": "PUT", "path": "/api/v1/network/dhcp/reservations/:reservation_id"},
+        {"method": "DELETE", "path": "/api/v1/network/dhcp/reservations/:reservation_id"},
+        {"method": "POST", "path": "/api/v1/network/dhcp/pool-boundary"}
+      ],
       "family": "network",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -128,6 +180,9 @@
     },
     {
       "id": "network.dhcp.status",
+      "httpDoor": [
+        {"method": "GET", "path": "/api/v1/network/dhcp/status"}
+      ],
       "family": "network",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -141,6 +196,9 @@
     },
     {
       "id": "network.dhcp.leases",
+      "httpDoor": [
+        {"method": "GET", "path": "/api/v1/network/dhcp/leases"}
+      ],
       "family": "network",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -154,6 +212,9 @@
     },
     {
       "id": "network.dhcp.reservations",
+      "httpDoor": [
+        {"method": "GET", "path": "/api/v1/network/dhcp/reservations"}
+      ],
       "family": "network",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -167,6 +228,9 @@
     },
     {
       "id": "network.dhcp.boundary",
+      "httpDoor": [
+        {"method": "GET", "path": "/api/v1/network/dhcp/boundary"}
+      ],
       "family": "network",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -180,6 +244,13 @@
     },
     {
       "id": "network-firewall",
+      "httpDoor": [
+        {"method": "GET", "path": "/api/v1/network/firewall/status"},
+        {"method": "GET", "path": "/api/v1/network/firewall/policies"},
+        {"method": "GET", "path": "/api/v1/network/firewall/policies/:mac"},
+        {"method": "PUT", "path": "/api/v1/network/firewall/policies/:mac"},
+        {"method": "DELETE", "path": "/api/v1/network/firewall/policies/:mac"}
+      ],
       "family": "network",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -193,6 +264,8 @@
     },
     {
       "id": "child-device",
+      "httpDoor": [
+      ],
       "family": "network",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -206,6 +279,13 @@
     },
     {
       "id": "network-dns",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/network/dns"},
+        {"method": "POST", "path": "/api/v1/network/dns/device-name/create"},
+        {"method": "POST", "path": "/api/v1/network/dns/device-name/remove"},
+        {"method": "POST", "path": "/api/v1/network/dns/alias/create"},
+        {"method": "POST", "path": "/api/v1/network/dns/alias/remove"}
+      ],
       "family": "network",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -219,6 +299,9 @@
     },
     {
       "id": "network.dns.status",
+      "httpDoor": [
+        {"method": "GET", "path": "/api/v1/network/dns/status"}
+      ],
       "family": "network",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -232,6 +315,9 @@
     },
     {
       "id": "network.dns.read",
+      "httpDoor": [
+        {"method": "GET", "path": "/api/v1/network/dns/read"}
+      ],
       "family": "network",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -245,6 +331,9 @@
     },
     {
       "id": "network.identity.claim",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/network/device/claim"}
+      ],
       "family": "network",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -258,6 +347,9 @@
     },
     {
       "id": "network.identity.device_list",
+      "httpDoor": [
+        {"method": "GET", "path": "/api/v1/network/device"}
+      ],
       "family": "network",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -271,6 +363,9 @@
     },
     {
       "id": "file-ingress",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/file/ingress"}
+      ],
       "family": "upload",
       "actuatorClass": "native-rust",
       "sourceScripts": [],
@@ -283,6 +378,9 @@
     },
     {
       "id": "upload-force-permissions",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/upload/force-permissions"}
+      ],
       "family": "upload",
       "actuatorClass": "native-rust",
       "sourceScripts": [],
@@ -295,6 +393,9 @@
     },
     {
       "id": "backblaze-b2-recover",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/backblaze/recover"}
+      ],
       "family": "backup",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -313,6 +414,9 @@
     },
     {
       "id": "backblaze-forgejo-b2-push",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/backblaze/forgejo/b2/push"}
+      ],
       "family": "backup",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -331,6 +435,9 @@
     },
     {
       "id": "backblaze-forgejo-migrate",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/backblaze/forgejo/migrate"}
+      ],
       "family": "backup",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -349,6 +456,9 @@
     },
     {
       "id": "calibre-helper-daemon",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/calibre/helper-daemon"}
+      ],
       "family": "service",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -366,6 +476,9 @@
     },
     {
       "id": "calibre-watch",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/calibre/watch"}
+      ],
       "family": "service",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -383,6 +496,8 @@
     },
     {
       "id": "household-time-resolve",
+      "httpDoor": [
+      ],
       "family": "household_time",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -396,6 +511,8 @@
     },
     {
       "id": "household-time-ensure-ntp",
+      "httpDoor": [
+      ],
       "family": "household_time",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -409,6 +526,8 @@
     },
     {
       "id": "household-time-set-timezone",
+      "httpDoor": [
+      ],
       "family": "household_time",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -422,6 +541,9 @@
     },
     {
       "id": "house-ca-ensure-root",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/cert/ensure-root"}
+      ],
       "family": "certificate",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -435,6 +557,9 @@
     },
     {
       "id": "house-ca-issue-leaf",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/cert/issue-leaf"}
+      ],
       "family": "certificate",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -448,6 +573,13 @@
     },
     {
       "id": "house-ca-bundle-export",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/cert/bundle"},
+        {"method": "POST", "path": "/api/v1/cert/bundle/create"},
+        {"method": "POST", "path": "/api/v1/cert/bundle-export"},
+        {"method": "POST", "path": "/api/admin/refresh-root-crt"},
+        {"method": "GET", "path": "/api/admin/download-root-crt"}
+      ],
       "family": "certificate",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -461,6 +593,9 @@
     },
     {
       "id": "house-ca-trust-install",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/cert/trust-install"}
+      ],
       "family": "certificate",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -474,6 +609,10 @@
     },
     {
       "id": "house-ca-apply-nginx",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/cert/apply"},
+        {"method": "POST", "path": "/api/v1/cert/apply-nginx"}
+      ],
       "family": "certificate",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -487,6 +626,9 @@
     },
     {
       "id": "house-ca-constituent-lock",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/cert/constituent-lock"}
+      ],
       "family": "certificate",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -500,6 +642,9 @@
     },
     {
       "id": "house-ca-status",
+      "httpDoor": [
+        {"method": "GET", "path": "/api/v1/cert/status"}
+      ],
       "family": "certificate",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -513,6 +658,8 @@
     },
     {
       "id": "house-ca-state-commit",
+      "httpDoor": [
+      ],
       "family": "certificate",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -526,6 +673,9 @@
     },
     {
       "id": "house-ca-portal-admit",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/cert/portal-admit"}
+      ],
       "family": "certificate",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -539,6 +689,9 @@
     },
     {
       "id": "csr-sign",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/cert/csr/sign"}
+      ],
       "family": "certificate",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -552,6 +705,9 @@
     },
     {
       "id": "house-ca-bundle-read",
+      "httpDoor": [
+        {"method": "GET", "path": "/api/v1/cert/bundle/download"}
+      ],
       "family": "certificate",
       "actuatorClass": "staff-python",
       "sourceScripts": [],
@@ -565,6 +721,8 @@
     },
     {
       "id": "forgejo-credential",
+      "httpDoor": [
+      ],
       "family": "identity",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -580,6 +738,8 @@
     },
     {
       "id": "honcho-env-converge",
+      "httpDoor": [
+      ],
       "family": "service",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -595,6 +755,8 @@
     },
     {
       "id": "rebis-profile-retire",
+      "httpDoor": [
+      ],
       "family": "identity",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -610,6 +772,8 @@
     },
     {
       "id": "translator-toolchain",
+      "httpDoor": [
+      ],
       "family": "identity",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -625,6 +789,8 @@
     },
     {
       "id": "matrix-converge",
+      "httpDoor": [
+      ],
       "family": "service",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -640,6 +806,8 @@
     },
     {
       "id": "harmonia-profile-refresh",
+      "httpDoor": [
+      ],
       "family": "service",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -656,6 +824,8 @@
     },
     {
       "id": "hermes-agent-maintenance",
+      "httpDoor": [
+      ],
       "family": "service",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -671,6 +841,8 @@
     },
     {
       "id": "paligenesis-router",
+      "httpDoor": [
+      ],
       "family": "service",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -686,6 +858,12 @@
     },
     {
       "id": "nas-sync",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/admin/diskman/sync-now"},
+        {"method": "GET", "path": "/api/admin/diskman/sync-schedule"},
+        {"method": "POST", "path": "/api/admin/diskman/sync-schedule-update"},
+        {"method": "POST", "path": "/api/admin/diskman/sync-job-status"}
+      ],
       "family": "nas-sync",
       "actuatorClass": "staff-python",
       "sourceScripts": [
@@ -701,6 +879,14 @@
     },
     {
       "id": "linker",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/linker/browse"},
+        {"method": "POST", "path": "/api/v1/linker/deploy"},
+        {"method": "POST", "path": "/api/v1/linker/delete"},
+        {"method": "POST", "path": "/api/v1/linker/rename"},
+        {"method": "POST", "path": "/api/v1/linker/mkdir"},
+        {"method": "POST", "path": "/api/v1/linker/hardlink-scan"}
+      ],
       "family": "linker",
       "actuatorClass": "staff-root-launcher",
       "sourceScripts": [
