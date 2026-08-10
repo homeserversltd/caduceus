@@ -637,6 +637,12 @@ fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Js
         | "/api/admin/diskman/setup-nas"
         | "/api/admin/diskman/import-to-nas" => Ok("disk-doors"),
         "/api/admin/wake-on-lan/send" | "/api/admin/wake-on-lan/probe" => Ok("wake-on-lan"),
+        "/api/admin/firewall/observed"
+        | "/api/admin/firewall/list"
+        | "/api/admin/firewall/register"
+        | "/api/admin/firewall/unregister"
+        | "/api/admin/firewall/whitelist-get"
+        | "/api/admin/firewall/whitelist-set" => Ok("child-device"),
         "/api/admin/diskman/sync-now"
         | "/api/admin/diskman/sync-schedule"
         | "/api/admin/diskman/sync-schedule-update"
@@ -836,6 +842,33 @@ async fn disk_staff_actuator_route(
         disk::mutation_target_admitted(target)
             .map_err(|signal| api_error_signal("staff intent", &signal))?;
     }
+    named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
+}
+
+async fn child_device_staff_actuator_route(
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Json(mut metadata): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let action = match uri.path() {
+        "/api/admin/firewall/observed" => "observed",
+        "/api/admin/firewall/list" => "list",
+        "/api/admin/firewall/register" => "register",
+        "/api/admin/firewall/unregister" => "unregister",
+        "/api/admin/firewall/whitelist-get" => "whitelist get",
+        "/api/admin/firewall/whitelist-set" => "whitelist set",
+        _ => return Err(api_error_signal("staff intent", "caduceus-child-device-route-invalid")),
+    };
+    let object = metadata
+        .as_object_mut()
+        .ok_or_else(|| api_error_signal("staff intent", "caduceus-child-device-request-invalid"))?;
+    if object.contains_key("action") {
+        return Err(api_error_signal(
+            "staff intent",
+            "caduceus-child-device-action-client-supplied",
+        ));
+    }
+    object.insert("action".to_string(), Value::String(action.to_string()));
     named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
 }
 
@@ -2509,6 +2542,30 @@ pub fn router() -> Router {
         .route(
             "/api/admin/wake-on-lan/probe",
             post(wake_on_lan_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/firewall/observed",
+            post(child_device_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/firewall/list",
+            post(child_device_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/firewall/register",
+            post(child_device_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/firewall/unregister",
+            post(child_device_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/firewall/whitelist-get",
+            post(child_device_staff_actuator_route),
+        )
+        .route(
+            "/api/admin/firewall/whitelist-set",
+            post(child_device_staff_actuator_route),
         )
         .route(
             "/api/admin/diskman/sync-now",

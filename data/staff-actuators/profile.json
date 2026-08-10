@@ -265,6 +265,12 @@
     {
       "id": "child-device",
       "httpDoor": [
+        {"method": "POST", "path": "/api/admin/firewall/observed"},
+        {"method": "POST", "path": "/api/admin/firewall/list"},
+        {"method": "POST", "path": "/api/admin/firewall/register"},
+        {"method": "POST", "path": "/api/admin/firewall/unregister"},
+        {"method": "POST", "path": "/api/admin/firewall/whitelist-get"},
+        {"method": "POST", "path": "/api/admin/firewall/whitelist-set"}
       ],
       "family": "network",
       "actuatorClass": "staff-python",

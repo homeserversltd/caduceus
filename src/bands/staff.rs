@@ -215,7 +215,7 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
         "file-ingress" => execute_file_ingress(metadata),
         "linker" => linker::intent_json(metadata),
         "upload-force-permissions" => execute_force_permissions(metadata),
-        id @ ("backblaze-b2-recover" | "backblaze-forgejo-b2-push" | "backblaze-forgejo-migrate" | "calibre-helper-daemon" | "calibre-watch" | "keyman-doors" | "service-control-doors" | "disk-doors" | "wake-on-lan" | "nas-sync") => execute_registered_actuator(id, metadata),
+        id @ ("backblaze-b2-recover" | "backblaze-forgejo-b2-push" | "backblaze-forgejo-migrate" | "calibre-helper-daemon" | "calibre-watch" | "keyman-doors" | "service-control-doors" | "disk-doors" | "wake-on-lan" | "child-device" | "nas-sync") => execute_registered_actuator(id, metadata),
         _ => Err("caduceus-staff-actuator-unmapped".to_string()),
     }
 }
