@@ -39,11 +39,11 @@ struct LivenessBody {
     schema: &'static str,
     ok: bool,
     service: &'static str,
-    #[serde(rename = "build_sha")]
-    build_sha: &'static str,
+    #[serde(rename = "build_sha", skip_serializing_if = "Option::is_none")]
+    build_sha: Option<&'static str>,
 }
 
-const CADUCEUS_BUILD_SHA: &str = env!("CADUCEUS_BUILD_SHA");
+const CADUCEUS_BUILD_SHA: Option<&str> = option_env!("CADUCEUS_BUILD_SHA");
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
