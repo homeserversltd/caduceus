@@ -306,39 +306,53 @@ pub fn status_json() -> Value {
         Err(_) => json!({"mounted": false, "auto_decrypt_enabled": false}),
     }
 }
+fn keyman_unavailable(signal: &str) -> Result<bool, String> {
+    log_internal("keyman-open", signal);
+    Ok(false)
+}
+
 fn keyman_open(cfg: &VaultConfig) -> Result<bool, String> {
     let payload = json!({"device": cfg.device, "mapper": cfg.mapper});
-    let mut child = Command::new("/usr/bin/sudo")
+    let mut child = match Command::new("/usr/bin/sudo")
         .args(["-n", KEYMAN_VAULT_OPEN_LAUNCHER])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|_| "vault-keyman-open-unavailable".to_string())?;
-    let input =
-        serde_json::to_vec(&payload).map_err(|_| "vault-keyman-open-unavailable".to_string())?;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| "vault-keyman-open-unavailable".to_string())?
-        .write_all(&input)
-        .map_err(|_| "vault-keyman-open-unavailable".to_string())?;
-    let output = child
-        .wait_with_output()
-        .map_err(|_| "vault-keyman-open-unavailable".to_string())?;
-    let receipt: Value = serde_json::from_slice(&output.stdout)
-        .map_err(|_| "vault-keyman-open-unavailable".to_string())?;
-    let present = receipt
-        .get("present")
-        .and_then(Value::as_bool)
-        .ok_or_else(|| "vault-keyman-open-unavailable".to_string())?;
+    {
+        Ok(child) => child,
+        Err(_) => return keyman_unavailable("vault-keyman-open-spawn-unavailable"),
+    };
+    let input = match serde_json::to_vec(&payload) {
+        Ok(input) => input,
+        Err(_) => return keyman_unavailable("vault-keyman-open-payload-invalid"),
+    };
+    let Some(mut stdin) = child.stdin.take() else {
+        return keyman_unavailable("vault-keyman-open-stdin-unavailable");
+    };
+    if stdin.write_all(&input).is_err() {
+        return keyman_unavailable("vault-keyman-open-write-unavailable");
+    }
+    drop(stdin);
+    let output = match child.wait_with_output() {
+        Ok(output) => output,
+        Err(_) => return keyman_unavailable("vault-keyman-open-wait-unavailable"),
+    };
+    let receipt: Value = match serde_json::from_slice(&output.stdout) {
+        Ok(receipt) => receipt,
+        Err(_) => return keyman_unavailable("vault-keyman-open-receipt-invalid"),
+    };
+    let Some(present) = receipt.get("present").and_then(Value::as_bool) else {
+        return keyman_unavailable("vault-keyman-open-presence-unavailable");
+    };
     if !present {
         return Ok(false);
     }
-    if output.status.success() && receipt.get("ok").and_then(Value::as_bool) == Some(true) {
-        Ok(true)
-    } else {
-        Err("vault-keyman-open-refused".to_string())
+    match receipt.get("ok").and_then(Value::as_bool) {
+        Some(false) => Err("vault-keyman-open-refused".to_string()),
+        Some(true) if output.status.success() => Ok(true),
+        Some(true) => keyman_unavailable("vault-keyman-open-status-unavailable"),
+        None => keyman_unavailable("vault-keyman-open-receipt-invalid"),
     }
 }
 
