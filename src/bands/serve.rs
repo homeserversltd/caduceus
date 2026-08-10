@@ -1905,7 +1905,7 @@ async fn legacy_cert_bundle_download_route(
         Err(_) => return Err(cert_api_error(command, "caduceus-profile-missing")),
     }
     let platform = query.platform.as_deref().unwrap_or("linux");
-    let bundle = cert::legacy_bundle_download(platform).map_err(|signal| {
+    let bundle = cert::bundle_export_download_json(platform).map_err(|signal| {
         let status = match signal.as_str() {
             "caduceus-cert-platform-invalid" => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
