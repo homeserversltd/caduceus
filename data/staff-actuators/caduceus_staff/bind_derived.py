@@ -150,21 +150,42 @@ def atomic_change_pin(old_pin: str, new_pin: str) -> dict[str, Any]:
     return {**rebound, "operation": "atomic-change-pin", "rotated": True}
 
 
+def reset_default_pin() -> dict[str, Any]:
+    """Restore the current Keyman credential to the root-provisioned default."""
+    try:
+        sacred_credential.reset_caduceus_pin_to_provisioned_default()
+    except sacred_credential.CaduceusAccessRefused as exc:
+        return {
+            "schema": "caduceus.staff.sacred-credential.v1",
+            "ok": False,
+            "operation": "reset-default-pin",
+            "posture": "DERIVED_BOUND" if _BOUND else "UNBOUND",
+            "firstMissingSignal": _unbound_signal(exc),
+        }
+    rebound = bind_derived()
+    if not rebound.get("ok"):
+        return {**rebound, "operation": "reset-default-pin", "posture": "STALE_DERIVED"}
+    return {**rebound, "operation": "reset-default-pin", "reset": True}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="caduceus-sacred-credential")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("bind")
     commands.add_parser("verify")
     commands.add_parser("atomic-change-pin")
+    commands.add_parser("reset-default-pin")
     args = parser.parse_args(argv)
     if args.command == "bind":
         value = bind_derived()
     elif args.command == "verify":
         payload = json.load(sys.stdin)
         value = verify_derived(payload["pin"], payload["publicKey"])
-    else:
+    elif args.command == "atomic-change-pin":
         payload = json.load(sys.stdin)
         value = atomic_change_pin(payload["oldPin"], payload["newPin"])
+    else:
+        value = reset_default_pin()
     print(json.dumps(value, sort_keys=True))
     return 0 if value.get("ok") else 1
 

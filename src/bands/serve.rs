@@ -238,6 +238,64 @@ fn vault_attendance_admits(headers: &HeaderMap) -> Result<(), (StatusCode, Json<
     .map_err(|signal| api_error_signal(VAULT_ATTENDANCE_COMMAND, &signal))
 }
 
+fn access_attendance_admits(headers: &HeaderMap) -> Result<(), (StatusCode, Json<ApiErrorBody>)> {
+    vault_attendance_admits(headers)
+}
+
+async fn pin_mode_route(
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    access_attendance_admits(&headers)?;
+    attendance::set_pin_mode_json(&body)
+        .map(Json)
+        .map_err(|signal| api_error_signal("access pin mode", &signal))
+}
+
+async fn pin_change_route(
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    let document = headers
+        .get("x-caduceus-document")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    let token = headers
+        .get("x-caduceus-attendance")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    access_attendance_admits(&headers)?;
+    let value = attendance::change_pin_access_json(document, token, &body)
+        .map_err(|signal| api_error_signal("access pin change", &signal))?;
+    if value.get("ok").and_then(Value::as_bool) == Some(true) {
+        Ok(Json(value))
+    } else {
+        Err(api_error_signal(
+            "access pin change",
+            value
+                .get("code")
+                .and_then(Value::as_str)
+                .unwrap_or("caduceus-attendance-change-failed"),
+        ))
+    }
+}
+
+async fn pin_reset_default_route(
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    if body != serde_json::json!({"action":"reset-default"}) {
+        return Err(api_error_signal(
+            "access pin reset-default",
+            "caduceus-access-pin-reset-default-invalid",
+        ));
+    }
+    access_attendance_admits(&headers)?;
+    attendance::reset_default_pin_json()
+        .map(Json)
+        .map_err(|signal| api_error_signal("access pin reset-default", &signal))
+}
+
 async fn vault_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json(VAULT_ATTENDANCE_COMMAND, || Ok(vault::status_json())).await
 }
@@ -405,7 +463,12 @@ async fn registered_service_restart_route(
 }
 
 async fn identity_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("identity show", identity::read_json).await
+    gated_json("identity show", || {
+        let mut value = identity::read_json()?;
+        value["pin_required"] = attendance::pin_mode_json()["pin_required"].clone();
+        Ok(value)
+    })
+    .await
 }
 
 async fn profile_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -2391,6 +2454,9 @@ pub fn router() -> Router {
         .route("/api/v1/attendance/touch", post(attendance_route))
         .route("/api/v1/attendance/change-pin", post(attendance_route))
         .route("/api/v1/attendance/invalidate", post(attendance_route))
+        .route("/api/v1/access/pin/mode", post(pin_mode_route))
+        .route("/api/v1/access/pin/change", post(pin_change_route))
+        .route("/api/v1/access/pin/reset-default", post(pin_reset_default_route))
         .route(
             "/api/v1/service/:service/restart",
             post(registered_service_restart_route),
