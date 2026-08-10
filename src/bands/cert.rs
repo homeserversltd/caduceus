@@ -4,8 +4,12 @@ use base64::Engine;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::env;
-use std::io::Write;
+use std::fs::{self, OpenOptions};
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const LEGACY_CERT_REFRESH_SCRIPT: &str = "/usr/local/sbin/sslKey.sh";
 
@@ -310,6 +314,149 @@ pub fn trust_install_json(bundle: &str, platform: &str, dry_run: bool) -> Result
         args.push("--dry-run".into());
     }
     invoke_json(&args)
+}
+
+fn trust_fetch_target(server: &str) -> Result<(String, SocketAddr), String> {
+    if server.is_empty() || server.len() > 255 || server.contains(['/', '\\', '\r', '\n', '\0']) {
+        return Err("caduceus-cert-trust-fetch-server-invalid".into());
+    }
+    let address = if server.starts_with('[') {
+        server.to_string()
+    } else if server
+        .rsplit_once(':')
+        .is_some_and(|(_, port)| port.parse::<u16>().is_ok())
+    {
+        server.to_string()
+    } else {
+        format!("{server}:8787")
+    };
+    let socket = address
+        .to_socket_addrs()
+        .map_err(|_| "caduceus-cert-trust-fetch-server-unreachable".to_string())?
+        .next()
+        .ok_or_else(|| "caduceus-cert-trust-fetch-server-unreachable".to_string())?;
+    Ok((address, socket))
+}
+
+fn fetch_bundle_http(server: &str) -> Result<(Vec<u8>, String), String> {
+    let (address, socket) = trust_fetch_target(server)?;
+    let mut stream = TcpStream::connect_timeout(&socket, Duration::from_secs(5))
+        .map_err(|_| "caduceus-cert-trust-fetch-server-unreachable".to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .map_err(|_| "caduceus-cert-trust-fetch-server-unreachable".to_string())?;
+    stream
+        .write_all(
+            format!(
+                "GET /api/v1/cert/bundle HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .map_err(|_| "caduceus-cert-trust-fetch-server-unreachable".to_string())?;
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .map_err(|_| "caduceus-cert-trust-fetch-server-unreachable".to_string())?;
+    let separator = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or_else(|| "caduceus-cert-trust-fetch-response-invalid".to_string())?;
+    let headers = std::str::from_utf8(&response[..separator])
+        .map_err(|_| "caduceus-cert-trust-fetch-response-invalid".to_string())?;
+    if !headers.starts_with("HTTP/1.1 200 ") && !headers.starts_with("HTTP/1.0 200 ") {
+        return Err("caduceus-cert-trust-fetch-server-refused".into());
+    }
+    let fingerprint = headers
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.eq_ignore_ascii_case("x-caduceus-ca-fingerprint"))
+        .map(|(_, value)| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "caduceus-cert-trust-fetch-fingerprint-missing".to_string())?;
+    let bytes = response[separator + 4..].to_vec();
+    if bytes.is_empty()
+        || bytes
+            .windows(b"PRIVATE KEY".len())
+            .any(|window| window == b"PRIVATE KEY")
+    {
+        return Err("caduceus-cert-trust-fetch-bundle-invalid".into());
+    }
+    Ok((bytes, fingerprint))
+}
+
+fn fetched_bundle_path() -> Result<PathBuf, String> {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "caduceus-cert-trust-fetch-tempfile-failed".to_string())?
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "caduceus-trust-fetch-{}-{nonce}.crt",
+        std::process::id()
+    ));
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|_| "caduceus-cert-trust-fetch-tempfile-failed".to_string())?;
+    Ok(path)
+}
+
+/// Fetches a public house bundle and delegates all CA/fingerprint/store validation
+/// to the existing trust-install primitive. The fetched bytes are never retained.
+pub fn trust_fetch_json(server: &str, platform: &str) -> Result<Value, String> {
+    let (bytes, fingerprint) = fetch_bundle_http(server)?;
+    let path = fetched_bundle_path()?;
+    let write_result = fs::write(&path, &bytes);
+    let result = match write_result {
+        Ok(()) => trust_install_json(path.to_str().unwrap_or(""), platform, false),
+        Err(_) => Err("caduceus-cert-trust-fetch-tempfile-failed".into()),
+    };
+    let _ = fs::remove_file(&path);
+    match result {
+        Ok(receipt) => {
+            let installed = receipt
+                .get("bundle_installed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let actual = receipt
+                .get("ca_fingerprint")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if !installed || actual != fingerprint {
+                Ok(json!({
+                    "schema": "caduceus.cert.trust_fetch.v1",
+                    "ok": false,
+                    "server": server,
+                    "fingerprint": fingerprint,
+                    "state": "bundle_refused",
+                    "firstMissingSignal": "bundle_refused",
+                }))
+            } else {
+                let changed = receipt
+                    .get("changed")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                Ok(json!({
+                    "schema": "caduceus.cert.trust_fetch.v1",
+                    "ok": true,
+                    "server": server,
+                    "fingerprint": fingerprint,
+                    "state": "installed",
+                    "convergence": if changed { "installed" } else { "already_current" },
+                    "changed": changed,
+                    "proof": receipt.get("proof").cloned().unwrap_or(json!("trust-store-readback")),
+                }))
+            }
+        }
+        Err(_) => Ok(json!({
+            "schema": "caduceus.cert.trust_fetch.v1",
+            "ok": false,
+            "server": server,
+            "fingerprint": fingerprint,
+            "state": "bundle_refused",
+            "firstMissingSignal": "bundle_refused",
+        })),
+    }
 }
 pub fn portal_admit_json(
     portal: &str,
