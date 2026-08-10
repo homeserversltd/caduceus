@@ -157,6 +157,25 @@ def _credential() -> tuple[bytearray, bytearray]:
         _wipe(plaintext)
 
 
+VAULT_SERVICE = "homeconsole-vault"
+
+def seated_service_record_present(service: str, *, vault_dir: Path | None = None) -> bool:
+    if service != VAULT_SERVICE: raise CaduceusAccessRefused("caduceus-keyman-service-refused")
+    _, root = _runtime_paths(None, vault_dir)
+    return (root / f"{service}.key").is_file()
+
+def read_seated_service_password(service: str, *, vault_dir: Path | None = None) -> bytearray:
+    _require_root()
+    if not seated_service_record_present(service, vault_dir=vault_dir): raise CaduceusAccessRefused("caduceus-keyman-record-unavailable")
+    plaintext = _keyman("decrypt", bytearray(f"service={service}\n".encode("ascii")), read_output=True)
+    username = bytearray()
+    try:
+        match = _RECORD.fullmatch(bytes(plaintext))
+        if match is None: raise CaduceusAccessRefused("caduceus-keyman-record-malformed")
+        username = bytearray(match.group(1)); return bytearray(match.group(2))
+    finally:
+        _wipe(username); _wipe(plaintext)
+
 def _require_current_credential(key_dir: Path) -> tuple[str, bytearray]:
     identity = _raw_identity(key_dir)
     username = bytearray()
@@ -243,6 +262,33 @@ def bind_derived_caduceus(*, key_dir: Path | None = None, vault_dir: Path | None
         return DerivedCaduceusSigner(seed, identity)
     finally:
         _wipe(stored)
+
+
+def reset_caduceus_pin_to_provisioned_default(*, key_dir: Path | None = None, vault_dir: Path | None = None) -> dict[str, object]:
+    """Restore Keyman-held Caduceus PIN from the root-provisioned default file."""
+    _require_root()
+    default_path = Path(os.environ.get("CADUCEUS_PROVISIONED_DEFAULT_PIN_FILE", "/etc/caduceus/provisioned-default-pin"))
+    try:
+        default = bytearray(default_path.read_bytes())
+    except OSError as exc:
+        raise CaduceusAccessRefused("caduceus-pin-default-not-provisioned") from exc
+    try:
+        if default.endswith(b"\n"):
+            default.pop()
+        if not default:
+            raise CaduceusAccessRefused("caduceus-pin-default-not-provisioned")
+        validated = _pin_bytes(default.decode("utf-8"))
+        try:
+            key_dir, _ = _runtime_paths(key_dir, vault_dir)
+            _require_current_credential(key_dir)
+            _keyman("reencrypt", bytearray(b"service=caduceus\nnew_password=" + bytes(default) + b"\n"))
+            return {"schema": "keyman.caduceus_access.status.v1", "ok": True, "operation": "pin-reset-default", "private_material": "[REDACTED]"}
+        finally:
+            _wipe(validated)
+    except (UnicodeDecodeError, CaduceusAccessRefused):
+        raise
+    finally:
+        _wipe(default)
 
 
 def provision_caduceus(initial_pin: str, *, key_dir: Path | None = None, vault_dir: Path | None = None) -> dict[str, object]:

@@ -10,9 +10,10 @@ use axum::{
     extract::{connect_info::ConnectInfo, DefaultBodyLimit, OriginalUri, Path, Query},
     http::{
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
-        HeaderMap, HeaderValue, StatusCode,
+        HeaderMap, HeaderValue, Request, StatusCode,
     },
-    response::Response,
+    middleware,
+    response::{IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
 };
@@ -197,29 +198,143 @@ fn mutation_status(value: &Value) -> StatusCode {
     }
 }
 
+const VAULT_ATTENDANCE_COMMAND: &str = "staff intent";
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct VaultUnlockBody { password: String }
+struct VaultUnlockBody {
+    #[serde(default)]
+    password: Option<String>,
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct VaultAutoBody { enabled: bool }
+struct VaultAutoBody {
+    enabled: bool,
+}
+
+/// Local-only faces refuse a network peer before JSON/PIN/password handling.
+async fn local_access_route(request: Request<Body>, next: middleware::Next) -> Response {
+    if request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .is_some_and(|ConnectInfo(peer)| !peer.ip().is_loopback())
+    {
+        return api_error_signal("local access", "caduceus-local-access-required").into_response();
+    }
+    next.run(request).await
+}
+
+fn vault_attendance_admits(headers: &HeaderMap) -> Result<(), (StatusCode, Json<ApiErrorBody>)> {
+    let document = headers
+        .get("x-caduceus-document")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    document_attendance_admits(
+        document,
+        headers
+            .get("x-caduceus-attendance")
+            .and_then(|value| value.to_str().ok()),
+    )
+    .map_err(|signal| api_error_signal(VAULT_ATTENDANCE_COMMAND, &signal))
+}
+
+fn access_attendance_admits(headers: &HeaderMap) -> Result<(), (StatusCode, Json<ApiErrorBody>)> {
+    vault_attendance_admits(headers)
+}
+
+async fn pin_mode_route(
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    access_attendance_admits(&headers)?;
+    attendance::set_pin_mode_json(&body)
+        .map(Json)
+        .map_err(|signal| api_error_signal("access pin mode", &signal))
+}
+
+async fn pin_change_route(
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    let document = headers
+        .get("x-caduceus-document")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    let token = headers
+        .get("x-caduceus-attendance")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    access_attendance_admits(&headers)?;
+    let value = attendance::change_pin_access_json(document, token, &body)
+        .map_err(|signal| api_error_signal("access pin change", &signal))?;
+    if value.get("ok").and_then(Value::as_bool) == Some(true) {
+        Ok(Json(value))
+    } else {
+        Err(api_error_signal(
+            "access pin change",
+            value
+                .get("code")
+                .and_then(Value::as_str)
+                .unwrap_or("caduceus-attendance-change-failed"),
+        ))
+    }
+}
+
+async fn pin_reset_default_route(
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    if body != serde_json::json!({"action":"reset-default"}) {
+        return Err(api_error_signal(
+            "access pin reset-default",
+            "caduceus-access-pin-reset-default-invalid",
+        ));
+    }
+    access_attendance_admits(&headers)?;
+    attendance::reset_default_pin_json()
+        .map(Json)
+        .map_err(|signal| api_error_signal("access pin reset-default", &signal))
+}
 
 async fn vault_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("staff intent", || Ok(vault::status_json())).await
+    gated_json(VAULT_ATTENDANCE_COMMAND, || Ok(vault::status_json())).await
 }
-async fn vault_unlock_route(Json(body): Json<VaultUnlockBody>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    match policy::allows_command("staff intent") {
-        Ok(true) => Ok((StatusCode::OK, Json(vault::unlock_json(&body.password)))),
-        Ok(false) => Err(api_error("staff intent")),
-        Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
+async fn vault_unlock_route(
+    headers: HeaderMap,
+    Json(body): Json<VaultUnlockBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command(VAULT_ATTENDANCE_COMMAND) {
+        Ok(true) => {}
+        Ok(false) => return Err(api_error(VAULT_ATTENDANCE_COMMAND)),
+        Err(_) => {
+            return Err(api_error_signal(
+                VAULT_ATTENDANCE_COMMAND,
+                "caduceus-profile-missing",
+            ))
+        }
     }
+    vault_attendance_admits(&headers)?;
+    Ok((
+        StatusCode::OK,
+        Json(vault::unlock_json(body.password.as_deref())),
+    ))
 }
-async fn vault_auto_route(Json(body): Json<VaultAutoBody>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    match policy::allows_command("staff intent") {
-        Ok(true) => Ok((StatusCode::OK, Json(vault::auto_decrypt_json(body.enabled)))),
-        Ok(false) => Err(api_error("staff intent")),
-        Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
+async fn vault_auto_route(
+    headers: HeaderMap,
+    Json(body): Json<VaultAutoBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command(VAULT_ATTENDANCE_COMMAND) {
+        Ok(true) => {}
+        Ok(false) => return Err(api_error(VAULT_ATTENDANCE_COMMAND)),
+        Err(_) => {
+            return Err(api_error_signal(
+                VAULT_ATTENDANCE_COMMAND,
+                "caduceus-profile-missing",
+            ))
+        }
     }
+    vault_attendance_admits(&headers)?;
+    Ok((StatusCode::OK, Json(vault::auto_decrypt_json(body.enabled))))
 }
 
 async fn health_route() -> Json<LivenessBody> {
@@ -348,7 +463,12 @@ async fn registered_service_restart_route(
 }
 
 async fn identity_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("identity show", identity::read_json).await
+    gated_json("identity show", || {
+        let mut value = identity::read_json()?;
+        value["pin_required"] = attendance::pin_mode_json()["pin_required"].clone();
+        Ok(value)
+    })
+    .await
 }
 
 async fn profile_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -2328,23 +2448,27 @@ async fn update_service_toggle_route(
 }
 
 pub fn router() -> Router {
-    let attendance_routes = Router::new()
+    let local_access_routes = Router::new()
         .route("/api/v1/attendance/open", post(attendance_route))
         .route("/api/v1/attendance/validate", post(attendance_route))
         .route("/api/v1/attendance/touch", post(attendance_route))
         .route("/api/v1/attendance/change-pin", post(attendance_route))
         .route("/api/v1/attendance/invalidate", post(attendance_route))
+        .route("/api/v1/access/pin/mode", post(pin_mode_route))
+        .route("/api/v1/access/pin/change", post(pin_change_route))
+        .route("/api/v1/access/pin/reset-default", post(pin_reset_default_route))
         .route(
             "/api/v1/service/:service/restart",
             post(registered_service_restart_route),
-        );
-    Router::new()
-        .merge(attendance_routes)
-        .route("/health", get(health_route))
-        .route("/api/v1/identity", get(identity_route))
+        )
         .route("/api/v1/vault/status", get(vault_status_route))
         .route("/api/v1/vault/unlock", post(vault_unlock_route))
         .route("/api/v1/vault/auto-decrypt", post(vault_auto_route))
+        .layer(middleware::from_fn(local_access_route));
+    Router::new()
+        .merge(local_access_routes)
+        .route("/health", get(health_route))
+        .route("/api/v1/identity", get(identity_route))
         .route("/api/v1/profile", get(profile_route))
         .route(
             "/api/v1/profile/sources/reseed",
