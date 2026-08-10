@@ -157,6 +157,25 @@ def _credential() -> tuple[bytearray, bytearray]:
         _wipe(plaintext)
 
 
+VAULT_SERVICE = "homeconsole-vault"
+
+def seated_service_record_present(service: str, *, vault_dir: Path | None = None) -> bool:
+    if service != VAULT_SERVICE: raise CaduceusAccessRefused("caduceus-keyman-service-refused")
+    _, root = _runtime_paths(None, vault_dir)
+    return (root / f"{service}.key").is_file()
+
+def read_seated_service_password(service: str, *, vault_dir: Path | None = None) -> bytearray:
+    _require_root()
+    if not seated_service_record_present(service, vault_dir=vault_dir): raise CaduceusAccessRefused("caduceus-keyman-record-unavailable")
+    plaintext = _keyman("decrypt", bytearray(f"service={service}\n".encode("ascii")), read_output=True)
+    username = bytearray()
+    try:
+        match = _RECORD.fullmatch(bytes(plaintext))
+        if match is None: raise CaduceusAccessRefused("caduceus-keyman-record-malformed")
+        username = bytearray(match.group(1)); return bytearray(match.group(2))
+    finally:
+        _wipe(username); _wipe(plaintext)
+
 def _require_current_credential(key_dir: Path) -> tuple[str, bytearray]:
     identity = _raw_identity(key_dir)
     username = bytearray()

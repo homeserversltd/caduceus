@@ -11,6 +11,7 @@ const CRYPTTAB: &str = "/etc/crypttab";
 const POLICY_NAME: &str = ".keyman-vault-policy.json";
 const POLICY_SCHEMA: &str = "fulcrum.keyman.vault_policy.v1";
 const GOVERNING_KEYFILE: &str = "/root/key/homeconsole-vault.key";
+const KEYMAN_VAULT_OPEN_LAUNCHER: &str = "/usr/local/sbin/caduceus-vault-open";
 
 #[derive(Clone)]
 struct VaultConfig {
@@ -305,10 +306,43 @@ pub fn status_json() -> Value {
         Err(_) => json!({"mounted": false, "auto_decrypt_enabled": false}),
     }
 }
-pub fn unlock_json(password: &str) -> Value {
-    if password.is_empty() {
-        return result(false, "A vault password is required.");
+fn keyman_open(cfg: &VaultConfig) -> Result<bool, String> {
+    let payload = json!({"device": cfg.device, "mapper": cfg.mapper});
+    let mut child = Command::new("/usr/bin/sudo")
+        .args(["-n", KEYMAN_VAULT_OPEN_LAUNCHER])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|_| "vault-keyman-open-unavailable".to_string())?;
+    let input =
+        serde_json::to_vec(&payload).map_err(|_| "vault-keyman-open-unavailable".to_string())?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| "vault-keyman-open-unavailable".to_string())?
+        .write_all(&input)
+        .map_err(|_| "vault-keyman-open-unavailable".to_string())?;
+    let output = child
+        .wait_with_output()
+        .map_err(|_| "vault-keyman-open-unavailable".to_string())?;
+    let receipt: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| "vault-keyman-open-unavailable".to_string())?;
+    let present = receipt
+        .get("present")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "vault-keyman-open-unavailable".to_string())?;
+    if !present {
+        return Ok(false);
     }
+    if output.status.success() && receipt.get("ok").and_then(Value::as_bool) == Some(true) {
+        Ok(true)
+    } else {
+        Err("vault-keyman-open-refused".to_string())
+    }
+}
+
+pub fn unlock_json(password: Option<&str>) -> Value {
     let cfg = match vault_config() {
         Ok(cfg) => cfg,
         Err(error) => {
@@ -325,21 +359,33 @@ pub fn unlock_json(password: &str) -> Value {
         return result(false, "Unable to unlock the vault.");
     }
     if !mapper_path(&cfg).exists() {
-        if let Err(error) = run_sudo(
-            &[
-                "-n",
-                "/usr/sbin/cryptsetup",
-                "open",
-                "--batch-mode",
-                "--key-file",
-                "-",
-                &cfg.device,
-                &cfg.mapper,
-            ],
-            Some(password.as_bytes()),
-        ) {
-            log_internal("unlock", &error);
-            return result(false, "Unable to unlock the vault.");
+        match keyman_open(&cfg) {
+            Ok(true) => {}
+            Ok(false) => {
+                let Some(password) = password.filter(|value| !value.is_empty()) else {
+                    return result(false, "A vault password is required.");
+                };
+                if let Err(error) = run_sudo(
+                    &[
+                        "-n",
+                        "/usr/sbin/cryptsetup",
+                        "open",
+                        "--batch-mode",
+                        "--key-file",
+                        "-",
+                        &cfg.device,
+                        &cfg.mapper,
+                    ],
+                    Some(password.as_bytes()),
+                ) {
+                    log_internal("unlock", &error);
+                    return result(false, "Unable to unlock the vault.");
+                }
+            }
+            Err(error) => {
+                log_internal("unlock", &error);
+                return result(false, "Unable to unlock the vault.");
+            }
         }
     }
     if !mapper_path(&cfg).exists() {
@@ -348,10 +394,7 @@ pub fn unlock_json(password: &str) -> Value {
     }
     if !mounted(&cfg) {
         let mountpoint = logical(&mountpoint_path(&cfg));
-        if let Err(error) = run_sudo(
-            &["-n", "/usr/bin/mkdir", "-p", &mountpoint],
-            None,
-        ) {
+        if let Err(error) = run_sudo(&["-n", "/usr/bin/mkdir", "-p", &mountpoint], None) {
             log_internal("unlock", &error);
             return result(false, "Unable to mount the vault.");
         }
@@ -395,7 +438,7 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
         Ok(v) => v,
         Err(error) => {
             log_internal("auto-decrypt", &error);
-            return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":auto_enabled(&cfg)})
+            return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":auto_enabled(&cfg)});
         }
     };
     let crypttab_path = logical(&root_path(CRYPTTAB));
@@ -420,7 +463,10 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
             bytes
         }
         Err(error) => {
-            log_internal("auto-decrypt", &format!("vault-policy-serialize-failed: {error}"));
+            log_internal(
+                "auto-decrypt",
+                &format!("vault-policy-serialize-failed: {error}"),
+            );
             let _ = sudo_tee(&crypttab_path, old.as_bytes());
             return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":auto_enabled(&cfg)});
         }
