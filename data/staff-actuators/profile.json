@@ -846,23 +846,6 @@
       "pythonModule": "caduceus_staff.hermes_agent_maintenance"
     },
     {
-      "id": "paligenesis-router",
-      "httpDoor": [
-      ],
-      "family": "service",
-      "actuatorClass": "staff-python",
-      "sourceScripts": [
-        "harmonia-paligenesis-router"
-      ],
-      "launcher": "/usr/local/sbin/caduceus-paligenesis-router",
-      "libraryEntry": "/usr/local/sbin/caduceus_staff/paligenesis_router.py",
-      "dependencies": [],
-      "receiptFamily": "caduceus.paligenesis.router.v1",
-      "conversionStatus": "sbin-library-admitted",
-      "notes": "Explicit laptop-01 install-and-converge and laptop-02 provisioned-verify variants retain separate stamps and refusal boundaries.",
-      "pythonModule": "caduceus_staff.paligenesis_router"
-    },
-    {
       "id": "nas-sync",
       "httpDoor": [
         {"method": "POST", "path": "/api/admin/diskman/sync-now"},
