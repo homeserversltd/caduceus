@@ -1,3 +1,4 @@
+pub mod cartridges;
 pub mod cert;
 pub mod coronatio;
 pub mod child_device;
