@@ -1,4 +1,5 @@
 use serde_json::{json, Value};
+use std::io::Write;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -266,6 +267,66 @@ fn admitted_destination(metadata: &Value) -> Result<PathBuf, String> {
     Ok(root.join(relative))
 }
 
+pub fn file_ingress_target(path: &str) -> Result<PathBuf, String> {
+    let root = ingress_root();
+    let relative = if path == "/mnt/nas" || path == root.to_string_lossy() {
+        Path::new("")
+    } else if let Some(value) = path.strip_prefix("/mnt/nas/") {
+        Path::new(value)
+    } else if let Ok(value) = Path::new(path).strip_prefix(&root) {
+        value
+    } else {
+        return Err("caduceus-file-ingress-destination-outside-root".to_string());
+    };
+    if relative.as_os_str().is_empty()
+        || relative
+            .components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+    {
+        return Err("caduceus-file-ingress-destination-invalid".to_string());
+    }
+    Ok(root.join(relative))
+}
+
+pub fn file_ingress_open(path: &str) -> Result<(std::fs::File, PathBuf), String> {
+    let target = file_ingress_target(path)?;
+    let parent = target
+        .parent()
+        .ok_or_else(|| "caduceus-file-ingress-destination-invalid".to_string())?;
+    std::fs::create_dir_all(parent)
+        .map_err(|err| format!("caduceus-file-ingress-create-destination-failed: {err}"))?;
+    let file = std::fs::File::create(&target)
+        .map_err(|err| format!("caduceus-file-ingress-write-failed: {err}"))?;
+    Ok((file, target))
+}
+
+pub fn file_ingress_receipt(target: &Path, bytes: usize) -> Result<Value, String> {
+    let filename = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "caduceus-file-ingress-filename-invalid".to_string())?;
+    let destination = target
+        .parent()
+        .ok_or_else(|| "caduceus-file-ingress-destination-invalid".to_string())?;
+    let reflection = hyalos::reflect_json(json!({
+        "organ": "file-ingress",
+        "kind": "upload",
+        "level": "info",
+        "ok": true,
+        "message": format!("uploaded {filename}"),
+        "attributes_redacted": {
+            "classification": "file-ingress",
+            "filename": filename,
+            "destination": destination,
+            "path": target,
+            "bytes": bytes
+        }
+    }))?;
+    Ok(
+        json!({"schema":"caduceus.staff.file_ingress.v1","ok":true,"accepted":true,"classification":"file-ingress","mutationPerformed":true,"execution":"native-rust-file-ingress","path":target,"bytes":bytes,"hyalos":reflection,"firstMissingSignal":"none"}),
+    )
+}
+
 fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
     let destination = admitted_destination(&metadata)?;
     let filename = metadata
@@ -290,28 +351,11 @@ fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
                 .ok_or_else(|| "caduceus-file-ingress-payload-invalid".to_string())
         })
         .collect::<Result<Vec<_>, _>>()?;
-    std::fs::create_dir_all(&destination)
-        .map_err(|err| format!("caduceus-file-ingress-create-destination-failed: {err}"))?;
     let target = destination.join(filename);
-    std::fs::write(&target, &bytes)
+    let (mut file, target) = file_ingress_open(&target.to_string_lossy())?;
+    file.write_all(&bytes)
         .map_err(|err| format!("caduceus-file-ingress-write-failed: {err}"))?;
-    let reflection = hyalos::reflect_json(json!({
-        "organ": "file-ingress",
-        "kind": "upload",
-        "level": "info",
-        "ok": true,
-        "message": format!("uploaded {filename}"),
-        "attributes_redacted": {
-            "classification": "file-ingress",
-            "filename": filename,
-            "destination": destination,
-            "path": target,
-            "bytes": bytes.len()
-        }
-    }))?;
-    Ok(
-        json!({"schema":"caduceus.staff.file_ingress.v1","ok":true,"accepted":true,"classification":"file-ingress","mutationPerformed":true,"execution":"native-rust-file-ingress","path":target,"bytes":bytes.len(),"hyalos":reflection,"firstMissingSignal":"none"}),
-    )
+    file_ingress_receipt(&target, bytes.len())
 }
 
 fn execute_force_permissions(metadata: Value) -> Result<Value, String> {
