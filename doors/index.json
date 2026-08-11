@@ -860,6 +860,15 @@
       "actuator": "caduceus_staff.linker"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/linker/browse",
+      "family": "linker",
+      "snake": "staff-python",
+      "posture": "admin-read",
+      "crown_alias": null,
+      "actuator": "caduceus_staff.linker"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/linker/deploy",
       "family": "linker",
@@ -901,6 +910,15 @@
       "family": "linker",
       "snake": "staff-python",
       "posture": "capability-mutation",
+      "crown_alias": null,
+      "actuator": "caduceus_staff.linker"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/linker/hardlink-scan",
+      "family": "linker",
+      "snake": "staff-python",
+      "posture": "admin-read",
       "crown_alias": null,
       "actuator": "caduceus_staff.linker"
     },

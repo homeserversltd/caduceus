@@ -1122,10 +1122,9 @@ async fn child_device_staff_actuator_route(
     named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
 }
 
-async fn linker_staff_actuator_route(
-    headers: HeaderMap,
-    OriginalUri(uri): OriginalUri,
-    Json(mut metadata): Json<Value>,
+async fn linker_staff_actuator_dispatch(
+    uri: OriginalUri,
+    mut metadata: Value,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let operation = match uri.path() {
         "/api/v1/linker/browse" => "browse",
@@ -1154,7 +1153,27 @@ async fn linker_staff_actuator_route(
         "operation".to_string(),
         Value::String(operation.to_string()),
     );
-    named_staff_actuator_route(headers, OriginalUri(uri), Json(metadata)).await
+    named_staff_actuator_route(HeaderMap::new(), uri, Json(metadata)).await
+}
+
+async fn linker_staff_actuator_route(
+    OriginalUri(uri): OriginalUri,
+    Json(metadata): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    linker_staff_actuator_dispatch(OriginalUri(uri), metadata).await
+}
+
+async fn linker_staff_actuator_read_route(
+    OriginalUri(uri): OriginalUri,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let metadata = Value::Object(
+        query
+            .into_iter()
+            .map(|(key, value)| (key, Value::String(value)))
+            .collect(),
+    );
+    linker_staff_actuator_dispatch(OriginalUri(uri), metadata).await
 }
 
 async fn nas_sync_staff_actuator_route(
@@ -2747,14 +2766,17 @@ pub fn router() -> Router {
             "/api/v1/network/speedtest",
             post(named_staff_actuator_route),
         )
-        .route("/api/v1/linker/browse", post(linker_staff_actuator_route))
+        .route(
+            "/api/v1/linker/browse",
+            get(linker_staff_actuator_read_route).post(linker_staff_actuator_route),
+        )
         .route("/api/v1/linker/deploy", post(linker_staff_actuator_route))
         .route("/api/v1/linker/delete", post(linker_staff_actuator_route))
         .route("/api/v1/linker/rename", post(linker_staff_actuator_route))
         .route("/api/v1/linker/mkdir", post(linker_staff_actuator_route))
         .route(
             "/api/v1/linker/hardlink-scan",
-            post(linker_staff_actuator_route),
+            get(linker_staff_actuator_read_route).post(linker_staff_actuator_route),
         )
         .route("/api/v1/file/ingress", post(named_staff_actuator_route))
         .route(
