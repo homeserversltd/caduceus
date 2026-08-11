@@ -1516,6 +1516,10 @@ async fn dns_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>
     network_read_route("network dns read").await
 }
 
+async fn dns_resolver_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    network_read_route("network dns resolver status").await
+}
+
 async fn device_list_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     network_read_route("network device list").await
 }
@@ -1862,6 +1866,30 @@ struct DnsDeviceNameBody {
 struct DnsAliasBody {
     label: String,
     hostname: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DnsAdblockBody { enabled: bool }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DnsUpstreamBody { preset: Option<String>, custom: Option<Vec<String>>, dot: bool }
+
+async fn dns_resolver_adblock_route(headers: HeaderMap, Json(body): Json<DnsAdblockBody>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "network dns resolver adblock";
+    dns_mutation_admits(COMMAND, &headers)?;
+    dns_mutation_response(COMMAND, dns::resolver_json("adblock", Some(json!({"enabled": body.enabled}))))
+}
+async fn dns_resolver_blocklist_update_route(headers: HeaderMap) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "network dns resolver blocklist-update";
+    dns_mutation_admits(COMMAND, &headers)?;
+    dns_mutation_response(COMMAND, dns::resolver_json("blocklist-update", None))
+}
+async fn dns_resolver_upstream_route(headers: HeaderMap, Json(body): Json<DnsUpstreamBody>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "network dns resolver upstream";
+    dns_mutation_admits(COMMAND, &headers)?;
+    dns_mutation_response(COMMAND, dns::resolver_json("upstream", Some(json!({"preset": body.preset, "custom": body.custom, "dot": body.dot}))))
 }
 
 async fn network_dns_route(
@@ -2640,6 +2668,7 @@ pub fn router() -> Router {
         .route("/api/v1/network/dhcp/health", get(dhcp_health_read_route))
         .route("/api/v1/network/dns/status", get(dns_status_read_route))
         .route("/api/v1/network/dns/read", get(dns_read_route))
+        .route("/api/v1/network/dns/resolver/status", get(dns_resolver_status_route))
         .route("/api/v1/network/device", get(device_list_route))
         .route("/api/v1/network/device/claim", post(device_claim_route))
         .route(
@@ -2658,6 +2687,9 @@ pub fn router() -> Router {
         )
         .route("/api/v1/time/state", get(time_state_route))
         .route("/api/v1/network/dns", post(network_dns_route))
+        .route("/api/v1/network/dns/adblock", post(dns_resolver_adblock_route))
+        .route("/api/v1/network/dns/blocklist/update", post(dns_resolver_blocklist_update_route))
+        .route("/api/v1/network/dns/upstream", post(dns_resolver_upstream_route))
         .route(
             "/api/v1/network/dns/device-name/create",
             post(dns_device_name_create_route),

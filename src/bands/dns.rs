@@ -192,6 +192,21 @@ pub fn alias_json(action: &str, label: &str, hostname: &str) -> Result<Value, St
     ])
 }
 
+pub fn resolver_json(action: &str, metadata: Option<Value>) -> Result<Value, String> {
+    if !["adblock", "blocklist-update", "upstream"].contains(&action) {
+        return Err("caduceus-network-dns-resolver-action-invalid".into());
+    }
+    let mut args = vec!["resolver".into(), action.into()];
+    if let Some(metadata) = metadata {
+        args.push("--metadata-json".into());
+        args.push(
+            serde_json::to_string(&metadata)
+                .map_err(|_| "caduceus-network-dns-metadata-invalid")?,
+        );
+    }
+    invoke(&args)
+}
+
 pub fn intent_json(method: &str, route: &str, metadata: Value) -> Result<Value, String> {
     if method != DNS_INTENT_METHOD || route != DNS_INTENT_ROUTE {
         return Err("caduceus-network-dns-intent-route-refused".into());

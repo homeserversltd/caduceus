@@ -429,6 +429,42 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/network/dns/resolver/status",
+      "family": "network-dns-resolver",
+      "snake": "staff-python",
+      "posture": "admin-read",
+      "crown_alias": null,
+      "actuator": "caduceus_staff.network.dns.resolver.status"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/network/dns/adblock",
+      "family": "network-dns-resolver",
+      "snake": "staff-python",
+      "posture": "capability-mutation",
+      "crown_alias": null,
+      "actuator": "caduceus_staff.network.dns.resolver.adblock"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/network/dns/blocklist/update",
+      "family": "network-dns-resolver",
+      "snake": "staff-python",
+      "posture": "capability-mutation",
+      "crown_alias": null,
+      "actuator": "caduceus_staff.network.dns.resolver.blocklist_update"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/network/dns/upstream",
+      "family": "network-dns-resolver",
+      "snake": "staff-python",
+      "posture": "capability-mutation",
+      "crown_alias": null,
+      "actuator": "caduceus_staff.network.dns.resolver.upstream"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/network/dns/read",
       "family": "appliance",
       "snake": "staff-python",

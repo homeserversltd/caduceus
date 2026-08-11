@@ -56,6 +56,11 @@ pub const COMMANDS: &[ReadCommand] = &[
         args: &["read"],
     },
     ReadCommand {
+        command: "network dns resolver status",
+        actuator_id: "network.dns.resolver.status",
+        args: &["resolver", "status"],
+    },
+    ReadCommand {
         command: "network device list",
         actuator_id: "network.identity.device_list",
         args: &["list"],
