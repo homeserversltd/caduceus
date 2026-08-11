@@ -493,6 +493,27 @@
       "pythonModule": "caduceus_staff.runner:forgejo-migrate"
     },
     {
+      "id": "backblaze-config",
+      "httpDoor": [
+        {
+          "method": "POST",
+          "path": "/api/v1/backblaze/config"
+        }
+      ],
+      "family": "backblaze",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [
+        "/vault/keyman/newkey.sh"
+      ],
+      "launcher": "/usr/local/sbin/caduceus-backblaze-config",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/backblaze_config.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.backblaze.config.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Verifies B2 credentials before Keyman custody and an atomic one-time non-secret config lock; never touches SSH, lan.key, or authorized_keys.",
+      "pythonModule": "caduceus_staff.backblaze_config"
+    },
+    {
       "id": "calibre-helper-daemon",
       "httpDoor": [
         {"method": "POST", "path": "/api/v1/calibre/helper-daemon"}

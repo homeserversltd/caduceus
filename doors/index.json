@@ -939,6 +939,15 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/backblaze/config",
+      "family": "backblaze",
+      "snake": "staff-python",
+      "posture": "capability-mutation",
+      "crown_alias": "/api/backblaze/config",
+      "actuator": "caduceus_staff.backblaze_config"
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/calibre/helper-daemon",
       "family": "calibre",
       "snake": "staff-python",
