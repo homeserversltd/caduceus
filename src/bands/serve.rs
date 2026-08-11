@@ -20,7 +20,7 @@ use axum::{
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
@@ -45,6 +45,91 @@ struct LivenessBody {
 }
 
 const CADUCEUS_BUILD_SHA: Option<&str> = option_env!("CADUCEUS_BUILD_SHA");
+
+const DOOR_SEAT: &str = include_str!("../../doors/index.json");
+const ROUTER_SOURCE: &str = include_str!("serve.rs");
+
+#[derive(Deserialize)]
+struct DoorSeat {
+    schema: String,
+    doors: Vec<DoorRow>,
+}
+
+#[derive(Deserialize)]
+struct DoorRow {
+    method: String,
+    path: String,
+    family: String,
+    snake: String,
+    posture: String,
+    crown_alias: Option<String>,
+    actuator: Option<String>,
+}
+
+fn source_registered_doors() -> Result<Vec<(String, String)>, String> {
+    let start = ROUTER_SOURCE.rfind("pub fn router()").ok_or_else(|| "router-start-missing".to_string())?;
+    let end = ROUTER_SOURCE[start..].find("pub async fn run_async()").map(|offset| start + offset).ok_or_else(|| "router-end-missing".to_string())?;
+    let source = &ROUTER_SOURCE[start..end];
+    let mut doors = Vec::new();
+    let mut scan = 0;
+    while let Some(offset) = source[scan..].find(".route(") {
+        let route_start = scan + offset + ".route(".len();
+        let path_start = route_start + source[route_start..].find('"').ok_or_else(|| "route-path-start-missing".to_string())? + 1;
+        let path_end = path_start + source[path_start..].find('"').ok_or_else(|| "route-path-end-missing".to_string())?;
+        let path = source[path_start..path_end].to_string();
+        let mut depth = 1usize;
+        let mut end_at = route_start;
+        for (offset, byte) in source[route_start..].bytes().enumerate() {
+            match byte { b'(' => depth += 1, b')' => { depth -= 1; if depth == 0 { end_at = route_start + offset; break; } }, _ => {} }
+        }
+        if depth != 0 { return Err(format!("route-parentheses-unclosed:{path}")); }
+        let registration = &source[route_start..=end_at];
+        for (needle, method) in [("get(", "GET"), ("post(", "POST"), ("put(", "PUT"), ("delete(", "DELETE")] {
+            if registration.contains(needle) { doors.push((method.to_string(), path.clone())); }
+        }
+        scan = end_at + 1;
+    }
+    Ok(doors)
+}
+
+fn audit_doors() -> Result<(), String> {
+    let seat: DoorSeat = serde_json::from_str(DOOR_SEAT).map_err(|error| format!("seat-json-invalid:{error}"))?;
+    if seat.schema != "caduceus.doors.v1" { return Err(format!("seat-schema-invalid:{}", seat.schema)); }
+    let valid_snakes = ["native-rust", "staff-python", "hybrid"];
+    let valid_postures = ["public-safe", "guest-aggregate", "admin-read", "capability-mutation"];
+    let mut seat_keys = HashSet::new();
+    for row in &seat.doors {
+        if !valid_snakes.contains(&row.snake.as_str()) || !valid_postures.contains(&row.posture.as_str()) || row.family.trim().is_empty() || row.crown_alias.as_deref().is_some_and(|alias| !alias.starts_with('/')) || (row.snake == "native-rust" && row.actuator.is_some()) || (row.snake == "staff-python" && row.actuator.is_none()) {
+            return Err(format!("seat-row-invalid:{} {}", row.method, row.path));
+        }
+        if !seat_keys.insert((row.method.clone(), row.path.clone())) { return Err(format!("seat-row-duplicate:{} {}", row.method, row.path)); }
+    }
+    let mut registered_keys = HashSet::new();
+    for key in source_registered_doors()? {
+        if !registered_keys.insert(key.clone()) { return Err(format!("router-row-duplicate:{} {}", key.0, key.1)); }
+    }
+    let mut missing: Vec<_> = registered_keys.difference(&seat_keys).cloned().collect();
+    let mut extra: Vec<_> = seat_keys.difference(&registered_keys).cloned().collect();
+    missing.sort(); extra.sort();
+    if missing.is_empty() && extra.is_empty() { return Ok(()); }
+    let render = |(method, path): &(String, String)| format!("{method} {path}");
+    Err(format!("door-bijection-failed: missing=[{}] extra=[{}]", missing.iter().map(render).collect::<Vec<_>>().join(", "), extra.iter().map(render).collect::<Vec<_>>().join(", ")))
+}
+
+async fn doors_route() -> Result<Response, (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("doors read") {
+        Ok(true) => {
+            let prefix = r#"{"schema":"caduceus.doors.readback.v1","ok":true,"seat":"#;
+            let mut body = Vec::with_capacity(prefix.len() + DOOR_SEAT.len() + 1);
+            body.extend_from_slice(prefix.as_bytes());
+            body.extend_from_slice(DOOR_SEAT.as_bytes());
+            body.extend_from_slice(b"}");
+            Ok(([(CONTENT_TYPE, "application/json")], Body::from(body)).into_response())
+        }
+        Ok(false) => Err(api_error("doors read")),
+        Err(_) => Err(api_error_signal("doors read", "caduceus-profile-missing")),
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1393,6 +1478,16 @@ async fn dhcp_boundary_route() -> Result<Json<Value>, (StatusCode, Json<ApiError
     network_read_route("network dhcp boundary show").await
 }
 
+
+async fn dhcp_statistics_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    network_read_route("network dhcp statistics").await
+}
+
+async fn dhcp_health_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    network_read_route("network dhcp health").await
+}
+
+
 async fn dns_status_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     network_read_route("network dns status").await
 }
@@ -2475,6 +2570,7 @@ pub fn router() -> Router {
             post(profile_sources_reseed_route),
         )
         .route("/api/v1/health", get(health_api_route))
+        .route("/api/v1/doors", get(doors_route))
         .route("/api/v1/disk/census", get(disk_census_route))
         .route("/api/admin/logs/homeserver", get(appliance_logs_read_route))
         .route(
@@ -2520,6 +2616,8 @@ pub fn router() -> Router {
             get(dhcp_reservations_route),
         )
         .route("/api/v1/network/dhcp/boundary", get(dhcp_boundary_route))
+        .route("/api/v1/network/dhcp/statistics", get(dhcp_statistics_route))
+        .route("/api/v1/network/dhcp/health", get(dhcp_health_read_route))
         .route("/api/v1/network/dns/status", get(dns_status_read_route))
         .route("/api/v1/network/dns/read", get(dns_read_route))
         .route("/api/v1/network/device", get(device_list_route))
@@ -2838,6 +2936,11 @@ pub fn router() -> Router {
 }
 
 pub async fn run_async() -> i32 {
+    if let Err(error) = audit_doors() {
+        eprintln!("caduceus-doors-audit-failed: {error}");
+        return 1;
+    }
+
     let bind = env::var("CADUCEUS_BIND").unwrap_or_else(|_| "0.0.0.0:8787".to_string());
     let addr: SocketAddr = match bind.parse() {
         Ok(value) => value,

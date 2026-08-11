@@ -243,6 +243,38 @@
       "pythonModule": "caduceus_staff.network.dhcp"
     },
     {
+      "id": "network.dhcp.statistics",
+      "httpDoor": [
+        {"method": "GET", "path": "/api/v1/network/dhcp/statistics"}
+      ],
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-network-dhcp",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/dhcp.py#statistics",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.dhcp.statistics.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "DHCP aggregate statistics.",
+      "pythonModule": "caduceus_staff.network.dhcp"
+    },
+    {
+      "id": "network.dhcp.health",
+      "httpDoor": [
+        {"method": "GET", "path": "/api/v1/network/dhcp/health"}
+      ],
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-network-dhcp",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/dhcp.py#health",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.dhcp.health.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Kea DHCP configuration and service health.",
+      "pythonModule": "caduceus_staff.network.dhcp"
+    },
+    {
       "id": "network-firewall",
       "httpDoor": [
         {"method": "GET", "path": "/api/v1/network/firewall/status"},

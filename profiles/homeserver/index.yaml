@@ -23,6 +23,9 @@ commands:
 - network dhcp leases
 - network dhcp reservations list
 - network dhcp boundary show
+- network dhcp statistics
+- network dhcp health
+- doors read
 - network dhcp reservations
 - network dhcp reload
 - network dhcp reservation add

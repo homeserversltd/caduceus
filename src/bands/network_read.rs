@@ -36,6 +36,16 @@ pub const COMMANDS: &[ReadCommand] = &[
         args: &["boundary", "show"],
     },
     ReadCommand {
+        command: "network dhcp statistics",
+        actuator_id: "network.dhcp.statistics",
+        args: &["statistics"],
+    },
+    ReadCommand {
+        command: "network dhcp health",
+        actuator_id: "network.dhcp.health",
+        args: &["health"],
+    },
+    ReadCommand {
         command: "network dns status",
         actuator_id: "network.dns.status",
         args: &["status"],
@@ -125,9 +135,13 @@ pub fn invoke(command: &ReadCommand) -> Result<Value, String> {
         )
     })?;
     if !output.status.success() || payload.get("ok") == Some(&json!(false)) {
+        let signal = payload
+            .get("firstMissingSignal")
+            .and_then(Value::as_str)
+            .unwrap_or("caduceus-network-read-failed");
         return Err(format!(
-            "caduceus-network-read-failed:{}",
-            command.actuator_id
+            "caduceus-network-read-failed:{}:{}",
+            command.actuator_id, signal
         ));
     }
     Ok(json!({
