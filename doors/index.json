@@ -214,7 +214,7 @@
       "family": "appliance",
       "snake": "native-rust",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/admin/hard-drive-test/start",
       "actuator": null
     },
     {
@@ -358,7 +358,7 @@
       "family": "network-dhcp",
       "snake": "staff-python",
       "posture": "admin-read",
-      "crown_alias": null,
+      "crown_alias": "/api/dhcp/status",
       "actuator": "caduceus_staff.network.dhcp.status"
     },
     {
@@ -367,7 +367,7 @@
       "family": "network-dhcp",
       "snake": "staff-python",
       "posture": "admin-read",
-      "crown_alias": null,
+      "crown_alias": "/api/dhcp/leases",
       "actuator": "caduceus_staff.network.dhcp.leases"
     },
     {
@@ -376,7 +376,7 @@
       "family": "network-dhcp",
       "snake": "staff-python",
       "posture": "admin-read",
-      "crown_alias": null,
+      "crown_alias": "/api/dhcp/reservations",
       "actuator": "caduceus_staff.network.dhcp.reservations"
     },
     {
@@ -385,7 +385,7 @@
       "family": "network-dhcp",
       "snake": "staff-python",
       "posture": "admin-read",
-      "crown_alias": null,
+      "crown_alias": "/api/dhcp/pool-boundary",
       "actuator": "caduceus_staff.network.dhcp.boundary"
     },
     {
@@ -421,7 +421,7 @@
       "family": "appliance",
       "snake": "staff-python",
       "posture": "admin-read",
-      "crown_alias": null,
+      "crown_alias": "/api/network/dns/read",
       "actuator": "caduceus_staff.network.dns.read"
     },
     {
@@ -430,7 +430,7 @@
       "family": "appliance",
       "snake": "staff-python",
       "posture": "admin-read",
-      "crown_alias": null,
+      "crown_alias": "/api/network/device",
       "actuator": "caduceus_staff.network.identity.device_list"
     },
     {
@@ -439,7 +439,7 @@
       "family": "appliance",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/network/device/claim",
       "actuator": "caduceus_staff.network.identity.claim"
     },
     {
@@ -790,7 +790,7 @@
       "family": "network-dhcp",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/dhcp/config",
       "actuator": "caduceus_staff.network_dhcp"
     },
     {
@@ -799,7 +799,7 @@
       "family": "network-dhcp",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/dhcp/reservations",
       "actuator": "caduceus_staff.network_dhcp"
     },
     {
@@ -808,7 +808,7 @@
       "family": "network-dhcp",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/dhcp/reservations/:reservation_id",
       "actuator": "caduceus_staff.network_dhcp"
     },
     {
@@ -817,7 +817,7 @@
       "family": "network-dhcp",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/dhcp/reservations/:reservation_id",
       "actuator": "caduceus_staff.network_dhcp"
     },
     {
@@ -826,7 +826,7 @@
       "family": "network-dhcp",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/dhcp/pool-boundary",
       "actuator": "caduceus_staff.network_dhcp"
     },
     {
@@ -898,7 +898,7 @@
       "family": "appliance",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/files/upload",
       "actuator": "caduceus_staff.file_ingress"
     },
     {
@@ -907,7 +907,7 @@
       "family": "appliance",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/upload/force-permissions",
       "actuator": "caduceus_staff.upload_force_permissions"
     },
     {
@@ -1006,7 +1006,7 @@
       "family": "keyman",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/usr/local/sbin/caduceus-keyman-rotate-capability",
       "actuator": "caduceus_staff.keyman_doors"
     },
     {
@@ -1015,7 +1015,7 @@
       "family": "service",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/service/control",
       "actuator": "caduceus_staff.service_control_doors"
     },
     {
@@ -1024,7 +1024,7 @@
       "family": "service",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/admin/ssh/status",
       "actuator": "caduceus_staff.service_control_doors"
     },
     {
@@ -1033,7 +1033,7 @@
       "family": "service",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/admin/ssh/toggle",
       "actuator": "caduceus_staff.service_control_doors"
     },
     {
@@ -1042,7 +1042,7 @@
       "family": "service",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/admin/ssh/service/status",
       "actuator": "caduceus_staff.service_control_doors"
     },
     {
@@ -1051,7 +1051,7 @@
       "family": "service",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/admin/ssh/service",
       "actuator": "caduceus_staff.service_control_doors"
     },
     {
@@ -1060,7 +1060,7 @@
       "family": "service",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/admin/samba/status",
       "actuator": "caduceus_staff.service_control_doors"
     },
     {
@@ -1069,7 +1069,7 @@
       "family": "service",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/admin/samba/service",
       "actuator": "caduceus_staff.service_control_doors"
     },
     {
@@ -1078,7 +1078,7 @@
       "family": "appliance",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/admin/system/restart",
       "actuator": "caduceus_staff.service_control_doors"
     },
     {
@@ -1087,7 +1087,7 @@
       "family": "appliance",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/admin/system/shutdown",
       "actuator": "caduceus_staff.service_control_doors"
     },
     {
@@ -1096,7 +1096,7 @@
       "family": "service",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": null,
+      "crown_alias": "/api/admin/services/hard-reset",
       "actuator": "caduceus_staff.service_control_doors"
     },
     {
