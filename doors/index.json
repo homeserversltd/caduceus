@@ -368,6 +368,10 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": "/api/dhcp/leases",
+      "crown_aliases": [
+        "/api/dhcp/leases",
+        "/api/network/dhcp/leases"
+      ],
       "actuator": "caduceus_staff.network.dhcp.leases"
     },
     {
@@ -377,6 +381,10 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": "/api/dhcp/reservations",
+      "crown_aliases": [
+        "/api/dhcp/reservations",
+        "/api/network/dhcp/reservations"
+      ],
       "actuator": "caduceus_staff.network.dhcp.reservations"
     },
     {
@@ -386,6 +394,10 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": "/api/dhcp/pool-boundary",
+      "crown_aliases": [
+        "/api/dhcp/pool-boundary",
+        "/api/network/dhcp/boundary"
+      ],
       "actuator": "caduceus_staff.network.dhcp.boundary"
     },
     {
