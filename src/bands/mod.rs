@@ -11,6 +11,7 @@ pub mod dns;
 pub mod firewall;
 pub mod gui;
 pub mod health;
+pub mod harmonia_update;
 pub mod help;
 pub mod homeserver_sbin;
 pub mod hyalos;
