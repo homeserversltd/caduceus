@@ -36,6 +36,28 @@ pub fn read_public_profile_value() -> Result<serde_json::Value, String> {
     serde_yaml::from_str(&text).map_err(|err| format!("caduceus-profile-invalid: {err}"))
 }
 
+pub fn overlay_birth_profile_fields(value: &mut serde_json::Value) -> Result<(), String> {
+    let text = read_public_file("etc/appliance/profile.json")
+        .map_err(|err| format!("caduceus-birth-certificate-missing: {err}"))?;
+    let birth: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|err| format!("caduceus-birth-certificate-invalid: {err}"))?;
+    let profile = birth
+        .get("profile")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "caduceus-birth-certificate-profile-missing".to_string())?
+        .to_string();
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "caduceus-public-profile-invalid".to_string())?;
+    for field in ["device", "profile", "mode"] {
+        object.insert(
+            field.to_string(),
+            serde_json::Value::String(profile.clone()),
+        );
+    }
+    Ok(())
+}
+
 pub fn public_profile_present() -> bool {
     read_public_profile_text().is_ok()
 }

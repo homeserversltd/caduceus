@@ -65,7 +65,7 @@ fn fixture_identity_is_read() {
         .unwrap();
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.contains("arch-tv"));
+    assert!(text.contains("birth-tv"));
     assert!(!text.contains("Azoth"));
     assert!(!text.contains("Kether"));
     assert!(!text.contains("Cibation"));
