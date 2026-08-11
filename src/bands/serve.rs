@@ -1,5 +1,6 @@
 use crate::bands::{
-    cert, config, coronatio, disk, dns, drive_test, firewall, gui, health, homeserver_sbin, hyalos,
+    cartridges, cert, config, coronatio, disk, dns, drive_test, firewall, gui, health, homeserver_sbin,
+    hyalos,
     identity, legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read,
     pjlink, profile, profile_module, receipts, source_map, speedtest, staff, sync, tailscale, time,
     update, vault, vpn,
@@ -1412,6 +1413,64 @@ async fn config_patch_route(
     })
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CartridgeRemoveBody {
+    id: String,
+}
+
+fn cartridge_error(command: &str, error: cartridges::CartridgeError) -> (StatusCode, Json<ApiErrorBody>) {
+    (
+        StatusCode::from_u16(error.status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE),
+        Json(ApiErrorBody {
+            schema: "caduceus.api.error.v1",
+            ok: false,
+            command: command.to_string(),
+            first_missing_signal: error.signal.to_string(),
+        }),
+    )
+}
+
+async fn cartridges_route() -> Result<Response, (StatusCode, Json<ApiErrorBody>)> {
+    let bytes = cartridges::passage_bytes()
+        .map_err(|error| cartridge_error("cartridges read", error))?;
+    Ok(([(CONTENT_TYPE, "application/json")], Body::from(bytes)).into_response())
+}
+
+fn cartridges_mutation_admitted() -> Result<(), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("cartridges mutate") {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(api_error("cartridges mutate")),
+        Err(_) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: "cartridges mutate".to_string(),
+                first_missing_signal: "caduceus-profile-missing".to_string(),
+            }),
+        )),
+    }
+}
+
+async fn cartridges_admit_route(
+    Json(body): Json<cartridges::Cartridge>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    cartridges_mutation_admitted()?;
+    cartridges::admit(body)
+        .map(|receipt| (StatusCode::OK, Json(receipt)))
+        .map_err(|error| cartridge_error("cartridges admit", error))
+}
+
+async fn cartridges_remove_route(
+    Json(body): Json<CartridgeRemoveBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    cartridges_mutation_admitted()?;
+    cartridges::remove(&body.id)
+        .map(|receipt| (StatusCode::OK, Json(receipt)))
+        .map_err(|error| cartridge_error("cartridges remove", error))
+}
+
 async fn update_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("update status", update::read_json).await
 }
@@ -2638,6 +2697,9 @@ pub fn router() -> Router {
         )
         .route("/api/v1/health", get(health_api_route))
         .route("/api/v1/doors", get(doors_route))
+        .route("/api/v1/cartridges", get(cartridges_route))
+        .route("/api/v1/cartridges/admit", post(cartridges_admit_route))
+        .route("/api/v1/cartridges/remove", post(cartridges_remove_route))
         .route("/api/v1/disk/census", get(disk_census_route))
         .route("/api/admin/logs/homeserver", get(appliance_logs_read_route))
         .route(

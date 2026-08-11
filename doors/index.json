@@ -1515,6 +1515,33 @@
       "posture": "capability-mutation",
       "crown_alias": null,
       "actuator": "caduceus_staff.harmonia_module_toggle"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cartridges",
+      "family": "cartridges",
+      "snake": "native-rust",
+      "posture": "guest-aggregate",
+      "crown_alias": "/api/cartridges",
+      "actuator": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cartridges/admit",
+      "family": "cartridges",
+      "snake": "native-rust",
+      "posture": "capability-mutation",
+      "crown_alias": "/api/cartridges/admit",
+      "actuator": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cartridges/remove",
+      "family": "cartridges",
+      "snake": "native-rust",
+      "posture": "capability-mutation",
+      "crown_alias": "/api/cartridges/remove",
+      "actuator": null
     }
   ]
 }

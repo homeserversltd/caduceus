@@ -26,6 +26,7 @@ commands:
 - network dhcp statistics
 - network dhcp health
 - doors read
+- cartridges mutate
 - network dhcp reservations
 - network dhcp reload
 - network dhcp reservation add
