@@ -7,8 +7,8 @@ use crate::bands::{
 };
 use crate::tools::{attendance, policy};
 use axum::{
-    body::Body,
-    extract::{connect_info::ConnectInfo, DefaultBodyLimit, OriginalUri, Path, Query},
+    body::{Body, HttpBody},
+    extract::{connect_info::ConnectInfo, DefaultBodyLimit, FromRequest, Multipart, OriginalUri, Path, Query},
     http::{
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
         HeaderMap, HeaderValue, Request, StatusCode,
@@ -22,6 +22,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use std::io::Write;
 use std::env;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
@@ -903,6 +904,128 @@ fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Js
             "caduceus-staff-actuator-unmapped",
         )),
     }
+}
+
+async fn file_ingress_route(
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    request: axum::extract::Request,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("staff intent") {
+        Ok(true) => {}
+        Ok(false) => return Err(api_error("staff intent")),
+        Err(_) => return Err(api_error_signal("staff intent", "caduceus-profile-missing")),
+    }
+    let content_type = headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if content_type.starts_with("application/json") {
+        let Json(metadata) = Json::<Value>::from_request(request, &())
+            .await
+            .map_err(|_| api_error_signal("staff intent", "caduceus-file-ingress-json-invalid"))?;
+        return staff::named_actuator_json("file-ingress", metadata)
+            .map(|value| (mutation_status(&value), Json(value)))
+            .map_err(|reason| api_error_signal("staff intent", &reason));
+    }
+    if content_type.starts_with("application/octet-stream") {
+        let path = uri
+            .query()
+            .and_then(|query| query.split('&').find_map(|pair| pair.strip_prefix("path=")))
+            .or_else(|| {
+                headers
+                    .get("x-caduceus-path")
+                    .and_then(|value| value.to_str().ok())
+            })
+            .ok_or_else(|| {
+                api_error_signal("staff intent", "caduceus-file-ingress-path-missing")
+            })?;
+        return stream_file_ingress(path, request.into_body()).await;
+    }
+    if content_type.starts_with("multipart/form-data") {
+        let mut multipart = Multipart::from_request(request, &()).await.map_err(|_| {
+            api_error_signal("staff intent", "caduceus-file-ingress-multipart-invalid")
+        })?;
+        let mut path = None;
+        while let Some(mut field) = multipart.next_field().await.map_err(|_| {
+            api_error_signal("staff intent", "caduceus-file-ingress-multipart-invalid")
+        })? {
+            match field.name() {
+                Some("path") => {
+                    path = Some(field.text().await.map_err(|_| {
+                        api_error_signal("staff intent", "caduceus-file-ingress-path-invalid")
+                    })?);
+                }
+                Some("file") => {
+                    let path = path.as_deref().ok_or_else(|| {
+                        api_error_signal("staff intent", "caduceus-file-ingress-path-missing")
+                    })?;
+                    return stream_multipart_file_ingress(path, &mut field).await;
+                }
+                _ => {}
+            }
+        }
+        return Err(api_error_signal(
+            "staff intent",
+            "caduceus-file-ingress-file-missing",
+        ));
+    }
+    Err(api_error_signal(
+        "staff intent",
+        "caduceus-file-ingress-content-type-invalid",
+    ))
+}
+
+async fn stream_file_ingress(
+    path: &str,
+    mut body: Body,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let (mut file, target) = staff::file_ingress_open(path)
+        .map_err(|reason| api_error_signal("staff intent", &reason))?;
+    let mut bytes = 0usize;
+    while let Some(frame) =
+        std::future::poll_fn(|cx| std::pin::Pin::new(&mut body).poll_frame(cx)).await
+    {
+        let data = frame
+            .map_err(|_| api_error_signal("staff intent", "caduceus-file-ingress-body-invalid"))?
+            .into_data()
+            .map_err(|_| api_error_signal("staff intent", "caduceus-file-ingress-body-invalid"))?;
+        file.write_all(&data).map_err(|err| {
+            api_error_signal(
+                "staff intent",
+                &format!("caduceus-file-ingress-write-failed: {err}"),
+            )
+        })?;
+        bytes += data.len();
+    }
+    staff::file_ingress_receipt(&target, bytes)
+        .map(|value| (mutation_status(&value), Json(value)))
+        .map_err(|reason| api_error_signal("staff intent", &reason))
+}
+
+async fn stream_multipart_file_ingress(
+    path: &str,
+    field: &mut axum::extract::multipart::Field<'_>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let (mut file, target) = staff::file_ingress_open(path)
+        .map_err(|reason| api_error_signal("staff intent", &reason))?;
+    let mut bytes = 0usize;
+    while let Some(chunk) = field
+        .chunk()
+        .await
+        .map_err(|_| api_error_signal("staff intent", "caduceus-file-ingress-body-invalid"))?
+    {
+        file.write_all(&chunk).map_err(|err| {
+            api_error_signal(
+                "staff intent",
+                &format!("caduceus-file-ingress-write-failed: {err}"),
+            )
+        })?;
+        bytes += chunk.len();
+    }
+    staff::file_ingress_receipt(&target, bytes)
+        .map(|value| (mutation_status(&value), Json(value)))
+        .map_err(|reason| api_error_signal("staff intent", &reason))
 }
 
 async fn named_staff_actuator_route(
@@ -2872,7 +2995,7 @@ pub fn router() -> Router {
             "/api/v1/linker/hardlink-scan",
             get(linker_staff_actuator_read_route).post(linker_staff_actuator_route),
         )
-        .route("/api/v1/file/ingress", post(named_staff_actuator_route))
+        .route("/api/v1/file/ingress", post(file_ingress_route))
         .route(
             "/api/v1/upload/force-permissions",
             post(named_staff_actuator_route),
