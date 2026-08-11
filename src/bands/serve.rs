@@ -775,8 +775,11 @@ async fn homeserver_sbin_show_route(
 async fn coronatio_source_currency_route(
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    let build_sha = query.get("buildSha").map(String::as_str).unwrap_or("");
-    let body = coronatio::source_currency_json(build_sha);
+    let build_sha = query.get("buildSha").cloned().unwrap_or_default();
+    let cache_key = build_sha.clone();
+    let body = tokio::task::spawn_blocking(move || coronatio::source_currency_json(&cache_key))
+        .await
+        .unwrap_or_else(|_| coronatio::source_currency_unavailable(&build_sha));
     let status = if body["ok"].as_bool() == Some(true) {
         StatusCode::OK
     } else {
