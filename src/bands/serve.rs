@@ -63,6 +63,8 @@ struct DoorRow {
     snake: String,
     posture: String,
     crown_alias: Option<String>,
+    #[serde(default)]
+    crown_aliases: Option<Vec<String>>,
     actuator: Option<String>,
 }
 
@@ -102,7 +104,24 @@ fn audit_doors() -> Result<(), String> {
         if !valid_snakes.contains(&row.snake.as_str()) || !valid_postures.contains(&row.posture.as_str()) || row.family.trim().is_empty() || row.crown_alias.as_deref().is_some_and(|alias| !alias.starts_with('/')) || (row.snake == "native-rust" && row.actuator.is_some()) || (row.snake == "staff-python" && row.actuator.is_none()) {
             return Err(format!("seat-row-invalid:{} {}", row.method, row.path));
         }
+        if let Some(aliases) = &row.crown_aliases {
+            if aliases.is_empty() || aliases.iter().any(|alias| !alias.starts_with('/')) || !row.crown_alias.as_ref().is_some_and(|primary| aliases.contains(primary)) {
+                return Err(format!("seat-crown-aliases-invalid:{} {}", row.method, row.path));
+            }
+        }
         if !seat_keys.insert((row.method.clone(), row.path.clone())) { return Err(format!("seat-row-duplicate:{} {}", row.method, row.path)); }
+    }
+    let mut crown_alias_keys: HashMap<(String, String), String> = HashMap::new();
+    for row in &seat.doors {
+        let aliases = row.crown_alias.iter().chain(row.crown_aliases.iter().flatten());
+        for alias in aliases {
+            let key = (row.method.clone(), alias.clone());
+            if let Some(existing_path) = crown_alias_keys.insert(key.clone(), row.path.clone()) {
+                if existing_path != row.path {
+                    return Err(format!("seat-crown-alias-duplicate:{} {}", key.0, key.1));
+                }
+            }
+        }
     }
     let mut registered_keys = HashSet::new();
     for key in source_registered_doors()? {
