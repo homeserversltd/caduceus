@@ -2,7 +2,9 @@ use crate::tools::config;
 use serde_json::Value;
 
 pub fn read_json() -> Result<Value, String> {
-    config::read_public_profile_value()
+    let mut value = config::read_public_profile_value()?;
+    config::overlay_birth_profile_fields(&mut value)?;
+    Ok(value)
 }
 
 pub fn show() -> i32 {
