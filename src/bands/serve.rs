@@ -825,6 +825,7 @@ async fn hyalos_tail_route(
 
 fn named_actuator_for_route(route: &str) -> Result<&'static str, (StatusCode, Json<ApiErrorBody>)> {
     match route {
+        "/api/v1/backblaze/config" => Ok("backblaze-config"),
         "/api/v1/network/dhcp" => Ok("network-dhcp"),
         "/api/v1/network/speedtest" => Ok("network-speedtest"),
         "/api/v1/linker/browse"
@@ -2751,6 +2752,10 @@ pub fn router() -> Router {
         )
         .route(
             "/api/v1/backblaze/forgejo/migrate",
+            post(named_staff_actuator_route),
+        )
+        .route(
+            "/api/v1/backblaze/config",
             post(named_staff_actuator_route),
         )
         .route(
