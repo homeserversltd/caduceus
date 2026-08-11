@@ -8,7 +8,7 @@ use crate::bands::{
 use crate::tools::{attendance, policy};
 use axum::{
     body::{Body, HttpBody},
-    extract::{connect_info::ConnectInfo, DefaultBodyLimit, FromRequest, Multipart, OriginalUri, Path, Query},
+    extract::{connect_info::ConnectInfo, DefaultBodyLimit, FromRequest, Multipart, OriginalUri, Path, Query, State},
     http::{
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
         HeaderMap, HeaderValue, Request, StatusCode,
@@ -25,6 +25,8 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::env;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 
 #[derive(Serialize)]
@@ -94,6 +96,93 @@ fn source_registered_doors() -> Result<Vec<(String, String)>, String> {
         scan = end_at + 1;
     }
     Ok(doors)
+}
+
+#[derive(Clone)]
+struct CachedResponse {
+    status: StatusCode,
+    headers: HeaderMap,
+    body: Vec<u8>,
+    stored_at: Instant,
+    ttl: Duration,
+}
+
+struct ResponseCache {
+    admin_reads: HashSet<(String, String)>,
+    mutations: HashSet<(String, String)>,
+    responses: Mutex<HashMap<String, CachedResponse>>,
+}
+
+impl ResponseCache {
+    fn from_door_seat() -> Self {
+        let seat: DoorSeat = serde_json::from_str(DOOR_SEAT).expect("embedded door seat is valid");
+        let mut admin_reads = HashSet::new();
+        let mut mutations = HashSet::new();
+        for row in seat.doors {
+            let key = (row.method, row.path);
+            if row.snake == "staff-python" && row.posture == "admin-read" {
+                admin_reads.insert(key);
+            } else if row.posture == "capability-mutation" {
+                mutations.insert(key);
+            }
+        }
+        Self { admin_reads, mutations, responses: Mutex::new(HashMap::new()) }
+    }
+
+    fn cache_key(method: &str, path: &str, query: Option<&str>) -> String {
+        format!("{method}\n{path}\n{}", query.unwrap_or_default())
+    }
+
+    fn response(cached: &CachedResponse) -> Response {
+        let mut response = Response::new(Body::from(cached.body.clone()));
+        *response.status_mut() = cached.status;
+        *response.headers_mut() = cached.headers.clone();
+        response
+    }
+}
+
+async fn staff_python_response_cache(State(cache): State<Arc<ResponseCache>>, request: Request<Body>, next: middleware::Next) -> Response {
+    let method = request.method().as_str().to_string();
+    let path = request.uri().path().to_string();
+    let key = ResponseCache::cache_key(&method, &path, request.uri().query());
+    let cacheable = cache.admin_reads.contains(&(method.clone(), path.clone()));
+    if cacheable {
+        if let Ok(mut responses) = cache.responses.lock() {
+            if let Some(cached) = responses.get(&key) {
+                if cached.stored_at.elapsed() < cached.ttl {
+                    return ResponseCache::response(cached);
+                }
+            }
+            responses.remove(&key);
+        }
+    }
+
+    let mutation = cache.mutations.contains(&(method, path));
+    let response = next.run(request).await;
+    if mutation && response.status().is_success() {
+        if let Ok(mut responses) = cache.responses.lock() {
+            responses.clear();
+        }
+    }
+    if !cacheable { return response; }
+
+    let (parts, body) = response.into_parts();
+    let body = match axum::body::to_bytes(body, usize::MAX).await {
+        Ok(body) => body,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    let cached = CachedResponse {
+        status: parts.status,
+        headers: parts.headers,
+        body: body.to_vec(),
+        stored_at: Instant::now(),
+        ttl: if parts.status.is_success() { Duration::from_secs(30) } else { Duration::from_secs(5) },
+    };
+    let response = ResponseCache::response(&cached);
+    if let Ok(mut responses) = cache.responses.lock() {
+        responses.insert(key, cached);
+    }
+    response
 }
 
 fn audit_doors() -> Result<(), String> {
@@ -3225,6 +3314,7 @@ pub fn router() -> Router {
             post(profile_module_toggle_route),
         )
         .layer(DefaultBodyLimit::max(8192))
+        .layer(middleware::from_fn_with_state(Arc::new(ResponseCache::from_door_seat()), staff_python_response_cache))
 }
 
 pub async fn run_async() -> i32 {
