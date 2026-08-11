@@ -30,13 +30,13 @@ class Refusal(ValueError):
     pass
 
 
-def _receipt(action: str, ok: bool, *, planned: bool, commands: list[list[str]], signal: str = "none", **extra: Any) -> dict[str, Any]:
+def _receipt(action: str, ok: bool, *, planned: bool, commands: list[list[str]], signal: str = "none", mutation_performed: bool | None = None, **extra: Any) -> dict[str, Any]:
     return {
         "schema": SCHEMA,
         "ok": ok,
         "action": action,
         "planned": planned,
-        "mutationPerformed": False if planned or action in {"ssh-password-authentication-status", "ssh-service-status", "samba-service-status"} else ok,
+        "mutationPerformed": False if mutation_performed is False or planned or action in {"ssh-password-authentication-status", "ssh-service-status", "samba-service-status"} else ok,
         "commands": commands,
         "firstMissingSignal": signal,
         **extra,
@@ -164,20 +164,26 @@ def portal_service(payload: dict[str, Any], *, planned: bool) -> dict[str, Any]:
     service_action = payload.get("serviceAction")
     if not isinstance(service, str) or not re.fullmatch(r"[A-Za-z0-9@_.-]+\.service", service):
         raise Refusal("caduceus-service-portal-unit-invalid")
-    if service_action not in {"start", "stop", "restart"}:
+    if service_action not in {"start", "stop", "restart", "status", "enable", "disable"}:
         raise Refusal("caduceus-service-portal-action-invalid")
     before, observed_before = _unit_state(service)
     if not before["present"]:
         raise Refusal("caduceus-service-unit-missing")
+    if service_action == "status":
+        return _receipt(
+            "portal-service", True, planned=planned, commands=observed_before,
+            mutation_performed=False, serviceAction=service_action, service=before,
+        )
     command = _sudo([SYSTEMCTL, str(service_action), service])
     commands = [*observed_before, _redacted(command)]
     if planned:
         return _receipt("portal-service", True, planned=True, commands=commands, serviceAction=service_action, service=before)
     _must(_run(command), "caduceus-service-control-refused")
     after, observed_after = _unit_state(service)
-    expected_active = service_action != "stop"
-    if after["active"] != expected_active:
-        raise Refusal("caduceus-service-portal-readback-mismatch")
+    if service_action in {"start", "stop", "restart"}:
+        expected_active = service_action != "stop"
+        if after["active"] != expected_active:
+            raise Refusal("caduceus-service-portal-readback-mismatch")
     return _receipt("portal-service", True, planned=False, commands=[*commands, *observed_after], serviceAction=service_action, service=after)
 
 
