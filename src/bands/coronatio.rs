@@ -1,6 +1,6 @@
 use crate::tools::hyalos;
 use base64::Engine;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -105,14 +105,6 @@ fn get(url: &str, user: &str, token: &str) -> Result<Http, String> {
         body: body.into(),
     })
 }
-fn classify(s: &str) -> Option<&'static str> {
-    match s {
-        "identical" => Some("current"),
-        "behind" => Some("behind"),
-        "diverged" | "ahead" | "unknown" | "no_ancestry" => Some("diverged"),
-        _ => None,
-    }
-}
 pub fn source_currency_json(build: &str) -> Value {
     let result: Result<Value, String> = if !valid_sha(build) {
         Err("caduceus-build-sha-malformed".into())
@@ -144,13 +136,23 @@ pub fn source_currency_json(build: &str) -> Value {
                     &u,
                     &k,
                 )?;
-                if c.status != 200 {
+                if c.status == 404 {
+                    "diverged"
+                } else if c.status != 200 {
                     return Err("caduceus-forgejo-api-failure".into());
                 } else {
                     let cj: Value = serde_json::from_str(&c.body)
                         .map_err(|_| "caduceus-forgejo-api-failure")?;
-                    classify(cj.get("status").and_then(Value::as_str).unwrap_or(""))
+                    if cj
+                        .get("total_commits")
+                        .and_then(Value::as_u64)
                         .ok_or_else(|| "caduceus-forgejo-api-failure".to_string())?
+                        > 0
+                    {
+                        "behind"
+                    } else {
+                        "diverged"
+                    }
                 }
             };
             Ok(response(build, true, Some(&origin), rel, None))
