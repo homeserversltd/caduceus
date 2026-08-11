@@ -1,6 +1,6 @@
 use crate::bands::{
     cartridges, cert, config, coronatio, disk, dns, drive_test, firewall, gui, health, homeserver_sbin,
-    hyalos,
+    hyalos, harmonia_update,
     identity, legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read,
     pjlink, profile, profile_module, receipts, source_map, speedtest, staff, sync, tailscale, time,
     update, vault, vpn,
@@ -2529,6 +2529,34 @@ async fn update_now_route(
     gated_mutation("update now", || update::invoke_now_json(&[])).await
 }
 
+async fn harmonia_update_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command("update now") {
+        Ok(true) => match harmonia_update::start_json() {
+            Ok(value) => Ok((StatusCode::ACCEPTED, Json(value))),
+            Err("harmonia-update-in-flight") => Err((
+                StatusCode::CONFLICT,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: "update now".to_string(),
+                    first_missing_signal: "harmonia-update-in-flight".to_string(),
+                }),
+            )),
+            Err(signal) => Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: "update now".to_string(),
+                    first_missing_signal: signal.to_string(),
+                }),
+            )),
+        },
+        Ok(false) => Err(api_error("update now")),
+        Err(_) => Err(api_error_signal("update now", "caduceus-profile-missing")),
+    }
+}
+
 async fn update_check_route(
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
@@ -3042,6 +3070,7 @@ pub fn router() -> Router {
         .route("/api/v1/hyalos/append", post(hyalos_append_route))
         .route("/api/v1/hyalos/tail", get(hyalos_tail_route))
         .route("/api/v1/update/now", post(update_now_route))
+        .route("/api/v1/harmonia/update", post(harmonia_update_route))
         .route("/api/v1/update/check", post(update_check_route))
         .route("/api/v1/sync/status", get(sync_status_route))
         .route("/api/v1/sync/now", post(sync_now_route))

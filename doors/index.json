@@ -1410,6 +1410,15 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/harmonia/update",
+      "family": "harmonia",
+      "snake": "native-rust",
+      "posture": "capability-mutation",
+      "crown_alias": null,
+      "actuator": null
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/update/check",
       "family": "update",
       "snake": "native-rust",
