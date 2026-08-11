@@ -32,6 +32,10 @@ commands:
 - network dhcp reservation remove
 - network dns status
 - network dns read
+- network dns resolver status
+- network dns resolver adblock
+- network dns resolver blocklist-update
+- network dns resolver upstream
 - network dns intent
 - network dns device-name create
 - network dns device-name remove

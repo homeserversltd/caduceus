@@ -336,6 +336,40 @@
       "pythonModule": "caduceus_staff.network.dns"
     },
     {
+      "id": "network.dns.resolver.status",
+      "httpDoor": [
+        {"method": "GET", "path": "/api/v1/network/dns/resolver/status"}
+      ],
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-network-dns",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/dns.py#resolver-status",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.dns.resolver.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Read-only Unbound resolver posture through typed staff Python.",
+      "pythonModule": "caduceus_staff.network.dns"
+    },
+    {
+      "id": "network-dns-resolver-control",
+      "httpDoor": [
+        {"method": "POST", "path": "/api/v1/network/dns/adblock"},
+        {"method": "POST", "path": "/api/v1/network/dns/blocklist/update"},
+        {"method": "POST", "path": "/api/v1/network/dns/upstream"}
+      ],
+      "family": "network",
+      "actuatorClass": "staff-python",
+      "sourceScripts": ["/usr/local/lib/updates/modules/adblock/index.py"],
+      "launcher": "/usr/local/sbin/caduceus-network-dns",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/network/dns.py#resolver-control",
+      "dependencies": [],
+      "receiptFamily": "caduceus.network.dns.resolver.v1",
+      "conversionStatus": "sbin-library-admitted",
+      "notes": "Bounded Unbound resolver control; only blocklist inclusion, the admitted updater, and the sole forward zone change.",
+      "pythonModule": "caduceus_staff.network.dns"
+    },
+    {
       "id": "network.dns.status",
       "httpDoor": [
         {"method": "GET", "path": "/api/v1/network/dns/status"}
