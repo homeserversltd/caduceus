@@ -1551,6 +1551,24 @@
       "posture": "capability-mutation",
       "crown_alias": "/api/cartridges/remove",
       "actuator": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/settings/:family",
+      "family": "settings",
+      "snake": "staff-python",
+      "posture": "admin-read",
+      "crown_alias": null,
+      "actuator": "caduceus_staff.settings"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/settings/:family",
+      "family": "settings",
+      "snake": "staff-python",
+      "posture": "capability-mutation",
+      "crown_alias": null,
+      "actuator": "caduceus_staff.settings"
     }
   ]
 }

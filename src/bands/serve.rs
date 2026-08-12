@@ -2,7 +2,7 @@ use crate::bands::{
     cartridges, cert, config, coronatio, disk, dns, drive_test, firewall, gui, health, homeserver_sbin,
     hyalos, harmonia_update,
     identity, legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read,
-    pjlink, profile, profile_module, receipts, source_map, speedtest, staff, sync, tailscale, time,
+    pjlink, profile, profile_module, receipts, settings, source_map, speedtest, staff, sync, tailscale, time,
     update, vault, vpn,
 };
 use crate::tools::{attendance, policy};
@@ -2864,6 +2864,36 @@ async fn gui_update_now_route(
     gated_mutation("gui update now", || gui::invoke_update_now_json(&[])).await
 }
 
+fn settings_error(command: &str, signal: String) -> (StatusCode, Json<ApiErrorBody>) {
+    let status = if signal.contains("invalid") || signal.contains("not-allowed") || signal.contains("required") || signal.contains("empty") {
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (status, Json(ApiErrorBody { schema: "caduceus.api.error.v1", ok: false, command: command.to_string(), first_missing_signal: signal }))
+}
+
+async fn settings_read_route(Path(family): Path<String>) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    let command = settings::read_command(&family).ok_or_else(|| settings_error("settings read", "caduceus-settings-family-invalid".to_string()))?;
+    match policy::allows_command(&command) {
+        Ok(true) => settings::read_json(&family).map(Json).map_err(|signal| settings_error(&command, signal)),
+        Ok(false) => Err(api_error(&command)),
+        Err(_) => Err(api_error_signal(&command, "caduceus-profile-missing")),
+    }
+}
+
+async fn settings_mutation_route(
+    Path(family): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let command = settings::mutate_command(&family).ok_or_else(|| settings_error("settings mutate", "caduceus-settings-family-invalid".to_string()))?;
+    match policy::allows_command(&command) {
+        Ok(true) => settings::mutate_json(&family, body).map(|value| (StatusCode::OK, Json(value))).map_err(|signal| settings_error(&command, signal)),
+        Ok(false) => Err(api_error(&command)),
+        Err(_) => Err(api_error_signal(&command, "caduceus-profile-missing")),
+    }
+}
+
 async fn local_ai_runtime_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("local-ai runtime status", local_ai::runtime_status_json).await
 }
@@ -3324,6 +3354,10 @@ pub fn router() -> Router {
             post(update_service_toggle_route),
         )
         .route("/api/v1/gui/update/now", post(gui_update_now_route))
+        .route(
+            "/api/v1/settings/:family",
+            get(settings_read_route).post(settings_mutation_route),
+        )
         .route(
             "/api/v1/local-ai/runtime/status",
             get(local_ai_runtime_status_route),

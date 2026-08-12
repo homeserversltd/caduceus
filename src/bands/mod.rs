@@ -29,6 +29,7 @@ pub mod profile;
 pub mod profile_module;
 pub mod receipts;
 pub mod serve;
+pub mod settings;
 pub mod source_map;
 pub mod staff;
 pub mod sync;

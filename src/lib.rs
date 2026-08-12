@@ -5,7 +5,7 @@ use crate::tools::policy;
 use bands::{
     cert, child_device, config, dhcp, disk, dns, drive_test, gui, health, help, homeserver_sbin,
     hyalos, identity, legacy_sbin, local_ai, logs, network, network_identity, network_read, pjlink,
-    profile, profile_module, receipts, serve, source_map, staff, sync, time, update,
+    profile, profile_module, receipts, serve, settings, source_map, staff, sync, time, update,
 };
 
 pub fn run<I, S>(args: I) -> i32
@@ -285,6 +285,21 @@ where
             match require_policy("config patch", rest) {
                 Ok(_) => config_print(config::patch_json(parse_json_value(merge))),
                 Err(code) => code,
+            }
+        }
+        [domain, family, rest @ ..] if domain == "settings" && !rest.is_empty() => {
+            let command = if rest.first().is_some_and(|verb| verb == "read") {
+                settings::read_command(family)
+            } else {
+                settings::mutate_command(family)
+            };
+            match command {
+                Some(command) => match policy::allows_command(&command) {
+                    Ok(true) => settings::command(family, rest),
+                    Ok(false) => public_action_not_allowed(),
+                    Err(error) => { eprintln!("{error}"); 1 }
+                },
+                None => public_action_not_allowed(),
             }
         }
         [domain] if domain == "serve" => serve::run(),
@@ -732,5 +747,7 @@ fn print_help() {
     println!("  caduceus config get <dotted.path>");
     println!("  caduceus config set <dotted.path> <json-value>");
     println!("  caduceus config patch <merge-json>");
+    println!("  caduceus settings <family> read");
+    println!("  caduceus settings <family> mutate <fields-json>");
     println!("  caduceus serve");
 }

@@ -15,6 +15,20 @@ commands:
 - pjlink known-products
 - pjlink known add
 - pjlink known remove
+- settings display read
+- settings display mutate
+- settings appearance read
+- settings appearance mutate
+- settings sound read
+- settings sound mutate
+- settings input read
+- settings input mutate
+- settings notifications read
+- settings notifications mutate
+- settings default-apps read
+- settings default-apps mutate
+- settings datetime read
+- settings datetime mutate
 - staff intent
 - cert trust-install
 - cert status
