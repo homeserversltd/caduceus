@@ -47,6 +47,36 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
         .to_string();
     assert!(attendance::admits_target(&presenting, "doc-a"));
     assert!(!attendance::admits_target(&presenting, "doc-b"));
+    let missing_disk_attendance = serve::router()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/disk/census")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing_disk_attendance.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        json(missing_disk_attendance).await["firstMissingSignal"],
+        "caduceus-attendance-not-current"
+    );
+    let attended_disk_census = serve::router()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/disk/census")
+                .header("x-caduceus-document", "doc-a")
+                .header("x-caduceus-attendance", &presenting)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(attended_disk_census.status(), StatusCode::OK);
+    assert_eq!(
+        json(attended_disk_census).await["schema"],
+        "caduceus.disk.census.v1"
+    );
     let other = serve::router()
         .oneshot(request(
             "/api/v1/attendance/open",
