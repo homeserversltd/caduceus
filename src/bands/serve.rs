@@ -697,8 +697,32 @@ async fn health_api_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBod
     gated_json("health", health::read_json).await
 }
 
-async fn disk_census_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("disk census", disk::census_json).await
+async fn disk_census_route(
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "disk census";
+    let document = headers
+        .get("x-caduceus-document")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    document_attendance_admits(
+        document,
+        headers
+            .get("x-caduceus-attendance")
+            .and_then(|value| value.to_str().ok()),
+    )
+    .map_err(|signal| api_error_signal(COMMAND, &signal))?;
+    disk::census_json().map(Json).map_err(|err| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: COMMAND.to_string(),
+                first_missing_signal: missing_signal(&err).to_string(),
+            }),
+        )
+    })
 }
 
 async fn appliance_logs_read_route(
