@@ -975,6 +975,167 @@
       "conversionStatus": "retained-linker-adapter",
       "notes": "Thin root-owned launcher for retained Linker JSON adapter; Linker source remains Harmonia-managed at /usr/local/lib/linker.",
       "pythonModule": "retained-linker.linker_json"
+    },
+    {
+      "id": "settings-display",
+      "httpDoor": [
+        {
+          "method": "GET",
+          "path": "/api/v1/settings/display"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/settings/display"
+        }
+      ],
+      "family": "settings",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-settings-display",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/settings/display.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.settings.display.v1",
+      "conversionStatus": "sbin-launcher-declared",
+      "notes": "GET argv: get --json. POST argv: set followed by one or more ordered --field <allowlisted-name> --value-json <JSON-scalar-or-array> groups. Stdout is one JSON object; mutation success must include ok:true, changed:boolean, and receiptPath under /var/lib/caduceus/receipts/<run-id>/run.json.",
+      "pythonModule": "caduceus_staff.settings.display"
+    },
+    {
+      "id": "settings-appearance",
+      "httpDoor": [
+        {
+          "method": "GET",
+          "path": "/api/v1/settings/appearance"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/settings/appearance"
+        }
+      ],
+      "family": "settings",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-settings-appearance",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/settings/appearance.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.settings.appearance.v1",
+      "conversionStatus": "sbin-launcher-declared",
+      "notes": "GET argv: get --json. POST argv: set followed by one or more ordered --field <allowlisted-name> --value-json <JSON-scalar-or-array> groups. Stdout is one JSON object; mutation success must include ok:true, changed:boolean, and receiptPath under /var/lib/caduceus/receipts/<run-id>/run.json.",
+      "pythonModule": "caduceus_staff.settings.appearance"
+    },
+    {
+      "id": "settings-sound",
+      "httpDoor": [
+        {
+          "method": "GET",
+          "path": "/api/v1/settings/sound"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/settings/sound"
+        }
+      ],
+      "family": "settings",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-settings-sound",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/settings/sound.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.settings.sound.v1",
+      "conversionStatus": "sbin-launcher-declared",
+      "notes": "GET argv: get --json. POST argv: set followed by one or more ordered --field <allowlisted-name> --value-json <JSON-scalar-or-array> groups. Stdout is one JSON object; mutation success must include ok:true, changed:boolean, and receiptPath under /var/lib/caduceus/receipts/<run-id>/run.json.",
+      "pythonModule": "caduceus_staff.settings.sound"
+    },
+    {
+      "id": "settings-input",
+      "httpDoor": [
+        {
+          "method": "GET",
+          "path": "/api/v1/settings/input"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/settings/input"
+        }
+      ],
+      "family": "settings",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-settings-input",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/settings/input.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.settings.input.v1",
+      "conversionStatus": "sbin-launcher-declared",
+      "notes": "GET argv: get --json. POST argv: set followed by one or more ordered --field <allowlisted-name> --value-json <JSON-scalar-or-array> groups. Stdout is one JSON object; mutation success must include ok:true, changed:boolean, and receiptPath under /var/lib/caduceus/receipts/<run-id>/run.json.",
+      "pythonModule": "caduceus_staff.settings.input"
+    },
+    {
+      "id": "settings-notifications",
+      "httpDoor": [
+        {
+          "method": "GET",
+          "path": "/api/v1/settings/notifications"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/settings/notifications"
+        }
+      ],
+      "family": "settings",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-settings-notifications",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/settings/notifications.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.settings.notifications.v1",
+      "conversionStatus": "sbin-launcher-declared",
+      "notes": "GET argv: get --json. POST argv: set followed by one or more ordered --field <allowlisted-name> --value-json <JSON-scalar-or-array> groups. Stdout is one JSON object; mutation success must include ok:true, changed:boolean, and receiptPath under /var/lib/caduceus/receipts/<run-id>/run.json.",
+      "pythonModule": "caduceus_staff.settings.notifications"
+    },
+    {
+      "id": "settings-default-apps",
+      "httpDoor": [
+        {
+          "method": "GET",
+          "path": "/api/v1/settings/default-apps"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/settings/default-apps"
+        }
+      ],
+      "family": "settings",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-settings-default-apps",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/settings/default_apps.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.settings.default-apps.v1",
+      "conversionStatus": "sbin-launcher-declared",
+      "notes": "GET argv: get --json. POST argv: set followed by one or more ordered --field <allowlisted-name> --value-json <JSON-scalar-or-array> groups. Stdout is one JSON object; mutation success must include ok:true, changed:boolean, and receiptPath under /var/lib/caduceus/receipts/<run-id>/run.json.",
+      "pythonModule": "caduceus_staff.settings.default_apps"
+    },
+    {
+      "id": "settings-datetime",
+      "httpDoor": [
+        {
+          "method": "GET",
+          "path": "/api/v1/settings/datetime"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/settings/datetime"
+        }
+      ],
+      "family": "settings",
+      "actuatorClass": "staff-python",
+      "sourceScripts": [],
+      "launcher": "/usr/local/sbin/caduceus-settings-datetime",
+      "libraryEntry": "/usr/local/sbin/caduceus_staff/settings/datetime.py",
+      "dependencies": [],
+      "receiptFamily": "caduceus.settings.datetime.v1",
+      "conversionStatus": "sbin-launcher-declared",
+      "notes": "GET argv: get --json. POST argv: set followed by one or more ordered --field <allowlisted-name> --value-json <JSON-scalar-or-array> groups. Stdout is one JSON object; mutation success must include ok:true, changed:boolean, and receiptPath under /var/lib/caduceus/receipts/<run-id>/run.json.",
+      "pythonModule": "caduceus_staff.settings.datetime"
     }
   ]
 }
