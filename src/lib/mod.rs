@@ -1,3 +1,4 @@
+pub mod agathodaimon;
 pub mod attendance;
 pub mod command;
 pub mod config;

@@ -1,16 +1,10 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
-use std::io::Write;
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-const BIND_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-bind";
-const VERIFY_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-verify";
-const CHANGE_PIN_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-atomic-change-pin";
-const RESET_DEFAULT_PIN_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-reset-default-pin";
 const PIN_MODE_PATH: &str = "var/lib/caduceus/access-pin-mode.json";
 const ATTENDANCE_INACTIVITY_LIMIT: Duration = Duration::from_secs(15 * 60);
 
@@ -66,38 +60,6 @@ fn envelope(ok: bool, code: &'static str) -> Value {
         "code": code,
         "firstMissingSignal": if ok { "none" } else { code },
     })
-}
-
-fn crossing(bin: &str, input: &Value) -> Result<Value, String> {
-    let mut child = Command::new("sudo")
-        .arg("-n")
-        .arg(bin)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
-    let payload =
-        serde_json::to_vec(input).map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| "caduceus-pin-not-yet-provisioned".to_string())?
-        .write_all(&payload)
-        .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
-    let output = child
-        .wait_with_output()
-        .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
-    let value: Value = serde_json::from_slice(&output.stdout)
-        .map_err(|_| "caduceus-pin-not-yet-provisioned".to_string())?;
-    if !output.status.success() || value.get("ok").and_then(Value::as_bool) != Some(true) {
-        return Err(value
-            .get("firstMissingSignal")
-            .and_then(Value::as_str)
-            .unwrap_or("caduceus-pin-not-yet-provisioned")
-            .to_string());
-    }
-    Ok(value)
 }
 
 fn pin_mode_path() -> std::path::PathBuf {
@@ -161,13 +123,14 @@ fn bound_verifier(value: &Value) -> Option<BoundVerifier> {
 
 /// Bind only public verifier material at process startup. Any unsuccessful crossing is UNBOUND.
 pub fn bind() {
-    let (bound, posture, signal) = match crossing(BIND_LAUNCHER, &json!({})) {
-        Ok(value) => match bound_verifier(&value) {
-            Some(verifier) => (Some(verifier), "DERIVED_BOUND", "none".to_string()),
-            None => (None, "UNBOUND", "caduceus-derived-unbound".to_string()),
-        },
-        Err(signal) => (None, "UNBOUND", signal),
-    };
+    let (bound, posture, signal) =
+        match crate::shared::agathodaimon::crossing("attendance", "bind", &json!({})) {
+            Ok(value) => match bound_verifier(&value) {
+                Some(verifier) => (Some(verifier), "DERIVED_BOUND", "none".to_string()),
+                None => (None, "UNBOUND", "caduceus-derived-unbound".to_string()),
+            },
+            Err(signal) => (None, "UNBOUND", signal),
+        };
     if let Ok(mut guard) = state().lock() {
         guard.verifier = bound;
     }
@@ -191,8 +154,9 @@ fn verifier() -> Result<BoundVerifier, String> {
 }
 
 fn pin_verified(pin: &str, public_key: &str) -> bool {
-    crossing(
-        VERIFY_LAUNCHER,
+    crate::shared::agathodaimon::crossing(
+        "attendance",
+        "verify",
         &json!({ "pin": pin, "publicKey": public_key }),
     )
     .ok()
@@ -301,8 +265,9 @@ pub fn change_pin_json(body: &Value) -> Result<Value, String> {
     if !pin_verified(&current_pin, &verifier.public_key) {
         return Ok(envelope(false, "caduceus-attendance-pin-refused"));
     }
-    let receipt = match crossing(
-        CHANGE_PIN_LAUNCHER,
+    let receipt = match crate::shared::agathodaimon::crossing(
+        "pin",
+        "change",
         &json!({ "oldPin": current_pin, "newPin": new_pin }),
     ) {
         Ok(value) => value,
@@ -357,8 +322,9 @@ pub fn change_pin_access_json(
     if !pin_verified(current_pin, &verifier.public_key) {
         return Ok(envelope(false, "caduceus-attendance-pin-refused"));
     }
-    let receipt = match crossing(
-        CHANGE_PIN_LAUNCHER,
+    let receipt = match crate::shared::agathodaimon::crossing(
+        "pin",
+        "change",
         &json!({ "oldPin": current_pin, "newPin": new_pin }),
     ) {
         Ok(value) => value,
@@ -376,9 +342,9 @@ pub fn change_pin_access_json(
 }
 
 pub fn reset_default_pin_json() -> Result<Value, String> {
-    let receipt = crossing(RESET_DEFAULT_PIN_LAUNCHER, &json!({}))?;
-    let rebound = bound_verifier(&receipt)
-        .ok_or_else(|| "caduceus-pin-default-reset-failed".to_string())?;
+    let receipt = crate::shared::agathodaimon::crossing("pin", "reset-default", &json!({}))?;
+    let rebound =
+        bound_verifier(&receipt).ok_or_else(|| "caduceus-pin-default-reset-failed".to_string())?;
     let mut guard = state()
         .lock()
         .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
