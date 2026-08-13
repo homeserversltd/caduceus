@@ -3,17 +3,6 @@
 //! relays the exact claim argv; selection, transaction, and rollback stay staff-side.
 
 use serde_json::Value;
-use std::{env, process::Command};
-
-fn claim_cmd() -> (String, Vec<String>) {
-    if let Ok(command) = env::var("CADUCEUS_NETWORK_IDENTITY_CLAIM_CMD") {
-        let parts: Vec<String> = command.split_whitespace().map(str::to_string).collect();
-        if let Some((program, prefix)) = parts.split_first() {
-            return (program.clone(), prefix.to_vec());
-        }
-    }
-    ("caduceus-network-identity-claim".into(), Vec::new())
-}
 
 pub fn valid_claim_args(args: &[String]) -> bool {
     let mut mac = false;
@@ -53,26 +42,7 @@ pub fn invoke(args: &[String]) -> Result<Value, String> {
     if !valid_claim_args(args) {
         return Err("caduceus-network-identity-claim-arguments-invalid".into());
     }
-    let (program, prefix) = claim_cmd();
-    let output = Command::new(program)
-        .args(prefix)
-        .args(args)
-        .output()
-        .map_err(|err| format!("caduceus-network-identity-claim-unavailable: {err}"))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if stdout.is_empty() {
-        return Err(format!(
-            "caduceus-network-identity-claim-empty: status={} stderr={}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    let receipt: Value = serde_json::from_str(&stdout)
-        .map_err(|err| format!("caduceus-network-identity-claim-invalid-json: {err}"))?;
-    match receipt.get("state").and_then(Value::as_str) {
-        Some("applied" | "noop" | "rolled_back" | "rollback_failed" | "blocked") => Ok(receipt),
-        _ => Err("caduceus-network-identity-claim-receipt-invalid".into()),
-    }
+    crate::shared::agathodaimon::crossing("network", "identity", &serde_json::json!({"args": args}))
 }
 
 pub fn command(args: &[String]) -> i32 {

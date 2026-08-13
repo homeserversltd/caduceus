@@ -1,5 +1,5 @@
 use crate::bands::{
-    cartridges, cert, config, coronatio, disk, dns, drive_test, firewall, gui, health, homeserver_sbin,
+    cartridges, cert, config, coronatio, disk, dns, dns_control, drive_test, firewall, gui, health, homeserver_sbin,
     hyalos, harmonia_update,
     identity, legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read,
     pjlink, profile, profile_module, receipts, settings, source_map, speedtest, staff, sync, tailscale, time,
@@ -2196,17 +2196,17 @@ struct DnsUpstreamBody { preset: Option<String>, custom: Option<Vec<String>>, do
 async fn dns_resolver_adblock_route(headers: HeaderMap, Json(body): Json<DnsAdblockBody>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns resolver adblock";
     dns_mutation_admits(COMMAND, &headers)?;
-    dns_mutation_response(COMMAND, dns::resolver_json("adblock", Some(json!({"enabled": body.enabled}))))
+    dns_mutation_response(COMMAND, dns_control::resolver_json("adblock", Some(json!({"enabled": body.enabled}))))
 }
 async fn dns_resolver_blocklist_update_route(headers: HeaderMap) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns resolver blocklist-update";
     dns_mutation_admits(COMMAND, &headers)?;
-    dns_mutation_response(COMMAND, dns::resolver_json("blocklist-update", None))
+    dns_mutation_response(COMMAND, dns_control::resolver_json("blocklist-update", None))
 }
 async fn dns_resolver_upstream_route(headers: HeaderMap, Json(body): Json<DnsUpstreamBody>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns resolver upstream";
     dns_mutation_admits(COMMAND, &headers)?;
-    dns_mutation_response(COMMAND, dns::resolver_json("upstream", Some(json!({"preset": body.preset, "custom": body.custom, "dot": body.dot}))))
+    dns_mutation_response(COMMAND, dns_control::resolver_json("upstream", Some(json!({"preset": body.preset, "custom": body.custom, "dot": body.dot}))))
 }
 
 async fn network_dns_route(
@@ -2216,7 +2216,7 @@ async fn network_dns_route(
     const COMMAND: &str = "network dns intent";
     const TARGET: &str = "/api/dns/unbound/drop-in";
     dns_mutation_admits(COMMAND, &headers)?;
-    dns_mutation_response(COMMAND, dns::intent_json("POST", TARGET, metadata))
+    dns_mutation_response(COMMAND, dns_control::intent_json("POST", TARGET, metadata))
 }
 
 async fn dns_device_name_create_route(

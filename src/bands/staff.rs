@@ -4,7 +4,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::bands::{dhcp, dns, linker};
+use crate::bands::{dhcp, dns_control, linker};
 use crate::shared::hyalos;
 
 const PROFILE_PATH: &str = "/usr/local/sbin/profile.json";
@@ -168,7 +168,7 @@ pub fn intent_json(
         return dhcp::intent_json(method, route, metadata.unwrap_or_else(|| json!({})));
     }
     if route.starts_with("/api/dns/") || route == "/api/dns" {
-        return dns::intent_json(method, route, metadata.unwrap_or_else(|| json!({})));
+        return dns_control::intent_json(method, route, metadata.unwrap_or_else(|| json!({})));
     }
     if route == "/api/upload/force-permissions" && method == "POST" {
         return execute_force_permissions(metadata.unwrap_or_else(|| json!({})));
