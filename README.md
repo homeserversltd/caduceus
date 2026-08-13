@@ -88,9 +88,10 @@ tests and development, set `CADUCEUS_ROOT` to a fixture root containing
 
 ## Staff actuators (Python engines)
 
-Privileged mutation lives in `data/staff-actuators/` — see
-[`data/staff-actuators/README.md`](data/staff-actuators/README.md). The **cert**
-band's Python engine is `caduceus_staff.house_ca`; operators call the Rust
+Privileged Python mutation is installed from the sbin repository at
+`/usr/local/sbin`: the actuator catalog is `/usr/local/sbin/profile.json`,
+launchers are `caduceus-*`, and the runtime package is `agathodaimon`. The
+**cert** band delegates to `agathodaimon.house_ca`; operators call the Rust
 membrane only.
 
 ## Legacy sbin ingestion

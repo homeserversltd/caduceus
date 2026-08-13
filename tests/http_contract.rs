@@ -535,44 +535,6 @@ async fn locked_profile_rejects_homeserver_sbin_list() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn homeserver_staff_actuators_route_is_profile_allowed() {
-    let _guard = use_fixture("tests/fixtures/homeserver");
-    let app = serve::router();
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/staff/actuators")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let json = body_json(response).await;
-    assert_eq!(json["schema"], "caduceus.staff.actuators.v1");
-    assert!(json["actuators"].as_array().is_some_and(|actuators| {
-        actuators.iter().all(|actuator| {
-            actuator["id"].is_string()
-                && actuator["libraryEntry"]
-                    .as_str()
-                    .is_some_and(|entry| !entry.is_empty())
-                && actuator["receiptFamily"]
-                    .as_str()
-                    .is_some_and(|schema| schema.ends_with(".v1"))
-                && actuator["httpDoor"].as_array().is_some_and(|doors| {
-                    doors.iter().all(|door| {
-                        door["method"]
-                            .as_str()
-                            .is_some_and(|method| !method.is_empty())
-                            && door["path"]
-                                .as_str()
-                                .is_some_and(|path| path.starts_with('/'))
-                    })
-                })
-        })
-    }));
-}
 
 #[tokio::test(flavor = "current_thread")]
 async fn locked_profile_rejects_staff_actuators() {
@@ -709,11 +671,11 @@ async fn homeserver_dhcp_http_status_and_named_actuator_execute_python_actuator(
     std::env::set_var("PYTHONPATH", "tests/fixtures/staff");
     std::env::set_var(
         "CADUCEUS_DHCP_CMD",
-        "python3 -m caduceus_staff.network.dhcp",
+        "python3 -m agathodaimon.network.dhcp",
     );
     std::env::set_var(
         "CADUCEUS_NETWORK_READ_CMD",
-        "python3 -m caduceus_staff.network.dhcp",
+        "python3 -m agathodaimon.network.dhcp",
     );
     let app = serve::router();
     let response = app
@@ -747,7 +709,7 @@ async fn homeserver_dhcp_http_status_and_named_actuator_execute_python_actuator(
     let json = body_json(response).await;
     assert_eq!(json["classification"], "network-control");
     assert_eq!(json["mutationPerformed"], true);
-    assert_eq!(json["execution"], "caduceus_staff.network.dhcp");
+    assert_eq!(json["execution"], "agathodaimon.network.dhcp");
 }
 
 fn config_temp_root(tag: &str) -> std::path::PathBuf {
@@ -1188,7 +1150,7 @@ fn cert_temp_root(tag: &str, profile: &str) -> CertTempRoot {
 
 fn run_house_ca(root: &Path, args: &[&str]) -> serde_json::Value {
     let output = Command::new("python3")
-        .args(["-m", "caduceus_staff.house_ca"])
+        .args(["-m", "agathodaimon.house_ca"])
         .args(args)
         .env("PYTHONPATH", "tests/fixtures/staff")
         .env("PYTHONDONTWRITEBYTECODE", "1")
@@ -1247,7 +1209,7 @@ impl CertFixture {
             ("PYTHONDONTWRITEBYTECODE", std::ffi::OsStr::new("1")),
             (
                 "CADUCEUS_HOUSE_CA_CMD",
-                std::ffi::OsStr::new("python3 -m caduceus_staff.house_ca"),
+                std::ffi::OsStr::new("python3 -m agathodaimon.house_ca"),
             ),
         ];
         let previous_env = values

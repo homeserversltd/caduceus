@@ -1,5 +1,5 @@
 //! Caduceus network-DNS band — public Rust face over
-//! `caduceus_staff.network.dns`.
+//! `agathodaimon.network.dns`.
 //!
 //! This band deliberately delegates execution to the staff launcher/module. It
 //! does not touch Unbound, DNS sockets, or UFW itself.
@@ -30,7 +30,7 @@ fn dns_cmd() -> (String, Vec<String>) {
     }
     (
         "python3".into(),
-        vec!["-m".into(), "caduceus_staff.network.dns".into()],
+        vec!["-m".into(), "agathodaimon.network.dns".into()],
     )
 }
 

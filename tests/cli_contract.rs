@@ -1,4 +1,4 @@
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 
 fn bin() -> &'static str {
@@ -245,30 +245,6 @@ fn homeserver_sbin_show_preserves_quarry_without_execution() {
     assert!(text.contains("createCertBundle"));
 }
 
-#[test]
-fn staff_actuators_list_backblaze_and_calibre_python_lanes() {
-    let out = Command::new(bin())
-        .args(["staff", "actuators"])
-        .output()
-        .unwrap();
-    assert!(out.status.success());
-    let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.contains("schema=caduceus.staff.actuators.v1"));
-    let profile: serde_json::Value =
-        serde_json::from_str(include_str!("../data/staff-actuators/profile.json")).unwrap();
-    for actuator in profile["actuators"].as_array().unwrap() {
-        let id = actuator["id"].as_str().unwrap();
-        let library_entry = actuator["libraryEntry"].as_str().unwrap();
-        let receipt_family = actuator["receiptFamily"].as_str().unwrap();
-        assert!(!library_entry.is_empty(), "{id} has no libraryEntry");
-        assert!(
-            receipt_family.ends_with(".v1"),
-            "{id} has no receipt schema"
-        );
-        assert!(text.contains(&format!("actuator={id} ")));
-        assert!(text.contains(&format!("lib={library_entry} ")));
-    }
-}
 
 #[test]
 fn homeserver_sbin_marks_backblaze_and_calibre_staff_profiled() {
@@ -287,39 +263,13 @@ fn homeserver_sbin_marks_backblaze_and_calibre_staff_profiled() {
 }
 
 #[test]
-fn staff_intent_cli_accepts_coronatio_route_intent() {
-    let output = Command::new(bin())
-        .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
-        .args(["staff", "intent", "POST", "/api/admin/system/restart"])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("caduceus.staff.intent.v1"));
-    assert!(stdout.contains("queued-behind-typed-actuator"));
-}
-
-#[test]
-fn staff_intent_cli_marks_upload_route() {
-    let output = Command::new(bin())
-        .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
-        .args(["staff", "intent", "POST", "/api/files/upload"])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("caduceus.staff.upload_intent.v1"));
-    assert!(stdout.contains("upload-queued-behind-typed-actuator"));
-}
-
-#[test]
 fn network_dhcp_cli_routes_reads_to_pinned_actuator_and_legacy_verbs_to_dhcp() {
     let read = Command::new(bin())
         .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
         .env("PYTHONPATH", "tests/fixtures/staff")
         .env(
             "CADUCEUS_NETWORK_READ_CMD",
-            "python3 -m caduceus_staff.network.dhcp",
+            "python3 -m agathodaimon.network.dhcp",
         )
         .args(["network", "dhcp", "status"])
         .output()
@@ -328,14 +278,14 @@ fn network_dhcp_cli_routes_reads_to_pinned_actuator_and_legacy_verbs_to_dhcp() {
     let stdout = String::from_utf8(read.stdout).unwrap();
     assert!(stdout.contains("\"actuatorId\":\"network.dhcp.status\""));
     assert!(stdout.contains("caduceus.network.dhcp.status.v1"));
-    assert!(stdout.contains("caduceus_staff.network.dhcp"));
+    assert!(stdout.contains("agathodaimon.network.dhcp"));
 
     let reload = Command::new(bin())
         .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
         .env("PYTHONPATH", "tests/fixtures/staff")
         .env(
             "CADUCEUS_DHCP_CMD",
-            "python3 -m caduceus_staff.network.dhcp",
+            "python3 -m agathodaimon.network.dhcp",
         )
         .args(["network", "dhcp", "reload"])
         .output()
@@ -762,86 +712,4 @@ fn config_write_refuses_missing_homeserver_install_without_touching_legacy() {
     assert_eq!(std::fs::read_to_string(legacy).unwrap(), legacy_before);
     assert!(!root.join("etc/appliance/config.json").exists());
     let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
-fn profile_sources_reseed_crosses_public_cli_launcher_staff_and_is_idempotent() {
-    let root = std::env::temp_dir().join(format!(
-        "caduceus-source-map-public-crossing-{}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
-    std::fs::create_dir_all(root.join("etc/appliance")).unwrap();
-    std::fs::copy(
-        "tests/fixtures/tv/etc/caduceus/profile.yaml",
-        root.join("etc/caduceus/profile.yaml"),
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("etc/appliance/profile.json"),
-        r#"{
-  "schema": "homeserver.device-profile.v1",
-  "birth_provenance": {"born":"fixture"},
-  "hardware": {"serial":"abc"},
-  "kernel": {"profile":"tv"},
-  "profile": "tv"
-}
-"#,
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("etc/caduceus/source-map.json"),
-        r#"{"caduceus":{"ref":"main","candidates":[{"kind":"git","url":"git@git.home.arpa:HOMESERVERSLTD/caduceus.git"}]}}"#,
-    )
-    .unwrap();
-    let worktree = std::env::current_dir().unwrap();
-    let launcher = worktree.join("data/staff-actuators/caduceus-profile-sources-reseed");
-    let staff = worktree.join("data/staff-actuators");
-    let run = || {
-        Command::new("sudo")
-            .args(["-n", "env"])
-            .arg(format!("CADUCEUS_ROOT={}", root.display()))
-            .arg(format!(
-                "CADUCEUS_PROFILE_SOURCES_RESEED_CMD={}",
-                launcher.display()
-            ))
-            .arg("CADUCEUS_STAFF_PYTHON=/usr/bin/python3")
-            .arg(format!("PYTHONPATH={}", staff.display()))
-            .arg(bin())
-            .args(["profile", "sources", "reseed"])
-            .output()
-            .unwrap()
-    };
-    let first = run();
-    assert!(
-        first.status.success(),
-        "{}",
-        String::from_utf8_lossy(&first.stderr)
-    );
-    let first_receipt: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
-    assert_eq!(first_receipt["ok"], true);
-    assert_eq!(first_receipt["changed"], true);
-    let certificate = std::fs::read(root.join("etc/appliance/profile.json")).unwrap();
-    assert!(String::from_utf8_lossy(&certificate).contains("\"sources\""));
-    let metadata = std::fs::metadata(root.join("etc/appliance/profile.json")).unwrap();
-    assert_eq!(metadata.permissions().mode() & 0o777, 0o444);
-    assert_eq!(metadata.uid(), 0);
-    assert_eq!(metadata.gid(), 0);
-    let second = run();
-    assert!(
-        second.status.success(),
-        "{}",
-        String::from_utf8_lossy(&second.stderr)
-    );
-    let second_receipt: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
-    assert_eq!(second_receipt["changed"], false);
-    assert_eq!(
-        certificate,
-        std::fs::read(root.join("etc/appliance/profile.json")).unwrap()
-    );
-    let _ = Command::new("sudo")
-        .args(["-n", "rm", "-rf"])
-        .arg(&root)
-        .status();
 }

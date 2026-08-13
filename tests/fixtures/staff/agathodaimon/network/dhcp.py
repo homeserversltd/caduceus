@@ -20,7 +20,7 @@ def main():
             "method": args.method,
             "route": args.route,
             "metadata": metadata,
-            "execution": "caduceus_staff.network.dhcp",
+            "execution": "agathodaimon.network.dhcp",
             "mutationPerformed": args.method not in ("GET", "HEAD", "OPTIONS"),
             "firstMissingSignal": "none",
         }))
@@ -29,7 +29,7 @@ def main():
         "schema": f"caduceus.network.dhcp.{args.command.replace('-', '_')}.v1",
         "ok": True,
         "command": args.command,
-        "execution": "caduceus_staff.network.dhcp",
+        "execution": "agathodaimon.network.dhcp",
         "mutationPerformed": args.command not in ("status", "leases", "reservations"),
         "firstMissingSignal": "none",
     }))

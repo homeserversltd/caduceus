@@ -234,27 +234,3 @@ fn firewall_launcher_refuses_oversize_and_keeps_staff_failures_structured() {
     assert_eq!(error["ok"], false);
     assert_eq!(error["firstMissingSignal"], "firewall-revision-conflict");
 }
-
-#[test]
-fn firewall_contract_literals_and_delivery_are_present() {
-    let serve = include_str!("../src/bands/serve.rs");
-    let profile = include_str!("../data/staff-actuators/profile.json");
-    for route in [
-        "/api/v1/network/firewall/status",
-        "/api/v1/network/firewall/policies",
-        "/api/v1/network/firewall/policies/:mac",
-    ] {
-        assert!(serve.contains(route));
-    }
-    for literal in [
-        "caduceus.network.firewall.policy.v1",
-        "caduceus.network.firewall.policy.delete.v1",
-        "allow-only",
-        "dns-policy",
-        "DefaultBodyLimit::max(8192)",
-    ] {
-        assert!(serve.contains(literal));
-    }
-    assert!(profile.contains("network-firewall"));
-    assert!(profile.contains("caduceus_staff.network.firewall"));
-}
