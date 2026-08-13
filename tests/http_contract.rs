@@ -1,7 +1,7 @@
 use axum::body::{to_bytes, Body};
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
-use caduceus::bands::serve;
+use caduceus::trigger_gate_routes as serve;
 use std::{
     env,
     ffi::OsString,
@@ -288,10 +288,8 @@ async fn console_legacy_sbin_show_returns_whole_body() {
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.legacy_sbin.show.v1");
     assert_eq!(json["entry"]["execution"], "not-executed-by-caduceus");
-    assert!(json["entry"]["body"]
-        .as_str()
-        .unwrap_or("")
-        .contains("NAMESPACE=\"vpn\""));
+    assert_eq!(json["entry"]["legacyIntent"], "discovery-projection");
+    assert!(json["entry"].get("body").is_none());
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -367,7 +365,7 @@ async fn console_gui_update_route_is_profile_allowed() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     let json = body_json(response).await;
-    assert_eq!(json["route"], "gui_update_now");
+    assert_eq!(json["action"], "gui_update_now");
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -516,7 +514,10 @@ async fn homeserver_sbin_show_route_preserves_body() {
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.homeserver_sbin.show.v1");
     assert_eq!(json["entry"]["execution"], "not-executed-by-caduceus");
-    assert_eq!(json["entry"]["replacementBand"], "vault");
+    assert_eq!(json["entry"]["legacyIntent"], "discovery-projection");
+    assert!(json["entry"].get("replacementBand").is_none());
+    assert_eq!(json["entry"]["legacyIntent"], "discovery-projection");
+    assert!(json["entry"].get("body").is_none());
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -534,7 +535,6 @@ async fn locked_profile_rejects_homeserver_sbin_list() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
-
 
 #[tokio::test(flavor = "current_thread")]
 async fn locked_profile_rejects_staff_actuators() {
@@ -669,10 +669,10 @@ async fn homeserver_named_file_ingress_route_executes_upload_bytes() {
 async fn homeserver_dhcp_http_status_and_named_actuator_execute_python_actuator() {
     let _guard = use_fixture("tests/fixtures/homeserver");
     std::env::set_var("PYTHONPATH", "tests/fixtures/staff");
-    std::env::set_var(
-        "CADUCEUS_DHCP_CMD",
-        "python3 -m agathodaimon.network.dhcp",
-    );
+    let shim = env::temp_dir().join(format!("caduceus-http-dhcp-shim-{}", std::process::id()));
+    fs::write(&shim, "#!/bin/sh\n[ \"$1\" = network ] && [ \"$2\" = dhcp ] || exit 9\ncase \"$2\" in\n  dhcp) printf '{\"ok\":true,\"schema\":\"caduceus.network.dhcp.intent.v1\",\"execution\":\"agathodaimon.network.dhcp\",\"classification\":\"network-control\",\"mutationPerformed\":true}' ;;\nesac\n").unwrap();
+    fs::set_permissions(&shim, fs::Permissions::from_mode(0o755)).unwrap();
+    std::env::set_var("CADUCEUS_AGATHODAIMON_CLI", &shim);
     std::env::set_var(
         "CADUCEUS_NETWORK_READ_CMD",
         "python3 -m agathodaimon.network.dhcp",
@@ -710,6 +710,8 @@ async fn homeserver_dhcp_http_status_and_named_actuator_execute_python_actuator(
     assert_eq!(json["classification"], "network-control");
     assert_eq!(json["mutationPerformed"], true);
     assert_eq!(json["execution"], "agathodaimon.network.dhcp");
+    std::env::remove_var("CADUCEUS_AGATHODAIMON_CLI");
+    let _ = fs::remove_file(shim);
 }
 
 fn config_temp_root(tag: &str) -> std::path::PathBuf {
@@ -1150,7 +1152,11 @@ fn cert_temp_root(tag: &str, profile: &str) -> CertTempRoot {
 
 fn run_house_ca(root: &Path, args: &[&str]) -> serde_json::Value {
     let output = Command::new("python3")
-        .args(["-m", "agathodaimon.house_ca"])
+        .args([
+            "tests/fixtures/staff/agathodaimon/cli.py",
+            "cert",
+            "house-ca",
+        ])
         .args(args)
         .env("PYTHONPATH", "tests/fixtures/staff")
         .env("PYTHONDONTWRITEBYTECODE", "1")
@@ -1203,14 +1209,23 @@ impl CertFixture {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let root = cert_temp_root(tag, profile);
+        // The Rust membrane executes this override directly. Keep the source
+        // fixture immutable and provide an isolated executable shim instead
+        // of leaking a non-executable Python path into the process.
+        let cli = root.join("agathodaimon-cli");
+        fs::write(
+            &cli,
+            "#!/bin/sh\nexec python3 tests/fixtures/staff/agathodaimon/cli.py \"$@\"\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&cli).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&cli, permissions).unwrap();
         let values = [
             ("CADUCEUS_ROOT", root.as_os_str()),
             ("PYTHONPATH", std::ffi::OsStr::new("tests/fixtures/staff")),
             ("PYTHONDONTWRITEBYTECODE", std::ffi::OsStr::new("1")),
-            (
-                "CADUCEUS_HOUSE_CA_CMD",
-                std::ffi::OsStr::new("python3 -m agathodaimon.house_ca"),
-            ),
+            ("CADUCEUS_AGATHODAIMON_CLI", cli.as_os_str()),
         ];
         let previous_env = values
             .iter()

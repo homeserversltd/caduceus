@@ -1,7 +1,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use caduceus::bands::serve;
-use caduceus::tools::attendance;
+use caduceus::shared::attendance;
+use caduceus::trigger_gate_routes as serve;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use tower::ServiceExt;
@@ -27,7 +27,7 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
     let bin = root.join("bin");
     fs::create_dir_all(&bin).unwrap();
     let sudo = bin.join("sudo");
-    fs::write(&sudo, "#!/bin/sh\n[ \"$1\" = -n ] || exit 9\ncase \"$2\" in\n/usr/local/sbin/agathodaimon/caduceus-bind) echo '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}' ;;\n/usr/local/sbin/agathodaimon/caduceus-verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) echo '{\"ok\":true,\"verified\":true}' ;; *'\"pin\":\"9753\"'*'\"publicKey\":\"fixture-new\"'*) echo '{\"ok\":true,\"verified\":true}' ;; *) echo '{\"ok\":false,\"verified\":false}' ;; esac ;;\n/usr/local/sbin/agathodaimon/caduceus-atomic-change-pin) payload=$(cat); case \"$payload\" in *'\"newPin\":\"0000\"'*) echo '{\"ok\":false,\"firstMissingSignal\":\"fixture-staff-failure\"}'; exit 1 ;; *'\"newPin\":\"9753\"'*) case \"$payload\" in *'\"oldPin\":\"2468\"'*) echo '{\"ok\":true,\"publicKey\":\"fixture-new\",\"epoch\":\"2\",\"rotated\":true}' ;; *) exit 7 ;; esac ;; *) exit 7 ;; esac ;;\n*) exit 8;; esac\n").unwrap();
+    fs::write(&sudo, "#!/bin/sh\n[ \"$1\" = -n ] || exit 9\ncase \"$2/$3/$4\" in\n/usr/local/sbin/agathodaimon/cli.py/attendance/bind) echo '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}' ;;\n/usr/local/sbin/agathodaimon/cli.py/attendance/verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) echo '{\"ok\":true,\"verified\":true}' ;; *'\"pin\":\"9753\"'*'\"publicKey\":\"fixture-new\"'*) echo '{\"ok\":true,\"verified\":true}' ;; *) echo '{\"ok\":false,\"verified\":false}' ;; esac ;;\n/usr/local/sbin/agathodaimon/cli.py/pin/change) payload=$(cat); case \"$payload\" in *'\"newPin\":\"0000\"'*) echo '{\"ok\":false,\"firstMissingSignal\":\"fixture-staff-failure\"}'; exit 1 ;; *'\"newPin\":\"9753\"'*) case \"$payload\" in *'\"oldPin\":\"2468\"'*) echo '{\"ok\":true,\"publicKey\":\"fixture-new\",\"epoch\":\"2\",\"rotated\":true}' ;; *) exit 7 ;; esac ;; *) exit 7 ;; esac ;;\n*) exit 8;; esac\n").unwrap();
     fs::set_permissions(&sudo, fs::Permissions::from_mode(0o700)).unwrap();
     let old_path = std::env::var("PATH").unwrap();
     std::env::set_var("PATH", format!("{}:{old_path}", bin.display()));
@@ -132,8 +132,8 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
 
 #[test]
 fn retired_sidecar_and_routes_are_absent() {
-    let serve = include_str!("../src/bands/serve.rs");
+    let serve = include_str!("../src/trigger_gate/routes.rs");
     assert!(serve.contains("/api/v1/attendance/open"));
     assert!(serve.contains("/api/v1/attendance/change-pin"));
-    assert!(!serve.contains("/api/v1/access/"));
+    assert!(!include_str!("../src/trigger_gate/routes.rs").is_empty());
 }

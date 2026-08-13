@@ -1,0 +1,307 @@
+use crate::shared::hyalos;
+use base64::Engine;
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+const SCHEMA: &str = "caduceus.coronatio.source_currency.v1";
+const SOURCE_CURRENCY_CACHE_TTL: Duration = Duration::from_secs(60);
+
+struct SourceCurrencyCacheEntry {
+    read_at: Instant,
+    body: Value,
+}
+
+fn source_currency_cache() -> &'static Mutex<HashMap<String, SourceCurrencyCacheEntry>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, SourceCurrencyCacheEntry>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+const DEFAULT_FORGEJO: &str = "http://127.0.0.1:3000";
+const REPOSITORY: &str = "HOMESERVERSLTD/coronatio";
+fn valid_sha(v: &str) -> bool {
+    v.len() == 40 && v.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn classify(relation: &str) -> Option<&'static str> {
+    Some(match relation {
+        "identical" | "current" => "current",
+        "behind" => "behind",
+        _ => "diverged",
+    })
+}
+fn response(
+    build: &str,
+    ok: bool,
+    origin: Option<&str>,
+    relation: &str,
+    signal: Option<&str>,
+) -> Value {
+    let mut b = json!({"ok":ok,"schema":SCHEMA,"originMainSha":origin,"buildSha":build,"relation":relation});
+    if let Some(s) = signal {
+        b["firstMissingSignal"] = Value::String(s.into())
+    }
+    b
+}
+fn credential() -> Result<(String, String), String> {
+    let value = crate::shared::agathodaimon::crossing_value(
+        "forgejo",
+        "credential-get",
+        &json!({"repository": REPOSITORY}),
+    )
+    .map_err(|_| "caduceus-forgejo-credential-missing".to_string())?;
+    let user = value
+        .get("username")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("user").and_then(Value::as_str));
+    let token = value
+        .get("password")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("token").and_then(Value::as_str));
+    match (
+        user.filter(|v| !v.is_empty()),
+        token.filter(|v| !v.is_empty()),
+    ) {
+        (Some(u), Some(k)) => Ok((u.to_string(), k.to_string())),
+        _ => Err("caduceus-forgejo-credential-missing".to_string()),
+    }
+}
+
+fn base() -> String {
+    std::env::var("CADUCEUS_FORGEJO_URL")
+        .unwrap_or_else(|_| DEFAULT_FORGEJO.into())
+        .trim_end_matches('/')
+        .into()
+}
+struct Http {
+    status: u16,
+    body: String,
+}
+fn get(url: &str, user: &str, token: &str) -> Result<Http, String> {
+    let rest = url
+        .strip_prefix("http://")
+        .ok_or_else(|| "caduceus-forgejo-api-failure".to_string())?;
+    let (host, path) = rest
+        .split_once('/')
+        .ok_or_else(|| "caduceus-forgejo-api-failure".to_string())?;
+    let mut s = TcpStream::connect(host).map_err(|_| "caduceus-forgejo-api-failure".to_string())?;
+    s.set_read_timeout(Some(Duration::from_secs(10))).ok();
+    let auth = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{token}"));
+    write!(s,"GET /{path} HTTP/1.1\r\nHost: {host}\r\nAuthorization: Basic {auth}\r\nConnection: close\r\n\r\n").map_err(|_|"caduceus-forgejo-api-failure".to_string())?;
+    let mut raw = Vec::new();
+    s.read_to_end(&mut raw)
+        .map_err(|_| "caduceus-forgejo-api-failure".to_string())?;
+    let text = String::from_utf8(raw).map_err(|_| "caduceus-forgejo-api-failure".to_string())?;
+    let (head, body) = text
+        .split_once("\r\n\r\n")
+        .ok_or_else(|| "caduceus-forgejo-api-failure".to_string())?;
+    let status = head
+        .split_whitespace()
+        .nth(1)
+        .and_then(|v| v.parse().ok())
+        .ok_or_else(|| "caduceus-forgejo-api-failure".to_string())?;
+    Ok(Http {
+        status,
+        body: body.into(),
+    })
+}
+pub fn source_currency_unavailable(build: &str) -> Value {
+    response(
+        build,
+        false,
+        None,
+        "unknown",
+        Some("caduceus-source-currency-worker-unavailable"),
+    )
+}
+
+pub fn source_currency_json(build: &str) -> Value {
+    if !valid_sha(build) {
+        let body = response(
+            build,
+            false,
+            None,
+            "unknown",
+            Some("caduceus-build-sha-malformed"),
+        );
+        reflect(&body);
+        return body;
+    }
+    if let Some(body) = source_currency_cache()
+        .lock()
+        .expect("source-currency cache locked")
+        .get(build)
+        .filter(|entry| entry.read_at.elapsed() < SOURCE_CURRENCY_CACHE_TTL)
+        .map(|entry| entry.body.clone())
+    {
+        reflect(&body);
+        return body;
+    }
+    let result: Result<Value, String> = (|| -> Result<Value, String> {
+        let (u, k) = credential()?;
+        let b = base();
+        let branch = get(
+            &format!("{b}/api/v1/repos/{REPOSITORY}/branches/main"),
+            &u,
+            &k,
+        )?;
+        if branch.status != 200 {
+            return Err("caduceus-forgejo-api-failure".into());
+        }
+        let j: Value =
+            serde_json::from_str(&branch.body).map_err(|_| "caduceus-forgejo-api-failure")?;
+        let origin = j
+            .pointer("/commit/id")
+            .and_then(Value::as_str)
+            .filter(|v| valid_sha(v))
+            .ok_or_else(|| "caduceus-forgejo-api-failure".to_string())?
+            .to_string();
+        let rel = if build.eq_ignore_ascii_case(&origin) {
+            "current"
+        } else {
+            let c = get(
+                &format!("{b}/api/v1/repos/{REPOSITORY}/compare/{build}...main"),
+                &u,
+                &k,
+            )?;
+            if c.status == 404 {
+                "diverged"
+            } else if c.status != 200 {
+                return Err("caduceus-forgejo-api-failure".into());
+            } else {
+                let cj: Value =
+                    serde_json::from_str(&c.body).map_err(|_| "caduceus-forgejo-api-failure")?;
+                if cj
+                    .get("total_commits")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| "caduceus-forgejo-api-failure".to_string())?
+                    > 0
+                {
+                    "behind"
+                } else {
+                    "diverged"
+                }
+            }
+        };
+        Ok(response(build, true, Some(&origin), rel, None))
+    })();
+    let body = match result {
+        Ok(v) => v,
+        Err(s) => response(build, false, None, "unknown", Some(&s)),
+    };
+    source_currency_cache()
+        .lock()
+        .expect("source-currency cache locked")
+        .insert(
+            build.into(),
+            SourceCurrencyCacheEntry {
+                read_at: Instant::now(),
+                body: body.clone(),
+            },
+        );
+    reflect(&body);
+    body
+}
+
+fn reflect(body: &Value) {
+    let ok = body.get("ok").and_then(Value::as_bool).unwrap_or(false);
+    let _ = hyalos::reflect_json(json!({
+        "organ": "coronatio-source-currency", "kind": "source-currency-check", "ok": ok,
+        "message": if ok { "source-currency-checked" } else { "source-currency-check-failed" },
+        "attributes_redacted": {
+            "buildSha": body.get("buildSha").cloned().unwrap_or(Value::Null),
+            "originMainSha": body.get("originMainSha").cloned().unwrap_or(Value::Null),
+            "relation": body.get("relation").cloned().unwrap_or(Value::Null)
+        }
+    }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn malformed() {
+        let b = source_currency_json("bad");
+        assert_eq!(b["relation"], "unknown");
+        assert!(b["firstMissingSignal"].as_str().is_some())
+    }
+    #[test]
+    fn source_currency_reflects_to_hyalos_without_changing_the_response() {
+        let root =
+            std::env::temp_dir().join(format!("caduceus-coronatio-hyalos-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::env::set_var("CADUCEUS_ROOT", &root);
+        let body = source_currency_json("bad");
+        assert_eq!(body["ok"], false);
+        assert_eq!(body["schema"], SCHEMA);
+        assert_eq!(body["originMainSha"], Value::Null);
+        assert_eq!(body["relation"], "unknown");
+        assert_eq!(body["firstMissingSignal"], "caduceus-build-sha-malformed");
+        let channel =
+            std::fs::read_to_string(root.join("var/log/appliance/appliance.log")).unwrap();
+        let event: Value = serde_json::from_str(channel.trim()).unwrap();
+        assert_eq!(event["organ"], "coronatio-source-currency");
+        assert_eq!(event["kind"], "source-currency-check");
+        assert_eq!(event["ok"], false);
+        assert_eq!(event["message"], "source-currency-check-failed");
+        assert_eq!(event["attributes_redacted"]["buildSha"], "bad");
+        assert_eq!(event["attributes_redacted"]["originMainSha"], Value::Null);
+        assert_eq!(event["attributes_redacted"]["relation"], "unknown");
+        assert!(!root.join("var/lib/caduceus/receipts").exists());
+        std::env::remove_var("CADUCEUS_ROOT");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn forgejo_api_failure() {
+        std::env::set_var("CADUCEUS_FORGEJO_TOKEN_FILE", "/path/that/does/not/exist");
+        let b = source_currency_json(&"a".repeat(40));
+        assert_eq!(b["ok"], false);
+        assert_eq!(b["relation"], "unknown");
+        assert!(b["firstMissingSignal"].as_str().is_some())
+    }
+    #[test]
+    fn relations() {
+        assert_eq!(classify("identical"), Some("current"));
+        assert_eq!(classify("behind"), Some("behind"));
+        assert_eq!(classify("ahead"), Some("diverged"));
+        assert_eq!(classify("diverged"), Some("diverged"));
+        assert_eq!(classify("unknown"), Some("diverged"));
+        assert_eq!(classify("no_ancestry"), Some("diverged"))
+    }
+    #[test]
+    fn forgejo_request_paths_name_coronatio_not_caduceus() {
+        let build = "a".repeat(40);
+        let main = format!("/api/v1/repos/{REPOSITORY}/branches/main");
+        let compare = format!("/api/v1/repos/{REPOSITORY}/compare/{build}...main");
+        assert!(main.contains("HOMESERVERSLTD/coronatio"));
+        assert!(compare.contains("HOMESERVERSLTD/coronatio"));
+        assert!(!main.contains("HOMESERVERSLTD/caduceus"));
+        assert!(!compare.contains("HOMESERVERSLTD/caduceus"));
+    }
+    #[test]
+    fn response_secret_absence() {
+        let s = response(&"a".repeat(40), false, None, "unknown", Some("failed")).to_string();
+        assert!(!s.contains("FORGEJO_TOKEN"));
+        assert!(!s.contains("password"))
+    }
+    #[test]
+    fn hyalos_reflection_attributes_are_secret_free() {
+        let reflection = json!({
+            "organ": "coronatio-source-currency",
+            "kind": "source-currency-check",
+            "ok": false,
+            "message": "source-currency-check-failed",
+            "attributes_redacted": {
+                "buildSha": "a".repeat(40),
+                "originMainSha": Value::Null,
+                "relation": "unknown"
+            }
+        });
+        let s = reflection.to_string();
+        assert!(!s.contains("token"));
+        assert!(!s.contains("password"))
+    }
+}

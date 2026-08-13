@@ -1,7 +1,7 @@
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use caduceus::bands::serve;
-use caduceus::tools::attendance;
+use caduceus::shared::attendance;
+use caduceus::trigger_gate_routes as serve;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -63,7 +63,7 @@ async fn network_notes_attendance_write_is_atomic_durable_and_readable() {
     let sudo = bin.join("sudo");
     fs::write(
         &sudo,
-        "#!/bin/sh\n[ \"$1\" = -n ] || exit 9\ncase \"$2\" in\n/usr/local/sbin/agathodaimon/caduceus-bind) printf '%s\\n' '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}' ;;\n/usr/local/sbin/agathodaimon/caduceus-verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) printf '%s\\n' '{\"ok\":true,\"verified\":true}' ;; *) printf '%s\\n' '{\"ok\":false,\"verified\":false}' ;; esac ;;\n*) exit 8 ;;\nesac\n",
+        "#!/bin/sh\n[ \"$1\" = -n ] || exit 9\ncase \"$2/$3/$4\" in\n/usr/local/sbin/agathodaimon/cli.py/attendance/bind) printf '%s\\n' '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}' ;;\n/usr/local/sbin/agathodaimon/cli.py/attendance/verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) printf '%s\\n' '{\"ok\":true,\"verified\":true}' ;; *) printf '%s\\n' '{\"ok\":false,\"verified\":false}' ;; esac ;;\n*) exit 8 ;;\nesac\n",
     )
     .unwrap();
     fs::set_permissions(&sudo, fs::Permissions::from_mode(0o700)).unwrap();

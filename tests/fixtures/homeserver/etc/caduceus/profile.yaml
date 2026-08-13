@@ -14,11 +14,13 @@ commands:
 - staff status
 - staff actuators
 - staff intent
+- service restart
 - cert status
 - cert issue-leaf
 - cert csr sign
 - cert bundle create
 - cert bundle download
+- cert bundle read
 - cert apply
 - cert portal-admit
 - network dhcp status
