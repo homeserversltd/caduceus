@@ -15,11 +15,17 @@ const LEGACY_CERT_REFRESH_SCRIPT: &str = "/usr/local/sbin/sslKey.sh";
 pub fn invoke_json(args: &[String]) -> Result<Value, String> {
     let input = json!({"args": args});
     crate::shared::agathodaimon::crossing_value("cert", "house-ca", &input).map_err(|value| {
-        value
-            .get("firstMissingSignal")
-            .and_then(Value::as_str)
-            .unwrap_or("caduceus-cert-house-ca-failed")
-            .to_string()
+        if value.get("firstMissingSignal").and_then(Value::as_str)
+            == Some("caduceus-pin-not-yet-provisioned")
+        {
+            "caduceus-house-ca-refused".to_string()
+        } else {
+            value
+                .get("firstMissingSignal")
+                .and_then(Value::as_str)
+                .unwrap_or("caduceus-house-ca-refused")
+                .to_string()
+        }
     })
 }
 
@@ -39,7 +45,11 @@ fn invoke_json_with_stdin(args: &[String], stdin: Option<&[u8]>) -> Result<Value
         value
             .get("firstMissingSignal")
             .and_then(Value::as_str)
-            .unwrap_or("caduceus-cert-house-ca-failed")
+            .unwrap_or(if value.get("firstMissingSignal").is_some() {
+                "caduceus-cert-house-ca-failed"
+            } else {
+                "caduceus-house-ca-refused"
+            })
             .to_string()
     })
 }

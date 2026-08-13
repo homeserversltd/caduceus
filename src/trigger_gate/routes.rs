@@ -76,7 +76,13 @@ fn roster_allows(method: &str, path: &str) -> Result<bool, String> {
     let key = format!("{method} {path}");
     let values: Vec<String> =
         serde_json::from_str(routes).map_err(|_| "caduceus-route-roster-invalid".to_string())?;
-    Ok(values.iter().any(|v| v == path || v == &key))
+    Ok(values.iter().any(|v| {
+        v == path
+            || v == &key
+            || (v == "/api/v1/service/:service/restart"
+                && path.starts_with("/api/v1/service/")
+                && path.ends_with("/restart"))
+    }))
 }
 
 const DOOR_SEAT: &str = r#"{"schema":"caduceus.doors.v1","doors":[]}"#;
@@ -765,12 +771,14 @@ async fn registered_service_restart_route(
             "caduceus-action-request-malformed",
         ));
     }
-    match policy::allows_command("staff intent") {
-        Ok(true) => staff::restart_registered_service(&service)
+    let allowed = roster_allows("POST", "/api/v1/service/:service/restart").unwrap_or(false)
+        && policy::allows_command("staff intent").unwrap_or(false);
+    if allowed {
+        staff::restart_registered_service(&service)
             .map(|value| (mutation_status(&value), Json(value)))
-            .map_err(|reason| api_error_signal("staff intent", &reason)),
-        Ok(false) => Err(api_error("staff intent")),
-        Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
+            .map_err(|reason| api_error_signal("staff intent", &reason))
+    } else {
+        Err(api_error("staff intent"))
     }
 }
 
@@ -3036,7 +3044,12 @@ async fn update_service_status_route() -> Result<Json<Value>, (StatusCode, Json<
 async fn gui_update_now_route(
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation("gui update now", || gui::invoke_update_now_json(&[])).await
+    gated_mutation("gui update now", || {
+        let mut value = gui::invoke_update_now_json(&[]);
+        value["action"] = serde_json::json!("gui_update_now");
+        value
+    })
+    .await
 }
 
 fn settings_error(command: &str, signal: String) -> (StatusCode, Json<ApiErrorBody>) {

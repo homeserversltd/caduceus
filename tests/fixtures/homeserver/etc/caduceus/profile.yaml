@@ -14,6 +14,7 @@ commands:
 - staff status
 - staff actuators
 - staff intent
+- service restart
 - cert status
 - cert issue-leaf
 - cert csr sign

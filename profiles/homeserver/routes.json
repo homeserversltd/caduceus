@@ -80,5 +80,6 @@
   "/api/v1/vault/status",
   "/api/v1/vault/unlock",
   "/api/v1/vpn/status",
-  "/health"
+  "/health",
+  "/api/v1/service/:service/restart"
 ]

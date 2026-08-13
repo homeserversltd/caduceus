@@ -288,10 +288,8 @@ async fn console_legacy_sbin_show_returns_whole_body() {
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.legacy_sbin.show.v1");
     assert_eq!(json["entry"]["execution"], "not-executed-by-caduceus");
-    assert!(json["entry"]["body"]
-        .as_str()
-        .unwrap_or("")
-        .contains("NAMESPACE=\"vpn\""));
+    assert_eq!(json["entry"]["legacyIntent"], "discovery-projection");
+    assert!(json["entry"].get("body").is_none());
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -367,7 +365,7 @@ async fn console_gui_update_route_is_profile_allowed() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     let json = body_json(response).await;
-    assert_eq!(json["route"], "gui_update_now");
+    assert_eq!(json["action"], "gui_update_now");
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -516,7 +514,10 @@ async fn homeserver_sbin_show_route_preserves_body() {
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.homeserver_sbin.show.v1");
     assert_eq!(json["entry"]["execution"], "not-executed-by-caduceus");
-    assert_eq!(json["entry"]["replacementBand"], "vault");
+    assert_eq!(json["entry"]["legacyIntent"], "discovery-projection");
+    assert!(json["entry"].get("replacementBand").is_none());
+    assert_eq!(json["entry"]["legacyIntent"], "discovery-projection");
+    assert!(json["entry"].get("body").is_none());
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1151,7 +1152,11 @@ fn cert_temp_root(tag: &str, profile: &str) -> CertTempRoot {
 
 fn run_house_ca(root: &Path, args: &[&str]) -> serde_json::Value {
     let output = Command::new("python3")
-        .args(["-m", "agathodaimon.house_ca"])
+        .args([
+            "tests/fixtures/staff/agathodaimon/cli.py",
+            "cert",
+            "house-ca",
+        ])
         .args(args)
         .env("PYTHONPATH", "tests/fixtures/staff")
         .env("PYTHONDONTWRITEBYTECODE", "1")
@@ -1210,7 +1215,7 @@ impl CertFixture {
             ("PYTHONDONTWRITEBYTECODE", std::ffi::OsStr::new("1")),
             (
                 "CADUCEUS_HOUSE_CA_CMD",
-                std::ffi::OsStr::new("python3 -m agathodaimon.house_ca"),
+                std::ffi::OsStr::new("python3 tests/fixtures/staff/agathodaimon/cli.py"),
             ),
         ];
         let previous_env = values

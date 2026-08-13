@@ -95,7 +95,15 @@ pub(crate) fn crossing_value(noun: &str, verb: &str, input: &Value) -> Result<Va
                 serde_json::json!({"ok": false, "error": value.get("error").cloned().unwrap_or(value)}),
             );
         }
-        return Err(value);
+        return Err(if noun == "cert" && verb == "house-ca" {
+            let mut mapped = value;
+            if mapped.get("firstMissingSignal").is_none() {
+                mapped["firstMissingSignal"] = serde_json::json!("caduceus-house-ca-refused");
+            }
+            mapped
+        } else {
+            value
+        });
     }
     Ok(value)
 }
