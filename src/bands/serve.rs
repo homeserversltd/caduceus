@@ -1,11 +1,12 @@
 use crate::bands::{
-    cartridges, cert, config, coronatio, disk, dns, dns_control, drive_test, firewall, gui, health, homeserver_sbin,
+    cartridges, config, coronatio, disk, dns, dns_control, drive_test, firewall, gui, health, homeserver_sbin,
     hyalos, harmonia_update,
     identity, legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read,
     pjlink, profile, profile_module, receipts, settings, source_map, speedtest, staff, sync,
-    update, vault,
+    update,
 };
 use crate::shared::{attendance, policy};
+use crate::staff_commands::{admit_portal, change_pin, install_trust, issue_certificate, open_vault};
 use axum::{
     body::{Body, HttpBody},
     extract::{connect_info::ConnectInfo, DefaultBodyLimit, FromRequest, Multipart, OriginalUri, Path, Query, State},
@@ -442,7 +443,7 @@ async fn pin_mode_route(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     access_attendance_admits(&headers)?;
-    attendance::set_pin_mode_json(&body)
+    change_pin::set_pin_mode_json(&body)
         .map(Json)
         .map_err(|signal| api_error_signal("access pin mode", &signal))
 }
@@ -460,7 +461,7 @@ async fn pin_change_route(
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
     access_attendance_admits(&headers)?;
-    let value = attendance::change_pin_access_json(document, token, &body)
+    let value = change_pin::change_pin_access_json(document, token, &body)
         .map_err(|signal| api_error_signal("access pin change", &signal))?;
     if value.get("ok").and_then(Value::as_bool) == Some(true) {
         Ok(Json(value))
@@ -486,13 +487,13 @@ async fn pin_reset_default_route(
         ));
     }
     access_attendance_admits(&headers)?;
-    attendance::reset_default_pin_json()
+    change_pin::reset_default_pin_json()
         .map(Json)
         .map_err(|signal| api_error_signal("access pin reset-default", &signal))
 }
 
 async fn vault_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json(VAULT_ATTENDANCE_COMMAND, || Ok(vault::status_json())).await
+    gated_json(VAULT_ATTENDANCE_COMMAND, || Ok(open_vault::status_json())).await
 }
 async fn vault_unlock_route(
     headers: HeaderMap,
@@ -511,7 +512,7 @@ async fn vault_unlock_route(
     vault_attendance_admits(&headers)?;
     Ok((
         StatusCode::OK,
-        Json(vault::unlock_json(body.password.as_deref())),
+        Json(open_vault::unlock_json(body.password.as_deref())),
     ))
 }
 async fn vault_auto_route(
@@ -529,7 +530,7 @@ async fn vault_auto_route(
         }
     }
     vault_attendance_admits(&headers)?;
-    Ok((StatusCode::OK, Json(vault::auto_decrypt_json(body.enabled))))
+    Ok((StatusCode::OK, Json(open_vault::auto_decrypt_json(body.enabled))))
 }
 
 async fn health_route() -> Json<LivenessBody> {
@@ -2374,7 +2375,7 @@ async fn cert_status_route() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     match cert_admitted_command("cert status", &[]) {
         Ok(None) => Err(cert_profile_refusal("cert status", "status")),
         Err(_) => Err(cert_api_error("cert status", "caduceus-profile-missing")),
-        Ok(Some(_)) => cert::status_json()
+        Ok(Some(_)) => issue_certificate::status_json()
             .map(Json)
             .map_err(|signal| cert_api_error("cert status", &signal)),
     }
@@ -2384,7 +2385,7 @@ async fn cert_ensure_root_route(
     Json(body): Json<CertBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     cert_mutation_result("cert ensure-root", "ensure_root", &[], || {
-        cert::ensure_root_json(body.dry_run, body.renewal_authority.as_deref())
+        issue_certificate::ensure_root_json(body.dry_run, body.renewal_authority.as_deref())
     })
 }
 async fn cert_issue_leaf_route(
@@ -2393,7 +2394,7 @@ async fn cert_issue_leaf_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.identity.as_deref().unwrap_or("home.arpa");
     cert_mutation_result("cert issue-leaf", "issue_leaf", &[], || {
-        cert::issue_leaf_json(
+        issue_certificate::issue_leaf_json(
             target,
             body.sans.as_deref().unwrap_or(&[]),
             body.ips.as_deref().unwrap_or(&[]),
@@ -2422,7 +2423,7 @@ async fn cert_csr_sign_route(
             .and_then(|value| value.to_str().ok()),
     )
     .map_err(|signal| cert_api_error(command, &signal))?;
-    cert::sign_csr_json(&body.csr_pem)
+    issue_certificate::sign_csr_json(&body.csr_pem)
         .map(|value| (StatusCode::OK, Json(value)))
         .map_err(|error| cert_value_error(StatusCode::BAD_REQUEST, command, &error))
 }
@@ -2435,7 +2436,7 @@ async fn cert_bundle_route(
         "cert bundle-export",
         "bundle_export",
         &["cert bundle create"],
-        || cert::bundle_create_json(target, body.dry_run),
+        || issue_certificate::bundle_create_json(target, body.dry_run),
     )
 }
 async fn cert_constituent_lock_route(
@@ -2444,7 +2445,7 @@ async fn cert_constituent_lock_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let portal = body.portal.as_deref().unwrap_or("");
     cert_mutation_result("cert constituent-lock", "constituent_lock", &[], || {
-        cert::constituent_lock_json(portal, body.lan_ip.as_deref().unwrap_or(""), body.dry_run)
+        admit_portal::constituent_lock_json(portal, body.lan_ip.as_deref().unwrap_or(""), body.dry_run)
     })
 }
 async fn cert_bundle_public_route() -> Result<Response<Body>, (StatusCode, Json<Value>)> {
@@ -2454,7 +2455,7 @@ async fn cert_bundle_public_route() -> Result<Response<Body>, (StatusCode, Json<
         Ok(None) => return Err(cert_profile_refusal(command, "bundle_read")),
         Err(_) => return Err(cert_api_error(command, "caduceus-profile-missing")),
     }
-    let bundle = cert::bundle_download_json("linux")
+    let bundle = issue_certificate::bundle_download_json("linux")
         .map_err(|signal| cert_value_error(StatusCode::SERVICE_UNAVAILABLE, command, &signal))?;
     let fingerprint = HeaderValue::from_str(&bundle.fingerprint)
         .map_err(|_| cert_api_error(command, "caduceus-cert-bundle-fingerprint-invalid"))?;
@@ -2476,7 +2477,7 @@ async fn cert_bundle_download_route(
         Err(_) => return Err(cert_api_error(command, "caduceus-profile-missing")),
     }
     let platform = query.platform.as_deref().unwrap_or("linux");
-    let bundle = cert::bundle_download_json(platform).map_err(|signal| {
+    let bundle = issue_certificate::bundle_download_json(platform).map_err(|signal| {
         let status = match signal.as_str() {
             "caduceus-cert-platform-invalid" => StatusCode::BAD_REQUEST,
             "caduceus-cert-bundle-missing" => StatusCode::NOT_FOUND,
@@ -2506,7 +2507,7 @@ async fn legacy_cert_bundle_download_route(
         Err(_) => return Err(cert_api_error(command, "caduceus-profile-missing")),
     }
     let platform = query.platform.as_deref().unwrap_or("linux");
-    let bundle = cert::bundle_export_download_json(platform).map_err(|signal| {
+    let bundle = issue_certificate::bundle_export_download_json(platform).map_err(|signal| {
         let status = match signal.as_str() {
             "caduceus-cert-platform-invalid" => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
@@ -2533,7 +2534,7 @@ async fn legacy_cert_refresh_route(
         "cert refresh-root",
         "refresh_root",
         &[],
-        cert::legacy_refresh_root_json,
+        issue_certificate::legacy_refresh_root_json,
     )
 }
 
@@ -2543,7 +2544,7 @@ async fn cert_apply_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.portal.as_deref().unwrap_or("");
     cert_mutation_result("cert apply-nginx", "apply_nginx", &["cert apply"], || {
-        cert::apply_json(
+        admit_portal::apply_json(
             target,
             body.upstream.as_deref().unwrap_or(""),
             body.certificate.as_deref().unwrap_or(""),
@@ -2557,7 +2558,7 @@ async fn cert_trust_fetch_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let server = body.server.as_deref().unwrap_or("");
     cert_mutation_result("cert trust-fetch", "trust_fetch", &[], || {
-        cert::trust_fetch_json(server, body.platform.as_deref().unwrap_or("linux"))
+        install_trust::trust_fetch_json(server, body.platform.as_deref().unwrap_or("linux"))
     })
 }
 
@@ -2567,7 +2568,7 @@ async fn cert_trust_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.bundle.as_deref().unwrap_or("");
     cert_mutation_result("cert trust-install", "trust_install", &[], || {
-        cert::trust_install_json(
+        install_trust::trust_install_json(
             target,
             body.platform.as_deref().unwrap_or("linux"),
             body.dry_run,
@@ -2580,7 +2581,7 @@ async fn cert_portal_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let target = body.portal.as_deref().unwrap_or("");
     cert_mutation_result("cert portal-admit", "portal_admit", &[], || {
-        cert::portal_admit_json(
+        admit_portal::portal_admit_json(
             target,
             body.lan_ip.as_deref().unwrap_or(""),
             body.upstream.as_deref().unwrap_or(""),

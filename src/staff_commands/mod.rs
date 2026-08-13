@@ -32,6 +32,17 @@ pub mod pin_device_address;
 #[path = "whitelist_device/index.rs"]
 pub mod whitelist_device;
 
+#[path = "issue_certificate/index.rs"]
+pub mod issue_certificate;
+#[path = "install_trust/index.rs"]
+pub mod install_trust;
+#[path = "admit_portal/index.rs"]
+pub mod admit_portal;
+#[path = "open_vault/index.rs"]
+pub mod open_vault;
+#[path = "change_pin/index.rs"]
+pub mod change_pin;
+
 #[path = "annotate_device/index.rs"]
 pub mod annotate_device;
 #[path = "claim_device_identity/index.rs"]

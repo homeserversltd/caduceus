@@ -33,12 +33,12 @@ Operator / Arcadia / Coronatio
   agathodaimon.house_ca         ← privileged Python engine (OpenSSL, files, nginx, state)
 ```
 
-- **Rust** (`src/bands/cert.rs`, `serve.rs`) — typed CLI and HTTP routes, JSON
+- **Rust** (`src/staff_commands/issue_certificate/index.rs`, `serve.rs`) — typed CLI and HTTP routes, JSON
   receipts, profile gate. Never holds private key bytes in public output.
 - **Python** (`/usr/local/sbin/agathodaimon/house_ca.py`) — nine
   composable primitives; only `state_commit` replaces durable state.
 
-Launcher on device: `/usr/local/sbin/agathodaimon/caduceus-house-ca` (Harmonia ships it).
+Launcher on device: `/usr/local/sbin/agathodaimon/cli.py cert` (Harmonia ships it).
 
 ## Primitives (Python engine)
 

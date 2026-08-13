@@ -3,7 +3,6 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -11,72 +10,27 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+
 const LEGACY_CERT_REFRESH_SCRIPT: &str = "/usr/local/sbin/sslKey.sh";
 
-fn command() -> (String, Vec<String>) {
-    if let Ok(value) = env::var("CADUCEUS_HOUSE_CA_CMD") {
-        let mut parts = value.split_whitespace().map(str::to_owned);
-        return (
-            parts.next().unwrap_or_else(|| "caduceus-house-ca".into()),
-            parts.collect(),
-        );
-    }
-    ("caduceus-house-ca".into(), Vec::new())
-}
-
 pub fn invoke_json(args: &[String]) -> Result<Value, String> {
-    invoke_json_with_stdin(args, None)
+    let input = json!({"args": args});
+    crate::shared::agathodaimon::crossing_value("cert", "house-ca", &input)
+        .map_err(|value| value.get("firstMissingSignal").and_then(Value::as_str).unwrap_or("caduceus-cert-house-ca-failed").to_string())
 }
 
 fn invoke_receipt(args: &[String]) -> Result<Value, String> {
-    let (program, prefix) = command();
-    let output = Command::new(program)
-        .args(prefix)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .output()
-        .map_err(|e| format!("caduceus-cert-house-ca-unavailable: {e}"))?;
-    serde_json::from_slice(&output.stdout)
-        .map_err(|_| "caduceus-cert-house-ca-invalid-receipt".to_string())
+    invoke_json(args)
 }
 
 fn invoke_json_with_stdin(args: &[String], stdin: Option<&[u8]>) -> Result<Value, String> {
-    let (program, prefix) = command();
-    let mut child = Command::new(program)
-        .args(prefix)
-        .args(args)
-        .stdin(if stdin.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("caduceus-cert-house-ca-unavailable: {e}"))?;
-    if let Some(input) = stdin {
-        child
-            .stdin
-            .take()
-            .expect("piped stdin")
-            .write_all(input)
-            .map_err(|e| format!("caduceus-cert-house-ca-stdin-failed: {e}"))?;
-    }
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("caduceus-cert-house-ca-unavailable: {e}"))?;
-    // stderr is deliberately suppressed at the public membrane.
-    let value: Value = serde_json::from_slice(&output.stdout)
-        .map_err(|_| "caduceus-cert-house-ca-invalid-receipt".to_string())?;
-    if output.status.success() && value.get("ok") == Some(&json!(true)) {
-        Ok(value)
-    } else {
-        Err(value
-            .get("firstMissingSignal")
-            .and_then(Value::as_str)
-            .unwrap_or("caduceus-cert-house-ca-failed")
-            .to_string())
-    }
+    let mut input: Value = stdin
+        .map(|bytes| serde_json::from_slice(bytes).map_err(|_| "caduceus-cert-invalid-request".to_string()))
+        .transpose()?
+        .unwrap_or_else(|| json!({}));
+    input["args"] = json!(args);
+    crate::shared::agathodaimon::crossing_value("cert", "house-ca", &input)
+        .map_err(|value| value.get("firstMissingSignal").and_then(Value::as_str).unwrap_or("caduceus-cert-house-ca-failed").to_string())
 }
 
 pub fn sign_csr_json(csr_pem: &str) -> Result<Value, String> {

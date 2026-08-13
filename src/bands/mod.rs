@@ -1,5 +1,4 @@
 pub mod cartridges;
-pub mod cert;
 pub mod coronatio;
 pub use crate::staff_commands::manage_child_device as child_device;
 pub mod config;
@@ -36,4 +35,3 @@ pub mod staff;
 pub mod sync;
 
 pub mod update;
-pub mod vault;

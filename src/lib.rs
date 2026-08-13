@@ -8,7 +8,7 @@ pub use shared as tools;
 
 use crate::shared::policy;
 use crate::bands::{
-    cert, child_device, config, dhcp, disk, dns, drive_test, gui, health, help, homeserver_sbin,
+    child_device, config, dhcp, disk, dns, drive_test, gui, health, help, homeserver_sbin,
     hyalos, identity, legacy_sbin, local_ai, logs, network, network_identity, network_read, pjlink,
     profile, profile_module, receipts, serve, settings, source_map, staff, sync, update,
 };
@@ -113,16 +113,16 @@ where
             }
         }
         [domain, verb] if domain == "cert" && verb == "status" => {
-            cert_command("cert status", "status", &[], cert::status)
+            cert_command("cert status", "status", &[], crate::staff_commands::issue_certificate::status)
         }
         [domain, verb] if domain == "cert" && verb == "refresh-root" => {
             cert_command("cert refresh-root", "refresh_root", &[], || {
-                cert_print(cert::legacy_refresh_root_json())
+                cert_print(crate::staff_commands::issue_certificate::legacy_refresh_root_json())
             })
         }
         [domain, verb, rest @ ..] if domain == "cert" && verb == "ensure-root" => {
             cert_command("cert ensure-root", "ensure_root", &[], || {
-                cert_print(cert::ensure_root_json(
+                cert_print(crate::staff_commands::issue_certificate::ensure_root_json(
                     rest.iter().any(|arg| arg == "--dry-run"),
                     option_value(rest, "--renewal-authority"),
                 ))
@@ -138,7 +138,7 @@ where
                     .find(|a| !a.starts_with('-') && !sans.contains(a) && !ips.contains(a))
                     .map(String::as_str)
                     .unwrap_or("home.arpa");
-                match cert::issue_leaf_json(identity, &sans, &ips, dry) {
+                match crate::staff_commands::issue_certificate::issue_leaf_json(identity, &sans, &ips, dry) {
                     Ok(v) => {
                         println!("{v}");
                         0
@@ -161,7 +161,7 @@ where
                     .find(|a| !a.starts_with('-'))
                     .map(String::as_str)
                     .unwrap_or("linux");
-                cert::bundle_create(platform, dry)
+                crate::staff_commands::issue_certificate::bundle_create(platform, dry)
             },
         ),
         [domain, object, verb, rest @ ..]
@@ -178,7 +178,7 @@ where
                         .find(|a| !a.starts_with('-'))
                         .map(String::as_str)
                         .unwrap_or("linux");
-                    cert::bundle_create(platform, dry)
+                    crate::staff_commands::issue_certificate::bundle_create(platform, dry)
                 },
             )
         }
@@ -186,7 +186,7 @@ where
             if domain == "cert" && verb == "constituent-lock" =>
         {
             cert_command("cert constituent-lock", "constituent_lock", &[], || {
-                cert_print(cert::constituent_lock_json(
+                cert_print(crate::staff_commands::admit_portal::constituent_lock_json(
                     portal,
                     lan_ip,
                     rest.iter().any(|arg| arg == "--dry-run"),
@@ -197,7 +197,7 @@ where
             if domain == "cert" && (verb == "apply-nginx" || verb == "apply") =>
         {
             cert_command("cert apply-nginx", "apply_nginx", &["cert apply"], || {
-                let result = cert::apply_json(
+                let result = crate::staff_commands::admit_portal::apply_json(
                     portal,
                     upstream,
                     certificate,
@@ -224,13 +224,13 @@ where
         }
         [domain, verb, server] if domain == "cert" && verb == "trust-fetch" => {
             cert_command("cert trust-fetch", "trust_fetch", &[], || {
-                cert_print(cert::trust_fetch_json(server, "linux"))
+                cert_print(crate::staff_commands::install_trust::trust_fetch_json(server, "linux"))
             })
         }
         [domain, verb, bundle, rest @ ..] if domain == "cert" && verb == "trust-install" => {
             cert_command("cert trust-install", "trust_install", &[], || {
                 let platform = option_value(rest, "--platform").unwrap_or("linux");
-                let result = cert::trust_install_json(
+                let result = crate::staff_commands::install_trust::trust_install_json(
                     bundle,
                     platform,
                     rest.iter().any(|a| a == "--dry-run"),
@@ -252,7 +252,7 @@ where
         {
             cert_command("cert portal-admit", "portal_admit", &[], || {
                 let aliases = option_list(rest, "--aliases");
-                let result = cert::portal_admit_json(
+                let result = crate::staff_commands::admit_portal::portal_admit_json(
                     portal,
                     ip,
                     upstream,
