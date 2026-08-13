@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-const LINKER_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-linker";
+const LINKER_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/cli.py linker";
 const OPERATIONS: &[&str] = &[
     "browse",
     "deploy",

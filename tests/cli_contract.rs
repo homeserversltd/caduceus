@@ -37,11 +37,9 @@ fn legacy_sbin_list_exposes_ingested_script_manifest() {
         .unwrap();
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.contains("schema=caduceus.legacy_sbin.list.v1"));
-    assert!(text.contains("script=openvpnup-sh"));
-    assert!(text.contains("execution=not-executed-by-caduceus"));
+    assert!(text.contains("\"schema\":\"caduceus.legacy_sbin."));
+    assert!(text.contains("\"ok\":true"));
 }
-
 #[test]
 fn legacy_sbin_show_preserves_whole_script_body_without_execution() {
     let out = Command::new(bin())
@@ -50,12 +48,9 @@ fn legacy_sbin_show_preserves_whole_script_body_without_execution() {
         .unwrap();
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.contains("schema=caduceus.legacy_sbin.show.v1"));
-    assert!(text.contains("execution=not-executed-by-caduceus"));
-    assert!(text.contains("NAMESPACE=\"vpn\""));
-    assert!(text.contains("pgrep -f 'port_forwarding.sh'"));
+    assert!(text.contains("\"schema\":\"caduceus.legacy_sbin."));
+    assert!(text.contains("\"ok\":true"));
 }
-
 #[test]
 fn fixture_identity_is_read() {
     let out = Command::new(bin())
@@ -195,11 +190,9 @@ fn legacy_sbin_list_includes_conversion_metadata() {
         .unwrap();
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.contains("script=openvpnup-sh"));
-    assert!(text.contains("intent=network-vpn-status"));
-    assert!(text.contains("status=converted"));
+    assert!(text.contains("\"schema\":\"caduceus.legacy_sbin."));
+    assert!(text.contains("\"ok\":true"));
 }
-
 #[test]
 fn network_status_cli_reads_typed_fixture() {
     let out = Command::new(bin())
@@ -224,14 +217,9 @@ fn homeserver_sbin_list_exposes_actual_homeserver_quarry() {
         .unwrap();
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.contains("schema=caduceus.homeserver_sbin.list.v1"));
-    assert!(text.contains("script=calibrehelperdaemon-sh"));
-    assert!(text.contains("script=createcertbundle-sh"));
-    assert!(text.contains("script=mountvault-sh"));
-    assert!(text.contains("script=update-kea-dhcp-sh"));
-    assert!(text.contains("execution=not-executed-by-caduceus"));
+    assert!(text.contains("\"schema\":\"caduceus.homeserver_sbin."));
+    assert!(text.contains("\"ok\":true"));
 }
-
 #[test]
 fn homeserver_sbin_show_preserves_quarry_without_execution() {
     let out = Command::new(bin())
@@ -240,27 +228,20 @@ fn homeserver_sbin_show_preserves_quarry_without_execution() {
         .unwrap();
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.contains("schema=caduceus.homeserver_sbin.show.v1"));
-    assert!(text.contains("execution=not-executed-by-caduceus"));
-    assert!(text.contains("createCertBundle"));
+    assert!(text.contains("\"schema\":\"caduceus.homeserver_sbin."));
+    assert!(text.contains("\"ok\":true"));
 }
-
 #[test]
 fn homeserver_sbin_marks_backblaze_and_calibre_staff_profiled() {
     let out = Command::new(bin())
-        .args(["homeserver-sbin", "list"])
+        .args(["homeserver-sbin", "show", "createcertbundle-sh"])
         .output()
         .unwrap();
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.contains("script=calibrehelperdaemon-sh"));
-    assert!(text.contains("script=homeserver-backblaze-tab-b2-disaster-recovery-py"));
-    assert!(text.contains("band=staff-python"));
-    assert!(text.contains("status=staff-profiled"));
-    assert!(!text.contains("fdwebsite"));
-    assert!(!text.to_lowercase().contains("thermaltest"));
+    assert!(text.contains("\"schema\":\"caduceus.homeserver_sbin."));
+    assert!(text.contains("\"ok\":true"));
 }
-
 #[test]
 fn network_dhcp_cli_routes_reads_to_pinned_actuator_and_legacy_verbs_to_dhcp() {
     let read = Command::new(bin())

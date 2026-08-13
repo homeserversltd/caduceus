@@ -160,7 +160,7 @@ pub fn status() -> i32 {
 // This native band selects only admitted read actuators and never reads or
 // mutates appliance network state itself.
 
-use crate::bands::staff;
+use crate::staff_commands::staff;
 use std::{env, process::Command};
 
 #[derive(Clone, Copy)]

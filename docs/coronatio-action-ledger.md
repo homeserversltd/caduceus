@@ -30,4 +30,4 @@ Registry rule: only `restart-website` is registered in Slice 0, and it is **inte
 | Delete Portal | visible, enabled | — | `DELETE /api/portals/:portal_name` no body | portal config owner | destructive | portal absent/readiness | restore saved portal definition | un-wired |
 | Disk/key manager actions | visible, explicitly inert | — | no Caduceus dispatch | none | destructive family | none: control intentionally does not dispatch | n/a | intentionally unavailable |
 
-Source observations: Coronatio `src/bands/shell/document-2.rs`, `document-4.rs`, `document-4-tail.rs`, `caduceus.rs`, `mutation-authority.rs`, and portal/upload route modules. This document does not change Coronatio rendering or enablement.
+Source observations: Coronatio `staff_commands/shell/document-2.rs`, `document-4.rs`, `document-4-tail.rs`, `caduceus.rs`, `mutation-authority.rs`, and portal/upload route modules. This document does not change Coronatio rendering or enablement.

@@ -110,3 +110,52 @@ pub mod change_notifications;
 
 #[path = "expose_ssh/index.rs"]
 pub mod expose_ssh;
+
+pub use annotate_device as network_notes;
+pub use claim_device_identity as network_identity;
+pub use control_resolver as dns_control;
+pub use inspect_disks as disk;
+pub use list_network_devices as network;
+pub use list_network_devices as network_read;
+pub use manage_child_device as child_device;
+pub use measure_bandwidth as speedtest;
+pub use name_device as dns;
+pub use pin_device_address as dhcp;
+pub use query_local_ai as local_ai;
+pub use read_logs as logs;
+pub use read_receipts as receipts;
+pub use report_health as health;
+pub use report_identity as identity;
+pub use report_links as linker;
+pub use report_profile as profile;
+pub use report_sources as source_map;
+pub use test_drive as drive_test;
+pub use whitelist_device as firewall;
+pub use write_appliance_log as hyalos;
+
+pub use crate::trigger_gate_receipts as staff;
+
+pub use crate::trigger_gate_index as help;
+pub use crate::trigger_gate_routes as serve;
+pub mod legacy_sbin {
+    pub use crate::trigger_gate_discovery::{
+        legacy_sbin_list_json as list_json, legacy_sbin_show_json as show_json,
+    };
+    pub fn list() -> i32 {
+        crate::trigger_gate_discovery::cli("legacy-sbin", None)
+    }
+    pub fn show(id: &str) -> i32 {
+        crate::trigger_gate_discovery::cli("legacy-sbin", Some(id))
+    }
+}
+pub mod homeserver_sbin {
+    pub use crate::trigger_gate_discovery::{
+        homeserver_sbin_list_json as list_json, homeserver_sbin_show_json as show_json,
+    };
+    pub fn list() -> i32 {
+        crate::trigger_gate_discovery::cli("homeserver-sbin", None)
+    }
+    pub fn show(id: &str) -> i32 {
+        crate::trigger_gate_discovery::cli("homeserver-sbin", Some(id))
+    }
+}

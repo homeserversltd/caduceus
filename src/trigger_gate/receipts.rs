@@ -4,8 +4,8 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::bands::{dhcp, dns_control, linker};
 use crate::shared::hyalos;
+use crate::staff_commands::{dhcp, dns_control, linker};
 
 const PROFILE_PATH: &str = "/usr/local/sbin/profile.json";
 
@@ -697,4 +697,10 @@ mod tests {
         std::env::remove_var("CADUCEUS_ROOT");
         let _ = std::fs::remove_dir_all(root);
     }
+}
+
+pub fn write_admitted_receipt(value: &Value) -> Result<(), String> {
+    let body = serde_json::to_string(value)
+        .map_err(|_| "caduceus-receipt-serialize-failed".to_string())?;
+    crate::shared::receipts::write_latest(&body)
 }

@@ -1,7 +1,8 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use caduceus::bands::{firewall, serve};
-use caduceus::tools::attendance;
+use caduceus::shared::attendance;
+use caduceus::staff_commands::whitelist_device as firewall;
+use caduceus::trigger_gate_routes as serve;
 use std::{
     env, fs,
     os::unix::fs::PermissionsExt,
@@ -140,7 +141,7 @@ async fn firewall_document_attendance_is_static_and_precedes_staff() {
     fs::create_dir_all(&bin).unwrap();
     fs::write(
         &sudo,
-        "#!/bin/sh\n[ \"$1\" = -n ] || exit 9\ncase \"$2\" in\n/usr/local/sbin/agathodaimon/caduceus-bind) echo '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}' ;;\n/usr/local/sbin/agathodaimon/caduceus-verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) echo '{\"ok\":true,\"verified\":true}' ;; *) echo '{\"ok\":false,\"verified\":false}' ;; esac ;;\n*) exit 8 ;;\nesac\n",
+        "#!/bin/sh\n[ \"$1\" = -n ] || exit 9\ncase \"$2\" in\n/usr/local/sbin/agathodaimon/cli.py bind) echo '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}' ;;\n/usr/local/sbin/agathodaimon/cli.py verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) echo '{\"ok\":true,\"verified\":true}' ;; *) echo '{\"ok\":false,\"verified\":false}' ;; esac ;;\n*) exit 8 ;;\nesac\n",
     )
     .unwrap();
     fs::set_permissions(&sudo, fs::Permissions::from_mode(0o700)).unwrap();

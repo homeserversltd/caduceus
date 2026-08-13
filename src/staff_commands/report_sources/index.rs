@@ -8,7 +8,7 @@ use std::{env, process::Command};
 
 const COMMAND: &str = "profile sources reseed";
 const TARGET: &str = "profile-sources";
-const LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-profile-sources-reseed";
+const LAUNCHER: &str = "/usr/local/sbin/agathodaimon/cli.py profile-sources-reseed";
 
 fn launcher_command() -> String {
     env::var("CADUCEUS_PROFILE_SOURCES_RESEED_CMD").unwrap_or_else(|_| LAUNCHER.to_string())

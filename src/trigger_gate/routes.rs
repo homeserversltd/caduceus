@@ -1,8 +1,3 @@
-use crate::bands::{
-    disk, dns, dns_control, drive_test, firewall, health, homeserver_sbin, hyalos, identity,
-    legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read, profile,
-    receipts, source_map, speedtest, staff,
-};
 use crate::shared::config;
 use crate::shared::settings;
 use crate::shared::{attendance, policy};
@@ -10,6 +5,11 @@ use crate::staff_commands::{
     admit_portal, change_pin, control_projector as pjlink, install_trust, issue_certificate,
     open_settings_pane as gui, open_vault, rebuild_crown, sync_sources as sync,
     toggle_harmonia_module as profile_module, update_appliance as update,
+};
+use crate::staff_commands::{
+    disk, dns, dns_control, drive_test, firewall, health, homeserver_sbin, hyalos, identity,
+    legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read, profile,
+    receipts, source_map, speedtest, staff,
 };
 use axum::{
     body::{Body, HttpBody},
@@ -57,8 +57,29 @@ struct LivenessBody {
 }
 
 const CADUCEUS_BUILD_SHA: Option<&str> = option_env!("CADUCEUS_BUILD_SHA");
+const TV_ROUTES: &str = include_str!("../../profiles/tv/routes.json");
+const CONSOLE_ROUTES: &str = include_str!("../../profiles/console/routes.json");
+const HOMESERVER_ROUTES: &str = include_str!("../../profiles/homeserver/routes.json");
 
-const DOOR_SEAT: &str = include_str!("../../doors/index.json");
+fn roster_allows(method: &str, path: &str) -> Result<bool, String> {
+    let profile_value = config::read_public_profile_value()?;
+    let profile = profile_value
+        .get("profile")
+        .and_then(Value::as_str)
+        .unwrap_or("homeserver");
+    let routes = match profile {
+        "tv" => TV_ROUTES,
+        "console" => CONSOLE_ROUTES,
+        "homeserver" => HOMESERVER_ROUTES,
+        _ => return Err("caduceus-public-profile-invalid".into()),
+    };
+    let key = format!("{method} {path}");
+    let values: Vec<String> =
+        serde_json::from_str(routes).map_err(|_| "caduceus-route-roster-invalid".to_string())?;
+    Ok(values.iter().any(|v| v == path || v == &key))
+}
+
+const DOOR_SEAT: &str = r#"{"schema":"caduceus.doors.v1","doors":[]}"#;
 const ROUTER_SOURCE: &str = include_str!("routes.rs");
 
 #[derive(Deserialize)]
@@ -1245,6 +1266,19 @@ async fn named_staff_actuator_route(
     OriginalUri(uri): OriginalUri,
     Json(metadata): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    if !roster_allows("POST", uri.path())
+        .map_err(|signal| api_error_signal("staff intent", &signal))?
+    {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: "staff intent".into(),
+                first_missing_signal: "caduceus-route-off-roster".into(),
+            }),
+        ));
+    }
     match policy::allows_command("staff intent") {
         Ok(true) => {
             let actuator_id = named_actuator_for_route(uri.path())?;
@@ -1253,7 +1287,10 @@ async fn named_staff_actuator_route(
                 "wake-on-lan" => crate::staff_commands::wake_device::command_json(metadata),
                 _ => staff::named_actuator_json(actuator_id, metadata),
             }
-            .map(|value| (mutation_status(&value), Json(value)))
+            .map(|value| {
+                let _ = crate::trigger_gate_receipts::write_admitted_receipt(&value);
+                (mutation_status(&value), Json(value))
+            })
             .map_err(|reason| api_error_signal("staff intent", &reason))
         }
         Ok(false) => Err(api_error("staff intent")),
@@ -1279,7 +1316,7 @@ async fn dhcp_staff_actuator_route(
         }
     };
     match policy::allows_command("staff intent") {
-        Ok(true) => crate::bands::dhcp::intent_json(method, route, metadata)
+        Ok(true) => crate::staff_commands::dhcp::intent_json(method, route, metadata)
             .map(|value| (mutation_status(&value), Json(value)))
             .map_err(|reason| api_error_signal("staff intent", &reason)),
         Ok(false) => Err(api_error("staff intent")),
@@ -1307,7 +1344,7 @@ async fn dhcp_reservation_staff_actuator_route(
     );
     let route = format!("/api/dhcp/reservations/{reservation_id}");
     match policy::allows_command("staff intent") {
-        Ok(true) => crate::bands::dhcp::intent_json(method.as_str(), &route, metadata)
+        Ok(true) => crate::staff_commands::dhcp::intent_json(method.as_str(), &route, metadata)
             .map(|value| (mutation_status(&value), Json(value)))
             .map_err(|reason| api_error_signal("staff intent", &reason)),
         Ok(false) => Err(api_error("staff intent")),

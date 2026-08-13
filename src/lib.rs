@@ -1,8 +1,12 @@
-pub mod bands;
 #[path = "lib/mod.rs"]
 pub mod shared;
 pub mod staff_commands;
-pub mod trigger_gate;
-#[doc(hidden)]
-pub use shared as tools;
-pub use trigger_gate::run;
+#[path = "trigger_gate/discovery.rs"]
+pub mod trigger_gate_discovery;
+#[path = "trigger_gate/index.rs"]
+pub mod trigger_gate_index;
+#[path = "trigger_gate/receipts.rs"]
+pub mod trigger_gate_receipts;
+#[path = "trigger_gate/routes.rs"]
+pub mod trigger_gate_routes;
+pub use trigger_gate_index::run;

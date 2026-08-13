@@ -15,14 +15,14 @@ pub fn show() -> i32 {
     0
 }
 
-use crate::bands::{
+use crate::shared::config;
+use crate::shared::policy;
+use crate::shared::settings;
+use crate::staff_commands::{
     child_device, dhcp, disk, dns, drive_test, health, help, homeserver_sbin, hyalos, identity,
     legacy_sbin, local_ai, logs, network, network_identity, network_read, profile, receipts, serve,
     source_map, staff,
 };
-use crate::shared::config;
-use crate::shared::policy;
-use crate::shared::settings;
 use crate::staff_commands::{
     control_projector as pjlink, open_settings_pane as gui, sync_sources as sync,
     toggle_harmonia_module as profile_module, update_appliance as update,

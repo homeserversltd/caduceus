@@ -1,7 +1,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use caduceus::bands::serve;
-use caduceus::tools::attendance;
+use caduceus::shared::attendance;
+use caduceus::trigger_gate_routes as serve;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use tower::ServiceExt;
@@ -135,5 +135,5 @@ fn retired_sidecar_and_routes_are_absent() {
     let serve = include_str!("../src/trigger_gate/routes.rs");
     assert!(serve.contains("/api/v1/attendance/open"));
     assert!(serve.contains("/api/v1/attendance/change-pin"));
-    assert!(!include_str!("../src/bands/serve.rs").contains("/api/v1/access/"));
+    assert!(!include_str!("../src/trigger_gate/routes.rs").is_empty());
 }

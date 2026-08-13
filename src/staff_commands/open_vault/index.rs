@@ -11,7 +11,7 @@ const CRYPTTAB: &str = "/etc/crypttab";
 const POLICY_NAME: &str = ".keyman-vault-policy.json";
 const POLICY_SCHEMA: &str = "fulcrum.keyman.vault_policy.v1";
 const GOVERNING_KEYFILE: &str = "/root/key/homeconsole-vault.key";
-const KEYMAN_VAULT_OPEN_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-vault-open";
+const KEYMAN_VAULT_OPEN_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/cli.py vault-open";
 
 #[derive(Clone)]
 struct VaultConfig {
