@@ -11,7 +11,6 @@ const CRYPTTAB: &str = "/etc/crypttab";
 const POLICY_NAME: &str = ".keyman-vault-policy.json";
 const POLICY_SCHEMA: &str = "fulcrum.keyman.vault_policy.v1";
 const GOVERNING_KEYFILE: &str = "/root/key/homeconsole-vault.key";
-const KEYMAN_VAULT_OPEN_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/cli.py vault-open";
 
 #[derive(Clone)]
 struct VaultConfig {
@@ -313,34 +312,17 @@ fn keyman_unavailable(signal: &str) -> Result<bool, String> {
 
 fn keyman_open(cfg: &VaultConfig) -> Result<bool, String> {
     let payload = json!({"device": cfg.device, "mapper": cfg.mapper});
-    let mut child = match Command::new("/usr/bin/sudo")
-        .args(["-n", KEYMAN_VAULT_OPEN_LAUNCHER])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(_) => return keyman_unavailable("vault-keyman-open-spawn-unavailable"),
-    };
-    let input = match serde_json::to_vec(&payload) {
-        Ok(input) => input,
-        Err(_) => return keyman_unavailable("vault-keyman-open-payload-invalid"),
-    };
-    let Some(mut stdin) = child.stdin.take() else {
-        return keyman_unavailable("vault-keyman-open-stdin-unavailable");
-    };
-    if stdin.write_all(&input).is_err() {
-        return keyman_unavailable("vault-keyman-open-write-unavailable");
-    }
-    drop(stdin);
-    let output = match child.wait_with_output() {
-        Ok(output) => output,
-        Err(_) => return keyman_unavailable("vault-keyman-open-wait-unavailable"),
-    };
-    let receipt: Value = match serde_json::from_slice(&output.stdout) {
+    let receipt = match crate::shared::agathodaimon::crossing_value("vault", "open", &payload) {
         Ok(receipt) => receipt,
-        Err(_) => return keyman_unavailable("vault-keyman-open-receipt-invalid"),
+        Err(receipt) => {
+            if receipt.get("present").and_then(Value::as_bool) == Some(false) {
+                return Ok(false);
+            }
+            if receipt.get("ok").and_then(Value::as_bool) == Some(false) {
+                return Err("vault-keyman-open-refused".to_string());
+            }
+            return keyman_unavailable("vault-keyman-open-receipt-invalid");
+        }
     };
     let Some(present) = receipt.get("present").and_then(Value::as_bool) else {
         return keyman_unavailable("vault-keyman-open-presence-unavailable");
@@ -350,8 +332,7 @@ fn keyman_open(cfg: &VaultConfig) -> Result<bool, String> {
     }
     match receipt.get("ok").and_then(Value::as_bool) {
         Some(false) => Err("vault-keyman-open-refused".to_string()),
-        Some(true) if output.status.success() => Ok(true),
-        Some(true) => keyman_unavailable("vault-keyman-open-status-unavailable"),
+        Some(true) => Ok(true),
         None => keyman_unavailable("vault-keyman-open-receipt-invalid"),
     }
 }
