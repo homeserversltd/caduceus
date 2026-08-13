@@ -32,14 +32,20 @@ impl Fixture {
         ));
         fs::create_dir_all(&root).unwrap();
         let launcher = root.join("launcher");
-        fs::write(&launcher, format!("#!/bin/sh\ncat > {}/stdin\nprintf '%s' \"${{CADUCEUS_FIREWALL_RESPONSE:-{{\\\"ok\\\":true}}}}\"\n", root.display())).unwrap();
+        fs::write(&launcher, r#"#!/bin/sh
+if [ "$1" = attendance ] && [ "$2" = bind ]; then printf '%s' '{"ok":true,"publicKey":"fixture-public","epoch":"1"}'; exit 0; fi
+if [ "$1" = attendance ] && [ "$2" = verify ]; then printf '%s' '{"ok":true,"verified":true}'; exit 0; fi
+[ "$1" = network ] && [ "$2" = firewall ] || exit 9
+cat > "$(dirname "$0")/stdin"
+printf '%s' '{"ok":true}'
+"#).unwrap();
         let mut mode = fs::metadata(&launcher).unwrap().permissions();
         mode.set_mode(0o755);
         fs::set_permissions(&launcher, mode).unwrap();
         let old_root = env::var_os("CADUCEUS_ROOT");
-        let old_launcher = env::var_os("CADUCEUS_FIREWALL_LAUNCHER");
+        let old_launcher = env::var_os("CADUCEUS_AGATHODAIMON_CLI");
         env::set_var("CADUCEUS_ROOT", "tests/fixtures/homeserver");
-        env::set_var("CADUCEUS_FIREWALL_LAUNCHER", &launcher);
+        env::set_var("CADUCEUS_AGATHODAIMON_CLI", &launcher);
         Self {
             root,
             old_root,
@@ -59,8 +65,8 @@ impl Drop for Fixture {
             None => env::remove_var("CADUCEUS_ROOT"),
         };
         match &self.old_launcher {
-            Some(v) => env::set_var("CADUCEUS_FIREWALL_LAUNCHER", v),
-            None => env::remove_var("CADUCEUS_FIREWALL_LAUNCHER"),
+            Some(v) => env::set_var("CADUCEUS_AGATHODAIMON_CLI", v),
+            None => env::remove_var("CADUCEUS_AGATHODAIMON_CLI"),
         };
         env::remove_var("CADUCEUS_FIREWALL_RESPONSE");
         let _ = fs::remove_dir_all(&self.root);
@@ -213,7 +219,7 @@ fn firewall_launcher_refuses_oversize_and_keeps_staff_failures_structured() {
     let mut mode = fs::metadata(&huge).unwrap().permissions();
     mode.set_mode(0o755);
     fs::set_permissions(&huge, mode).unwrap();
-    env::set_var("CADUCEUS_FIREWALL_LAUNCHER", &huge);
+    env::set_var("CADUCEUS_AGATHODAIMON_CLI", &huge);
     assert_eq!(
         firewall::command_json(serde_json::json!({"action":"status"})).unwrap_err()
             ["firstMissingSignal"],
@@ -222,13 +228,13 @@ fn firewall_launcher_refuses_oversize_and_keeps_staff_failures_structured() {
     let refused = fixture.root.join("refused");
     fs::write(
         &refused,
-        "#!/bin/sh\nprintf '{\"error\":\"firewall-revision-conflict\"}'\nexit 1\n",
+        "#!/bin/sh\nprintf '{\"ok\":false,\"error\":\"firewall-revision-conflict\"}'\nexit 1\n",
     )
     .unwrap();
     let mut mode = fs::metadata(&refused).unwrap().permissions();
     mode.set_mode(0o755);
     fs::set_permissions(&refused, mode).unwrap();
-    env::set_var("CADUCEUS_FIREWALL_LAUNCHER", &refused);
+    env::set_var("CADUCEUS_AGATHODAIMON_CLI", &refused);
     let error =
         firewall::command_json(serde_json::json!({"action":"put","site":"a; b"})).unwrap_err();
     assert_eq!(error["ok"], false);

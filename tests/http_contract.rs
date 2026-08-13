@@ -535,7 +535,6 @@ async fn locked_profile_rejects_homeserver_sbin_list() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
-
 #[tokio::test(flavor = "current_thread")]
 async fn locked_profile_rejects_staff_actuators() {
     let _guard = use_fixture("tests/fixtures/locked");
@@ -669,10 +668,10 @@ async fn homeserver_named_file_ingress_route_executes_upload_bytes() {
 async fn homeserver_dhcp_http_status_and_named_actuator_execute_python_actuator() {
     let _guard = use_fixture("tests/fixtures/homeserver");
     std::env::set_var("PYTHONPATH", "tests/fixtures/staff");
-    std::env::set_var(
-        "CADUCEUS_DHCP_CMD",
-        "python3 -m agathodaimon.network.dhcp",
-    );
+    let shim = env::temp_dir().join(format!("caduceus-http-dhcp-shim-{}", std::process::id()));
+    fs::write(&shim, "#!/bin/sh\n[ \"$1\" = network ] && [ \"$2\" = dhcp ] || exit 9\ncase \"$2\" in\n  dhcp) printf '{\"ok\":true,\"schema\":\"caduceus.network.dhcp.intent.v1\",\"execution\":\"agathodaimon.network.dhcp\",\"classification\":\"network-control\",\"mutationPerformed\":true}' ;;\nesac\n").unwrap();
+    fs::set_permissions(&shim, fs::Permissions::from_mode(0o755)).unwrap();
+    std::env::set_var("CADUCEUS_AGATHODAIMON_CLI", &shim);
     std::env::set_var(
         "CADUCEUS_NETWORK_READ_CMD",
         "python3 -m agathodaimon.network.dhcp",
@@ -710,6 +709,8 @@ async fn homeserver_dhcp_http_status_and_named_actuator_execute_python_actuator(
     assert_eq!(json["classification"], "network-control");
     assert_eq!(json["mutationPerformed"], true);
     assert_eq!(json["execution"], "agathodaimon.network.dhcp");
+    std::env::remove_var("CADUCEUS_AGATHODAIMON_CLI");
+    let _ = fs::remove_file(shim);
 }
 
 fn config_temp_root(tag: &str) -> std::path::PathBuf {

@@ -245,7 +245,6 @@ fn homeserver_sbin_show_preserves_quarry_without_execution() {
     assert!(text.contains("createCertBundle"));
 }
 
-
 #[test]
 fn homeserver_sbin_marks_backblaze_and_calibre_staff_profiled() {
     let out = Command::new(bin())
@@ -280,13 +279,13 @@ fn network_dhcp_cli_routes_reads_to_pinned_actuator_and_legacy_verbs_to_dhcp() {
     assert!(stdout.contains("caduceus.network.dhcp.status.v1"));
     assert!(stdout.contains("agathodaimon.network.dhcp"));
 
+    let shim = std::env::temp_dir().join(format!("caduceus-dhcp-shim-{}", std::process::id()));
+    std::fs::write(&shim, "#!/bin/sh\n[ \"$1\" = network ] && [ \"$2\" = dhcp ] || exit 9\nprintf '{\"ok\":true,\"schema\":\"caduceus.network.dhcp.reload.v1\",\"execution\":\"agathodaimon.network.dhcp\"}'\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
     let reload = Command::new(bin())
         .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
-        .env("PYTHONPATH", "tests/fixtures/staff")
-        .env(
-            "CADUCEUS_DHCP_CMD",
-            "python3 -m agathodaimon.network.dhcp",
-        )
+        .env("CADUCEUS_AGATHODAIMON_CLI", &shim)
         .args(["network", "dhcp", "reload"])
         .output()
         .unwrap();
@@ -294,6 +293,7 @@ fn network_dhcp_cli_routes_reads_to_pinned_actuator_and_legacy_verbs_to_dhcp() {
     let stdout = String::from_utf8(reload.stdout).unwrap();
     assert!(stdout.contains("caduceus.network.dhcp.reload.v1"));
     assert!(!stdout.contains("caduceus-public-action-not-allowed"));
+    let _ = std::fs::remove_file(&shim);
 
     let refusal = Command::new(bin())
         .env("CADUCEUS_ROOT", "tests/fixtures/homeserver")
