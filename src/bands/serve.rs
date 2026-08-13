@@ -1,8 +1,9 @@
 use crate::bands::{
-    config, disk, dns, dns_control, drive_test, firewall, health, homeserver_sbin, hyalos,
-    identity, legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read,
-    profile, receipts, source_map, speedtest, staff,
+    disk, dns, dns_control, drive_test, firewall, health, homeserver_sbin, hyalos, identity,
+    legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read, profile,
+    receipts, source_map, speedtest, staff,
 };
+use crate::shared::config;
 use crate::shared::settings;
 use crate::shared::{attendance, policy};
 use crate::staff_commands::{

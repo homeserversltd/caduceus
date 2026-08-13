@@ -3,8 +3,8 @@
 //! The registry is declarative Crown metadata. This native Rust band is its
 //! only writer; `CADUCEUS_ROOT` keeps local proof on a scratch appliance root.
 
-use crate::bands::config::atomic_write_owned;
 use crate::shared::config as paths;
+use crate::shared::config::atomic_write_owned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;

@@ -107,3 +107,6 @@ pub mod change_default_apps;
 
 #[path = "change_notifications/index.rs"]
 pub mod change_notifications;
+
+#[path = "expose_ssh/index.rs"]
+pub mod expose_ssh;

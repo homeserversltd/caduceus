@@ -7,10 +7,11 @@ pub mod trigger_gate;
 pub use shared as tools;
 
 use crate::bands::{
-    child_device, config, dhcp, disk, dns, drive_test, health, help, homeserver_sbin, hyalos,
-    identity, legacy_sbin, local_ai, logs, network, network_identity, network_read, profile,
-    receipts, serve, source_map, staff,
+    child_device, dhcp, disk, dns, drive_test, health, help, homeserver_sbin, hyalos, identity,
+    legacy_sbin, local_ai, logs, network, network_identity, network_read, profile, receipts, serve,
+    source_map, staff,
 };
+use crate::shared::config;
 use crate::shared::policy;
 use crate::shared::settings;
 use crate::staff_commands::{

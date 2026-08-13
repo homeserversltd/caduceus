@@ -4,7 +4,7 @@
 //! configuration surface. The public mapping is MAC-keyed and contains only
 //! ordinary note text.
 
-use crate::bands::config;
+use crate::shared::config;
 use crate::shared::config as paths;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
