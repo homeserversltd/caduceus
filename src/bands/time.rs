@@ -1,4 +1,4 @@
-//! Caduceus household-time band — bounded Rust face over `caduceus_staff.household_time`.
+//! Caduceus household-time band — bounded Rust face over `agathodaimon.household_time`.
 //!
 //! The public read endpoint is only admitted from a LAN peer and only when a
 //! future profile explicitly admits `time state`; time mutation commands are
@@ -32,7 +32,7 @@ fn time_cmd() -> (String, Vec<String>) {
     }
     (
         "python3".into(),
-        vec!["-m".into(), "caduceus_staff.household_time".into()],
+        vec!["-m".into(), "agathodaimon.household_time".into()],
     )
 }
 

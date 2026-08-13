@@ -143,7 +143,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.profile_sources_reseed"
+      "actuator": "agathodaimon.profile_sources_reseed"
     },
     {
       "method": "GET",
@@ -359,7 +359,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": "/api/dhcp/status",
-      "actuator": "caduceus_staff.network.dhcp.status"
+      "actuator": "agathodaimon.network.dhcp.status"
     },
     {
       "method": "GET",
@@ -372,7 +372,7 @@
         "/api/dhcp/leases",
         "/api/network/dhcp/leases"
       ],
-      "actuator": "caduceus_staff.network.dhcp.leases"
+      "actuator": "agathodaimon.network.dhcp.leases"
     },
     {
       "method": "GET",
@@ -385,7 +385,7 @@
         "/api/dhcp/reservations",
         "/api/network/dhcp/reservations"
       ],
-      "actuator": "caduceus_staff.network.dhcp.reservations"
+      "actuator": "agathodaimon.network.dhcp.reservations"
     },
     {
       "method": "GET",
@@ -398,7 +398,7 @@
         "/api/dhcp/pool-boundary",
         "/api/network/dhcp/boundary"
       ],
-      "actuator": "caduceus_staff.network.dhcp.boundary"
+      "actuator": "agathodaimon.network.dhcp.boundary"
     },
     {
       "method": "GET",
@@ -407,7 +407,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": "/api/dhcp/statistics",
-      "actuator": "caduceus_staff.network.dhcp"
+      "actuator": "agathodaimon.network.dhcp"
     },
     {
       "method": "GET",
@@ -416,7 +416,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": "/api/dhcp/health",
-      "actuator": "caduceus_staff.network.dhcp"
+      "actuator": "agathodaimon.network.dhcp"
     },
     {
       "method": "GET",
@@ -425,7 +425,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network.dns.status"
+      "actuator": "agathodaimon.network.dns.status"
     },
     {
       "method": "GET",
@@ -434,7 +434,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network.dns.resolver.status"
+      "actuator": "agathodaimon.network.dns.resolver.status"
     },
     {
       "method": "POST",
@@ -443,7 +443,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network.dns.resolver.adblock"
+      "actuator": "agathodaimon.network.dns.resolver.adblock"
     },
     {
       "method": "POST",
@@ -452,7 +452,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network.dns.resolver.blocklist_update"
+      "actuator": "agathodaimon.network.dns.resolver.blocklist_update"
     },
     {
       "method": "POST",
@@ -461,7 +461,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network.dns.resolver.upstream"
+      "actuator": "agathodaimon.network.dns.resolver.upstream"
     },
     {
       "method": "GET",
@@ -470,7 +470,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": "/api/network/dns/read",
-      "actuator": "caduceus_staff.network.dns.read"
+      "actuator": "agathodaimon.network.dns.read"
     },
     {
       "method": "GET",
@@ -479,7 +479,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": "/api/network/device",
-      "actuator": "caduceus_staff.network.identity.device_list"
+      "actuator": "agathodaimon.network.identity.device_list"
     },
     {
       "method": "POST",
@@ -488,7 +488,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/network/device/claim",
-      "actuator": "caduceus_staff.network.identity.claim"
+      "actuator": "agathodaimon.network.identity.claim"
     },
     {
       "method": "GET",
@@ -497,7 +497,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network_firewall"
+      "actuator": "agathodaimon.network_firewall"
     },
     {
       "method": "GET",
@@ -506,7 +506,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network_firewall"
+      "actuator": "agathodaimon.network_firewall"
     },
     {
       "method": "GET",
@@ -515,7 +515,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network_firewall"
+      "actuator": "agathodaimon.network_firewall"
     },
     {
       "method": "PUT",
@@ -524,7 +524,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network_firewall"
+      "actuator": "agathodaimon.network_firewall"
     },
     {
       "method": "DELETE",
@@ -533,7 +533,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network_firewall"
+      "actuator": "agathodaimon.network_firewall"
     },
     {
       "method": "GET",
@@ -551,7 +551,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network_dns"
+      "actuator": "agathodaimon.network_dns"
     },
     {
       "method": "POST",
@@ -560,7 +560,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network_dns"
+      "actuator": "agathodaimon.network_dns"
     },
     {
       "method": "POST",
@@ -569,7 +569,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network_dns"
+      "actuator": "agathodaimon.network_dns"
     },
     {
       "method": "POST",
@@ -578,7 +578,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network_dns"
+      "actuator": "agathodaimon.network_dns"
     },
     {
       "method": "POST",
@@ -587,7 +587,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.network_dns"
+      "actuator": "agathodaimon.network_dns"
     },
     {
       "method": "GET",
@@ -596,7 +596,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_status"
+      "actuator": "agathodaimon.house_ca_status"
     },
     {
       "method": "POST",
@@ -605,7 +605,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_ensure_root"
+      "actuator": "agathodaimon.house_ca_ensure_root"
     },
     {
       "method": "POST",
@@ -614,7 +614,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_issue_leaf"
+      "actuator": "agathodaimon.house_ca_issue_leaf"
     },
     {
       "method": "POST",
@@ -623,7 +623,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.csr_sign"
+      "actuator": "agathodaimon.csr_sign"
     },
     {
       "method": "GET",
@@ -641,7 +641,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_bundle_export"
+      "actuator": "agathodaimon.house_ca_bundle_export"
     },
     {
       "method": "POST",
@@ -650,7 +650,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_bundle_export"
+      "actuator": "agathodaimon.house_ca_bundle_export"
     },
     {
       "method": "POST",
@@ -659,7 +659,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_bundle_export"
+      "actuator": "agathodaimon.house_ca_bundle_export"
     },
     {
       "method": "GET",
@@ -668,7 +668,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_bundle_read"
+      "actuator": "agathodaimon.house_ca_bundle_read"
     },
     {
       "method": "GET",
@@ -677,7 +677,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_bundle_export"
+      "actuator": "agathodaimon.house_ca_bundle_export"
     },
     {
       "method": "POST",
@@ -686,7 +686,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_bundle_export"
+      "actuator": "agathodaimon.house_ca_bundle_export"
     },
     {
       "method": "POST",
@@ -695,7 +695,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_apply_nginx"
+      "actuator": "agathodaimon.house_ca_apply_nginx"
     },
     {
       "method": "POST",
@@ -704,7 +704,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_apply_nginx"
+      "actuator": "agathodaimon.house_ca_apply_nginx"
     },
     {
       "method": "POST",
@@ -713,7 +713,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_constituent_lock"
+      "actuator": "agathodaimon.house_ca_constituent_lock"
     },
     {
       "method": "POST",
@@ -722,7 +722,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_trust_install"
+      "actuator": "agathodaimon.house_ca_trust_install"
     },
     {
       "method": "POST",
@@ -740,7 +740,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.house_ca_portal_admit"
+      "actuator": "agathodaimon.house_ca_portal_admit"
     },
     {
       "method": "GET",
@@ -839,7 +839,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/dhcp/config",
-      "actuator": "caduceus_staff.network_dhcp"
+      "actuator": "agathodaimon.network_dhcp"
     },
     {
       "method": "POST",
@@ -848,7 +848,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/dhcp/reservations",
-      "actuator": "caduceus_staff.network_dhcp"
+      "actuator": "agathodaimon.network_dhcp"
     },
     {
       "method": "PUT",
@@ -857,7 +857,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/dhcp/reservations/:reservation_id",
-      "actuator": "caduceus_staff.network_dhcp"
+      "actuator": "agathodaimon.network_dhcp"
     },
     {
       "method": "DELETE",
@@ -866,7 +866,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/dhcp/reservations/:reservation_id",
-      "actuator": "caduceus_staff.network_dhcp"
+      "actuator": "agathodaimon.network_dhcp"
     },
     {
       "method": "POST",
@@ -875,7 +875,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/dhcp/pool-boundary",
-      "actuator": "caduceus_staff.network_dhcp"
+      "actuator": "agathodaimon.network_dhcp"
     },
     {
       "method": "POST",
@@ -893,7 +893,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.linker"
+      "actuator": "agathodaimon.linker"
     },
     {
       "method": "GET",
@@ -902,7 +902,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": null,
-      "actuator": "caduceus_staff.linker"
+      "actuator": "agathodaimon.linker"
     },
     {
       "method": "POST",
@@ -911,7 +911,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.linker"
+      "actuator": "agathodaimon.linker"
     },
     {
       "method": "POST",
@@ -920,7 +920,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.linker"
+      "actuator": "agathodaimon.linker"
     },
     {
       "method": "POST",
@@ -929,7 +929,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.linker"
+      "actuator": "agathodaimon.linker"
     },
     {
       "method": "POST",
@@ -938,7 +938,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.linker"
+      "actuator": "agathodaimon.linker"
     },
     {
       "method": "POST",
@@ -947,7 +947,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.linker"
+      "actuator": "agathodaimon.linker"
     },
     {
       "method": "GET",
@@ -956,7 +956,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": null,
-      "actuator": "caduceus_staff.linker"
+      "actuator": "agathodaimon.linker"
     },
     {
       "method": "POST",
@@ -965,7 +965,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/files/upload",
-      "actuator": "caduceus_staff.file_ingress"
+      "actuator": "agathodaimon.file_ingress"
     },
     {
       "method": "POST",
@@ -974,7 +974,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/upload/force-permissions",
-      "actuator": "caduceus_staff.upload_force_permissions"
+      "actuator": "agathodaimon.upload_force_permissions"
     },
     {
       "method": "POST",
@@ -983,7 +983,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.backblaze_b2_recover"
+      "actuator": "agathodaimon.backblaze_b2_recover"
     },
     {
       "method": "POST",
@@ -992,7 +992,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.backblaze_forgejo_b2_push"
+      "actuator": "agathodaimon.backblaze_forgejo_b2_push"
     },
     {
       "method": "POST",
@@ -1001,7 +1001,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.backblaze_forgejo_migrate"
+      "actuator": "agathodaimon.backblaze_forgejo_migrate"
     },
     {
       "method": "POST",
@@ -1010,7 +1010,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/backblaze/config",
-      "actuator": "caduceus_staff.backblaze_config"
+      "actuator": "agathodaimon.backblaze_config"
     },
     {
       "method": "POST",
@@ -1019,7 +1019,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.calibre_helper_daemon"
+      "actuator": "agathodaimon.calibre_helper_daemon"
     },
     {
       "method": "POST",
@@ -1028,7 +1028,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.calibre_watch"
+      "actuator": "agathodaimon.calibre_watch"
     },
     {
       "method": "POST",
@@ -1037,7 +1037,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.keyman_doors"
+      "actuator": "agathodaimon.keyman_doors"
     },
     {
       "method": "POST",
@@ -1046,7 +1046,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.keyman_doors"
+      "actuator": "agathodaimon.keyman_doors"
     },
     {
       "method": "POST",
@@ -1055,7 +1055,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.keyman_doors"
+      "actuator": "agathodaimon.keyman_doors"
     },
     {
       "method": "POST",
@@ -1064,7 +1064,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.keyman_doors"
+      "actuator": "agathodaimon.keyman_doors"
     },
     {
       "method": "POST",
@@ -1073,7 +1073,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/usr/local/sbin/caduceus-keyman-rotate-capability",
-      "actuator": "caduceus_staff.keyman_doors"
+      "actuator": "agathodaimon.keyman_doors"
     },
     {
       "method": "POST",
@@ -1082,7 +1082,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/service/control",
-      "actuator": "caduceus_staff.service_control_doors"
+      "actuator": "agathodaimon.service_control_doors"
     },
     {
       "method": "POST",
@@ -1091,7 +1091,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/admin/ssh/status",
-      "actuator": "caduceus_staff.service_control_doors"
+      "actuator": "agathodaimon.service_control_doors"
     },
     {
       "method": "POST",
@@ -1100,7 +1100,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/admin/ssh/toggle",
-      "actuator": "caduceus_staff.service_control_doors"
+      "actuator": "agathodaimon.service_control_doors"
     },
     {
       "method": "POST",
@@ -1109,7 +1109,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/admin/ssh/service/status",
-      "actuator": "caduceus_staff.service_control_doors"
+      "actuator": "agathodaimon.service_control_doors"
     },
     {
       "method": "POST",
@@ -1118,7 +1118,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/admin/ssh/service",
-      "actuator": "caduceus_staff.service_control_doors"
+      "actuator": "agathodaimon.service_control_doors"
     },
     {
       "method": "POST",
@@ -1127,7 +1127,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/admin/samba/status",
-      "actuator": "caduceus_staff.service_control_doors"
+      "actuator": "agathodaimon.service_control_doors"
     },
     {
       "method": "POST",
@@ -1136,7 +1136,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/admin/samba/service",
-      "actuator": "caduceus_staff.service_control_doors"
+      "actuator": "agathodaimon.service_control_doors"
     },
     {
       "method": "POST",
@@ -1145,7 +1145,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/admin/system/restart",
-      "actuator": "caduceus_staff.service_control_doors"
+      "actuator": "agathodaimon.service_control_doors"
     },
     {
       "method": "POST",
@@ -1154,7 +1154,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/admin/system/shutdown",
-      "actuator": "caduceus_staff.service_control_doors"
+      "actuator": "agathodaimon.service_control_doors"
     },
     {
       "method": "POST",
@@ -1163,7 +1163,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": "/api/admin/services/hard-reset",
-      "actuator": "caduceus_staff.service_control_doors"
+      "actuator": "agathodaimon.service_control_doors"
     },
     {
       "method": "POST",
@@ -1172,7 +1172,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.wake_on_lan"
+      "actuator": "agathodaimon.wake_on_lan"
     },
     {
       "method": "POST",
@@ -1181,7 +1181,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.wake_on_lan"
+      "actuator": "agathodaimon.wake_on_lan"
     },
     {
       "method": "POST",
@@ -1190,7 +1190,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.child_device"
+      "actuator": "agathodaimon.child_device"
     },
     {
       "method": "POST",
@@ -1199,7 +1199,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.child_device"
+      "actuator": "agathodaimon.child_device"
     },
     {
       "method": "POST",
@@ -1208,7 +1208,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.child_device"
+      "actuator": "agathodaimon.child_device"
     },
     {
       "method": "POST",
@@ -1217,7 +1217,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.child_device"
+      "actuator": "agathodaimon.child_device"
     },
     {
       "method": "POST",
@@ -1226,7 +1226,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.child_device"
+      "actuator": "agathodaimon.child_device"
     },
     {
       "method": "POST",
@@ -1235,7 +1235,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.child_device"
+      "actuator": "agathodaimon.child_device"
     },
     {
       "method": "POST",
@@ -1244,7 +1244,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.nas_sync"
+      "actuator": "agathodaimon.nas_sync"
     },
     {
       "method": "GET",
@@ -1253,7 +1253,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": null,
-      "actuator": "caduceus_staff.nas_sync"
+      "actuator": "agathodaimon.nas_sync"
     },
     {
       "method": "POST",
@@ -1262,7 +1262,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.nas_sync"
+      "actuator": "agathodaimon.nas_sync"
     },
     {
       "method": "POST",
@@ -1271,7 +1271,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.nas_sync"
+      "actuator": "agathodaimon.nas_sync"
     },
     {
       "method": "POST",
@@ -1280,7 +1280,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.disk_doors"
+      "actuator": "agathodaimon.disk_doors"
     },
     {
       "method": "POST",
@@ -1289,7 +1289,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.disk_doors"
+      "actuator": "agathodaimon.disk_doors"
     },
     {
       "method": "POST",
@@ -1298,7 +1298,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.disk_doors"
+      "actuator": "agathodaimon.disk_doors"
     },
     {
       "method": "POST",
@@ -1307,7 +1307,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.disk_doors"
+      "actuator": "agathodaimon.disk_doors"
     },
     {
       "method": "POST",
@@ -1316,7 +1316,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.disk_doors"
+      "actuator": "agathodaimon.disk_doors"
     },
     {
       "method": "POST",
@@ -1325,7 +1325,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.disk_doors"
+      "actuator": "agathodaimon.disk_doors"
     },
     {
       "method": "POST",
@@ -1334,7 +1334,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.disk_doors"
+      "actuator": "agathodaimon.disk_doors"
     },
     {
       "method": "POST",
@@ -1343,7 +1343,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.disk_doors"
+      "actuator": "agathodaimon.disk_doors"
     },
     {
       "method": "POST",
@@ -1352,7 +1352,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.disk_doors"
+      "actuator": "agathodaimon.disk_doors"
     },
     {
       "method": "POST",
@@ -1361,7 +1361,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.disk_doors"
+      "actuator": "agathodaimon.disk_doors"
     },
     {
       "method": "POST",
@@ -1370,7 +1370,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.disk_doors"
+      "actuator": "agathodaimon.disk_doors"
     },
     {
       "method": "POST",
@@ -1523,7 +1523,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.harmonia_module_toggle"
+      "actuator": "agathodaimon.harmonia_module_toggle"
     },
     {
       "method": "GET",
@@ -1559,7 +1559,7 @@
       "snake": "staff-python",
       "posture": "admin-read",
       "crown_alias": null,
-      "actuator": "caduceus_staff.settings"
+      "actuator": "agathodaimon.settings"
     },
     {
       "method": "POST",
@@ -1568,7 +1568,7 @@
       "snake": "staff-python",
       "posture": "capability-mutation",
       "crown_alias": null,
-      "actuator": "caduceus_staff.settings"
+      "actuator": "agathodaimon.settings"
     }
   ]
 }

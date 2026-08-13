@@ -30,12 +30,12 @@ Operator / Arcadia / Coronatio
   Rust cert band (CLI + HTTP)     ← public membrane, profile-gated
         │
         ▼
-  caduceus_staff.house_ca         ← privileged Python engine (OpenSSL, files, nginx, state)
+  agathodaimon.house_ca         ← privileged Python engine (OpenSSL, files, nginx, state)
 ```
 
 - **Rust** (`src/bands/cert.rs`, `serve.rs`) — typed CLI and HTTP routes, JSON
   receipts, profile gate. Never holds private key bytes in public output.
-- **Python** (`data/staff-actuators/caduceus_staff/house_ca.py`) — nine
+- **Python** (`/usr/local/sbin/agathodaimon/house_ca.py`) — nine
   composable primitives; only `state_commit` replaces durable state.
 
 Launcher on device: `/usr/local/sbin/caduceus-house-ca` (Harmonia ships it).

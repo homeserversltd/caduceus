@@ -1,5 +1,0 @@
-#!/bin/sh
-set -eu
-PYTHON=${CADUCEUS_STAFF_PYTHON:-/var/lib/caduceus/venv/bin/python3}
-[ -x "$PYTHON" ] || PYTHON=python3
-exec "$PYTHON" -m caduceus_staff.house_ca "$@"

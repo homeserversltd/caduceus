@@ -1,4 +1,4 @@
-//! Caduceus DHCP band — public Rust face over `caduceus_staff.network.dhcp`.
+//! Caduceus DHCP band — public Rust face over `agathodaimon.network.dhcp`.
 
 use serde_json::{json, Value};
 use std::{env, process::Command};
@@ -20,7 +20,7 @@ fn dhcp_cmd() -> (String, Vec<String>) {
     }
     (
         "python3".into(),
-        vec!["-m".into(), "caduceus_staff.network.dhcp".into()],
+        vec!["-m".into(), "agathodaimon.network.dhcp".into()],
     )
 }
 
@@ -99,7 +99,7 @@ mod tests {
         env::set_var("PYTHONPATH", fixture);
         env::set_var(
             "CADUCEUS_DHCP_CMD",
-            "python3 -m caduceus_staff.network.dhcp",
+            "python3 -m agathodaimon.network.dhcp",
         );
         let status = status_json().unwrap();
         assert_eq!(status["schema"], "caduceus.network.dhcp.status.v1");

@@ -7,10 +7,12 @@ use std::process::{Command, Stdio};
 use crate::bands::{dhcp, dns, linker};
 use crate::tools::hyalos;
 
-const PROFILE: &str = include_str!("../../data/staff-actuators/profile.json");
+const PROFILE_PATH: &str = "/usr/local/sbin/profile.json";
 
 pub fn profile_json() -> Result<Value, String> {
-    serde_json::from_str(PROFILE)
+    let profile = std::fs::read_to_string(PROFILE_PATH)
+        .map_err(|err| format!("caduceus-staff-actuator-profile-unavailable: {err}"))?;
+    serde_json::from_str(&profile)
         .map_err(|err| format!("caduceus-staff-actuator-profile-invalid: {err}"))
 }
 
@@ -40,7 +42,7 @@ pub fn actuators_json() -> Result<Value, String> {
         .get("actuators")
         .and_then(Value::as_array)
         .cloned()
-        .ok_or_else(|| "caduceus-staff-actuators-missing".to_string())?;
+        .ok_or_else(|| "caduceus-staff-catalog-missing".to_string())?;
     Ok(json!({
         "schema": "caduceus.staff.actuators.v1",
         "ok": true,
@@ -122,7 +124,7 @@ pub fn actuators() -> i32 {
             0
         }
         Err(err) => {
-            eprintln!("caduceus-staff-actuators-failed: {err}");
+            eprintln!("caduceus-staff-catalog-failed: {err}");
             1
         }
     }
