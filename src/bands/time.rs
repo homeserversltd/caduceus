@@ -15,7 +15,7 @@ fn time_cmd() -> (String, Vec<String>) {
             return (program.clone(), prefix.to_vec());
         }
     }
-    const SYSTEM_LAUNCHER: &str = "/usr/local/sbin/caduceus-household-time";
+    const SYSTEM_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-household-time";
     if std::fs::metadata(SYSTEM_LAUNCHER)
         .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
         .unwrap_or(false)

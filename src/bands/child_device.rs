@@ -2,7 +2,7 @@
 use serde_json::Value;
 use std::{env, process::Command};
 
-const LAUNCHER: &str = "/usr/local/sbin/caduceus-child-device";
+const LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-child-device";
 
 fn launcher_command() -> (String, Vec<String>) {
     if let Ok(path) = env::var("CADUCEUS_CHILD_DEVICE_LAUNCHER") {
