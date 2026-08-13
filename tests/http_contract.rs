@@ -1214,8 +1214,8 @@ impl CertFixture {
             ("PYTHONPATH", std::ffi::OsStr::new("tests/fixtures/staff")),
             ("PYTHONDONTWRITEBYTECODE", std::ffi::OsStr::new("1")),
             (
-                "CADUCEUS_HOUSE_CA_CMD",
-                std::ffi::OsStr::new("python3 tests/fixtures/staff/agathodaimon/cli.py"),
+                "CADUCEUS_AGATHODAIMON_CLI",
+                std::ffi::OsStr::new("tests/fixtures/staff/agathodaimon/cli.py"),
             ),
         ];
         let previous_env = values

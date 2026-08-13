@@ -139,6 +139,19 @@ def bundle_export(platform: str = "linux", *, dry_run: bool = False) -> dict[str
     return _receipt("bundle_export", changed=True, platform=platform, path=str(out), ca_fingerprint=_fingerprint(cert_dir()/"ca.pem"))
 
 
+def bundle_read(platform: str = "linux") -> dict[str, Any]:
+    if platform not in PLATFORMS: raise ValueError("caduceus-cert-platform-invalid")
+    suffix = ".cer" if platform == "windows" else ".crt"
+    path = _path("CADUCEUS_CERT_BUNDLE_DIR", "/var/lib/caduceus/certs/bundles") / f"homeserver-house-ca-{platform}{suffix}"
+    if not path.is_file(): raise RuntimeError("caduceus-house-ca-refused")
+    data = path.read_bytes()
+    if b"PRIVATE KEY" in data: raise RuntimeError("caduceus-cert-private-key-leaked")
+    return _receipt("bundle_read", changed=False, platform=platform, filename=path.name,
+                    mime_type="application/x-x509-ca-cert", fingerprint=_fingerprint(path),
+                    content_base64=__import__("base64").b64encode(data).decode(),
+                    client_reinstall_required=False)
+
+
 def trust_install(bundle: str, platform: str = "linux", *, dry_run: bool = False) -> dict[str, Any]:
     source = Path(bundle)
     if not source.is_file(): raise ValueError("caduceus-cert-bundle-missing")
@@ -228,6 +241,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for name in ("ensure-root","status"): sub.add_parser(name)
     issue=sub.add_parser("issue-leaf"); issue.add_argument("identity",nargs="?",default="home.arpa"); issue.add_argument("--sans",default=""); issue.add_argument("--ips",default=""); issue.add_argument("--dry-run",action="store_true")
     bundle=sub.add_parser("bundle-export"); bundle.add_argument("platform",choices=sorted(PLATFORMS)); bundle.add_argument("--dry-run",action="store_true")
+    read=sub.add_parser("bundle-read"); read.add_argument("platform",choices=sorted(PLATFORMS))
     trust=sub.add_parser("trust-install"); trust.add_argument("bundle"); trust.add_argument("--platform",default="linux",choices=sorted(PLATFORMS)); trust.add_argument("--dry-run",action="store_true")
     apply=sub.add_parser("apply-nginx"); apply.add_argument("portal"); apply.add_argument("upstream"); apply.add_argument("certificate"); apply.add_argument("key_path"); apply.add_argument("--dry-run",action="store_true")
     admit=sub.add_parser("portal-admit"); admit.add_argument("portal"); admit.add_argument("lan_ip"); admit.add_argument("upstream"); admit.add_argument("--aliases",default=""); admit.add_argument("--dry-run",action="store_true")
@@ -236,6 +250,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.cmd=="status": return _emit(status)
     if args.cmd=="issue-leaf": return _emit(lambda:issue_leaf(args.identity,args.sans.split(",") if args.sans else (),args.ips.split(",") if args.ips else (),dry_run=args.dry_run))
     if args.cmd=="bundle-export": return _emit(lambda:bundle_export(args.platform,dry_run=args.dry_run))
+    if args.cmd=="bundle-read": return _emit(lambda:bundle_read(args.platform))
     if args.cmd=="trust-install": return _emit(lambda:trust_install(args.bundle,args.platform,dry_run=args.dry_run))
     if args.cmd=="apply-nginx": return _emit(lambda:apply_nginx(args.portal,args.upstream,args.certificate,args.key_path,dry_run=args.dry_run))
     if args.cmd=="portal-admit": return _emit(lambda:portal_admit(args.portal,args.lan_ip,args.upstream,args.aliases.split(",") if args.aliases else (),dry_run=args.dry_run))

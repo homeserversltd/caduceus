@@ -3194,16 +3194,16 @@ pub fn router() -> Router {
             "/api/v1/access/pin/reset-default",
             post(pin_reset_default_route),
         )
-        .route(
-            "/api/v1/service/:service/restart",
-            post(registered_service_restart_route),
-        )
         .route("/api/v1/vault/status", get(vault_status_route))
         .route("/api/v1/vault/unlock", post(vault_unlock_route))
         .route("/api/v1/vault/auto-decrypt", post(vault_auto_route))
         .layer(middleware::from_fn(local_access_route));
     Router::new()
         .merge(local_access_routes)
+        .route(
+            "/api/v1/service/:service/restart",
+            post(registered_service_restart_route),
+        )
         .route("/health", get(health_route))
         .route("/api/v1/identity", get(identity_route))
         .route("/api/v1/profile", get(profile_route))
