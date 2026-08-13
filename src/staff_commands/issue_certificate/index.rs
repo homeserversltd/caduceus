@@ -10,13 +10,17 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-
 const LEGACY_CERT_REFRESH_SCRIPT: &str = "/usr/local/sbin/sslKey.sh";
 
 pub fn invoke_json(args: &[String]) -> Result<Value, String> {
     let input = json!({"args": args});
-    crate::shared::agathodaimon::crossing_value("cert", "house-ca", &input)
-        .map_err(|value| value.get("firstMissingSignal").and_then(Value::as_str).unwrap_or("caduceus-cert-house-ca-failed").to_string())
+    crate::shared::agathodaimon::crossing_value("cert", "house-ca", &input).map_err(|value| {
+        value
+            .get("firstMissingSignal")
+            .and_then(Value::as_str)
+            .unwrap_or("caduceus-cert-house-ca-failed")
+            .to_string()
+    })
 }
 
 fn invoke_receipt(args: &[String]) -> Result<Value, String> {
@@ -25,12 +29,19 @@ fn invoke_receipt(args: &[String]) -> Result<Value, String> {
 
 fn invoke_json_with_stdin(args: &[String], stdin: Option<&[u8]>) -> Result<Value, String> {
     let mut input: Value = stdin
-        .map(|bytes| serde_json::from_slice(bytes).map_err(|_| "caduceus-cert-invalid-request".to_string()))
+        .map(|bytes| {
+            serde_json::from_slice(bytes).map_err(|_| "caduceus-cert-invalid-request".to_string())
+        })
         .transpose()?
         .unwrap_or_else(|| json!({}));
     input["args"] = json!(args);
-    crate::shared::agathodaimon::crossing_value("cert", "house-ca", &input)
-        .map_err(|value| value.get("firstMissingSignal").and_then(Value::as_str).unwrap_or("caduceus-cert-house-ca-failed").to_string())
+    crate::shared::agathodaimon::crossing_value("cert", "house-ca", &input).map_err(|value| {
+        value
+            .get("firstMissingSignal")
+            .and_then(Value::as_str)
+            .unwrap_or("caduceus-cert-house-ca-failed")
+            .to_string()
+    })
 }
 
 pub fn sign_csr_json(csr_pem: &str) -> Result<Value, String> {

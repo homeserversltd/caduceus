@@ -18,7 +18,8 @@ fn public_receipt(value: Value) -> Value {
 }
 
 fn invoke(args: &[String]) -> Result<Value, String> {
-    crate::shared::agathodaimon::crossing("network", "dns", &json!({"args": args})).map(public_receipt)
+    crate::shared::agathodaimon::crossing("network", "dns", &json!({"args": args}))
+        .map(public_receipt)
 }
 
 pub fn status_json() -> Result<Value, String> {

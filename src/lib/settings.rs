@@ -5,10 +5,9 @@
 //! actuator. Successful mutations must return a receipt rooted in the shared
 //! Caduceus ledger.
 
-use crate::bands::staff;
+use crate::shared::agathodaimon;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::process::{Command, Output};
 
 pub const FAMILIES: &[&str] = &[
     "display",
@@ -91,52 +90,17 @@ pub fn read_command(family: &str) -> Option<String> {
 pub fn mutate_command(family: &str) -> Option<String> {
     fields(family).map(|_| format!("settings {family} mutate"))
 }
-fn actuator_id(family: &str) -> String {
-    format!("settings-{family}")
-}
-
-fn launcher(family: &str) -> Result<String, String> {
-    let id = actuator_id(family);
-    let profile = staff::profile_json()?;
-    profile
-        .get("actuators")
-        .and_then(Value::as_array)
-        .and_then(|items| {
-            items
-                .iter()
-                .find(|item| item.get("id").and_then(Value::as_str) == Some(&id))
-        })
-        .and_then(|item| item.get("launcher"))
-        .and_then(Value::as_str)
-        .filter(|value| {
-            value.starts_with("/usr/local/sbin/agathodaimon/caduceus-settings-") && !value.contains('\0')
-        })
-        .map(str::to_string)
-        .ok_or_else(|| format!("caduceus-settings-actuator-missing:{id}"))
-}
 
 fn run(family: &str, args: &[String]) -> Result<Value, String> {
-    let id = actuator_id(family);
-    let output = Command::new(launcher(family)?)
-        .args(args)
-        .env("CADUCEUS_STAFF_ACTUATOR_ID", &id)
-        .env("CADUCEUS_RECEIPT_ROOT", RECEIPT_ROOT.trim_end_matches('/'))
-        .output()
-        .map_err(|err| format!("caduceus-settings-launcher-unavailable:{id}:{err}"))?;
-    decode_output(&id, output)
-}
-
-fn decode_output(id: &str, output: Output) -> Result<Value, String> {
-    let value: Value = serde_json::from_slice(&output.stdout)
-        .map_err(|_| format!("caduceus-settings-invalid-receipt:{id}"))?;
-    if !output.status.success() || value.get("ok").and_then(Value::as_bool) != Some(true) {
-        return Err(value
+    let input = json!({"args": args, "receiptRoot": RECEIPT_ROOT});
+    agathodaimon::crossing_value("settings", family, &input).map_err(|value| {
+        value
             .get("firstMissingSignal")
+            .or_else(|| value.get("error"))
             .and_then(Value::as_str)
             .unwrap_or("caduceus-settings-staff-refused")
-            .to_string());
-    }
-    Ok(value)
+            .to_string()
+    })
 }
 
 fn bounded_value(value: &Value) -> bool {

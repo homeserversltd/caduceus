@@ -1,4 +1,4 @@
-use crate::shared::{harmonia, receipts};
+use crate::shared::agathodaimon;
 use serde_json::Value;
 
 pub fn invoke_update_now_json(rest: &[String]) -> Value {
@@ -8,11 +8,11 @@ pub fn invoke_update_now_json(rest: &[String]) -> Value {
         .filter(|arg| *arg != "--dry-run")
         .cloned()
         .collect();
-    let (code, body) = harmonia::invoke("gui_update_now", &flags, dry_run);
-    if !dry_run {
-        let _ = receipts::write_latest(&body);
+    let input = serde_json::json!({"args": flags, "dryRun": dry_run});
+    match agathodaimon::crossing_value("gui", "update", &input) {
+        Ok(value) => value,
+        Err(value) => value,
     }
-    harmonia::invoke_body_to_json("gui_update_now", code, &body)
 }
 
 pub fn update_now(rest: &[String]) -> i32 {

@@ -1,12 +1,14 @@
 use crate::bands::{
-    config, disk, dns, dns_control, drive_test, firewall, gui, health, homeserver_sbin, hyalos,
+    config, disk, dns, dns_control, drive_test, firewall, health, homeserver_sbin, hyalos,
     identity, legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read,
-    pjlink, profile, receipts, settings, source_map, speedtest, staff,
+    profile, receipts, source_map, speedtest, staff,
 };
+use crate::shared::settings;
 use crate::shared::{attendance, policy};
 use crate::staff_commands::{
-    admit_portal, change_pin, install_trust, issue_certificate, open_vault, rebuild_crown,
-    sync_sources as sync, toggle_harmonia_module as profile_module, update_appliance as update,
+    admit_portal, change_pin, control_projector as pjlink, install_trust, issue_certificate,
+    open_settings_pane as gui, open_vault, rebuild_crown, sync_sources as sync,
+    toggle_harmonia_module as profile_module, update_appliance as update,
 };
 use axum::{
     body::{Body, HttpBody},

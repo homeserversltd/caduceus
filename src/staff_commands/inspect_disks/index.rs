@@ -213,7 +213,6 @@ fn string<'a>(entry: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|value| !value.is_empty())
 }
 
-
 pub fn mutation_target_admitted(target: &str) -> Result<(), String> {
     let wanted = target
         .strip_prefix("/dev/")
@@ -233,8 +232,7 @@ pub fn mutation_target_admitted(target: &str) -> Result<(), String> {
         .into_iter()
         .flatten()
         .any(|entry| {
-            string(entry, "name") == Some(wanted)
-                || string(entry, "partition") == Some(wanted)
+            string(entry, "name") == Some(wanted) || string(entry, "partition") == Some(wanted)
         });
     if admitted {
         Ok(())

@@ -136,8 +136,13 @@ pub fn intent_json(
     classification: Option<&str>,
     metadata: Option<Value>,
 ) -> Result<Value, String> {
-    if route == "/api/files/upload" && method == "POST"
-        && metadata.as_ref().and_then(|value| value.get("payload")).and_then(Value::as_array).is_some()
+    if route == "/api/files/upload"
+        && method == "POST"
+        && metadata
+            .as_ref()
+            .and_then(|value| value.get("payload"))
+            .and_then(Value::as_array)
+            .is_some()
     {
         return execute_file_ingress(metadata.unwrap_or_else(|| json!({})));
     }
@@ -213,24 +218,73 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
         "file-ingress" => execute_file_ingress(metadata),
         "linker" => linker::intent_json(metadata),
         "upload-force-permissions" => execute_force_permissions(metadata),
-        id @ ("backblaze-b2-recover" | "backblaze-forgejo-b2-push" | "backblaze-forgejo-migrate" | "backblaze-config" | "calibre-helper-daemon" | "calibre-watch" | "keyman-doors" | "service-control-doors" | "disk-doors" | "wake-on-lan" | "child-device" | "nas-sync") => execute_registered_actuator(id, metadata),
+        id @ ("backblaze-b2-recover"
+        | "backblaze-forgejo-b2-push"
+        | "backblaze-forgejo-migrate"
+        | "backblaze-config"
+        | "calibre-helper-daemon"
+        | "calibre-watch"
+        | "keyman-doors"
+        | "service-control-doors"
+        | "disk-doors"
+        | "wake-on-lan"
+        | "child-device"
+        | "nas-sync") => execute_registered_actuator(id, metadata),
         _ => Err("caduceus-staff-actuator-unmapped".to_string()),
     }
 }
 
 pub fn execute_registered_actuator(actuator_id: &str, metadata: Value) -> Result<Value, String> {
     let profile = profile_json()?;
-    let actuator = profile.get("actuators").and_then(Value::as_array).and_then(|items| items.iter().find(|item| item.get("id").and_then(Value::as_str) == Some(actuator_id))).ok_or_else(|| "caduceus-staff-actuator-unmapped".to_string())?;
-    let launcher = actuator.get("launcher").and_then(Value::as_str).filter(|value| value.starts_with('/') && !value.contains('\0')).ok_or_else(|| "caduceus-staff-launcher-invalid".to_string())?;
-    let input = serde_json::to_vec(&json!({"actuator":actuator_id,"metadata":metadata})).map_err(|_| "caduceus-staff-request-invalid".to_string())?;
-    let mut child = Command::new(launcher).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|_| "caduceus-staff-unavailable".to_string())?;
+    let actuator = profile
+        .get("actuators")
+        .and_then(Value::as_array)
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|item| item.get("id").and_then(Value::as_str) == Some(actuator_id))
+        })
+        .ok_or_else(|| "caduceus-staff-actuator-unmapped".to_string())?;
+    let launcher = actuator
+        .get("launcher")
+        .and_then(Value::as_str)
+        .filter(|value| value.starts_with('/') && !value.contains('\0'))
+        .ok_or_else(|| "caduceus-staff-launcher-invalid".to_string())?;
+    let input = serde_json::to_vec(&json!({"actuator":actuator_id,"metadata":metadata}))
+        .map_err(|_| "caduceus-staff-request-invalid".to_string())?;
+    let mut child = Command::new(launcher)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "caduceus-staff-unavailable".to_string())?;
     use std::io::Write;
-    child.stdin.take().ok_or_else(|| "caduceus-staff-unavailable".to_string())?.write_all(&input).map_err(|_| "caduceus-staff-unavailable".to_string())?;
-    let output = child.wait_with_output().map_err(|_| "caduceus-staff-unavailable".to_string())?;
-    let receipt: Value = serde_json::from_slice(&output.stdout).map_err(|_| "caduceus-staff-invalid-receipt".to_string())?;
-    if actuator_id == "backblaze-config" && receipt.get("ok").and_then(Value::as_bool) == Some(false) { return Ok(receipt); }
-    if !output.status.success() || receipt.get("ok").and_then(Value::as_bool) == Some(false) { return Err(receipt.get("firstMissingSignal").and_then(Value::as_str).unwrap_or("caduceus-staff-refused").to_string()); }
-    Ok(json!({"schema":"caduceus.staff.named_actuator.v1","ok":true,"accepted":true,"actuatorId":actuator_id,"receiptFamily":actuator.get("receiptFamily"),"receipt":receipt,"mutationPerformed":receipt.get("mutationPerformed").and_then(Value::as_bool).unwrap_or(true),"firstMissingSignal":"none"}))
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| "caduceus-staff-unavailable".to_string())?
+        .write_all(&input)
+        .map_err(|_| "caduceus-staff-unavailable".to_string())?;
+    let output = child
+        .wait_with_output()
+        .map_err(|_| "caduceus-staff-unavailable".to_string())?;
+    let receipt: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| "caduceus-staff-invalid-receipt".to_string())?;
+    if actuator_id == "backblaze-config"
+        && receipt.get("ok").and_then(Value::as_bool) == Some(false)
+    {
+        return Ok(receipt);
+    }
+    if !output.status.success() || receipt.get("ok").and_then(Value::as_bool) == Some(false) {
+        return Err(receipt
+            .get("firstMissingSignal")
+            .and_then(Value::as_str)
+            .unwrap_or("caduceus-staff-refused")
+            .to_string());
+    }
+    Ok(
+        json!({"schema":"caduceus.staff.named_actuator.v1","ok":true,"accepted":true,"actuatorId":actuator_id,"receiptFamily":actuator.get("receiptFamily"),"receipt":receipt,"mutationPerformed":receipt.get("mutationPerformed").and_then(Value::as_bool).unwrap_or(true),"firstMissingSignal":"none"}),
+    )
 }
 
 fn ingress_root() -> PathBuf {

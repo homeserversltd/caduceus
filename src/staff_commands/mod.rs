@@ -81,3 +81,29 @@ pub mod sync_sources;
 pub mod toggle_harmonia_module;
 #[path = "update_appliance/index.rs"]
 pub mod update_appliance;
+
+#[path = "control_projector/index.rs"]
+pub mod control_projector;
+#[path = "open_settings_pane/index.rs"]
+pub mod open_settings_pane;
+
+#[path = "change_appearance/index.rs"]
+pub mod change_appearance;
+
+#[path = "change_sound/index.rs"]
+pub mod change_sound;
+
+#[path = "change_display/index.rs"]
+pub mod change_display;
+
+#[path = "change_input/index.rs"]
+pub mod change_input;
+
+#[path = "change_datetime/index.rs"]
+pub mod change_datetime;
+
+#[path = "change_default_apps/index.rs"]
+pub mod change_default_apps;
+
+#[path = "change_notifications/index.rs"]
+pub mod change_notifications;

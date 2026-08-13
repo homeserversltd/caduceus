@@ -1,3 +1,10 @@
+#[path = "power/index.rs"]
+pub mod power;
+#[path = "products/index.rs"]
+pub mod products;
+#[path = "scan/index.rs"]
+pub mod scan;
+
 use crate::shared::{config, pjlink, receipts};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

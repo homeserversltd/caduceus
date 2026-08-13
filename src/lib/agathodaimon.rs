@@ -12,10 +12,21 @@ pub(crate) fn crossing_value(noun: &str, verb: &str, input: &Value) -> Result<Va
         if let Ok(command) = std::env::var("CADUCEUS_TIME_CMD") {
             let parts: Vec<String> = command.split_whitespace().map(str::to_string).collect();
             if let Some((program, prefix)) = parts.split_first() {
-                let args = input.get("args").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str);
+                let args = input
+                    .get("args")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str);
                 let output = Command::new(program).args(prefix).arg(verb).args(args).output().map_err(|_| serde_json::json!({"ok":false,"firstMissingSignal":"caduceus-pin-not-yet-provisioned"}))?;
                 let value: Value = serde_json::from_slice(&output.stdout).map_err(|_| serde_json::json!({"ok":false,"firstMissingSignal":"caduceus-pin-not-yet-provisioned"}))?;
-                return if output.status.success() && value.get("ok").and_then(Value::as_bool) == Some(true) { Ok(value) } else { Err(value) };
+                return if output.status.success()
+                    && value.get("ok").and_then(Value::as_bool) == Some(true)
+                {
+                    Ok(value)
+                } else {
+                    Err(value)
+                };
             }
         }
     }
@@ -23,10 +34,21 @@ pub(crate) fn crossing_value(noun: &str, verb: &str, input: &Value) -> Result<Va
         if let Ok(command) = std::env::var("CADUCEUS_DNS_CMD") {
             let parts: Vec<String> = command.split_whitespace().map(str::to_string).collect();
             if let Some((program, prefix)) = parts.split_first() {
-                let args = input.get("args").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str);
+                let args = input
+                    .get("args")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str);
                 let output = Command::new(program).args(prefix).args(args).output().map_err(|_| serde_json::json!({"ok":false,"firstMissingSignal":"caduceus-pin-not-yet-provisioned"}))?;
                 let value: Value = serde_json::from_slice(&output.stdout).map_err(|_| serde_json::json!({"ok":false,"firstMissingSignal":"caduceus-pin-not-yet-provisioned"}))?;
-                return if output.status.success() && value.get("ok").and_then(Value::as_bool) == Some(true) { Ok(value) } else { Err(value) };
+                return if output.status.success()
+                    && value.get("ok").and_then(Value::as_bool) == Some(true)
+                {
+                    Ok(value)
+                } else {
+                    Err(value)
+                };
             }
         }
     }
