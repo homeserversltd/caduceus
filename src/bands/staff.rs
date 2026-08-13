@@ -662,6 +662,13 @@ mod tests {
         let config_dir = root.join("etc/appliance");
         std::fs::create_dir_all(&config_dir).unwrap();
         std::fs::write(config_dir.join("config.json"), r#"{"tabs":{"portals":{"data":{"portals":[{"name":"Jellyfin","services":["jellyfin"]}]}}}}"#).unwrap();
+        let state_dir = root.join("var/lib/caduceus");
+        std::fs::create_dir_all(&state_dir).unwrap();
+        std::fs::write(
+            state_dir.join("state.json"),
+            r#"{"services":{"household_config":{"profile":"homeserver"}}}"#,
+        )
+        .unwrap();
         std::env::set_var("CADUCEUS_ROOT", &root);
         let systemctl = root.join("systemctl");
         std::fs::write(&systemctl, "#!/bin/sh\nif [ \"$1\" = is-active ]; then echo active; exit 0; else printf '%s %s\\n' \"$1\" \"$2\"; fi\n").unwrap();
