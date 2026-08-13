@@ -1,15 +1,19 @@
 use crate::bands::{
-    cartridges, config, coronatio, disk, dns, dns_control, drive_test, firewall, gui, health, homeserver_sbin,
-    hyalos, harmonia_update,
+    config, disk, dns, dns_control, drive_test, firewall, gui, health, homeserver_sbin, hyalos,
     identity, legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read,
-    pjlink, profile, profile_module, receipts, settings, source_map, speedtest, staff, sync,
-    update,
+    pjlink, profile, receipts, settings, source_map, speedtest, staff,
 };
 use crate::shared::{attendance, policy};
-use crate::staff_commands::{admit_portal, change_pin, install_trust, issue_certificate, open_vault};
+use crate::staff_commands::{
+    admit_portal, change_pin, install_trust, issue_certificate, open_vault, rebuild_crown,
+    sync_sources as sync, toggle_harmonia_module as profile_module, update_appliance as update,
+};
 use axum::{
     body::{Body, HttpBody},
-    extract::{connect_info::ConnectInfo, DefaultBodyLimit, FromRequest, Multipart, OriginalUri, Path, Query, State},
+    extract::{
+        connect_info::ConnectInfo, DefaultBodyLimit, FromRequest, Multipart, OriginalUri, Path,
+        Query, State,
+    },
     http::{
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
         HeaderMap, HeaderValue, Request, StatusCode,
@@ -23,8 +27,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::io::Write;
 use std::env;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -74,25 +78,56 @@ struct DoorRow {
 }
 
 fn source_registered_doors() -> Result<Vec<(String, String)>, String> {
-    let start = ROUTER_SOURCE.rfind("pub fn router()").ok_or_else(|| "router-start-missing".to_string())?;
-    let end = ROUTER_SOURCE[start..].find("pub async fn run_async()").map(|offset| start + offset).ok_or_else(|| "router-end-missing".to_string())?;
+    let start = ROUTER_SOURCE
+        .rfind("pub fn router()")
+        .ok_or_else(|| "router-start-missing".to_string())?;
+    let end = ROUTER_SOURCE[start..]
+        .find("pub async fn run_async()")
+        .map(|offset| start + offset)
+        .ok_or_else(|| "router-end-missing".to_string())?;
     let source = &ROUTER_SOURCE[start..end];
     let mut doors = Vec::new();
     let mut scan = 0;
     while let Some(offset) = source[scan..].find(".route(") {
         let route_start = scan + offset + ".route(".len();
-        let path_start = route_start + source[route_start..].find('"').ok_or_else(|| "route-path-start-missing".to_string())? + 1;
-        let path_end = path_start + source[path_start..].find('"').ok_or_else(|| "route-path-end-missing".to_string())?;
+        let path_start = route_start
+            + source[route_start..]
+                .find('"')
+                .ok_or_else(|| "route-path-start-missing".to_string())?
+            + 1;
+        let path_end = path_start
+            + source[path_start..]
+                .find('"')
+                .ok_or_else(|| "route-path-end-missing".to_string())?;
         let path = source[path_start..path_end].to_string();
         let mut depth = 1usize;
         let mut end_at = route_start;
         for (offset, byte) in source[route_start..].bytes().enumerate() {
-            match byte { b'(' => depth += 1, b')' => { depth -= 1; if depth == 0 { end_at = route_start + offset; break; } }, _ => {} }
+            match byte {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end_at = route_start + offset;
+                        break;
+                    }
+                }
+                _ => {}
+            }
         }
-        if depth != 0 { return Err(format!("route-parentheses-unclosed:{path}")); }
+        if depth != 0 {
+            return Err(format!("route-parentheses-unclosed:{path}"));
+        }
         let registration = &source[route_start..=end_at];
-        for (needle, method) in [("get(", "GET"), ("post(", "POST"), ("put(", "PUT"), ("delete(", "DELETE")] {
-            if registration.contains(needle) { doors.push((method.to_string(), path.clone())); }
+        for (needle, method) in [
+            ("get(", "GET"),
+            ("post(", "POST"),
+            ("put(", "PUT"),
+            ("delete(", "DELETE"),
+        ] {
+            if registration.contains(needle) {
+                doors.push((method.to_string(), path.clone()));
+            }
         }
         scan = end_at + 1;
     }
@@ -127,7 +162,11 @@ impl ResponseCache {
                 mutations.insert(key);
             }
         }
-        Self { admin_reads, mutations, responses: Mutex::new(HashMap::new()) }
+        Self {
+            admin_reads,
+            mutations,
+            responses: Mutex::new(HashMap::new()),
+        }
     }
 
     fn cache_key(method: &str, path: &str, query: Option<&str>) -> String {
@@ -142,7 +181,11 @@ impl ResponseCache {
     }
 }
 
-async fn staff_python_response_cache(State(cache): State<Arc<ResponseCache>>, request: Request<Body>, next: middleware::Next) -> Response {
+async fn staff_python_response_cache(
+    State(cache): State<Arc<ResponseCache>>,
+    request: Request<Body>,
+    next: middleware::Next,
+) -> Response {
     let method = request.method().as_str().to_string();
     let path = request.uri().path().to_string();
     let key = ResponseCache::cache_key(&method, &path, request.uri().query());
@@ -165,7 +208,9 @@ async fn staff_python_response_cache(State(cache): State<Arc<ResponseCache>>, re
             responses.clear();
         }
     }
-    if !cacheable { return response; }
+    if !cacheable {
+        return response;
+    }
 
     let (parts, body) = response.into_parts();
     let body = match axum::body::to_bytes(body, usize::MAX).await {
@@ -177,7 +222,11 @@ async fn staff_python_response_cache(State(cache): State<Arc<ResponseCache>>, re
         headers: parts.headers,
         body: body.to_vec(),
         stored_at: Instant::now(),
-        ttl: if parts.status.is_success() { Duration::from_secs(30) } else { Duration::from_secs(5) },
+        ttl: if parts.status.is_success() {
+            Duration::from_secs(30)
+        } else {
+            Duration::from_secs(5)
+        },
     };
     let response = ResponseCache::response(&cached);
     if let Ok(mut responses) = cache.responses.lock() {
@@ -187,25 +236,56 @@ async fn staff_python_response_cache(State(cache): State<Arc<ResponseCache>>, re
 }
 
 fn audit_doors() -> Result<(), String> {
-    let seat: DoorSeat = serde_json::from_str(DOOR_SEAT).map_err(|error| format!("seat-json-invalid:{error}"))?;
-    if seat.schema != "caduceus.doors.v1" { return Err(format!("seat-schema-invalid:{}", seat.schema)); }
+    let seat: DoorSeat =
+        serde_json::from_str(DOOR_SEAT).map_err(|error| format!("seat-json-invalid:{error}"))?;
+    if seat.schema != "caduceus.doors.v1" {
+        return Err(format!("seat-schema-invalid:{}", seat.schema));
+    }
     let valid_snakes = ["native-rust", "staff-python", "hybrid"];
-    let valid_postures = ["public-safe", "guest-aggregate", "admin-read", "capability-mutation"];
+    let valid_postures = [
+        "public-safe",
+        "guest-aggregate",
+        "admin-read",
+        "capability-mutation",
+    ];
     let mut seat_keys = HashSet::new();
     for row in &seat.doors {
-        if !valid_snakes.contains(&row.snake.as_str()) || !valid_postures.contains(&row.posture.as_str()) || row.family.trim().is_empty() || row.crown_alias.as_deref().is_some_and(|alias| !alias.starts_with('/')) || (row.snake == "native-rust" && row.actuator.is_some()) || (row.snake == "staff-python" && row.actuator.is_none()) {
+        if !valid_snakes.contains(&row.snake.as_str())
+            || !valid_postures.contains(&row.posture.as_str())
+            || row.family.trim().is_empty()
+            || row
+                .crown_alias
+                .as_deref()
+                .is_some_and(|alias| !alias.starts_with('/'))
+            || (row.snake == "native-rust" && row.actuator.is_some())
+            || (row.snake == "staff-python" && row.actuator.is_none())
+        {
             return Err(format!("seat-row-invalid:{} {}", row.method, row.path));
         }
         if let Some(aliases) = &row.crown_aliases {
-            if aliases.is_empty() || aliases.iter().any(|alias| !alias.starts_with('/')) || !row.crown_alias.as_ref().is_some_and(|primary| aliases.contains(primary)) {
-                return Err(format!("seat-crown-aliases-invalid:{} {}", row.method, row.path));
+            if aliases.is_empty()
+                || aliases.iter().any(|alias| !alias.starts_with('/'))
+                || !row
+                    .crown_alias
+                    .as_ref()
+                    .is_some_and(|primary| aliases.contains(primary))
+            {
+                return Err(format!(
+                    "seat-crown-aliases-invalid:{} {}",
+                    row.method, row.path
+                ));
             }
         }
-        if !seat_keys.insert((row.method.clone(), row.path.clone())) { return Err(format!("seat-row-duplicate:{} {}", row.method, row.path)); }
+        if !seat_keys.insert((row.method.clone(), row.path.clone())) {
+            return Err(format!("seat-row-duplicate:{} {}", row.method, row.path));
+        }
     }
     let mut crown_alias_keys: HashMap<(String, String), String> = HashMap::new();
     for row in &seat.doors {
-        let aliases = row.crown_alias.iter().chain(row.crown_aliases.iter().flatten());
+        let aliases = row
+            .crown_alias
+            .iter()
+            .chain(row.crown_aliases.iter().flatten());
         for alias in aliases {
             let key = (row.method.clone(), alias.clone());
             if let Some(existing_path) = crown_alias_keys.insert(key.clone(), row.path.clone()) {
@@ -217,14 +297,23 @@ fn audit_doors() -> Result<(), String> {
     }
     let mut registered_keys = HashSet::new();
     for key in source_registered_doors()? {
-        if !registered_keys.insert(key.clone()) { return Err(format!("router-row-duplicate:{} {}", key.0, key.1)); }
+        if !registered_keys.insert(key.clone()) {
+            return Err(format!("router-row-duplicate:{} {}", key.0, key.1));
+        }
     }
     let mut missing: Vec<_> = registered_keys.difference(&seat_keys).cloned().collect();
     let mut extra: Vec<_> = seat_keys.difference(&registered_keys).cloned().collect();
-    missing.sort(); extra.sort();
-    if missing.is_empty() && extra.is_empty() { return Ok(()); }
+    missing.sort();
+    extra.sort();
+    if missing.is_empty() && extra.is_empty() {
+        return Ok(());
+    }
     let render = |(method, path): &(String, String)| format!("{method} {path}");
-    Err(format!("door-bijection-failed: missing=[{}] extra=[{}]", missing.iter().map(render).collect::<Vec<_>>().join(", "), extra.iter().map(render).collect::<Vec<_>>().join(", ")))
+    Err(format!(
+        "door-bijection-failed: missing=[{}] extra=[{}]",
+        missing.iter().map(render).collect::<Vec<_>>().join(", "),
+        extra.iter().map(render).collect::<Vec<_>>().join(", ")
+    ))
 }
 
 async fn doors_route() -> Result<Response, (StatusCode, Json<ApiErrorBody>)> {
@@ -530,7 +619,10 @@ async fn vault_auto_route(
         }
     }
     vault_attendance_admits(&headers)?;
-    Ok((StatusCode::OK, Json(open_vault::auto_decrypt_json(body.enabled))))
+    Ok((
+        StatusCode::OK,
+        Json(open_vault::auto_decrypt_json(body.enabled)),
+    ))
 }
 
 async fn health_route() -> Json<LivenessBody> {
@@ -891,9 +983,9 @@ async fn coronatio_source_currency_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let build_sha = query.get("buildSha").cloned().unwrap_or_default();
     let cache_key = build_sha.clone();
-    let body = tokio::task::spawn_blocking(move || coronatio::source_currency_json(&cache_key))
+    let body = tokio::task::spawn_blocking(move || rebuild_crown::source_currency_json(&cache_key))
         .await
-        .unwrap_or_else(|_| coronatio::source_currency_unavailable(&build_sha));
+        .unwrap_or_else(|_| rebuild_crown::source_currency_unavailable(&build_sha));
     let status = if body["ok"].as_bool() == Some(true) {
         StatusCode::OK
     } else {
@@ -1349,7 +1441,12 @@ async fn child_device_staff_actuator_route(
         "/api/admin/firewall/unregister" => "unregister",
         "/api/admin/firewall/whitelist-get" => "whitelist get",
         "/api/admin/firewall/whitelist-set" => "whitelist set",
-        _ => return Err(api_error_signal("staff intent", "caduceus-child-device-route-invalid")),
+        _ => {
+            return Err(api_error_signal(
+                "staff intent",
+                "caduceus-child-device-route-invalid",
+            ))
+        }
     };
     let object = metadata
         .as_object_mut()
@@ -1660,7 +1757,10 @@ struct CartridgeRemoveBody {
     id: String,
 }
 
-fn cartridge_error(command: &str, error: cartridges::CartridgeError) -> (StatusCode, Json<ApiErrorBody>) {
+fn cartridge_error(
+    command: &str,
+    error: crate::staff_commands::cartridges_shared::CartridgeError,
+) -> (StatusCode, Json<ApiErrorBody>) {
     (
         StatusCode::from_u16(error.status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE),
         Json(ApiErrorBody {
@@ -1673,7 +1773,7 @@ fn cartridge_error(command: &str, error: cartridges::CartridgeError) -> (StatusC
 }
 
 async fn cartridges_route() -> Result<Response, (StatusCode, Json<ApiErrorBody>)> {
-    let bytes = cartridges::passage_bytes()
+    let bytes = crate::staff_commands::cartridges_shared::passage_bytes()
         .map_err(|error| cartridge_error("cartridges read", error))?;
     Ok(([(CONTENT_TYPE, "application/json")], Body::from(bytes)).into_response())
 }
@@ -1695,10 +1795,10 @@ fn cartridges_mutation_admitted() -> Result<(), (StatusCode, Json<ApiErrorBody>)
 }
 
 async fn cartridges_admit_route(
-    Json(body): Json<cartridges::Cartridge>,
+    Json(body): Json<crate::staff_commands::cartridges_shared::Cartridge>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     cartridges_mutation_admitted()?;
-    cartridges::admit(body)
+    crate::staff_commands::cartridges_shared::admit(body)
         .map(|receipt| (StatusCode::OK, Json(receipt)))
         .map_err(|error| cartridge_error("cartridges admit", error))
 }
@@ -1707,7 +1807,7 @@ async fn cartridges_remove_route(
     Json(body): Json<CartridgeRemoveBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     cartridges_mutation_admitted()?;
-    cartridges::remove(&body.id)
+    crate::staff_commands::cartridges_shared::remove(&body.id)
         .map(|receipt| (StatusCode::OK, Json(receipt)))
         .map_err(|error| cartridge_error("cartridges remove", error))
 }
@@ -1721,7 +1821,11 @@ async fn network_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErro
 }
 
 async fn tailscale_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("tailscale status", crate::staff_commands::manage_tailnet::status_json).await
+    gated_json(
+        "tailscale status",
+        crate::staff_commands::manage_tailnet::status_json,
+    )
+    .await
 }
 
 async fn vpn_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -1817,7 +1921,6 @@ async fn dhcp_boundary_route() -> Result<Json<Value>, (StatusCode, Json<ApiError
     network_read_route("network dhcp boundary show").await
 }
 
-
 async fn dhcp_statistics_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     network_read_route("network dhcp statistics").await
 }
@@ -1825,7 +1928,6 @@ async fn dhcp_statistics_route() -> Result<Json<Value>, (StatusCode, Json<ApiErr
 async fn dhcp_health_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     network_read_route("network dhcp health").await
 }
-
 
 async fn dns_status_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     network_read_route("network dns status").await
@@ -2189,26 +2291,52 @@ struct DnsAliasBody {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct DnsAdblockBody { enabled: bool }
+struct DnsAdblockBody {
+    enabled: bool,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct DnsUpstreamBody { preset: Option<String>, custom: Option<Vec<String>>, dot: bool }
+struct DnsUpstreamBody {
+    preset: Option<String>,
+    custom: Option<Vec<String>>,
+    dot: bool,
+}
 
-async fn dns_resolver_adblock_route(headers: HeaderMap, Json(body): Json<DnsAdblockBody>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+async fn dns_resolver_adblock_route(
+    headers: HeaderMap,
+    Json(body): Json<DnsAdblockBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns resolver adblock";
     dns_mutation_admits(COMMAND, &headers)?;
-    dns_mutation_response(COMMAND, dns_control::resolver_json("adblock", Some(json!({"enabled": body.enabled}))))
+    dns_mutation_response(
+        COMMAND,
+        dns_control::resolver_json("adblock", Some(json!({"enabled": body.enabled}))),
+    )
 }
-async fn dns_resolver_blocklist_update_route(headers: HeaderMap) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+async fn dns_resolver_blocklist_update_route(
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns resolver blocklist-update";
     dns_mutation_admits(COMMAND, &headers)?;
-    dns_mutation_response(COMMAND, dns_control::resolver_json("blocklist-update", None))
+    dns_mutation_response(
+        COMMAND,
+        dns_control::resolver_json("blocklist-update", None),
+    )
 }
-async fn dns_resolver_upstream_route(headers: HeaderMap, Json(body): Json<DnsUpstreamBody>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+async fn dns_resolver_upstream_route(
+    headers: HeaderMap,
+    Json(body): Json<DnsUpstreamBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns resolver upstream";
     dns_mutation_admits(COMMAND, &headers)?;
-    dns_mutation_response(COMMAND, dns_control::resolver_json("upstream", Some(json!({"preset": body.preset, "custom": body.custom, "dot": body.dot}))))
+    dns_mutation_response(
+        COMMAND,
+        dns_control::resolver_json(
+            "upstream",
+            Some(json!({"preset": body.preset, "custom": body.custom, "dot": body.dot})),
+        ),
+    )
 }
 
 async fn network_dns_route(
@@ -2445,7 +2573,11 @@ async fn cert_constituent_lock_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let portal = body.portal.as_deref().unwrap_or("");
     cert_mutation_result("cert constituent-lock", "constituent_lock", &[], || {
-        admit_portal::constituent_lock_json(portal, body.lan_ip.as_deref().unwrap_or(""), body.dry_run)
+        admit_portal::constituent_lock_json(
+            portal,
+            body.lan_ip.as_deref().unwrap_or(""),
+            body.dry_run,
+        )
     })
 }
 async fn cert_bundle_public_route() -> Result<Response<Body>, (StatusCode, Json<Value>)> {
@@ -2770,9 +2902,10 @@ async fn update_now_route(
     gated_mutation("update now", || update::invoke_now_json(&[])).await
 }
 
-async fn harmonia_update_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+async fn harmonia_update_route(
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("update now") {
-        Ok(true) => match harmonia_update::start_json() {
+        Ok(true) => match update::start_json() {
             Ok(value) => Ok((StatusCode::ACCEPTED, Json(value))),
             Err("harmonia-update-in-flight") => Err((
                 StatusCode::CONFLICT,
@@ -2867,18 +3000,39 @@ async fn gui_update_now_route(
 }
 
 fn settings_error(command: &str, signal: String) -> (StatusCode, Json<ApiErrorBody>) {
-    let status = if signal.contains("invalid") || signal.contains("not-allowed") || signal.contains("required") || signal.contains("empty") {
+    let status = if signal.contains("invalid")
+        || signal.contains("not-allowed")
+        || signal.contains("required")
+        || signal.contains("empty")
+    {
         StatusCode::BAD_REQUEST
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     };
-    (status, Json(ApiErrorBody { schema: "caduceus.api.error.v1", ok: false, command: command.to_string(), first_missing_signal: signal }))
+    (
+        status,
+        Json(ApiErrorBody {
+            schema: "caduceus.api.error.v1",
+            ok: false,
+            command: command.to_string(),
+            first_missing_signal: signal,
+        }),
+    )
 }
 
-async fn settings_read_route(Path(family): Path<String>) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    let command = settings::read_command(&family).ok_or_else(|| settings_error("settings read", "caduceus-settings-family-invalid".to_string()))?;
+async fn settings_read_route(
+    Path(family): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    let command = settings::read_command(&family).ok_or_else(|| {
+        settings_error(
+            "settings read",
+            "caduceus-settings-family-invalid".to_string(),
+        )
+    })?;
     match policy::allows_command(&command) {
-        Ok(true) => settings::read_json(&family).map(Json).map_err(|signal| settings_error(&command, signal)),
+        Ok(true) => settings::read_json(&family)
+            .map(Json)
+            .map_err(|signal| settings_error(&command, signal)),
         Ok(false) => Err(api_error(&command)),
         Err(_) => Err(api_error_signal(&command, "caduceus-profile-missing")),
     }
@@ -2888,9 +3042,16 @@ async fn settings_mutation_route(
     Path(family): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    let command = settings::mutate_command(&family).ok_or_else(|| settings_error("settings mutate", "caduceus-settings-family-invalid".to_string()))?;
+    let command = settings::mutate_command(&family).ok_or_else(|| {
+        settings_error(
+            "settings mutate",
+            "caduceus-settings-family-invalid".to_string(),
+        )
+    })?;
     match policy::allows_command(&command) {
-        Ok(true) => settings::mutate_json(&family, body).map(|value| (StatusCode::OK, Json(value))).map_err(|signal| settings_error(&command, signal)),
+        Ok(true) => settings::mutate_json(&family, body)
+            .map(|value| (StatusCode::OK, Json(value)))
+            .map_err(|signal| settings_error(&command, signal)),
         Ok(false) => Err(api_error(&command)),
         Err(_) => Err(api_error_signal(&command, "caduceus-profile-missing")),
     }
@@ -2976,7 +3137,10 @@ pub fn router() -> Router {
         .route("/api/v1/attendance/invalidate", post(attendance_route))
         .route("/api/v1/access/pin/mode", post(pin_mode_route))
         .route("/api/v1/access/pin/change", post(pin_change_route))
-        .route("/api/v1/access/pin/reset-default", post(pin_reset_default_route))
+        .route(
+            "/api/v1/access/pin/reset-default",
+            post(pin_reset_default_route),
+        )
         .route(
             "/api/v1/service/:service/restart",
             post(registered_service_restart_route),
@@ -3044,11 +3208,17 @@ pub fn router() -> Router {
             get(dhcp_reservations_route),
         )
         .route("/api/v1/network/dhcp/boundary", get(dhcp_boundary_route))
-        .route("/api/v1/network/dhcp/statistics", get(dhcp_statistics_route))
+        .route(
+            "/api/v1/network/dhcp/statistics",
+            get(dhcp_statistics_route),
+        )
         .route("/api/v1/network/dhcp/health", get(dhcp_health_read_route))
         .route("/api/v1/network/dns/status", get(dns_status_read_route))
         .route("/api/v1/network/dns/read", get(dns_read_route))
-        .route("/api/v1/network/dns/resolver/status", get(dns_resolver_status_route))
+        .route(
+            "/api/v1/network/dns/resolver/status",
+            get(dns_resolver_status_route),
+        )
         .route("/api/v1/network/device", get(device_list_route))
         .route("/api/v1/network/device/claim", post(device_claim_route))
         .route(
@@ -3067,9 +3237,18 @@ pub fn router() -> Router {
         )
         .route("/api/v1/time/state", get(time_state_route))
         .route("/api/v1/network/dns", post(network_dns_route))
-        .route("/api/v1/network/dns/adblock", post(dns_resolver_adblock_route))
-        .route("/api/v1/network/dns/blocklist/update", post(dns_resolver_blocklist_update_route))
-        .route("/api/v1/network/dns/upstream", post(dns_resolver_upstream_route))
+        .route(
+            "/api/v1/network/dns/adblock",
+            post(dns_resolver_adblock_route),
+        )
+        .route(
+            "/api/v1/network/dns/blocklist/update",
+            post(dns_resolver_blocklist_update_route),
+        )
+        .route(
+            "/api/v1/network/dns/upstream",
+            post(dns_resolver_upstream_route),
+        )
         .route(
             "/api/v1/network/dns/device-name/create",
             post(dns_device_name_create_route),
@@ -3188,10 +3367,7 @@ pub fn router() -> Router {
             "/api/v1/backblaze/forgejo/migrate",
             post(named_staff_actuator_route),
         )
-        .route(
-            "/api/v1/backblaze/config",
-            post(named_staff_actuator_route),
-        )
+        .route("/api/v1/backblaze/config", post(named_staff_actuator_route))
         .route(
             "/api/v1/calibre/helper-daemon",
             post(named_staff_actuator_route),
@@ -3377,7 +3553,10 @@ pub fn router() -> Router {
             post(profile_module_toggle_route),
         )
         .layer(DefaultBodyLimit::max(8192))
-        .layer(middleware::from_fn_with_state(Arc::new(ResponseCache::from_door_seat()), staff_python_response_cache))
+        .layer(middleware::from_fn_with_state(
+            Arc::new(ResponseCache::from_door_seat()),
+            staff_python_response_cache,
+        ))
 }
 
 pub async fn run_async() -> i32 {

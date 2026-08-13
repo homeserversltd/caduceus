@@ -6,11 +6,14 @@ pub mod trigger_gate;
 #[doc(hidden)]
 pub use shared as tools;
 
-use crate::shared::policy;
 use crate::bands::{
-    child_device, config, dhcp, disk, dns, drive_test, gui, health, help, homeserver_sbin,
-    hyalos, identity, legacy_sbin, local_ai, logs, network, network_identity, network_read, pjlink,
-    profile, profile_module, receipts, serve, settings, source_map, staff, sync, update,
+    child_device, config, dhcp, disk, dns, drive_test, gui, health, help, homeserver_sbin, hyalos,
+    identity, legacy_sbin, local_ai, logs, network, network_identity, network_read, pjlink,
+    profile, receipts, serve, settings, source_map, staff,
+};
+use crate::shared::policy;
+use crate::staff_commands::{
+    sync_sources as sync, toggle_harmonia_module as profile_module, update_appliance as update,
 };
 
 pub fn run<I, S>(args: I) -> i32
@@ -112,9 +115,12 @@ where
                 }
             }
         }
-        [domain, verb] if domain == "cert" && verb == "status" => {
-            cert_command("cert status", "status", &[], crate::staff_commands::issue_certificate::status)
-        }
+        [domain, verb] if domain == "cert" && verb == "status" => cert_command(
+            "cert status",
+            "status",
+            &[],
+            crate::staff_commands::issue_certificate::status,
+        ),
         [domain, verb] if domain == "cert" && verb == "refresh-root" => {
             cert_command("cert refresh-root", "refresh_root", &[], || {
                 cert_print(crate::staff_commands::issue_certificate::legacy_refresh_root_json())
@@ -138,7 +144,9 @@ where
                     .find(|a| !a.starts_with('-') && !sans.contains(a) && !ips.contains(a))
                     .map(String::as_str)
                     .unwrap_or("home.arpa");
-                match crate::staff_commands::issue_certificate::issue_leaf_json(identity, &sans, &ips, dry) {
+                match crate::staff_commands::issue_certificate::issue_leaf_json(
+                    identity, &sans, &ips, dry,
+                ) {
                     Ok(v) => {
                         println!("{v}");
                         0
@@ -224,7 +232,9 @@ where
         }
         [domain, verb, server] if domain == "cert" && verb == "trust-fetch" => {
             cert_command("cert trust-fetch", "trust_fetch", &[], || {
-                cert_print(crate::staff_commands::install_trust::trust_fetch_json(server, "linux"))
+                cert_print(crate::staff_commands::install_trust::trust_fetch_json(
+                    server, "linux",
+                ))
             })
         }
         [domain, verb, bundle, rest @ ..] if domain == "cert" && verb == "trust-install" => {
@@ -302,7 +312,10 @@ where
                 Some(command) => match policy::allows_command(&command) {
                     Ok(true) => settings::command(family, rest),
                     Ok(false) => public_action_not_allowed(),
-                    Err(error) => { eprintln!("{error}"); 1 }
+                    Err(error) => {
+                        eprintln!("{error}");
+                        1
+                    }
                 },
                 None => public_action_not_allowed(),
             }
@@ -370,14 +383,18 @@ where
                 public_action_not_allowed()
             }
         }
-        [domain, verb] if domain == "time" && verb == "state" => {
-            time_command("time state", || crate::staff_commands::set_time::command(&["state".into()]))
-        }
+        [domain, verb] if domain == "time" && verb == "state" => time_command("time state", || {
+            crate::staff_commands::set_time::command(&["state".into()])
+        }),
         [domain, verb] if domain == "time" && verb == "resolve" => {
-            time_command("time resolve", || crate::staff_commands::set_time::command(&["resolve".into()]))
+            time_command("time resolve", || {
+                crate::staff_commands::set_time::command(&["resolve".into()])
+            })
         }
         [domain, verb] if domain == "time" && verb == "ensure-ntp" => {
-            time_command("time ensure-ntp", || crate::staff_commands::set_time::command(&["ensure-ntp".into()]))
+            time_command("time ensure-ntp", || {
+                crate::staff_commands::set_time::command(&["ensure-ntp".into()])
+            })
         }
         [domain, verb, timezone] if domain == "time" && verb == "set-timezone" => {
             time_command("time set-timezone", || {

@@ -1,5 +1,3 @@
-pub mod cartridges;
-pub mod coronatio;
 pub use crate::staff_commands::manage_child_device as child_device;
 pub mod config;
 pub use crate::staff_commands::annotate_device as network_notes;
@@ -15,7 +13,6 @@ pub use crate::staff_commands::test_drive as drive_test;
 pub use crate::staff_commands::whitelist_device as firewall;
 pub mod gui;
 pub use crate::staff_commands::report_health as health;
-pub mod harmonia_update;
 pub mod help;
 pub mod homeserver_sbin;
 pub use crate::staff_commands::report_identity as identity;
@@ -25,13 +22,9 @@ pub use crate::staff_commands::query_local_ai as local_ai;
 pub use crate::staff_commands::read_logs as logs;
 pub use crate::staff_commands::report_links as linker;
 pub mod pjlink;
-pub use crate::staff_commands::report_profile as profile;
-pub mod profile_module;
 pub use crate::staff_commands::read_receipts as receipts;
+pub use crate::staff_commands::report_profile as profile;
 pub mod serve;
 pub mod settings;
 pub use crate::staff_commands::report_sources as source_map;
 pub mod staff;
-pub mod sync;
-
-pub mod update;
