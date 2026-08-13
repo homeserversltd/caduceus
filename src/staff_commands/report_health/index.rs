@@ -1,4 +1,4 @@
-use crate::tools::config;
+use crate::shared::config;
 use serde_json::{json, Value};
 
 pub fn read_json() -> Result<Value, String> {

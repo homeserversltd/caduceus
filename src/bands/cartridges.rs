@@ -4,7 +4,7 @@
 //! only writer; `CADUCEUS_ROOT` keeps local proof on a scratch appliance root.
 
 use crate::bands::config::atomic_write_owned;
-use crate::tools::config as paths;
+use crate::shared::config as paths;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;

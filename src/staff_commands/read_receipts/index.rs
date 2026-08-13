@@ -1,4 +1,4 @@
-use crate::tools::{config, harmonia};
+use crate::shared::{config, harmonia};
 use serde_json::{json, Value};
 
 pub fn read_latest_json() -> Result<Value, String> {

@@ -5,7 +5,7 @@
 //! ordinary note text.
 
 use crate::bands::config;
-use crate::tools::config as paths;
+use crate::shared::config as paths;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::fs;

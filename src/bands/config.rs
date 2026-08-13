@@ -4,7 +4,7 @@
 //! All published JSON carries the device-logical path (`/etc/appliance/config.json`); the
 //! CADUCEUS_ROOT membrane is applied only at the filesystem boundary.
 
-use crate::tools::config as paths;
+use crate::shared::config as paths;
 use chrono::Utc;
 use serde_json::{json, Map, Value};
 use std::fs;

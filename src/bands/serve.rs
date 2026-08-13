@@ -5,7 +5,7 @@ use crate::bands::{
     pjlink, profile, profile_module, receipts, settings, source_map, speedtest, staff, sync, tailscale, time,
     update, vault, vpn,
 };
-use crate::tools::{attendance, policy};
+use crate::shared::{attendance, policy};
 use axum::{
     body::{Body, HttpBody},
     extract::{connect_info::ConnectInfo, DefaultBodyLimit, FromRequest, Multipart, OriginalUri, Path, Query, State},
@@ -937,7 +937,7 @@ async fn hyalos_append_route(
 async fn hyalos_tail_route(
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    use crate::tools::hyalos::TailFilters;
+    use crate::shared::hyalos::TailFilters;
     let filters = TailFilters {
         count: query
             .get("count")

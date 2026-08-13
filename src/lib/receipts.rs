@@ -1,4 +1,4 @@
-use crate::tools::hyalos;
+use crate::shared::hyalos;
 use serde_json::json;
 
 pub fn write_latest(body: &str) -> Result<(), String> {

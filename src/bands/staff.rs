@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::bands::{dhcp, dns, linker};
-use crate::tools::hyalos;
+use crate::shared::hyalos;
 
 const PROFILE_PATH: &str = "/usr/local/sbin/profile.json";
 
@@ -136,6 +136,11 @@ pub fn intent_json(
     classification: Option<&str>,
     metadata: Option<Value>,
 ) -> Result<Value, String> {
+    if route == "/api/files/upload" && method == "POST"
+        && metadata.as_ref().and_then(|value| value.get("payload")).and_then(Value::as_array).is_some()
+    {
+        return execute_file_ingress(metadata.unwrap_or_else(|| json!({})));
+    }
     let profile = profile_json()?;
     let actuator_count = profile
         .get("actuators")
@@ -164,16 +169,6 @@ pub fn intent_json(
     }
     if route.starts_with("/api/dns/") || route == "/api/dns" {
         return dns::intent_json(method, route, metadata.unwrap_or_else(|| json!({})));
-    }
-    if route == "/api/files/upload"
-        && method == "POST"
-        && metadata
-            .as_ref()
-            .and_then(|value| value.get("payload"))
-            .and_then(Value::as_array)
-            .is_some()
-    {
-        return execute_file_ingress(metadata.unwrap_or_else(|| json!({})));
     }
     if route == "/api/upload/force-permissions" && method == "POST" {
         return execute_force_permissions(metadata.unwrap_or_else(|| json!({})));
@@ -226,7 +221,7 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
 fn execute_registered_actuator(actuator_id: &str, metadata: Value) -> Result<Value, String> {
     let profile = profile_json()?;
     let actuator = profile.get("actuators").and_then(Value::as_array).and_then(|items| items.iter().find(|item| item.get("id").and_then(Value::as_str) == Some(actuator_id))).ok_or_else(|| "caduceus-staff-actuator-unmapped".to_string())?;
-    let launcher = actuator.get("launcher").and_then(Value::as_str).filter(|value| value.starts_with('/') && !value.contains(' ')).ok_or_else(|| "caduceus-staff-launcher-invalid".to_string())?;
+    let launcher = actuator.get("launcher").and_then(Value::as_str).filter(|value| value.starts_with('/') && !value.contains('\0')).ok_or_else(|| "caduceus-staff-launcher-invalid".to_string())?;
     let input = serde_json::to_vec(&json!({"actuator":actuator_id,"metadata":metadata})).map_err(|_| "caduceus-staff-request-invalid".to_string())?;
     let mut child = Command::new(launcher).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|_| "caduceus-staff-unavailable".to_string())?;
     use std::io::Write;

@@ -1,4 +1,4 @@
-use crate::tools::hyalos;
+use crate::shared::hyalos;
 use base64::Engine;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -23,6 +23,14 @@ const DEFAULT_FORGEJO: &str = "http://127.0.0.1:3000";
 const REPOSITORY: &str = "HOMESERVERSLTD/coronatio";
 fn valid_sha(v: &str) -> bool {
     v.len() == 40 && v.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn classify(relation: &str) -> Option<&'static str> {
+    Some(match relation {
+        "identical" | "current" => "current",
+        "behind" => "behind",
+        _ => "diverged",
+    })
 }
 fn response(
     build: &str,

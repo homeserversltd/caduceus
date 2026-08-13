@@ -1,0 +1,13 @@
+#[path = "inspect_disks/index.rs"] pub mod inspect_disks;
+#[path = "measure_bandwidth/index.rs"] pub mod measure_bandwidth;
+#[path = "query_local_ai/index.rs"] pub mod query_local_ai;
+#[path = "read_appliance_log/index.rs"] pub mod read_appliance_log;
+#[path = "read_logs/index.rs"] pub mod read_logs;
+#[path = "read_receipts/index.rs"] pub mod read_receipts;
+#[path = "report_health/index.rs"] pub mod report_health;
+#[path = "report_identity/index.rs"] pub mod report_identity;
+#[path = "report_links/index.rs"] pub mod report_links;
+#[path = "report_profile/index.rs"] pub mod report_profile;
+#[path = "report_sources/index.rs"] pub mod report_sources;
+#[path = "test_drive/index.rs"] pub mod test_drive;
+#[path = "write_appliance_log/index.rs"] pub mod write_appliance_log;

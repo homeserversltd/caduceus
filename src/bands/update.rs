@@ -1,4 +1,4 @@
-use crate::tools::{config, harmonia, receipts, systemd};
+use crate::shared::{config, harmonia, receipts, systemd};
 use serde_json::{json, Value};
 
 pub fn read_json() -> Result<Value, String> {

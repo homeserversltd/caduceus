@@ -1,4 +1,4 @@
-use crate::tools::config;
+use crate::shared::config;
 use serde_json::Value;
 
 pub fn load_profile_value() -> Result<Value, String> {

@@ -1,8 +1,13 @@
 pub mod bands;
-pub mod tools;
+#[path = "lib/mod.rs"]
+pub mod shared;
+pub mod staff_commands;
+pub mod trigger_gate;
+#[doc(hidden)]
+pub use shared as tools;
 
-use crate::tools::policy;
-use bands::{
+use crate::shared::policy;
+use crate::bands::{
     cert, child_device, config, dhcp, disk, dns, drive_test, gui, health, help, homeserver_sbin,
     hyalos, identity, legacy_sbin, local_ai, logs, network, network_identity, network_read, pjlink,
     profile, profile_module, receipts, serve, settings, source_map, staff, sync, time, update,

@@ -101,7 +101,7 @@ fn crossing(bin: &str, input: &Value) -> Result<Value, String> {
 }
 
 fn pin_mode_path() -> std::path::PathBuf {
-    crate::tools::config::path(PIN_MODE_PATH)
+    crate::shared::config::path(PIN_MODE_PATH)
 }
 
 pub fn pin_mode_json() -> Value {

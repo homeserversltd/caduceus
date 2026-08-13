@@ -1,5 +1,5 @@
-use crate::tools::hyalos::TailFilters;
-use crate::tools::{hyalos, policy};
+use crate::shared::hyalos::TailFilters;
+use crate::shared::{hyalos, policy};
 use serde_json::{json, Value};
 
 pub fn command(args: &[String]) -> i32 {
