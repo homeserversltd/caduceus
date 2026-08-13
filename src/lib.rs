@@ -10,7 +10,7 @@ use crate::shared::policy;
 use crate::bands::{
     cert, child_device, config, dhcp, disk, dns, drive_test, gui, health, help, homeserver_sbin,
     hyalos, identity, legacy_sbin, local_ai, logs, network, network_identity, network_read, pjlink,
-    profile, profile_module, receipts, serve, settings, source_map, staff, sync, time, update,
+    profile, profile_module, receipts, serve, settings, source_map, staff, sync, update,
 };
 
 pub fn run<I, S>(args: I) -> i32
@@ -371,17 +371,17 @@ where
             }
         }
         [domain, verb] if domain == "time" && verb == "state" => {
-            time_command("time state", || time::command(&["state".into()]))
+            time_command("time state", || crate::staff_commands::set_time::command(&["state".into()]))
         }
         [domain, verb] if domain == "time" && verb == "resolve" => {
-            time_command("time resolve", || time::command(&["resolve".into()]))
+            time_command("time resolve", || crate::staff_commands::set_time::command(&["resolve".into()]))
         }
         [domain, verb] if domain == "time" && verb == "ensure-ntp" => {
-            time_command("time ensure-ntp", || time::command(&["ensure-ntp".into()]))
+            time_command("time ensure-ntp", || crate::staff_commands::set_time::command(&["ensure-ntp".into()]))
         }
         [domain, verb, timezone] if domain == "time" && verb == "set-timezone" => {
             time_command("time set-timezone", || {
-                time::command(&["set-timezone".into(), timezone.clone()])
+                crate::staff_commands::set_time::command(&["set-timezone".into(), timezone.clone()])
             })
         }
         [domain, verb] if domain == "pjlink" && verb == "devices" => pjlink::devices(),

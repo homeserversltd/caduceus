@@ -34,8 +34,6 @@ pub mod settings;
 pub use crate::staff_commands::report_sources as source_map;
 pub mod staff;
 pub mod sync;
-pub mod tailscale;
-pub mod time;
+
 pub mod update;
 pub mod vault;
-pub mod vpn;

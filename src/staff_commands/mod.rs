@@ -42,3 +42,12 @@ pub mod control_resolver;
 pub mod list_network_devices;
 #[path = "name_device/index.rs"]
 pub mod name_device;
+
+#[path = "manage_tailnet/index.rs"]
+pub mod manage_tailnet;
+#[path = "manage_vpn/index.rs"]
+pub mod manage_vpn;
+#[path = "set_time/index.rs"]
+pub mod set_time;
+#[path = "wake_device/index.rs"]
+pub mod wake_device;

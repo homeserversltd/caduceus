@@ -2,8 +2,8 @@ use crate::bands::{
     cartridges, cert, config, coronatio, disk, dns, dns_control, drive_test, firewall, gui, health, homeserver_sbin,
     hyalos, harmonia_update,
     identity, legacy_sbin, local_ai, logs, network, network_identity, network_notes, network_read,
-    pjlink, profile, profile_module, receipts, settings, source_map, speedtest, staff, sync, tailscale, time,
-    update, vault, vpn,
+    pjlink, profile, profile_module, receipts, settings, source_map, speedtest, staff, sync,
+    update, vault,
 };
 use crate::shared::{attendance, policy};
 use axum::{
@@ -1154,6 +1154,7 @@ async fn named_staff_actuator_route(
             let actuator_id = named_actuator_for_route(uri.path())?;
             match actuator_id {
                 "network-speedtest" => speedtest::run_json(),
+                "wake-on-lan" => crate::staff_commands::wake_device::command_json(metadata),
                 _ => staff::named_actuator_json(actuator_id, metadata),
             }
             .map(|value| (mutation_status(&value), Json(value)))
@@ -1719,11 +1720,11 @@ async fn network_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErro
 }
 
 async fn tailscale_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("tailscale status", tailscale::status_json).await
+    gated_json("tailscale status", crate::staff_commands::manage_tailnet::status_json).await
 }
 
 async fn vpn_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("vpn status", vpn::status_json).await
+    gated_json("vpn status", crate::staff_commands::manage_vpn::status_json).await
 }
 
 async fn network_notes_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -2123,7 +2124,7 @@ async fn time_state_route(
     if !lan_peer {
         return Err(api_error_signal("time state", "caduceus-time-lan-only"));
     }
-    gated_json("time state", time::state_json).await
+    gated_json("time state", crate::staff_commands::set_time::state_json).await
 }
 
 fn dns_mutation_admits(

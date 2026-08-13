@@ -218,7 +218,7 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
     }
 }
 
-fn execute_registered_actuator(actuator_id: &str, metadata: Value) -> Result<Value, String> {
+pub fn execute_registered_actuator(actuator_id: &str, metadata: Value) -> Result<Value, String> {
     let profile = profile_json()?;
     let actuator = profile.get("actuators").and_then(Value::as_array).and_then(|items| items.iter().find(|item| item.get("id").and_then(Value::as_str) == Some(actuator_id))).ok_or_else(|| "caduceus-staff-actuator-unmapped".to_string())?;
     let launcher = actuator.get("launcher").and_then(Value::as_str).filter(|value| value.starts_with('/') && !value.contains('\0')).ok_or_else(|| "caduceus-staff-launcher-invalid".to_string())?;
