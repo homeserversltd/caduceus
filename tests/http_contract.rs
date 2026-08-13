@@ -1209,14 +1209,23 @@ impl CertFixture {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let root = cert_temp_root(tag, profile);
+        // The Rust membrane executes this override directly. Keep the source
+        // fixture immutable and provide an isolated executable shim instead
+        // of leaking a non-executable Python path into the process.
+        let cli = root.join("agathodaimon-cli");
+        fs::write(
+            &cli,
+            "#!/bin/sh\nexec python3 tests/fixtures/staff/agathodaimon/cli.py \"$@\"\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&cli).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&cli, permissions).unwrap();
         let values = [
             ("CADUCEUS_ROOT", root.as_os_str()),
             ("PYTHONPATH", std::ffi::OsStr::new("tests/fixtures/staff")),
             ("PYTHONDONTWRITEBYTECODE", std::ffi::OsStr::new("1")),
-            (
-                "CADUCEUS_AGATHODAIMON_CLI",
-                std::ffi::OsStr::new("tests/fixtures/staff/agathodaimon/cli.py"),
-            ),
+            ("CADUCEUS_AGATHODAIMON_CLI", cli.as_os_str()),
         ];
         let previous_env = values
             .iter()
