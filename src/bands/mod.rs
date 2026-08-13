@@ -8,20 +8,20 @@ pub use crate::staff_commands::manage_child_device as child_device;
 pub use crate::staff_commands::measure_bandwidth as speedtest;
 pub use crate::staff_commands::name_device as dns;
 pub use crate::staff_commands::pin_device_address as dhcp;
-pub use crate::staff_commands::report_health as health;
-pub use crate::staff_commands::test_drive as drive_test;
-pub use crate::staff_commands::whitelist_device as firewall;
-pub mod help;
 pub use crate::staff_commands::query_local_ai as local_ai;
 pub use crate::staff_commands::read_logs as logs;
 pub use crate::staff_commands::read_receipts as receipts;
+pub use crate::staff_commands::report_health as health;
 pub use crate::staff_commands::report_identity as identity;
 pub use crate::staff_commands::report_links as linker;
 pub use crate::staff_commands::report_profile as profile;
-pub use crate::staff_commands::write_appliance_log as hyalos;
-pub mod serve;
 pub use crate::staff_commands::report_sources as source_map;
-pub mod staff;
+pub use crate::staff_commands::test_drive as drive_test;
+pub use crate::staff_commands::whitelist_device as firewall;
+pub use crate::staff_commands::write_appliance_log as hyalos;
+pub use crate::trigger_gate::index as help;
+pub use crate::trigger_gate::receipts as staff;
+pub use crate::trigger_gate::routes as serve;
 
 pub mod homeserver_sbin {
     pub use crate::trigger_gate::discovery::{

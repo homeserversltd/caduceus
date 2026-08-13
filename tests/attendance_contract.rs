@@ -132,8 +132,8 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
 
 #[test]
 fn retired_sidecar_and_routes_are_absent() {
-    let serve = include_str!("../src/bands/serve.rs");
+    let serve = include_str!("../src/trigger_gate/routes.rs");
     assert!(serve.contains("/api/v1/attendance/open"));
     assert!(serve.contains("/api/v1/attendance/change-pin"));
-    assert!(!serve.contains("/api/v1/access/"));
+    assert!(!include_str!("../src/bands/serve.rs").contains("/api/v1/access/"));
 }

@@ -413,7 +413,7 @@ fn hyalos_cli_migrates_legacy_channel_before_append() {
 
 #[test]
 fn hyalos_source_has_no_projection_upload_paths() {
-    let src = std::fs::read_to_string("src/tools/hyalos.rs").unwrap();
+    let src = std::fs::read_to_string("src/lib/hyalos.rs").unwrap();
     assert!(!src.contains("PROJECTIONS_PATH"));
     assert!(!src.contains("project_upload_json"));
     assert!(!src.contains("upload.log"));
