@@ -1,14 +1,14 @@
 pub mod cartridges;
 pub mod cert;
 pub mod coronatio;
-pub mod child_device;
+pub use crate::staff_commands::manage_child_device as child_device;
 pub mod config;
-pub mod dhcp;
+pub use crate::staff_commands::pin_device_address as dhcp;
 pub use crate::staff_commands::inspect_disks as disk;
 pub use crate::staff_commands::measure_bandwidth as speedtest;
 pub use crate::staff_commands::test_drive as drive_test;
 pub mod dns;
-pub mod firewall;
+pub use crate::staff_commands::whitelist_device as firewall;
 pub mod gui;
 pub use crate::staff_commands::report_health as health;
 pub mod harmonia_update;

@@ -11,3 +11,7 @@
 #[path = "report_sources/index.rs"] pub mod report_sources;
 #[path = "test_drive/index.rs"] pub mod test_drive;
 #[path = "write_appliance_log/index.rs"] pub mod write_appliance_log;
+
+#[path = "pin_device_address/index.rs"] pub mod pin_device_address;
+#[path = "whitelist_device/index.rs"] pub mod whitelist_device;
+#[path = "manage_child_device/index.rs"] pub mod manage_child_device;
