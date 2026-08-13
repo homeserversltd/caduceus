@@ -6,7 +6,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-const LAUNCHER: &str = "/usr/local/sbin/caduceus-network-firewall";
+const LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-network-firewall";
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 
 fn launcher() -> String {

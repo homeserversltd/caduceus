@@ -38,7 +38,7 @@ Operator / Arcadia / Coronatio
 - **Python** (`/usr/local/sbin/agathodaimon/house_ca.py`) — nine
   composable primitives; only `state_commit` replaces durable state.
 
-Launcher on device: `/usr/local/sbin/caduceus-house-ca` (Harmonia ships it).
+Launcher on device: `/usr/local/sbin/agathodaimon/caduceus-house-ca` (Harmonia ships it).
 
 ## Primitives (Python engine)
 

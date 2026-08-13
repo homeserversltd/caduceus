@@ -58,7 +58,7 @@ fn credential() -> Result<(String, String), String> {
     }
 
     let output = std::process::Command::new("sudo")
-        .args(["-n", "/usr/local/sbin/caduceus-forgejo-credential", "get"])
+        .args(["-n", "/usr/local/sbin/agathodaimon/caduceus-forgejo-credential", "get"])
         .output()
         .map_err(|_| "caduceus-forgejo-credential-missing".to_string())?;
     if !output.status.success() {

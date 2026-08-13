@@ -1072,7 +1072,7 @@
       "family": "keyman",
       "snake": "staff-python",
       "posture": "capability-mutation",
-      "crown_alias": "/usr/local/sbin/caduceus-keyman-rotate-capability",
+      "crown_alias": "/usr/local/sbin/agathodaimon/caduceus-keyman-rotate-capability",
       "actuator": "agathodaimon.keyman_doors"
     },
     {

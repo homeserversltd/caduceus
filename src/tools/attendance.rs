@@ -7,10 +7,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-const BIND_LAUNCHER: &str = "/usr/local/sbin/caduceus-bind";
-const VERIFY_LAUNCHER: &str = "/usr/local/sbin/caduceus-verify";
-const CHANGE_PIN_LAUNCHER: &str = "/usr/local/sbin/caduceus-atomic-change-pin";
-const RESET_DEFAULT_PIN_LAUNCHER: &str = "/usr/local/sbin/caduceus-reset-default-pin";
+const BIND_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-bind";
+const VERIFY_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-verify";
+const CHANGE_PIN_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-atomic-change-pin";
+const RESET_DEFAULT_PIN_LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-reset-default-pin";
 const PIN_MODE_PATH: &str = "var/lib/caduceus/access-pin-mode.json";
 const ATTENDANCE_INACTIVITY_LIMIT: Duration = Duration::from_secs(15 * 60);
 

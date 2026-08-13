@@ -109,7 +109,7 @@ fn launcher(family: &str) -> Result<String, String> {
         .and_then(|item| item.get("launcher"))
         .and_then(Value::as_str)
         .filter(|value| {
-            value.starts_with("/usr/local/sbin/caduceus-settings-") && !value.contains('\0')
+            value.starts_with("/usr/local/sbin/agathodaimon/caduceus-settings-") && !value.contains('\0')
         })
         .map(str::to_string)
         .ok_or_else(|| format!("caduceus-settings-actuator-missing:{id}"))
