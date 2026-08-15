@@ -1,9 +1,7 @@
 use crate::gate::{
-    api_error, api_error_signal, document_attendance_admits, gated_json, missing_signal,
-    mutation_status, ApiErrorBody,
+    api_error_signal, document_attendance_admits, gated_json, missing_signal, ApiErrorBody,
 };
 use crate::routes::{disk, drive_test};
-use crate::shared::policy;
 use axum::{
     extract::Json,
     http::{HeaderMap, StatusCode},
