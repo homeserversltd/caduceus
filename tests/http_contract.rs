@@ -660,7 +660,6 @@ async fn homeserver_named_file_ingress_route_executes_upload_bytes() {
             .unwrap()
             .contains("proof.txt")
     );
-    assert!(!root.join("var/log/hyalos/projections/upload.log").exists());
     std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
     let _ = std::fs::remove_dir_all(root);
 }

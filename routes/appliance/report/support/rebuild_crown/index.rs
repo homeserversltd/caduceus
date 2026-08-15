@@ -241,7 +241,11 @@ mod tests {
         assert_eq!(body["firstMissingSignal"], "caduceus-build-sha-malformed");
         let channel =
             std::fs::read_to_string(root.join("var/log/appliance/appliance.log")).unwrap();
-        let event: Value = serde_json::from_str(channel.trim()).unwrap();
+        let event: Value = channel
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line.trim()).unwrap())
+            .find(|event| event["organ"] == "coronatio-source-currency")
+            .expect("source-currency reflection event");
         assert_eq!(event["organ"], "coronatio-source-currency");
         assert_eq!(event["kind"], "source-currency-check");
         assert_eq!(event["ok"], false);
