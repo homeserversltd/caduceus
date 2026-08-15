@@ -19,7 +19,7 @@ pub(crate) async fn registered_service_restart_route(
             "caduceus-action-request-malformed",
         ));
     }
-    let allowed = roster_allows("POST", "/api/v1/service/:service/restart").unwrap_or(false)
+    let allowed = roster_allows("POST", "/api/v1/appliance/service/:service/restart").unwrap_or(false)
         && policy::allows_command("staff intent").unwrap_or(false);
     if allowed {
         staff::restart_registered_service(&service)

@@ -22,34 +22,6 @@ pub(crate) async fn pin_mode_route(
         .map_err(|signal| api_error_signal("access pin mode", &signal))
 }
 
-pub(crate) async fn pin_change_route(
-    headers: HeaderMap,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    let document = headers
-        .get("x-caduceus-document")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    let token = headers
-        .get("x-caduceus-attendance")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    access_attendance_admits(&headers)?;
-    let value = change_pin::change_pin_access_json(document, token, &body)
-        .map_err(|signal| api_error_signal("access pin change", &signal))?;
-    if value.get("ok").and_then(Value::as_bool) == Some(true) {
-        Ok(Json(value))
-    } else {
-        Err(api_error_signal(
-            "access pin change",
-            value
-                .get("code")
-                .and_then(Value::as_str)
-                .unwrap_or("caduceus-attendance-change-failed"),
-        ))
-    }
-}
-
 pub(crate) async fn pin_reset_default_route(
     headers: HeaderMap,
     Json(body): Json<Value>,
@@ -118,11 +90,11 @@ pub(crate) async fn attendance_route(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     let result = match uri.path() {
-        "/api/v1/attendance/open" => attendance::open_json(&body),
-        "/api/v1/attendance/validate" => attendance::validate_json(&body),
-        "/api/v1/attendance/touch" => attendance::touch_json(&body),
-        "/api/v1/attendance/change-pin" => attendance::change_pin_json(&body),
-        "/api/v1/attendance/invalidate" => attendance::invalidate_json(&body),
+        "/api/v1/admin-admittance/open" => attendance::open_json(&body),
+        "/api/v1/admin-admittance/validate" => attendance::validate_json(&body),
+        "/api/v1/admin-admittance/touch" => attendance::touch_json(&body),
+        "/api/v1/admin-admittance/change-pin" => attendance::change_pin_json(&body),
+        "/api/v1/admin-admittance/invalidate" => attendance::invalidate_json(&body),
         _ => Err("caduceus-attendance-route-invalid".to_string()),
     };
     let signal = match &result {

@@ -225,16 +225,6 @@ async fn dns_resolver_upstream_route(
     )
 }
 
-async fn network_dns_route(
-    headers: HeaderMap,
-    Json(metadata): Json<Value>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    const COMMAND: &str = "network dns intent";
-    const TARGET: &str = "/api/dns/unbound/drop-in";
-    dns_mutation_admits(COMMAND, &headers)?;
-    dns_mutation_response(COMMAND, dns_control::intent_json("POST", TARGET, metadata))
-}
-
 async fn dns_device_name_create_route(
     headers: HeaderMap,
     Json(body): Json<DnsDeviceNameBody>,
@@ -283,8 +273,7 @@ async fn dns_alias_remove_route(
     )
 }
 
-/// Canonical registration seam; legacy aliases remain hoisted to the same body.
-// HOIST: obliterate after counterparty realignment
+/// Canonical registration seam for this leaf.
 pub fn register(router: Router) -> Router {
-    router.route("/api/v1/network/dns/status", axum::routing::get(dns_status_read_route)).route("/api/v1/network/dns/resolver/status", axum::routing::get(dns_resolver_status_route)).route("/api/v1/network/dns", axum::routing::post(network_dns_route)).route("/api/v1/network/dns/adblock", axum::routing::post(dns_resolver_adblock_route)).route("/api/v1/network/dns/blocklist/update", axum::routing::post(dns_resolver_blocklist_update_route)).route("/api/v1/network/dns/upstream", axum::routing::post(dns_resolver_upstream_route)).route("/api/v1/network/dns/device-name/create", axum::routing::post(dns_device_name_create_route)).route("/api/v1/network/dns/device-name/remove", axum::routing::post(dns_device_name_remove_route)).route("/api/v1/network/dns/alias/create", axum::routing::post(dns_alias_create_route)).route("/api/v1/network/dns/alias/remove", axum::routing::post(dns_alias_remove_route))
+    router.route("/api/v1/network/dns/status", axum::routing::get(dns_status_read_route)).route("/api/v1/network/dns/resolver/status", axum::routing::get(dns_resolver_status_route)).route("/api/v1/network/dns/adblock", axum::routing::post(dns_resolver_adblock_route)).route("/api/v1/network/dns/blocklist/update", axum::routing::post(dns_resolver_blocklist_update_route)).route("/api/v1/network/dns/upstream", axum::routing::post(dns_resolver_upstream_route)).route("/api/v1/network/dns/device-name/create", axum::routing::post(dns_device_name_create_route)).route("/api/v1/network/dns/device-name/remove", axum::routing::post(dns_device_name_remove_route)).route("/api/v1/network/dns/alias/create", axum::routing::post(dns_alias_create_route)).route("/api/v1/network/dns/alias/remove", axum::routing::post(dns_alias_remove_route))
 }

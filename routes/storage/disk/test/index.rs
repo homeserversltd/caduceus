@@ -213,23 +213,10 @@ pub fn results_json() -> Result<Value, String> {
 }
 
 /// Canonical registration seam for this leaf.
-// HOIST: obliterate after counterparty realignment
 pub fn register(router: axum::Router) -> axum::Router {
     router
         .route(
             "/api/v1/storage/disk/test/progress",
             axum::routing::get(crate::routes::storage_support::hard_drive_test_progress_route),
-        )
-        .route(
-            "/api/admin/hard-drive-test/progress",
-            axum::routing::get(crate::routes::storage_support::hard_drive_test_progress_route),
-        )
-        .route(
-            "/api/admin/hard-drive-test/results",
-            axum::routing::get(crate::routes::storage_support::hard_drive_test_results_route),
-        )
-        .route(
-            "/api/admin/hard-drive-test/start",
-            axum::routing::post(crate::routes::storage_support::hard_drive_test_start_route),
         )
 }

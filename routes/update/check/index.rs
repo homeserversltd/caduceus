@@ -2,7 +2,6 @@
 pub const NAMESPACE: &str = "update/check";
 
 /// Canonical registration seam for this leaf.
-// HOIST: obliterate after counterparty realignment
 pub fn register(router: axum::Router) -> axum::Router {
     router
         .route(

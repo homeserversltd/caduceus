@@ -282,8 +282,7 @@ async fn firewall_delete_route(
     .map_err(|value| (firewall_status(&value), Json(value)))
 }
 
-/// Canonical registration seam; legacy aliases remain hoisted to the same body.
-// HOIST: obliterate after counterparty realignment
+/// Canonical registration seam for this leaf.
 pub fn register(router: Router) -> Router {
     router.route("/api/v1/network/firewall/status", axum::routing::get(firewall_status_route)).route("/api/v1/network/firewall/policies", axum::routing::get(firewall_policies_route)).route("/api/v1/network/firewall/policies/:mac", axum::routing::get(firewall_policy_route).put(firewall_put_route).delete(firewall_delete_route))
 }

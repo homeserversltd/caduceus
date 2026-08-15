@@ -93,15 +93,10 @@ pub fn toggle(module_id: &str, state: &str) -> i32 {
 }
 
 /// Canonical registration seam for this leaf.
-// HOIST: obliterate after counterparty realignment
 pub fn register(router: axum::Router) -> axum::Router {
     router
         .route(
             "/api/v1/update/status",
             axum::routing::get(crate::routes::update_support::update_status_route),
-        )
-        .route(
-            "/api/v1/sync/status",
-            axum::routing::get(crate::routes::update_support::sync_status_route),
         )
 }

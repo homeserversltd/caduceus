@@ -3,19 +3,10 @@ pub use crate::shared::attendance::{
 };
 
 /// Canonical registration seam for this leaf.
-// HOIST: obliterate after counterparty realignment
 pub fn register(router: axum::Router) -> axum::Router {
     router
         .route(
             "/api/v1/admin-admittance/change-pin",
             axum::routing::post(crate::routes::admin_admittance_support::attendance_route),
-        )
-        .route(
-            "/api/v1/attendance/change-pin",
-            axum::routing::post(crate::routes::admin_admittance_support::attendance_route),
-        )
-        .route(
-            "/api/v1/access/pin/change",
-            axum::routing::post(crate::routes::admin_admittance_support::pin_change_route),
         )
 }

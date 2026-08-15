@@ -40,7 +40,7 @@ async fn dhcp_staff_actuator_route(
     Json(metadata): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let (method, route) = match uri.path() {
-        "/api/v1/network/dhcp" | "/api/v1/network/dhcp/reservations" => {
+        "/api/v1/network/dhcp/reservations" => {
             ("POST", "/api/dhcp/reservations")
         }
         "/api/v1/network/dhcp/pool-boundary" => ("POST", "/api/dhcp/pool-boundary"),
@@ -88,8 +88,7 @@ async fn dhcp_reservation_staff_actuator_route(
     }
 }
 
-/// Canonical registration seam; legacy aliases remain hoisted to the same body.
-// HOIST: obliterate after counterparty realignment
+/// Canonical registration seam for this leaf.
 pub fn register(router: Router) -> Router {
-    router.route("/api/v1/network/dhcp/status", axum::routing::get(dhcp_status_route)).route("/api/v1/network/dhcp", axum::routing::post(dhcp_staff_actuator_route)).route("/api/v1/network/dhcp/reservations", axum::routing::post(dhcp_staff_actuator_route)).route("/api/v1/network/dhcp/reservations/:reservation_id", axum::routing::put(dhcp_reservation_staff_actuator_route).delete(dhcp_reservation_staff_actuator_route)).route("/api/v1/network/dhcp/pool-boundary", axum::routing::post(dhcp_staff_actuator_route))
+    router.route("/api/v1/network/dhcp/status", axum::routing::get(dhcp_status_route)).route("/api/v1/network/dhcp/reservations", axum::routing::post(dhcp_staff_actuator_route)).route("/api/v1/network/dhcp/reservations/:reservation_id", axum::routing::put(dhcp_reservation_staff_actuator_route).delete(dhcp_reservation_staff_actuator_route)).route("/api/v1/network/dhcp/pool-boundary", axum::routing::post(dhcp_staff_actuator_route))
 }
