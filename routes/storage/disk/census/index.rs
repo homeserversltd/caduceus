@@ -242,15 +242,10 @@ pub fn mutation_target_admitted(target: &str) -> Result<(), String> {
 }
 
 /// Canonical registration seam for this leaf.
-// HOIST: obliterate after counterparty realignment
 pub fn register(router: axum::Router) -> axum::Router {
     router
         .route(
             "/api/v1/storage/disk/census",
-            axum::routing::get(crate::routes::storage_support::disk_census_route),
-        )
-        .route(
-            "/api/v1/disk/census",
             axum::routing::get(crate::routes::storage_support::disk_census_route),
         )
 }

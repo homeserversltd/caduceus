@@ -109,17 +109,13 @@ fn option_json(args: &[String], name: &str) -> Option<Value> {
 }
 
 /// Canonical registration seam for this leaf.
-// HOIST: obliterate after counterparty realignment
 pub fn register(router: axum::Router) -> axum::Router {
     router
         .route(
             "/api/v1/log/read",
             axum::routing::get(crate::routes::log_support::appliance_logs_read_route),
         )
-        .route(
-            "/api/admin/logs/homeserver",
-            axum::routing::get(crate::routes::log_support::appliance_logs_read_route),
-        )
+        // HOIST: obliterate after counterparty realignment
         .route(
             "/api/admin/logs/homeserver/clear",
             axum::routing::post(crate::routes::log_support::appliance_logs_clear_route),

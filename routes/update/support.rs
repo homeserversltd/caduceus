@@ -2,7 +2,7 @@ use crate::gate::{
     api_error, api_error_signal, gated_json, gated_mutation, missing_signal, ApiErrorBody,
     ServiceToggleBody,
 };
-use crate::routes::{receipts, sync_sources as sync, update_appliance as update};
+use crate::routes::{receipts, update_appliance as update};
 use crate::shared::policy;
 use axum::{
     extract::{Json, Query},
@@ -20,49 +20,10 @@ pub(crate) async fn update_now_route(
     gated_mutation("update now", || update::invoke_now_json(&[])).await
 }
 
-pub(crate) async fn harmonia_update_route(
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    match policy::allows_command("update now") {
-        Ok(true) => match update::start_json() {
-            Ok(value) => Ok((StatusCode::ACCEPTED, Json(value))),
-            Err("harmonia-update-in-flight") => Err((
-                StatusCode::CONFLICT,
-                Json(ApiErrorBody {
-                    schema: "caduceus.api.error.v1",
-                    ok: false,
-                    command: "update now".to_string(),
-                    first_missing_signal: "harmonia-update-in-flight".to_string(),
-                }),
-            )),
-            Err(signal) => Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(ApiErrorBody {
-                    schema: "caduceus.api.error.v1",
-                    ok: false,
-                    command: "update now".to_string(),
-                    first_missing_signal: signal.to_string(),
-                }),
-            )),
-        },
-        Ok(false) => Err(api_error("update now")),
-        Err(_) => Err(api_error_signal("update now", "caduceus-profile-missing")),
-    }
-}
-
 pub(crate) async fn update_check_route(
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     gated_mutation("update check", || update::invoke_check_json(&[])).await
-}
-
-pub(crate) async fn sync_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("sync status", sync::read_json).await
-}
-
-pub(crate) async fn sync_now_route(
-    headers: HeaderMap,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation("sync now", || sync::invoke_now_json(&[])).await
 }
 
 pub(crate) async fn receipts_latest_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)>

@@ -77,23 +77,10 @@ pub fn now(rest: &[String]) -> i32 {
     }
 }
 
-async fn gui_update() -> Result<(axum::http::StatusCode, axum::Json<serde_json::Value>), (axum::http::StatusCode, axum::Json<crate::gate::ApiErrorBody>)> { crate::gate::gated_mutation("gui update now", || { let mut v=crate::routes::open_settings_pane::invoke_update_now_json(&[]); v["action"]=serde_json::json!("gui_update_now"); v }).await }
-
 /// Canonical registration seam for this leaf.
-// HOIST: obliterate after counterparty realignment
 pub fn register(router: axum::Router) -> axum::Router {
-    router
-        .route(
-            "/api/v1/update/now",
-            axum::routing::post(crate::routes::update_support::update_now_route),
-        )
-        .route(
-            "/api/v1/harmonia/update",
-            axum::routing::post(crate::routes::update_support::harmonia_update_route),
-        )
-        .route("/api/v1/gui/update/now", axum::routing::post(gui_update))
-        .route(
-            "/api/v1/sync/now",
-            axum::routing::post(crate::routes::update_support::sync_now_route),
-        )
+    router.route(
+        "/api/v1/update/now",
+        axum::routing::post(crate::routes::update_support::update_now_route),
+    )
 }
