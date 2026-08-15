@@ -312,17 +312,9 @@ fn keyman_unavailable(signal: &str) -> Result<bool, String> {
 
 fn keyman_open(cfg: &VaultConfig) -> Result<bool, String> {
     let payload = json!({"device": cfg.device, "mapper": cfg.mapper});
-    let receipt = match crate::shared::agathodaimon::crossing_value("vault", "open", &payload) {
+    let receipt = match crate::gate::snake::crossing_path("storage/vault/open", &payload) {
         Ok(receipt) => receipt,
-        Err(receipt) => {
-            if receipt.get("present").and_then(Value::as_bool) == Some(false) {
-                return Ok(false);
-            }
-            if receipt.get("ok").and_then(Value::as_bool) == Some(false) {
-                return Err("vault-keyman-open-refused".to_string());
-            }
-            return keyman_unavailable("vault-keyman-open-receipt-invalid");
-        }
+        Err(receipt) => return Err(receipt),
     };
     let Some(present) = receipt.get("present").and_then(Value::as_bool) else {
         return keyman_unavailable("vault-keyman-open-presence-unavailable");

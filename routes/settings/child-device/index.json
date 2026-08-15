@@ -1,1 +1,1 @@
-{"namespace":"settings/child-device","admittance":"open","flags":{},"serve":[]}
+{"namespace":"settings/child-device","admittance":"open","flags":{},"serve":[{"snake":"network/child-device"}]}

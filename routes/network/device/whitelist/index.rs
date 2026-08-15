@@ -2,7 +2,7 @@
 use serde_json::Value;
 
 pub fn invoke(intent: Value) -> Result<Value, Value> {
-    crate::shared::agathodaimon::crossing_value("network", "firewall", &intent)
+    crate::gate::snake::crossing_path("network/firewall", &intent).map_err(|e| serde_json::json!({"error":e}))
 }
 pub fn command_json(intent: Value) -> Result<Value, Value> {
     match invoke(intent) {

@@ -1,1 +1,1 @@
-{"namespace":"storage/vault/unlock","admittance":"open","flags":{},"serve":[]}
+{"namespace":"storage/vault/unlock","admittance":"open","flags":{},"serve":[{"rust":"storage_vault_unlock_witness"},{"snake":"storage/vault/open"},{"rust":"storage_vault_unlock_public_shape"}]}

@@ -1,1 +1,1 @@
-{"namespace":"python/run","admittance":"open","flags":{},"serve":[]}
+{"namespace":"python/run","admittance":"open","flags":{},"serve":[{"rust":"python_library_run"}]}

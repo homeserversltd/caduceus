@@ -1,1 +1,1 @@
-{"namespace":"network/dns/status","admittance":"open","flags":{},"serve":[]}
+{"namespace":"network/dns/status","admittance":"open","flags":{},"serve":[{"rust":"network_dns_route_action_witness"},{"snake":"network/dns"},{"rust":"network_dns_public_receipt_shape"}]}

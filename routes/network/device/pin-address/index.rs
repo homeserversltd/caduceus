@@ -5,7 +5,7 @@ pub fn invoke(args: &[String]) -> Result<Value, String> {
     if args.is_empty() {
         return Err("caduceus-network-dhcp-command-missing".into());
     }
-    crate::shared::agathodaimon::crossing("network", "dhcp", &json!({"args": args}))
+    crate::gate::snake::crossing_path("network/dhcp", &json!({"args": args}))
 }
 pub fn command_json(args: &[String]) -> Result<Value, String> {
     invoke(args)

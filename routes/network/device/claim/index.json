@@ -1,1 +1,1 @@
-{"namespace":"network/device/claim","admittance":"open","flags":{},"serve":[]}
+{"namespace":"network/device/claim","admittance":"open","flags":{},"serve":[{"rust":"network_device_claim_witness"},{"snake":"network/identity"},{"rust":"network_device_claim_public_shape"}]}

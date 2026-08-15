@@ -1,1 +1,1 @@
-{"namespace":"network/device/whitelist","admittance":"open","flags":{},"serve":[]}
+{"namespace":"network/device/whitelist","admittance":"open","flags":{},"serve":[{"rust":"network_firewall_policy_input_witness"},{"snake":"network/firewall"},{"rust":"network_firewall_status_refusal_shape"}]}
