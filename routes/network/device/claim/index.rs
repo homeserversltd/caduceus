@@ -42,7 +42,7 @@ pub fn invoke(args: &[String]) -> Result<Value, String> {
     if !valid_claim_args(args) {
         return Err("caduceus-network-identity-claim-arguments-invalid".into());
     }
-    crate::shared::agathodaimon::crossing("network", "identity", &serde_json::json!({"args": args}))
+    crate::gate::snake::crossing_path("network/identity", &serde_json::json!({"args": args}))
 }
 
 pub fn command(args: &[String]) -> i32 {

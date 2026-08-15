@@ -1,1 +1,1 @@
-{"namespace":"appliance/name","admittance":"open","flags":{},"serve":[]}
+{"namespace":"appliance/name","admittance":"open","flags":{},"serve":[{"snake":"network/dns"}]}

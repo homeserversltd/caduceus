@@ -24,6 +24,17 @@ pub static RUST_PRIMITIVES: &[&str] = &[
     "settings_notifications_read_mutate",
     "settings_sound_read_mutate",
     "appliance_service_control",
+    "python_library_list",
+    "python_library_run",
+    "python_library_status",
+    "network_device_claim_witness",
+    "network_device_claim_public_shape",
+    "network_dns_route_action_witness",
+    "network_dns_public_receipt_shape",
+    "network_firewall_policy_input_witness",
+    "network_firewall_status_refusal_shape",
+    "storage_vault_unlock_witness",
+    "storage_vault_unlock_public_shape",
 ];
 pub fn contains(name: &str) -> bool {
     RUST_PRIMITIVES.contains(&name)

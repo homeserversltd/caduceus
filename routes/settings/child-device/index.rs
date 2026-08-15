@@ -5,7 +5,7 @@ pub fn invoke(args: &[String]) -> Result<Value, String> {
     if args.is_empty() {
         return Err("child-device-command-missing".into());
     }
-    crate::shared::agathodaimon::crossing("network", "child-device", &json!({"args": args}))
+    crate::gate::snake::crossing_path("network/child-device", &json!({"args": args}))
 }
 pub fn command(args: &[String]) -> i32 {
     match invoke(args) {

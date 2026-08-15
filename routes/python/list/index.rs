@@ -1,7 +1,16 @@
-/// C2 route leaf.
-pub const NAMESPACE: &str = "python/list";
+use axum::{extract::Json, http::StatusCode, Router};
 
-/// Canonical registration seam for this leaf.
-pub fn register(router: axum::Router) -> axum::Router {
-    router
+pub const NAMESPACE: &str = "python/list";
+pub async fn route() -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    crate::gate::snake::list()
+        .map(Json)
+        .map_err(|signal| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"ok":false,"firstMissingSignal":signal})),
+            )
+        })
+}
+pub fn register(router: Router) -> Router {
+    router.route("/api/v1/python/list", axum::routing::get(route))
 }

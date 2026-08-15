@@ -10,7 +10,7 @@ fn invoke(args: &[String]) -> Result<Value, String> {
     let (verb, rest) = args
         .split_first()
         .ok_or_else(|| "caduceus-household-time-command-missing".to_string())?;
-    crate::shared::agathodaimon::crossing("time", verb, &json!({"args": rest}))
+    crate::gate::snake::crossing_path("settings/datetime", &json!({"args": rest}))
 }
 
 pub fn state_json() -> Result<Value, String> {

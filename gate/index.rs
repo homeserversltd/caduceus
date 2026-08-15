@@ -16,6 +16,9 @@ use serde_json::Value;
 use std::{env, net::SocketAddr};
 use tokio::net::TcpListener;
 
+#[path = "../gate/snake.rs"]
+pub mod snake;
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ApiErrorBody {

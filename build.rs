@@ -53,6 +53,68 @@ fn yaml_for_profile(profile: &str) -> Vec<String> {
         .collect()
 }
 
+fn shelf_band_is_indexed(sbin: &Path, wanted: &str) -> bool {
+    let root = sbin.join("agathodaimon");
+    let read = |path: &Path| -> Option<serde_json::Value> {
+        serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
+    };
+    fn walk(
+        dir: &Path,
+        prefix: &str,
+        wanted: &str,
+        read: &dyn Fn(&Path) -> Option<serde_json::Value>,
+    ) -> bool {
+        let Some(index) = read(&dir.join("index.json")) else {
+            return false;
+        };
+        let Some(children) = index
+            .get("children")
+            .or_else(|| index.get("entries"))
+            .and_then(serde_json::Value::as_array)
+        else {
+            return false;
+        };
+        for child in children {
+            let name = match child {
+                serde_json::Value::String(s) => s.as_str(),
+                serde_json::Value::Object(m) => m
+                    .get("path")
+                    .or_else(|| m.get("name"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(""),
+                _ => "",
+            };
+            let band = if prefix.is_empty() {
+                name.to_owned()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            let child_dir = dir.join(name);
+            let child_index_path = child_dir.join("index.json");
+            let child_index = read(&child_index_path);
+            if band == wanted {
+                if child_index_path.is_file() && child_index.is_none() {
+                    return false;
+                }
+                let face = child_index
+                    .as_ref()
+                    .and_then(|index| index.get("face"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("index.py");
+                return child_dir.join(face).is_file();
+            }
+            if child_dir.is_dir()
+                && child_index_path.is_file()
+                && walk(&child_dir, &band, wanted, read)
+            {
+                return true;
+            }
+        }
+        false
+    }
+    walk(&root, "", wanted, &read)
+}
+
 fn main() {
     // Profile authority is read before the canopy walk and before code generation.
     let requested = env::var("CADUCEUS_PROFILE").unwrap_or_else(|_| "homeserver".into());
@@ -60,6 +122,7 @@ fn main() {
     let _profile_authority = fs::read_to_string(&profile_path)
         .unwrap_or_else(|_| panic!("profile authority must be readable: {profile_path}"));
     println!("cargo:rerun-if-env-changed=CADUCEUS_BUILD_SHA");
+    println!("cargo:rerun-if-env-changed=CADUCEUS_SBIN_PATH");
     println!("cargo:rerun-if-changed=protocol/index.json");
 
     let source = fs::read_to_string("protocol/index.json").expect("protocol seat must be readable");
@@ -82,6 +145,9 @@ fn main() {
     let target_default = seat["target"]["default"]
         .as_str()
         .expect("protocol seat target.default must be a string");
+    let shelf_path = seat["shelf"]["path"]
+        .as_str()
+        .expect("protocol seat shelf.path must be a string");
     let flags_presence_gated = seat["flags"]["presence_gated"]
         .as_bool()
         .expect("protocol seat flags.presence_gated must be boolean");
@@ -89,7 +155,7 @@ fn main() {
         .as_bool()
         .expect("protocol seat flags.version_compared must be boolean");
 
-    let generated = format!("pub const SEAT_JSON: &str = {source};\n         pub const SCHEMA_ID: &str = {schema};\n         pub const KERNEL_FIELDS: &[&str] = &[{fields}];\n         pub const TARGET_DEFAULT: &str = {target_default};\n         pub const FLAGS_PRESENCE_GATED: bool = {flags_presence_gated};\n         pub const FLAGS_VERSION_COMPARED: bool = {flags_version_compared};\n", source = rust_string(source.trim()), schema = rust_string(schema), fields = kernel_fields.iter().map(|field| rust_string(field)).collect::<Vec<_>>().join(", "), target_default = rust_string(target_default));
+    let generated = format!("pub const SEAT_JSON: &str = {source};\n         pub const SCHEMA_ID: &str = {schema};\n         pub const KERNEL_FIELDS: &[&str] = &[{fields}];\n         pub const TARGET_DEFAULT: &str = {target_default};\n         pub const SHELF_PATH: &str = {shelf_path};\n         pub const FLAGS_PRESENCE_GATED: bool = {flags_presence_gated};\n         pub const FLAGS_VERSION_COMPARED: bool = {flags_version_compared};\n", source = rust_string(source.trim()), schema = rust_string(schema), fields = kernel_fields.iter().map(|field| rust_string(field)).collect::<Vec<_>>().join(", "), target_default = rust_string(target_default), shelf_path = rust_string(shelf_path));
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR must be set");
     fs::write(Path::new(&out_dir).join("protocol_seat.rs"), generated)
         .expect("generated protocol metadata must be writable");
@@ -299,6 +365,29 @@ fn main() {
                 }
             }
         }
+    }
+    // Validate declared snake bands only when a local shelf is supplied.
+    if let Ok(sbin) = env::var("CADUCEUS_SBIN_PATH") {
+        let shelf = Path::new(&sbin);
+        for entry in walk_json_leaves(Path::new("routes")) {
+            if let Some(serve) = entry.get("serve").and_then(serde_json::Value::as_array) {
+                for step in serve {
+                    if let Some(name) = step.get("snake").and_then(serde_json::Value::as_str) {
+                        assert!(
+                            !name.starts_with('/') && !name.split('/').any(|part| part == ".."),
+                            "invalid snake band path: {name}"
+                        );
+                        assert!(
+                            shelf_band_is_indexed(shelf, name),
+                            "snake band is absent from authoritative CADUCEUS_SBIN_PATH index chain: {}",
+                            name
+                        );
+                    }
+                }
+            }
+        }
+    } else {
+        println!("cargo:warning=CADUCEUS_SBIN_PATH absent; skipping snake shelf validation");
     }
     fs::write(Path::new(&out_dir).join("profile_routes.rs"), generated)
         .expect("generated profile routes writable");

@@ -3,7 +3,7 @@
 use serde_json::{json, Value};
 
 fn invoke(args: &[String]) -> Result<Value, String> {
-    crate::shared::agathodaimon::crossing("network", "dns", &json!({"args": args}))
+    crate::gate::snake::crossing_path("network/dns", &json!({"args": args}))
 }
 
 pub fn command_admission(args: &[String]) -> Option<(&'static str, &'static str)> {
