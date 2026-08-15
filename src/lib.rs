@@ -10,3 +10,8 @@ pub mod trigger_gate_receipts;
 #[path = "trigger_gate/routes.rs"]
 pub mod trigger_gate_routes;
 pub use trigger_gate_index::run;
+
+#[path = "../gate/index.rs"]
+pub mod gate;
+#[path = "../protocol/index.rs"]
+pub mod protocol;
