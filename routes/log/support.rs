@@ -1,9 +1,9 @@
-use crate::gate::{api_error, api_error_signal, gated_mutation, ApiErrorBody};
+use crate::gate::{api_error, api_error_signal, ApiErrorBody};
 use crate::routes::logs;
 use crate::shared::policy;
 use axum::{
     extract::{Json, Query},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -35,10 +35,4 @@ pub(crate) async fn appliance_logs_read_route(
         Ok(false) => Err(api_error(COMMAND)),
         Err(_) => Err(api_error_signal(COMMAND, "caduceus-profile-missing")),
     }
-}
-
-pub(crate) async fn appliance_logs_clear_route(
-    headers: HeaderMap,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation("logs clear", logs::clear_json).await
 }

@@ -81,6 +81,7 @@ routes:
 - display/projector/products
 - display/projector/scan
 - local-ai/query
+- log/clear
 - log/read
 - log/receipts
 - log/reflect

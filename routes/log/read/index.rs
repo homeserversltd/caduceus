@@ -115,9 +115,4 @@ pub fn register(router: axum::Router) -> axum::Router {
             "/api/v1/log/read",
             axum::routing::get(crate::routes::log_support::appliance_logs_read_route),
         )
-        // HOIST: obliterate after counterparty realignment
-        .route(
-            "/api/admin/logs/homeserver/clear",
-            axum::routing::post(crate::routes::log_support::appliance_logs_clear_route),
-        )
 }
