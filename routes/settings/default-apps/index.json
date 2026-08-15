@@ -1,0 +1,1 @@
+{"namespace":"settings/default-apps","admittance":"open","flags":{},"serve":[{"rust":"settings_default_apps_read_mutate"}]}

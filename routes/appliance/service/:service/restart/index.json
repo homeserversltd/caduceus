@@ -1,0 +1,1 @@
+{"namespace":"appliance/service/:service/restart","admittance":"admitted","flags":{},"serve":[{"rust":"appliance_service_control"}]}

@@ -29,7 +29,7 @@ device for the full list allowed on that body.
 
 HomeServer mints TLS leaves under one household root CA; Console, TV, and other
 clients install the exported CA bundle once. **Full public documentation:**
-[`src/staff_commands`](src/staff_commands).
+[`routes canonical leaves`](routes/).
 
 HomeServer:
 
@@ -107,7 +107,7 @@ directly.
 
 ## Bands
 
-Public command bands are listed in `profiles/*/routes.json`. Each band may ship a
+Public command bands are listed in `profiles/*/index.yaml`. Each band may ship a
 `README.md` explaining what powers it grants — start with **cert** for household
 TLS.
 
