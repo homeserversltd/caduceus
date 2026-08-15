@@ -1,7 +1,7 @@
 use axum::body::{to_bytes, Body};
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
-use caduceus::trigger_gate_routes as serve;
+use caduceus::routes::serve;
 use std::{
     env,
     ffi::OsString,

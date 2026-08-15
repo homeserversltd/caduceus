@@ -1,0 +1,1 @@
+{"namespace":"settings/sound","admittance":"open","flags":{},"serve":[{"rust":"settings_sound_read_mutate"}]}

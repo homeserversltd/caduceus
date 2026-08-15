@@ -1,9 +1,10 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use caduceus::routes::serve;
 use caduceus::shared::attendance;
-use caduceus::trigger_gate_routes as serve;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use tower::ServiceExt;
 
 async fn json(response: axum::response::Response) -> serde_json::Value {
@@ -132,8 +133,6 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
 
 #[test]
 fn retired_sidecar_and_routes_are_absent() {
-    let serve = include_str!("../src/trigger_gate/routes.rs");
-    assert!(serve.contains("/api/v1/attendance/open"));
-    assert!(serve.contains("/api/v1/attendance/change-pin"));
-    assert!(!include_str!("../src/trigger_gate/routes.rs").is_empty());
+    assert!(!Path::new("routes/gate.rs").exists());
+    assert!(include_str!("../gate/index.rs").contains("pub fn router"));
 }

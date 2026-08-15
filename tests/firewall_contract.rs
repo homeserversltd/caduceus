@@ -1,8 +1,8 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use caduceus::routes::serve;
+use caduceus::routes::whitelist_device as firewall;
 use caduceus::shared::attendance;
-use caduceus::staff_commands::whitelist_device as firewall;
-use caduceus::trigger_gate_routes as serve;
 use std::{
     env, fs,
     os::unix::fs::PermissionsExt,

@@ -1,0 +1,1 @@
+{"namespace":"settings/notifications","admittance":"open","flags":{},"serve":[{"rust":"settings_notifications_read_mutate"}]}

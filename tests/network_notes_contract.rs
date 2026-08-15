@@ -1,7 +1,7 @@
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
+use caduceus::routes::serve;
 use caduceus::shared::attendance;
-use caduceus::trigger_gate_routes as serve;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;

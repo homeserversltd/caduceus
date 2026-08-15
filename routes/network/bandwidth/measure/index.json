@@ -1,0 +1,1 @@
+{"namespace":"network/bandwidth/measure","admittance":"open","flags":{},"serve":[{"rust":"bandwidth_measure_read"}]}
