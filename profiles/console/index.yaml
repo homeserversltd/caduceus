@@ -22,6 +22,9 @@ commands:
 - update status
 - update check
 - update now
+- games sync
+- games provider-keys read
+- games provider-keys save
 - update service status
 - update service toggle
 - gui update now
@@ -79,6 +82,8 @@ routes:
 - display/projector/power
 - display/projector/products
 - display/projector/scan
+- games/provider-keys
+- games/sync
 - local-ai/query
 - log/clear
 - log/read
