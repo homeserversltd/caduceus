@@ -9,4 +9,17 @@ pub fn register(router: axum::Router) -> axum::Router {
             "/api/v1/admin-admittance/change-pin",
             axum::routing::post(crate::routes::admin_admittance_support::attendance_route),
         )
+        .route(
+            "/api/v1/access/pin/mode",
+            axum::routing::get(crate::routes::admin_admittance_support::pin_mode_read_route)
+                .post(crate::routes::admin_admittance_support::pin_mode_route),
+        )
+        .route(
+            "/api/v1/access/pin/reset-default",
+            axum::routing::post(crate::routes::admin_admittance_support::pin_reset_default_route),
+        )
+        .route(
+            "/api/v1/access/pin/change",
+            axum::routing::post(crate::routes::admin_admittance_support::attendance_route),
+        )
 }
