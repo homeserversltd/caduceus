@@ -1,10 +1,8 @@
 use serde_json::{json, Value};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
-#[cfg(test)]
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 
 use crate::routes::{dhcp, dns_control, linker};
 use crate::shared::hyalos;
@@ -216,10 +214,10 @@ pub fn intent_json(
 
 pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, String> {
     match actuator_id {
+        "storage/upload/ingress" => execute_file_ingress(metadata),
+        "storage/upload/force-permissions" => execute_force_permissions(metadata),
         "network-dhcp" => dhcp::intent_json("POST", "/api/dhcp/reservations", metadata),
-        "file-ingress" => execute_file_ingress(metadata),
         "linker" => linker::intent_json(metadata),
-        "upload-force-permissions" => execute_force_permissions(metadata),
         id @ ("backblaze-b2-recover"
         | "backblaze-forgejo-b2-push"
         | "backblaze-forgejo-migrate"
@@ -254,7 +252,7 @@ pub fn execute_registered_actuator(actuator_id: &str, metadata: Value) -> Result
         .ok_or_else(|| "caduceus-staff-launcher-invalid".to_string())?;
     let input = serde_json::to_vec(&json!({"actuator":actuator_id,"metadata":metadata}))
         .map_err(|_| "caduceus-staff-request-invalid".to_string())?;
-    let mut child = Command::new(launcher)
+    let mut child = Command::new(&launcher)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -341,9 +339,47 @@ pub fn file_ingress_target(path: &str) -> Result<PathBuf, String> {
     Ok(root.join(relative))
 }
 
-fn reap_child(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
+fn staff_band_receipt(band: &str, metadata: Value) -> Result<Value, String> {
+    let envelope = json!({
+        "schema": crate::protocol::SCHEMA_ID,
+        "intent_id": format!("caduceus-{band}"),
+        "transition": band,
+        "target": crate::protocol::TARGET_DEFAULT,
+        "metadata": metadata,
+    });
+    let walked = match crate::gate::snake::run(band, &envelope) {
+        Ok(walked) => walked,
+        Err(signal) => {
+            return Ok(json!({
+                "schema": "caduceus.staff.v1",
+                "ok": false,
+                "mutationPerformed": false,
+                "bandPath": band,
+                "firstMissingSignal": signal,
+            }));
+        }
+    };
+    let caduceus = walked
+        .get("envelope")
+        .and_then(|value| value.get("caduceusReceipt"))
+        .ok_or_else(|| "caduceus-snake-receipt-missing".to_string())?;
+    let receipt = caduceus
+        .get("stepReceipt")
+        .cloned()
+        .ok_or_else(|| "caduceus-snake-staff-receipt-missing".to_string())?;
+    if walked.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Ok(json!({
+            "schema": "caduceus.staff.v1",
+            "ok": false,
+            "bandPath": band,
+            "staffReceipt": receipt,
+            "firstMissingSignal": walked
+                .get("firstMissingSignal")
+                .and_then(Value::as_str)
+                .unwrap_or("caduceus-agathodaimon-refused")
+        }));
+    }
+    Ok(receipt)
 }
 
 fn staff_mutation_performed(receipt: &Value) -> bool {
@@ -394,60 +430,8 @@ pub fn file_ingress_open(path: &str) -> Result<(std::fs::File, PathBuf), String>
 pub fn file_ingress_receipt(target: &Path, bytes: usize) -> Result<Value, String> {
     let reflection = file_ingress_reflection(target, bytes)?;
     Ok(
-        json!({"schema":"caduceus.staff.file_ingress.v1","ok":true,"accepted":true,"classification":"file-ingress","mutationPerformed":true,"execution":"staff-launcher","path":target,"bytes":bytes,"hyalos":reflection,"firstMissingSignal":"none"}),
+        json!({"schema":"caduceus.staff.file_ingress.v1","ok":true,"accepted":true,"classification":"file-ingress","mutationPerformed":true,"execution":"staff-snake","path":target,"bytes":bytes,"hyalos":reflection,"firstMissingSignal":"none"}),
     )
-}
-
-const FORCE_PERMISSIONS_LAUNCHER: &str = "/usr/local/sbin/caduceus-upload-force-permissions";
-const FILE_INGRESS_LAUNCHER: &str = "/usr/local/sbin/caduceus-file-ingress";
-const FILE_INGRESS_SPOOL_ROOT: &str = "/var/lib/caduceus/spool/file-ingress";
-
-fn launcher_failure(schema: &str, signal: &str) -> Value {
-    json!({"schema":schema,"ok":false,"accepted":false,"mutationPerformed":false,"execution":"staff-launcher-refused","firstMissingSignal":signal})
-}
-
-fn launch_staff(actuator: &str, launcher: &str, metadata: Value, schema: &str) -> Value {
-    let input = match serde_json::to_vec(&json!({"actuator":actuator,"metadata":metadata})) {
-        Ok(input) => input,
-        Err(_) => return launcher_failure(schema, "staff-launcher-request-invalid"),
-    };
-    let mut child = match Command::new(launcher)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return launcher_failure(schema, "staff-launcher-missing")
-        }
-        Err(_) => return launcher_failure(schema, "staff-launcher-unavailable"),
-    };
-    let Some(mut stdin) = child.stdin.take() else {
-        reap_child(&mut child);
-        return launcher_failure(schema, "staff-launcher-unavailable");
-    };
-    if stdin.write_all(&input).is_err() {
-        drop(stdin);
-        reap_child(&mut child);
-        return launcher_failure(schema, "staff-launcher-unavailable");
-    }
-    drop(stdin);
-    let output = match child.wait_with_output() {
-        Ok(output) => output,
-        Err(_) => return launcher_failure(schema, "staff-launcher-unavailable"),
-    };
-    let receipt: Value = match serde_json::from_slice::<Value>(&output.stdout) {
-        Ok(value) if value.is_object() => value,
-        _ => return launcher_failure(schema, "staff-launcher-invalid-receipt"),
-    };
-    if !output.status.success() {
-        return json!({"schema":schema,"ok":false,"accepted":false,"mutationPerformed":false,"execution":"staff-launcher-nonzero","staffReceipt":receipt,"firstMissingSignal":"staff-launcher-nonzero"});
-    }
-    if receipt.get("ok").and_then(Value::as_bool) != Some(true) {
-        return json!({"schema":schema,"ok":false,"accepted":false,"mutationPerformed":false,"execution":"staff-launcher-refused","staffReceipt":receipt,"firstMissingSignal":receipt.get("firstMissingSignal").and_then(Value::as_str).unwrap_or("staff-launcher-refused")});
-    }
-    receipt
 }
 
 fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
@@ -475,7 +459,13 @@ fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
         })
         .collect::<Result<Vec<_>, _>>()?;
     let target = destination.join(filename);
-    let spool_root = PathBuf::from(FILE_INGRESS_SPOOL_ROOT);
+    let mode = metadata
+        .get("mode")
+        .and_then(Value::as_u64)
+        .unwrap_or(0o664);
+    let supplied_uid = metadata.get("uid").and_then(Value::as_u64);
+    let supplied_gid = metadata.get("gid").and_then(Value::as_u64);
+    let spool_root = PathBuf::from("/var/lib/caduceus/spool/file-ingress");
     std::fs::create_dir_all(&spool_root)
         .map_err(|err| format!("caduceus-file-ingress-spool-unavailable: {err}"))?;
     let spool_path = spool_root.join(format!(
@@ -500,28 +490,33 @@ fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
         .ok_or_else(|| "caduceus-file-ingress-request-invalid".to_string())?;
     object.remove("payload");
     object.insert("spoolPath".into(), json!(spool_path));
+    object.insert("path".into(), json!(target));
     object.insert("targetPath".into(), json!(target));
-    object.insert("bytes".into(), json!(bytes.len()));
-    let staff = launch_staff(
-        "file-ingress",
-        FILE_INGRESS_LAUNCHER,
-        request,
-        "caduceus.staff.file_ingress.v1",
-    );
+    object.insert("mode".into(), json!(mode));
+    if let Some(uid) = supplied_uid {
+        object.insert("uid".into(), json!(uid));
+    }
+    if let Some(gid) = supplied_gid {
+        object.insert("gid".into(), json!(gid));
+    }
+    let staff = staff_band_receipt("storage/upload/ingress", request)?;
     let _ = std::fs::remove_file(&spool_path);
     let ok = staff.get("ok").and_then(Value::as_bool) == Some(true);
     let mutation_performed = ok && staff_mutation_performed(&staff);
+    let signal = staff.get("firstMissingSignal").cloned().unwrap_or_else(|| {
+        json!(if ok {
+            "none"
+        } else {
+            "caduceus-agathodaimon-refused"
+        })
+    });
     let hyalos = if ok {
         file_ingress_reflection(&target, bytes.len())?
     } else {
         Value::Null
     };
-    let signal = staff
-        .get("firstMissingSignal")
-        .cloned()
-        .unwrap_or_else(|| json!(if ok { "none" } else { "staff-launcher-refused" }));
     Ok(
-        json!({"schema":"caduceus.staff.file_ingress.v1","ok":ok,"accepted":ok,"classification":"file-ingress","mutationPerformed":mutation_performed,"execution":if ok {"staff-launcher"} else {"staff-launcher-refused"},"path":target,"bytes":bytes.len(),"hyalos":hyalos,"staffReceipt":staff,"firstMissingSignal":signal}),
+        json!({"schema":"caduceus.staff.file_ingress.v1","ok":ok,"accepted":ok,"classification":"file-ingress","mutationPerformed":mutation_performed,"execution":if ok {"staff-snake"} else {"staff-snake-refused"},"path":target,"bytes":bytes.len(),"hyalos":hyalos,"staffReceipt":staff,"firstMissingSignal":signal}),
     )
 }
 
@@ -530,25 +525,30 @@ fn execute_force_permissions(metadata: Value) -> Result<Value, String> {
     if !destination.is_dir() {
         return Err("caduceus-force-permissions-directory-missing".to_string());
     }
+    let mode = metadata
+        .get("mode")
+        .and_then(Value::as_u64)
+        .unwrap_or(0o775);
     let mut request = metadata;
-    request
+    let object = request
         .as_object_mut()
-        .ok_or_else(|| "caduceus-force-permissions-request-invalid".to_string())?
-        .insert("destination".into(), json!(destination));
-    let staff = launch_staff(
-        "upload-force-permissions",
-        FORCE_PERMISSIONS_LAUNCHER,
-        request,
-        "caduceus.staff.force_permissions.v1",
-    );
+        .ok_or_else(|| "caduceus-force-permissions-request-invalid".to_string())?;
+    object.insert("destination".into(), json!(destination));
+    object.insert("directory".into(), json!(destination));
+    object.insert("path".into(), json!(destination));
+    object.insert("mode".into(), json!(mode));
+    let staff = staff_band_receipt("storage/upload/force-permissions", request)?;
     let ok = staff.get("ok").and_then(Value::as_bool) == Some(true);
     let mutation_performed = ok && staff_mutation_performed(&staff);
-    let signal = staff
-        .get("firstMissingSignal")
-        .cloned()
-        .unwrap_or_else(|| json!(if ok { "none" } else { "staff-launcher-refused" }));
+    let signal = staff.get("firstMissingSignal").cloned().unwrap_or_else(|| {
+        json!(if ok {
+            "none"
+        } else {
+            "caduceus-agathodaimon-refused"
+        })
+    });
     Ok(
-        json!({"schema":"caduceus.staff.force_permissions.v1","ok":ok,"success":ok,"message":if ok {"Permissions updated successfully"} else {"Permissions update refused"},"accepted":ok,"classification":"force-permissions","mutationPerformed":mutation_performed,"execution":if ok {"staff-launcher"} else {"staff-launcher-refused"},"path":destination,"staffReceipt":staff,"firstMissingSignal":signal}),
+        json!({"schema":"caduceus.staff.force_permissions.v1","ok":ok,"success":ok,"message":if ok {"Permissions updated successfully"} else {"Permissions update refused"},"accepted":ok,"classification":"force-permissions","mutationPerformed":mutation_performed,"execution":if ok {"staff-snake"} else {"staff-snake-refused"},"path":destination,"staffReceipt":staff,"firstMissingSignal":signal}),
     )
 }
 

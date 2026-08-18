@@ -33,7 +33,7 @@ async fn file_ingress(
         axum::Json<crate::gate::ApiErrorBody>,
     ),
 > {
-    staff_route("file-ingress", body).await
+    staff_route("storage/upload/ingress", body).await
 }
 
 async fn force_permissions(
@@ -45,7 +45,7 @@ async fn force_permissions(
         axum::Json<crate::gate::ApiErrorBody>,
     ),
 > {
-    staff_route("upload-force-permissions", body).await
+    staff_route("storage/upload/force-permissions", body).await
 }
 
 /// Canonical registration seam for this leaf.
