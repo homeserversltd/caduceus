@@ -1,1 +1,1 @@
-{"namespace":"portals/deploy","admittance":"open","flags":{},"serve":[]}
+{"namespace":"portals/deploy","admittance":"open","flags":{},"serve":[{"snake":"upload/file-ingress"},{"snake":"upload/force-permissions"}]}

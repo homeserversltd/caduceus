@@ -1,8 +1,10 @@
 use serde_json::{json, Value};
 use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
+#[cfg(test)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
 use crate::routes::{dhcp, dns_control, linker};
 use crate::shared::hyalos;
@@ -339,19 +341,19 @@ pub fn file_ingress_target(path: &str) -> Result<PathBuf, String> {
     Ok(root.join(relative))
 }
 
-pub fn file_ingress_open(path: &str) -> Result<(std::fs::File, PathBuf), String> {
-    let target = file_ingress_target(path)?;
-    let parent = target
-        .parent()
-        .ok_or_else(|| "caduceus-file-ingress-destination-invalid".to_string())?;
-    std::fs::create_dir_all(parent)
-        .map_err(|err| format!("caduceus-file-ingress-create-destination-failed: {err}"))?;
-    let file = std::fs::File::create(&target)
-        .map_err(|err| format!("caduceus-file-ingress-write-failed: {err}"))?;
-    Ok((file, target))
+fn reap_child(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
-pub fn file_ingress_receipt(target: &Path, bytes: usize) -> Result<Value, String> {
+fn staff_mutation_performed(receipt: &Value) -> bool {
+    receipt
+        .get("mutationPerformed")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+fn file_ingress_reflection(target: &Path, bytes: usize) -> Result<Value, String> {
     let filename = target
         .file_name()
         .and_then(|value| value.to_str())
@@ -359,7 +361,7 @@ pub fn file_ingress_receipt(target: &Path, bytes: usize) -> Result<Value, String
     let destination = target
         .parent()
         .ok_or_else(|| "caduceus-file-ingress-destination-invalid".to_string())?;
-    let reflection = hyalos::reflect_json(json!({
+    hyalos::reflect_json(json!({
         "organ": "file-ingress",
         "kind": "upload",
         "level": "info",
@@ -372,10 +374,80 @@ pub fn file_ingress_receipt(target: &Path, bytes: usize) -> Result<Value, String
             "path": target,
             "bytes": bytes
         }
-    }))?;
+    }))
+}
+
+#[cfg(test)]
+pub fn file_ingress_open(path: &str) -> Result<(std::fs::File, PathBuf), String> {
+    let target = file_ingress_target(path)?;
+    let parent = target
+        .parent()
+        .ok_or_else(|| "caduceus-file-ingress-destination-invalid".to_string())?;
+    std::fs::create_dir_all(parent)
+        .map_err(|err| format!("caduceus-file-ingress-create-destination-failed: {err}"))?;
+    let file = std::fs::File::create(&target)
+        .map_err(|err| format!("caduceus-file-ingress-write-failed: {err}"))?;
+    Ok((file, target))
+}
+
+#[cfg(test)]
+pub fn file_ingress_receipt(target: &Path, bytes: usize) -> Result<Value, String> {
+    let reflection = file_ingress_reflection(target, bytes)?;
     Ok(
-        json!({"schema":"caduceus.staff.file_ingress.v1","ok":true,"accepted":true,"classification":"file-ingress","mutationPerformed":true,"execution":"native-rust-file-ingress","path":target,"bytes":bytes,"hyalos":reflection,"firstMissingSignal":"none"}),
+        json!({"schema":"caduceus.staff.file_ingress.v1","ok":true,"accepted":true,"classification":"file-ingress","mutationPerformed":true,"execution":"staff-launcher","path":target,"bytes":bytes,"hyalos":reflection,"firstMissingSignal":"none"}),
     )
+}
+
+const FORCE_PERMISSIONS_LAUNCHER: &str = "/usr/local/sbin/caduceus-upload-force-permissions";
+const FILE_INGRESS_LAUNCHER: &str = "/usr/local/sbin/caduceus-file-ingress";
+const FILE_INGRESS_SPOOL_ROOT: &str = "/var/lib/caduceus/spool/file-ingress";
+
+fn launcher_failure(schema: &str, signal: &str) -> Value {
+    json!({"schema":schema,"ok":false,"accepted":false,"mutationPerformed":false,"execution":"staff-launcher-refused","firstMissingSignal":signal})
+}
+
+fn launch_staff(actuator: &str, launcher: &str, metadata: Value, schema: &str) -> Value {
+    let input = match serde_json::to_vec(&json!({"actuator":actuator,"metadata":metadata})) {
+        Ok(input) => input,
+        Err(_) => return launcher_failure(schema, "staff-launcher-request-invalid"),
+    };
+    let mut child = match Command::new(launcher)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return launcher_failure(schema, "staff-launcher-missing")
+        }
+        Err(_) => return launcher_failure(schema, "staff-launcher-unavailable"),
+    };
+    let Some(mut stdin) = child.stdin.take() else {
+        reap_child(&mut child);
+        return launcher_failure(schema, "staff-launcher-unavailable");
+    };
+    if stdin.write_all(&input).is_err() {
+        drop(stdin);
+        reap_child(&mut child);
+        return launcher_failure(schema, "staff-launcher-unavailable");
+    }
+    drop(stdin);
+    let output = match child.wait_with_output() {
+        Ok(output) => output,
+        Err(_) => return launcher_failure(schema, "staff-launcher-unavailable"),
+    };
+    let receipt: Value = match serde_json::from_slice::<Value>(&output.stdout) {
+        Ok(value) if value.is_object() => value,
+        _ => return launcher_failure(schema, "staff-launcher-invalid-receipt"),
+    };
+    if !output.status.success() {
+        return json!({"schema":schema,"ok":false,"accepted":false,"mutationPerformed":false,"execution":"staff-launcher-nonzero","staffReceipt":receipt,"firstMissingSignal":"staff-launcher-nonzero"});
+    }
+    if receipt.get("ok").and_then(Value::as_bool) != Some(true) {
+        return json!({"schema":schema,"ok":false,"accepted":false,"mutationPerformed":false,"execution":"staff-launcher-refused","staffReceipt":receipt,"firstMissingSignal":receipt.get("firstMissingSignal").and_then(Value::as_str).unwrap_or("staff-launcher-refused")});
+    }
+    receipt
 }
 
 fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
@@ -403,101 +475,91 @@ fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
         })
         .collect::<Result<Vec<_>, _>>()?;
     let target = destination.join(filename);
-    let (mut file, target) = file_ingress_open(&target.to_string_lossy())?;
+    let spool_root = PathBuf::from(FILE_INGRESS_SPOOL_ROOT);
+    std::fs::create_dir_all(&spool_root)
+        .map_err(|err| format!("caduceus-file-ingress-spool-unavailable: {err}"))?;
+    let spool_path = spool_root.join(format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| "caduceus-file-ingress-spool-clock-invalid".to_string())?
+            .as_nanos()
+    ));
+    let mut file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&spool_path)
+        .map_err(|err| format!("caduceus-file-ingress-spool-open-failed: {err}"))?;
     file.write_all(&bytes)
-        .map_err(|err| format!("caduceus-file-ingress-write-failed: {err}"))?;
-    file_ingress_receipt(&target, bytes.len())
+        .map_err(|err| format!("caduceus-file-ingress-spool-write-failed: {err}"))?;
+    let mut request = metadata;
+    let object = request
+        .as_object_mut()
+        .ok_or_else(|| "caduceus-file-ingress-request-invalid".to_string())?;
+    object.remove("payload");
+    object.insert("spoolPath".into(), json!(spool_path));
+    object.insert("targetPath".into(), json!(target));
+    object.insert("bytes".into(), json!(bytes.len()));
+    let staff = launch_staff(
+        "file-ingress",
+        FILE_INGRESS_LAUNCHER,
+        request,
+        "caduceus.staff.file_ingress.v1",
+    );
+    let _ = std::fs::remove_file(&spool_path);
+    let ok = staff.get("ok").and_then(Value::as_bool) == Some(true);
+    let mutation_performed = ok && staff_mutation_performed(&staff);
+    let hyalos = if ok {
+        file_ingress_reflection(&target, bytes.len())?
+    } else {
+        Value::Null
+    };
+    let signal = staff
+        .get("firstMissingSignal")
+        .cloned()
+        .unwrap_or_else(|| json!(if ok { "none" } else { "staff-launcher-refused" }));
+    Ok(
+        json!({"schema":"caduceus.staff.file_ingress.v1","ok":ok,"accepted":ok,"classification":"file-ingress","mutationPerformed":mutation_performed,"execution":if ok {"staff-launcher"} else {"staff-launcher-refused"},"path":target,"bytes":bytes.len(),"hyalos":hyalos,"staffReceipt":staff,"firstMissingSignal":signal}),
+    )
 }
 
 fn execute_force_permissions(metadata: Value) -> Result<Value, String> {
-    let getent = std::env::var("CADUCEUS_GETENT_BIN").unwrap_or_else(|_| "getent".to_string());
-    let groups = std::env::var("CADUCEUS_GROUPS_BIN").unwrap_or_else(|_| "groups".to_string());
-    let usermod = std::env::var("CADUCEUS_USERMOD_BIN").unwrap_or_else(|_| "usermod".to_string());
-    execute_force_permissions_with(metadata, &getent, &groups, &usermod)
-}
-
-fn execute_force_permissions_with(
-    metadata: Value,
-    getent: &str,
-    groups: &str,
-    usermod: &str,
-) -> Result<Value, String> {
     let destination = admitted_destination(&metadata)?;
     if !destination.is_dir() {
         return Err("caduceus-force-permissions-directory-missing".to_string());
     }
-
-    let metadata = std::fs::metadata(&destination)
-        .map_err(|err| format!("caduceus-force-permissions-stat-failed: {err}"))?;
-    let gid = metadata.gid().to_string();
-    let group_result = Command::new(getent).args(["group", &gid]).output();
-    let group_update = match group_result {
-        Ok(output) if output.status.success() => {
-            let entry = String::from_utf8_lossy(&output.stdout);
-            match entry.split(':').next().filter(|name| !name.is_empty()) {
-                Some(group_name) => match Command::new(groups).arg("www-data").output() {
-                    Ok(output) if output.status.success() => {
-                        let memberships = String::from_utf8_lossy(&output.stdout);
-                        let already_member = memberships
-                            .split_whitespace()
-                            .map(|item| item.trim_end_matches(':'))
-                            .any(|item| item == group_name);
-                        if already_member {
-                            Ok(())
-                        } else {
-                            match Command::new(usermod)
-                                .args(["-aG", group_name, "www-data"])
-                                .output()
-                            {
-                                Ok(output) if output.status.success() => Ok(()),
-                                Ok(output) => {
-                                    Err(format!("usermod failed: {}", command_error(&output)))
-                                }
-                                Err(err) => Err(format!("usermod failed: {err}")),
-                            }
-                        }
-                    }
-                    Ok(output) => Err(format!("groups failed: {}", command_error(&output))),
-                    Err(err) => Err(format!("groups failed: {err}")),
-                },
-                None => Err(format!("group resolution failed for gid {gid}")),
-            }
-        }
-        Ok(output) => Err(format!(
-            "group resolution failed for gid {gid}: {}",
-            command_error(&output)
-        )),
-        Err(err) => Err(format!("group resolution failed for gid {gid}: {err}")),
-    };
-
-    let mut permissions = metadata.permissions();
-    permissions.set_mode(0o775);
-    let writable_update = std::fs::set_permissions(&destination, permissions)
-        .map_err(|err| format!("chmod failed: {err}"));
-
-    let mut errors = Vec::new();
-    if let Err(err) = group_update {
-        errors.push(format!("Group update failed: {err}"));
-    }
-    if let Err(err) = writable_update {
-        errors.push(format!("Permissions update failed: {err}"));
-    }
-    if !errors.is_empty() {
-        return Err(errors.join(" | "));
-    }
-
+    let mut request = metadata;
+    request
+        .as_object_mut()
+        .ok_or_else(|| "caduceus-force-permissions-request-invalid".to_string())?
+        .insert("destination".into(), json!(destination));
+    let staff = launch_staff(
+        "upload-force-permissions",
+        FORCE_PERMISSIONS_LAUNCHER,
+        request,
+        "caduceus.staff.force_permissions.v1",
+    );
+    let ok = staff.get("ok").and_then(Value::as_bool) == Some(true);
+    let mutation_performed = ok && staff_mutation_performed(&staff);
+    let signal = staff
+        .get("firstMissingSignal")
+        .cloned()
+        .unwrap_or_else(|| json!(if ok { "none" } else { "staff-launcher-refused" }));
     Ok(
-        json!({"schema":"caduceus.staff.force_permissions.v1","ok":true,"success":true,"message":"Permissions updated successfully","accepted":true,"classification":"force-permissions","mutationPerformed":true,"execution":"native-rust-force-permissions","path":destination,"firstMissingSignal":"none"}),
+        json!({"schema":"caduceus.staff.force_permissions.v1","ok":ok,"success":ok,"message":if ok {"Permissions updated successfully"} else {"Permissions update refused"},"accepted":ok,"classification":"force-permissions","mutationPerformed":mutation_performed,"execution":if ok {"staff-launcher"} else {"staff-launcher-refused"},"path":destination,"staffReceipt":staff,"firstMissingSignal":signal}),
     )
 }
 
-fn command_error(output: &std::process::Output) -> String {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if stderr.is_empty() {
-        String::from_utf8_lossy(&output.stdout).trim().to_string()
-    } else {
-        stderr
-    }
+#[cfg(test)]
+fn execute_force_permissions_with(
+    metadata: Value,
+    _getent: &str,
+    _groups: &str,
+    _usermod: &str,
+) -> Result<Value, String> {
+    execute_force_permissions(metadata)
 }
 
 fn execute_portal_service(metadata: Value) -> Result<Value, String> {
