@@ -71,7 +71,7 @@ pub fn pin_mode_json() -> Value {
         .ok()
         .and_then(|text| serde_json::from_str::<Value>(&text).ok())
         .and_then(|value| value.get("pin_required").and_then(Value::as_bool))
-        .unwrap_or(true);
+        .unwrap_or(false);
     json!({
         "schema": "caduceus.access.pin.mode.v1",
         "ok": true,

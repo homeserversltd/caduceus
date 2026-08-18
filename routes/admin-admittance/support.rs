@@ -12,6 +12,12 @@ use axum::{
 };
 use serde_json::Value;
 use std::net::SocketAddr;
+
+pub(crate) async fn pin_mode_read_route(
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    Ok(Json(crate::shared::attendance::pin_mode_json()))
+}
+
 pub(crate) async fn pin_mode_route(
     headers: HeaderMap,
     Json(body): Json<Value>,
@@ -93,7 +99,7 @@ pub(crate) async fn attendance_route(
         "/api/v1/admin-admittance/open" => attendance::open_json(&body),
         "/api/v1/admin-admittance/validate" => attendance::validate_json(&body),
         "/api/v1/admin-admittance/touch" => attendance::touch_json(&body),
-        "/api/v1/admin-admittance/change-pin" => attendance::change_pin_json(&body),
+        "/api/v1/admin-admittance/change-pin" | "/api/v1/access/pin/change" => attendance::change_pin_json(&body),
         "/api/v1/admin-admittance/invalidate" => attendance::invalidate_json(&body),
         _ => Err("caduceus-attendance-route-invalid".to_string()),
     };
