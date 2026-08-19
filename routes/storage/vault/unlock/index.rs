@@ -301,8 +301,17 @@ fn crypttab_line(cfg: &VaultConfig, enabled: bool) -> Result<(String, String), S
 
 pub fn status_json() -> Value {
     match vault_config() {
-        Ok(cfg) => json!({"mounted": mounted(&cfg), "auto_decrypt_enabled": auto_enabled(&cfg)}),
-        Err(_) => json!({"mounted": false, "auto_decrypt_enabled": false}),
+        Ok(cfg) => {
+            let present = state()
+                .ok()
+                .and_then(|state| {
+                    let vault = state.get("vault").unwrap_or(&state);
+                    vault.get("enabled").and_then(Value::as_bool)
+                })
+                .unwrap_or(false);
+            json!({"mounted": mounted(&cfg), "auto_decrypt_enabled": auto_enabled(&cfg), "present": present})
+        }
+        Err(_) => json!({"mounted": false, "auto_decrypt_enabled": false, "present": false}),
     }
 }
 fn keyman_unavailable(signal: &str) -> Result<bool, String> {
