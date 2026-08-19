@@ -23,6 +23,7 @@ commands:
 - update check
 - update now
 - games sync
+- console restart
 - games provider-keys read
 - games provider-keys save
 - update service status
@@ -84,6 +85,7 @@ routes:
 - display/projector/scan
 - games/provider-keys
 - games/sync
+- console/restart
 - local-ai/query
 - log/clear
 - log/read
