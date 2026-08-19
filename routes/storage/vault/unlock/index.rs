@@ -466,7 +466,22 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
     json!({"success":true,"message":"vault-auto-decrypt-updated","auto_decrypt_enabled":enabled})
 }
 
+use axum::extract::Json as ExtractJson;
+use axum::http::StatusCode;
+
+async fn vault_unlock_route(
+    ExtractJson(body): ExtractJson<crate::gate::VaultUnlockBody>,
+) -> (StatusCode, axum::Json<serde_json::Value>) {
+    (
+        StatusCode::OK,
+        axum::Json(unlock_json(body.password.as_deref())),
+    )
+}
+
 /// Canonical registration seam for this leaf.
 pub fn register(router: axum::Router) -> axum::Router {
-    router
+    router.route(
+        "/api/v1/storage/vault/unlock",
+        axum::routing::post(vault_unlock_route),
+    )
 }
