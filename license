@@ -20,7 +20,7 @@ The Licensor hereby grants you the right to copy, modify, create derivative work
 Effective on the Change Date, or the third anniversary of the first publicly available distribution of a specific version of the Licensed Work under this License, whichever comes first, the Licensor hereby grants you rights under the terms of the Change License, and the rights granted in the paragraph above terminate.
 
 **Version-Specific Licensing:**
-Each version of the Licensed Work is licensed separately. The BSL terms apply to each version for exactly 3 years from that version's release date. Version release dates are determined by the `releaseDate` field in the version configuration file (`Cargo.toml`). Each version is identified by its `version` value in the version configuration (e.g., "0.9.0").
+Each version of the Licensed Work is licensed separately. The BSL terms apply to each version for exactly 3 years from that version's release date. Version release dates are the dates of each version's public release, as recorded by this repository's tagged release history. Each version is identified by its `version` value in `Cargo.toml` (e.g., "0.1.0").
 
 If your use of the Licensed Work does not comply with the requirements currently in effect as described in this License, you must purchase a commercial license from the Licensor, its affiliated entities, or authorized resellers, or you must refrain from using the Licensed Work.
 
