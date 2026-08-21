@@ -6,4 +6,6 @@ pub mod protocol;
 pub mod routes;
 #[path = "lib/mod.rs"]
 pub mod shared;
+#[path = "stats.rs"]
+pub mod stats;
 pub use routes::cli::run;

@@ -1,0 +1,18 @@
+use crate::gate::{gated_json, ApiErrorBody};
+use axum::{http::StatusCode, Json};
+use serde_json::Value;
+
+async fn current_http() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("health", crate::stats::current).await
+}
+async fn history_http() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("health", crate::stats::history).await
+}
+pub fn register(router: axum::Router) -> axum::Router {
+    router
+        .route("/api/v1/appliance/stats", axum::routing::get(current_http))
+        .route(
+            "/api/v1/appliance/stats/history",
+            axum::routing::get(history_http),
+        )
+}
