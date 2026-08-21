@@ -1139,7 +1139,7 @@ fn cert_temp_root(tag: &str, profile: &str) -> CertTempRoot {
     ));
     let root = CertTempRoot(root);
     fs::create_dir_all(root.join("etc/caduceus")).unwrap();
-    for name in ["profile.yaml", "identity.json"] {
+    for name in ["profile.yaml"] {
         fs::copy(
             format!("tests/fixtures/{profile}/etc/caduceus/{name}"),
             root.join("etc/caduceus").join(name),

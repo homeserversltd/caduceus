@@ -52,21 +52,6 @@ fn legacy_sbin_show_preserves_whole_script_body_without_execution() {
     assert!(text.contains("\"ok\":true"));
 }
 #[test]
-fn fixture_identity_is_read() {
-    let out = Command::new(bin())
-        .env("CADUCEUS_ROOT", "tests/fixtures/tv")
-        .args(["identity", "show"])
-        .output()
-        .unwrap();
-    assert!(out.status.success());
-    let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.contains("birth-tv"));
-    assert!(!text.contains("Azoth"));
-    assert!(!text.contains("Kether"));
-    assert!(!text.contains("Cibation"));
-}
-
-#[test]
 fn update_toggle_dry_run_is_public_safe() {
     let out = Command::new(bin())
         .env("CADUCEUS_ROOT", "tests/fixtures/tv")
@@ -618,11 +603,6 @@ fn config_write_refuses_missing_homeserver_install_without_touching_legacy() {
     std::fs::copy(
         "tests/fixtures/homeserver/etc/caduceus/profile.yaml",
         root.join("etc/caduceus/profile.yaml"),
-    )
-    .unwrap();
-    std::fs::copy(
-        "tests/fixtures/homeserver/etc/caduceus/identity.json",
-        root.join("etc/caduceus/identity.json"),
     )
     .unwrap();
     let legacy = root.join("var/www/homeserver/src/config/homeserver.json");
