@@ -1,7 +1,0 @@
-{
-  "schema": "caduceus.identity.v1",
-  "device": "locked-appliance",
-  "profile": "locked",
-  "mode": "locked",
-  "public_surface": true
-}

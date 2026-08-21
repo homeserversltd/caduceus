@@ -94,12 +94,6 @@ fn state() -> Option<Value> {
         .and_then(|text| serde_json::from_str(&text).ok())
 }
 
-fn identity() -> Option<Value> {
-    fs::read_to_string(paths::path("etc/caduceus/identity.json"))
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-}
-
 fn normalize(value: &str) -> Option<String> {
     let value = value.to_ascii_lowercase();
     ["homeserver", "console", "tv"]
@@ -110,7 +104,6 @@ fn normalize(value: &str) -> Option<String> {
 
 fn resolve() -> Result<Resolved, String> {
     let state = state();
-    let identity = identity();
     let profile_file = paths::read_public_profile_value().ok();
     let profile = state
         .as_ref()
@@ -123,18 +116,6 @@ fn resolve() -> Result<Resolved, String> {
                 .and_then(Value::as_str)
         })
         .and_then(normalize)
-        .or_else(|| {
-            identity
-                .as_ref()
-                .and_then(|value| {
-                    value
-                        .get("profile")
-                        .or_else(|| value.get("mode"))
-                        .or_else(|| value.get("device"))
-                })
-                .and_then(Value::as_str)
-                .and_then(normalize)
-        })
         .or_else(|| {
             profile_file
                 .as_ref()

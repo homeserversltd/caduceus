@@ -1,17 +1,15 @@
-use crate::shared::config;
 use crate::gate::{gated_json, ApiErrorBody};
+use crate::shared::config;
 use axum::{http::StatusCode, Json};
 use serde_json::{json, Value};
 
 pub fn read_json() -> Result<Value, String> {
-    let identity = config::read_public_file("etc/caduceus/identity.json").is_ok();
     let profile = config::public_profile_present();
     Ok(json!({
         "schema": "caduceus.health.v1",
-        "identityPresent": identity,
         "profilePresent": profile,
         "privateLandOrgansExposed": false,
-        "ok": identity && profile
+        "ok": profile
     }))
 }
 
@@ -19,7 +17,6 @@ pub fn show() -> i32 {
     match read_json() {
         Ok(value) => {
             println!("schema=caduceus.health.v1");
-            println!("identity_present={}", value["identityPresent"]);
             println!("profile_present={}", value["profilePresent"]);
             println!("private_land_organs_exposed=false");
             if value["ok"].as_bool() == Some(true) {
@@ -36,9 +33,10 @@ pub fn show() -> i32 {
 }
 
 /// Canonical appliance health report.
-async fn report_http() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> { gated_json("health", read_json).await }
+async fn report_http() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("health", read_json).await
+}
 
 pub fn register(router: axum::Router) -> axum::Router {
-    router
-        .route("/api/v1/appliance/report", axum::routing::get(report_http))
+    router.route("/api/v1/appliance/report", axum::routing::get(report_http))
 }

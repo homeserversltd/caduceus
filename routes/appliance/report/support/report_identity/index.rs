@@ -2,11 +2,9 @@ use crate::shared::config;
 use serde_json::Value;
 
 pub fn read_json() -> Result<Value, String> {
-    let text = config::read_public_file("etc/caduceus/identity.json")?;
-    let mut value =
-        serde_json::from_str(&text).map_err(|err| format!("caduceus-identity-invalid: {err}"))?;
-    config::overlay_birth_profile_fields(&mut value)?;
-    Ok(value)
+    let text = config::read_public_file("etc/appliance/profile.json")
+        .map_err(|err| format!("caduceus-identity-profile-missing: {err}"))?;
+    serde_json::from_str(&text).map_err(|err| format!("caduceus-identity-profile-invalid: {err}"))
 }
 
 pub fn show() -> i32 {
@@ -17,7 +15,7 @@ pub fn show() -> i32 {
             0
         }
         Err(err) => {
-            eprintln!("caduceus-identity-missing: {err}");
+            eprintln!("caduceus-identity-read-failed: {err}");
             1
         }
     }
