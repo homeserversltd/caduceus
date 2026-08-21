@@ -9,6 +9,7 @@ pub static RUST_PRIMITIVES: &[&str] = &[
     "staff",
     "discovery",
     "appliance_report_read",
+    "appliance_stats_read",
     "bandwidth_measure_read",
     "log_receipts_read",
     "log_reflect_mutate",

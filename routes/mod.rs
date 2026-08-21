@@ -1,6 +1,7 @@
 // C2 root route canopy.
 #[path = "../lib/primitives.rs"]
 pub mod primitives;
+pub use crate::stats;
 pub mod profile_routes {
     include!(concat!(env!("OUT_DIR"), "/profile_routes.rs"));
 }

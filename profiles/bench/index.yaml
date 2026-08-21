@@ -1,6 +1,8 @@
 schema: caduceus.profile.v1
 profile: bench
 mode: everything-lit
+commands:
+- appliance stats read
 routes:
 - admin-admittance/change-pin
 - admin-admittance/invalidate
@@ -10,6 +12,7 @@ routes:
 - appliance/claim
 - appliance/name
 - appliance/report
+- appliance/stats
 - appliance/service/:service/restart
 - cartridges/admit
 - cartridges/list

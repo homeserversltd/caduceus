@@ -1,0 +1,1 @@
+{"namespace":"appliance/stats","admittance":"open","flags":{},"serve":[{"rust":"appliance_stats_read"}]}
