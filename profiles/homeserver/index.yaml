@@ -9,6 +9,7 @@ commands:
 - identity show
 - profile show
 - health
+- appliance stats read
 - logs read
 - logs clear
 - legacy-sbin list

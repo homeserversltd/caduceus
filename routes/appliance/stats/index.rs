@@ -3,10 +3,10 @@ use axum::{http::StatusCode, Json};
 use serde_json::Value;
 
 async fn current_http() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("health", crate::stats::current).await
+    gated_json("appliance stats read", crate::stats::current).await
 }
 async fn history_http() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("health", crate::stats::history).await
+    gated_json("appliance stats read", crate::stats::history).await
 }
 pub fn register(router: axum::Router) -> axum::Router {
     router
