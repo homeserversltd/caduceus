@@ -65,6 +65,23 @@ commands:
 - config get
 - config set
 - config patch
+- interactable list
+- interactable run
+harmonia_routes:
+  interactable_list:
+    bin: /usr/local/bin/harmonia
+    args:
+    - interactable
+    - list
+    - --json
+    raw_json: true
+  interactable_run:
+    bin: /usr/local/bin/harmonia
+    args:
+    - interactable
+    - run
+    positional: true
+    raw_json: true
 routes:
 - admin-admittance/change-pin
 - admin-admittance/invalidate
@@ -141,3 +158,5 @@ routes:
 - update/check
 - update/now
 - update/status
+- interactables
+- interactables/:id/run

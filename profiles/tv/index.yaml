@@ -37,6 +37,8 @@ commands:
 - config get
 - config set
 - config patch
+- interactable list
+- interactable run
 - profile sources reseed
 pjlink:
   catalog_path: var/lib/caduceus/pjlink-known-products.jsonl
@@ -50,6 +52,21 @@ pjlink:
       productName: Living Room TV
       otherInfo: Fixture PJLink display
       class: '1'
+harmonia_routes:
+  interactable_list:
+    bin: /usr/local/bin/harmonia
+    args:
+    - interactable
+    - list
+    - --json
+    raw_json: true
+  interactable_run:
+    bin: /usr/local/bin/harmonia
+    args:
+    - interactable
+    - run
+    positional: true
+    raw_json: true
 routes:
 - admin-admittance/change-pin
 - admin-admittance/invalidate
@@ -124,3 +141,5 @@ routes:
 - update/check
 - update/now
 - update/status
+- interactables
+- interactables/:id/run
