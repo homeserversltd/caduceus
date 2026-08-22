@@ -45,6 +45,13 @@ pub fn build_argv(route: &Value, rest: &[String]) -> Result<Vec<String>, String>
             }
         }
     }
+    if route
+        .get("positional")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        args.extend(rest.iter().cloned());
+    }
     let mut argv = vec![bin];
     argv.extend(args);
     Ok(argv)
@@ -109,6 +116,16 @@ pub fn invoke(route_key: &str, rest: &[String], dry_run: bool) -> (i32, String) 
     match output {
         Ok(result) => {
             let ok = result.status.success();
+            if route_value
+                .get("raw_json")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                let body =
+                    String::from_utf8_lossy(if ok { &result.stdout } else { &result.stderr })
+                        .into_owned();
+                return (if ok { 0 } else { 1 }, body);
+            }
             let body = format!(
                 "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute={route_key}\nok={ok}\nexit_code={}\ncommand={}\nfirst_missing_signal={}\n",
                 result.status.code().unwrap_or(-1),
