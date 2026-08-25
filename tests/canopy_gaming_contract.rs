@@ -26,43 +26,57 @@ fn gaming_leaves_are_discoverable_and_have_admittance_seats() {
 }
 
 #[test]
-fn gaming_profile_lits_canonical_canopy_and_keeps_sync_alias_source() {
+fn gaming_profile_lits_canonical_routes_and_required_aliases() {
     let profile = fs::read_to_string("profiles/console/index.yaml").unwrap();
     for namespace in LEAVES {
         assert!(profile
             .lines()
             .any(|line| line.trim() == format!("- {namespace}")));
     }
-    assert!(fs::read_to_string("routes/gaming/sync/index.rs")
-        .unwrap()
-        .contains("/api/v1/games/sync"));
-}
-
-#[test]
-fn stale_games_owner_is_absent_but_sync_alias_is_canonical_only() {
-    assert!(!Path::new("routes/games").exists());
     let sync = fs::read_to_string("routes/gaming/sync/index.rs").unwrap();
-    assert!(sync.contains("/api/v1/games/sync"));
-    assert!(!sync.contains("/api/v1/games/provider-keys"));
-    assert!(!Path::new("routes/games/sync/index.rs").exists());
-    assert!(!Path::new("routes/games/provider-keys/index.rs").exists());
+    let keys = fs::read_to_string("routes/gaming/provider-keys/index.rs").unwrap();
+    for path in ["/api/v1/gaming/sync", "/api/v1/games/sync"] {
+        assert!(sync.contains(path));
+    }
+    for path in [
+        "/api/v1/gaming/provider-keys",
+        "/api/v1/games/provider-keys",
+    ] {
+        assert!(keys.contains(path));
+    }
 }
 
 #[test]
-fn gaming_leaves_use_only_the_common_cold_seat_helper() {
-    for namespace in LEAVES {
+fn gaming_crossing_leaves_preserve_live_policy_and_band_paths() {
+    let sync = fs::read_to_string("routes/gaming/sync/index.rs").unwrap();
+    assert!(sync.contains("allows_command(\"gaming sync\")"));
+    assert!(sync.contains("crossing_path(\"games/sync\""));
+    let keys = fs::read_to_string("routes/gaming/provider-keys/index.rs").unwrap();
+    for command in ["gaming provider-keys read", "gaming provider-keys save"] {
+        assert!(keys.contains(&format!("allows_command(\"{command}\")")));
+    }
+    assert!(keys.contains("crossing_path(\"games/provider-keys\""));
+    assert!(keys.contains("ProviderKeysBody"));
+    assert!(keys.contains("caduceus-games-provider-keys-empty"));
+    for stale in ["crate::routes::canopy::staff_route", "mutationPerformed"] {
+        assert!(!sync.contains(stale));
+        assert!(!keys.contains(stale));
+    }
+}
+
+#[test]
+fn gaming_input_leaves_still_use_the_cold_staff_seat() {
+    for namespace in &LEAVES[..3] {
         let source = fs::read_to_string(format!("routes/{namespace}/index.rs")).unwrap();
         assert!(source.contains("crate::routes::canopy::staff_route"));
-        for stale in [
-            "allows_command",
-            "crossing_path",
-            "ApiErrorBody",
-            "ProviderKeysBody",
-            "STEAMGRIDDB_API_KEY",
-        ] {
-            assert!(!source.contains(stale), "{namespace} retains stale {stale}");
-        }
     }
+}
+
+#[test]
+fn stale_games_owner_is_absent() {
+    assert!(!Path::new("routes/games").exists());
+    assert!(!Path::new("routes/games/sync/index.rs").exists());
+    assert!(!Path::new("routes/games/provider-keys/index.rs").exists());
 }
 
 #[test]
@@ -73,24 +87,17 @@ fn gaming_canopy_debt_signals_are_non_placeholder_unique_and_namespace_mapped() 
         let value: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
         let signal = value["flags"]["firstMissingSignal"]
             .as_str()
-            .expect("each canopy seat must declare a debt signal")
+            .unwrap()
             .to_owned();
-        let expected = format!("agathodaimon-sbin-{}", namespace.replace('/', "-"));
-        assert_ne!(
-            signal, "exact-staff-door-debt",
-            "{namespace} retains placeholder debt"
+        let expected = format!(
+            "agathodaimon-sbin-{}",
+            namespace.replace(char::from(47), "-")
         );
-        assert_eq!(
-            signal, expected,
-            "{namespace} debt must map exactly to its namespace"
-        );
+        assert_ne!(signal, "exact-staff-door-debt");
+        assert_eq!(signal, expected);
         signals.push(signal);
     }
     signals.sort_unstable();
     signals.dedup();
-    assert_eq!(
-        signals.len(),
-        LEAVES.len(),
-        "gaming debt signals must be unique"
-    );
+    assert_eq!(signals.len(), LEAVES.len());
 }
