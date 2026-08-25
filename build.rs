@@ -122,6 +122,7 @@ fn main() {
     let _profile_authority = fs::read_to_string(&profile_path)
         .unwrap_or_else(|_| panic!("profile authority must be readable: {profile_path}"));
     println!("cargo:rerun-if-env-changed=CADUCEUS_BUILD_SHA");
+    println!("cargo:rerun-if-env-changed=CADUCEUS_PROFILE");
     println!("cargo:rerun-if-env-changed=CADUCEUS_SBIN_PATH");
     println!("cargo:rerun-if-changed=protocol/index.json");
 

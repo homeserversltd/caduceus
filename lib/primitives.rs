@@ -8,6 +8,7 @@ pub static RUST_PRIMITIVES: &[&str] = &[
     "attendance",
     "staff",
     "discovery",
+    "caduceus_staff_receipt",
     "appliance_report_read",
     "appliance_stats_read",
     "bandwidth_measure_read",

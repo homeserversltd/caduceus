@@ -140,3 +140,6 @@ pub mod homeserver_sbin {
 }
 
 // Small CLI compatibility adapters retained at the leaf boundary.
+
+#[path = "canopy.rs"]
+pub(crate) mod canopy;
