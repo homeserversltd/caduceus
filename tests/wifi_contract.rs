@@ -137,6 +137,7 @@ exit 0
     let p = "/api/v1/network/device/wifi/ipv4";
     for b in [
         serde_json::json!({"uuid":u,"method":"static","address":"192.0.2.4/24","gateway":"192.0.2.1","dns":"192.0.2.53"}),
+        serde_json::json!({"uuid":u,"method":"static","address":"192.0.2.4/24","gateway":"","dns":""}),
         serde_json::json!({"uuid":u,"method":"auto"}),
     ] {
         let r = app.clone().oneshot(req("POST", p, b)).await.unwrap();
@@ -231,6 +232,18 @@ exit 0
                 "192.0.2.1",
                 "ipv4.dns",
                 "192.0.2.53"
+            ],
+            vec!["connection", "down", "uuid", u],
+            vec!["connection", "up", "uuid", u],
+            vec![
+                "connection",
+                "modify",
+                "uuid",
+                u,
+                "ipv4.method",
+                "manual",
+                "ipv4.addresses",
+                "192.0.2.4/24"
             ],
             vec!["connection", "down", "uuid", u],
             vec!["connection", "up", "uuid", u],
@@ -363,7 +376,7 @@ exit 0
         ),
         (
             "/api/v1/network/device/ipv4",
-            serde_json::json!({"interface":"wlan0","method":"static","address":"192.0.2.4/24","gateway":"192.0.2.1"}),
+            serde_json::json!({"interface":"wlan0","method":"static","address":"192.0.2.4/24","gateway":"","dns":""}),
             "ipv4",
         ),
     ] {
@@ -444,9 +457,7 @@ exit 0
                 "ipv4.method",
                 "manual",
                 "ipv4.addresses",
-                "192.0.2.4/24",
-                "ipv4.gateway",
-                "192.0.2.1"
+                "192.0.2.4/24"
             ],
             vec![
                 "connection",
@@ -518,6 +529,26 @@ exit 0
             "/api/v1/network/device/wifi/connect",
             serde_json::json!({"ssid":"Cafe","password":123}),
             "wifi-password-invalid",
+        ),
+        (
+            "/api/v1/network/device/wifi/ipv4",
+            serde_json::json!({"uuid":"123e4567-e89b-12d3-a456-426614174000","method":"static","address":"192.0.2.4/24","gateway":"not-an-ip"}),
+            "wifi-gateway-invalid",
+        ),
+        (
+            "/api/v1/network/device/wifi/ipv4",
+            serde_json::json!({"uuid":"123e4567-e89b-12d3-a456-426614174000","method":"static","address":"192.0.2.4/24","dns":"not-an-ip"}),
+            "wifi-dns-invalid",
+        ),
+        (
+            "/api/v1/network/device/ipv4",
+            serde_json::json!({"interface":"wlan0","method":"static","address":"192.0.2.4/24","gateway":"not-an-ip"}),
+            "wifi-gateway-invalid",
+        ),
+        (
+            "/api/v1/network/device/ipv4",
+            serde_json::json!({"interface":"wlan0","method":"static","address":"192.0.2.4/24","dns":"not-an-ip"}),
+            "wifi-dns-invalid",
         ),
     ] {
         let before = args(&log);

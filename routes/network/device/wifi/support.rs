@@ -248,18 +248,8 @@ fn build_args(
                 x.extend([
                     "ipv4.addresses".into(),
                     cidr(&text(o, "address", MAX_FIELD)?)?,
-                    "ipv4.gateway".into(),
-                    ip(&text(o, "gateway", MAX_FIELD)?, "wifi-gateway-invalid")?.to_string(),
                 ]);
-                if let Some(d) = o.get("dns").and_then(Value::as_str) {
-                    let d = valid_text(d, "wifi-dns-invalid", MAX_DNS)?;
-                    if d.split(',')
-                        .any(|v| ip(v.trim(), "wifi-dns-invalid").is_err())
-                    {
-                        return Err("wifi-dns-invalid".into());
-                    }
-                    x.extend(["ipv4.dns".into(), d])
-                }
+                append_static_ipv4_options(&mut x, o)?;
             } else {
                 x.extend([
                     "ipv4.addresses".into(),
@@ -416,18 +406,8 @@ fn build_ipv4_modify_args(
         x.extend([
             "ipv4.addresses".into(),
             cidr(&text(o, "address", MAX_FIELD)?)?,
-            "ipv4.gateway".into(),
-            ip(&text(o, "gateway", MAX_FIELD)?, "wifi-gateway-invalid")?.to_string(),
         ]);
-        if let Some(d) = o.get("dns").and_then(Value::as_str) {
-            let d = valid_text(d, "wifi-dns-invalid", MAX_DNS)?;
-            if d.split(',')
-                .any(|v| ip(v.trim(), "wifi-dns-invalid").is_err())
-            {
-                return Err("wifi-dns-invalid".into());
-            }
-            x.extend(["ipv4.dns".into(), d]);
-        }
+        append_static_ipv4_options(&mut x, o)?;
     } else {
         x.extend([
             "ipv4.addresses".into(),
@@ -440,6 +420,36 @@ fn build_ipv4_modify_args(
     }
     Ok(x)
 }
+fn append_static_ipv4_options(
+    x: &mut Vec<String>,
+    o: &serde_json::Map<String, Value>,
+) -> Result<(), String> {
+    if let Some(gateway) = o.get("gateway") {
+        let gateway = gateway
+            .as_str()
+            .ok_or_else(|| "wifi-gateway-required".to_string())?;
+        if !gateway.is_empty() {
+            x.extend([
+                "ipv4.gateway".into(),
+                ip(gateway, "wifi-gateway-invalid")?.to_string(),
+            ]);
+        }
+    }
+    if let Some(dns) = o.get("dns").and_then(Value::as_str) {
+        if !dns.is_empty() {
+            let dns = valid_text(dns, "wifi-dns-invalid", MAX_DNS)?;
+            if dns
+                .split(',')
+                .any(|v| ip(v.trim(), "wifi-dns-invalid").is_err())
+            {
+                return Err("wifi-dns-invalid".into());
+            }
+            x.extend(["ipv4.dns".into(), dns]);
+        }
+    }
+    Ok(())
+}
+
 fn run_ipv4_sequence(m: &[String]) -> Result<(String, Vec<String>), String> {
     let u = m
         .get(3)
