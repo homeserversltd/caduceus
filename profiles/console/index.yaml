@@ -108,6 +108,10 @@ routes:
 - appliance/reboot
 - appliance/poweroff
 - appliance/gamescope/restart
+- settings/ssh/config
+- settings/ssh/authorized-keys
+- settings/ssh/service/enable
+- settings/ssh/service/disable
 - console/restart
 - local-ai/query
 - log/clear

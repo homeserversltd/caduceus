@@ -1,0 +1,1 @@
+{"namespace":"settings/ssh/service/disable","admittance":"open","flags":{"receiptSchema":"caduceus.staff.v1","firstMissingSignal":"agathodaimon-sbin-settings-ssh-service-disable"},"serve":[{"rust":"caduceus_staff_receipt"}]}

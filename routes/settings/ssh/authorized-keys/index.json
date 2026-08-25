@@ -1,0 +1,1 @@
+{"namespace":"settings/ssh/authorized-keys","admittance":"open","flags":{"receiptSchema":"caduceus.staff.v1","firstMissingSignal":"agathodaimon-sbin-settings-ssh-authorized-keys"},"serve":[{"rust":"caduceus_staff_receipt"}]}
