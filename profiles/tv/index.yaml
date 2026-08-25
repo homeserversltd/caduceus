@@ -102,6 +102,13 @@ routes:
 - network/device/pin-address
 - network/device/wake
 - network/device/whitelist
+- network/device/wifi/scan
+- network/device/wifi/status
+- network/device/wifi/saved
+- network/device/wifi/connect
+- network/device/wifi/disconnect
+- network/device/wifi/forget
+- network/device/wifi/ipv4
 - network/dhcp/boundary
 - network/dhcp/health
 - network/dhcp/leases

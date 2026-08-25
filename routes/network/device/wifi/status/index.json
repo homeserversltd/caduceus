@@ -1,0 +1,1 @@
+{"namespace":"network/device/wifi/status","admittance":"open","flags":{},"serve":[{"rust":"network_wifi_status_read"}]}

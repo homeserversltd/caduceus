@@ -67,6 +67,13 @@ commands:
 - config patch
 - interactable list
 - interactable run
+- network device wifi scan
+- network device wifi status
+- network device wifi saved
+- network device wifi connect
+- network device wifi disconnect
+- network device wifi forget
+- network device wifi ipv4
 harmonia_routes:
   interactable_list:
     bin: /usr/local/bin/harmonia
@@ -160,3 +167,10 @@ routes:
 - update/status
 - interactables
 - interactables/:id/run
+- network/device/wifi/scan
+- network/device/wifi/status
+- network/device/wifi/saved
+- network/device/wifi/connect
+- network/device/wifi/disconnect
+- network/device/wifi/forget
+- network/device/wifi/ipv4

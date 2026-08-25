@@ -1,0 +1,1 @@
+{"namespace":"network/device/wifi/scan","admittance":"open","flags":{},"serve":[{"rust":"network_wifi_scan_read"}]}
