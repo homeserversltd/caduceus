@@ -1,0 +1,1 @@
+{"namespace":"network/device/wifi/radio","admittance":"open","flags":{},"serve":[{"rust":"network_wifi_radio_mutate"}]}

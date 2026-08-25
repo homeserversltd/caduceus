@@ -321,3 +321,242 @@ exit 0
     assert!(!b.to_string().contains("fail0"));
     assert_eq!(args(&log), vec![vec!["device", "disconnect", "fail0"]]);
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn network_device_routes_and_open_wifi_contract() {
+    let _l = LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let root = temp();
+    fs::create_dir_all(&root).unwrap();
+    let log = root.join("argv.log");
+    let input = root.join("stdin");
+    let bin = root.join("nmcli");
+    fs::write(&bin, format!(r#"#!/bin/sh
+printf '[%s]\037' "$@" >> '{}'
+printf '\n' >> '{}'
+if [ "$1" = "--ask" ]; then cat > '{}'; else cat >/dev/null; fi
+if [ "$1" = "-t" ] && [ "$3" = "NAME,UUID,TYPE,DEVICE" ]; then printf 'Home:123e4567-e89b-12d3-a456-426614174000:802-11-wireless:wlan0\n'; fi
+exit 0
+"#, log.display(), log.display(), input.display())).unwrap();
+    fs::set_permissions(&bin, fs::Permissions::from_mode(0o700)).unwrap();
+    let _g = Guard::new(root.clone(), &bin);
+    let app = serve::router();
+    for (path, body, action) in [
+        (
+            "/api/v1/network/device/wifi/radio",
+            serde_json::json!({"enabled":true}),
+            "radio",
+        ),
+        (
+            "/api/v1/network/device/wifi/radio",
+            serde_json::json!({"enabled":false}),
+            "radio",
+        ),
+        (
+            "/api/v1/network/device/connect",
+            serde_json::json!({"interface":"wlan0"}),
+            "connect",
+        ),
+        (
+            "/api/v1/network/device/disconnect",
+            serde_json::json!({"interface":"wlan0"}),
+            "disconnect",
+        ),
+        (
+            "/api/v1/network/device/ipv4",
+            serde_json::json!({"interface":"wlan0","method":"static","address":"192.0.2.4/24","gateway":"192.0.2.1"}),
+            "ipv4",
+        ),
+    ] {
+        let response = app.clone().oneshot(req("POST", path, body)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        stamps(&json(response).await, path, action, true);
+    }
+    let auto = app
+        .clone()
+        .oneshot(req(
+            "POST",
+            "/api/v1/network/device/ipv4",
+            serde_json::json!({"interface":"wlan0","method":"auto"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(auto.status(), StatusCode::OK);
+    stamps(
+        &json(auto).await,
+        "/api/v1/network/device/ipv4",
+        "ipv4",
+        true,
+    );
+    let open = app
+        .clone()
+        .oneshot(req(
+            "POST",
+            "/api/v1/network/device/wifi/connect",
+            serde_json::json!({"ssid":"Cafe"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(open.status(), StatusCode::OK);
+    stamps(
+        &json(open).await,
+        "/api/v1/network/device/wifi/connect",
+        "connect",
+        true,
+    );
+    assert!(!input.exists());
+    let open_empty = app
+        .clone()
+        .oneshot(req(
+            "POST",
+            "/api/v1/network/device/wifi/connect",
+            serde_json::json!({"ssid":"Cafe","password":""}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(open_empty.status(), StatusCode::OK);
+    stamps(
+        &json(open_empty).await,
+        "/api/v1/network/device/wifi/connect",
+        "connect",
+        true,
+    );
+    assert!(!input.exists());
+    assert_eq!(
+        args(&log),
+        vec![
+            vec!["radio", "wifi", "on"],
+            vec!["radio", "wifi", "off"],
+            vec!["device", "connect", "wlan0"],
+            vec!["device", "disconnect", "wlan0"],
+            vec![
+                "-t",
+                "-f",
+                "NAME,UUID,TYPE,DEVICE",
+                "connection",
+                "show",
+                "--active"
+            ],
+            vec![
+                "connection",
+                "modify",
+                "uuid",
+                "123e4567-e89b-12d3-a456-426614174000",
+                "ipv4.method",
+                "manual",
+                "ipv4.addresses",
+                "192.0.2.4/24",
+                "ipv4.gateway",
+                "192.0.2.1"
+            ],
+            vec![
+                "connection",
+                "down",
+                "uuid",
+                "123e4567-e89b-12d3-a456-426614174000"
+            ],
+            vec![
+                "connection",
+                "up",
+                "uuid",
+                "123e4567-e89b-12d3-a456-426614174000"
+            ],
+            vec![
+                "-t",
+                "-f",
+                "NAME,UUID,TYPE,DEVICE",
+                "connection",
+                "show",
+                "--active"
+            ],
+            vec![
+                "connection",
+                "modify",
+                "uuid",
+                "123e4567-e89b-12d3-a456-426614174000",
+                "ipv4.method",
+                "auto",
+                "ipv4.addresses",
+                "",
+                "ipv4.gateway",
+                "",
+                "ipv4.dns",
+                ""
+            ],
+            vec![
+                "connection",
+                "down",
+                "uuid",
+                "123e4567-e89b-12d3-a456-426614174000"
+            ],
+            vec![
+                "connection",
+                "up",
+                "uuid",
+                "123e4567-e89b-12d3-a456-426614174000"
+            ],
+            vec!["device", "wifi", "connect", "Cafe"],
+            vec!["device", "wifi", "connect", "Cafe"],
+        ]
+    );
+    for (path, body, signal) in [
+        (
+            "/api/v1/network/device/wifi/radio",
+            serde_json::json!({"enabled":"yes"}),
+            "wifi-enabled-required",
+        ),
+        (
+            "/api/v1/network/device/connect",
+            serde_json::json!({"interface":"wlan0\nmarker"}),
+            "wifi-interface-invalid",
+        ),
+        (
+            "/api/v1/network/device/ipv4",
+            serde_json::json!({"interface":"wlan0","method":"bogus"}),
+            "wifi-ipv4-method-invalid",
+        ),
+        (
+            "/api/v1/network/device/wifi/connect",
+            serde_json::json!({"ssid":"Cafe","password":123}),
+            "wifi-password-invalid",
+        ),
+    ] {
+        let before = args(&log);
+        let response = app.clone().oneshot(req("POST", path, body)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(json(response).await["first_missing_signal"], signal);
+        assert_eq!(args(&log), before);
+    }
+    for path in [
+        "/api/v1/network/device/wifi/radio",
+        "/api/v1/network/device/connect",
+        "/api/v1/network/device/disconnect",
+        "/api/v1/network/device/ipv4",
+    ] {
+        assert_eq!(
+            app.clone()
+                .oneshot(req("GET", path, serde_json::json!({})))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+    }
+    let doors = json(
+        app.oneshot(req("GET", "/api/v1/doors", serde_json::json!({})))
+            .await
+            .unwrap(),
+    )
+    .await;
+    for path in [
+        "/api/v1/network/device/wifi/radio",
+        "/api/v1/network/device/connect",
+        "/api/v1/network/device/disconnect",
+        "/api/v1/network/device/ipv4",
+    ] {
+        assert!(doors["routes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == path));
+    }
+}

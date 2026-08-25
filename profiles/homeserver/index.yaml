@@ -74,6 +74,10 @@ commands:
 - network device wifi disconnect
 - network device wifi forget
 - network device wifi ipv4
+- network device wifi radio
+- network device connect
+- network device disconnect
+- network device ipv4
 harmonia_routes:
   interactable_list:
     bin: /usr/local/bin/harmonia
@@ -174,3 +178,7 @@ routes:
 - network/device/wifi/disconnect
 - network/device/wifi/forget
 - network/device/wifi/ipv4
+- network/device/wifi/radio
+- network/device/connect
+- network/device/disconnect
+- network/device/ipv4
