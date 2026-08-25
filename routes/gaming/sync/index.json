@@ -1,0 +1,1 @@
+{"namespace":"gaming/sync","admittance":"open","flags":{"receiptSchema":"caduceus.staff.v1","firstMissingSignal":"agathodaimon-sbin-gaming-sync"},"serve":[{"rust":"caduceus_staff_receipt"}]}

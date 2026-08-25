@@ -1,0 +1,1 @@
+{"namespace":"gaming/input/profile/write","admittance":"open","flags":{"receiptSchema":"caduceus.staff.v1","firstMissingSignal":"agathodaimon-sbin-gaming-input-profile-write"},"serve":[{"rust":"caduceus_staff_receipt"}]}

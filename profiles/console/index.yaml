@@ -22,10 +22,10 @@ commands:
 - update status
 - update check
 - update now
-- games sync
+- gaming sync
 - console restart
-- games provider-keys read
-- games provider-keys save
+- gaming provider-keys read
+- gaming provider-keys save
 - update service status
 - update service toggle
 - gui update now
@@ -99,8 +99,11 @@ routes:
 - display/projector/power
 - display/projector/products
 - display/projector/scan
-- games/provider-keys
-- games/sync
+- gaming/input/profile/write
+- gaming/input/profile/apply
+- gaming/input/profile/bind
+- gaming/provider-keys
+- gaming/sync
 - console/restart
 - local-ai/query
 - log/clear

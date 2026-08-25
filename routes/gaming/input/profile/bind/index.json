@@ -1,0 +1,1 @@
+{"namespace":"gaming/input/profile/bind","admittance":"open","flags":{"receiptSchema":"caduceus.staff.v1","firstMissingSignal":"agathodaimon-sbin-gaming-input-profile-bind"},"serve":[{"rust":"caduceus_staff_receipt"}]}
