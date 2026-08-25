@@ -104,6 +104,10 @@ routes:
 - gaming/input/profile/bind
 - gaming/provider-keys
 - gaming/sync
+- appliance/restart
+- appliance/reboot
+- appliance/poweroff
+- appliance/gamescope/restart
 - console/restart
 - local-ai/query
 - log/clear

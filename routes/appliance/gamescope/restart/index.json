@@ -1,0 +1,1 @@
+{"namespace":"appliance/gamescope/restart","admittance":"open","flags":{"receiptSchema":"caduceus.staff.v1","firstMissingSignal":"agathodaimon-sbin-appliance-gamescope-restart"},"serve":[{"rust":"caduceus_staff_receipt"}]}
