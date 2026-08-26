@@ -1,5 +1,7 @@
 #[path = "../gate/index.rs"]
 pub mod gate;
+#[path = "maintenance.rs"]
+pub mod maintenance;
 #[path = "../protocol/index.rs"]
 pub mod protocol;
 #[path = "../routes/mod.rs"]

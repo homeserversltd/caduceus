@@ -1,5 +1,8 @@
 use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
+use std::sync::Mutex;
+
+static CLI_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_caduceus")
@@ -625,4 +628,85 @@ fn config_write_refuses_missing_homeserver_install_without_touching_legacy() {
     assert_eq!(std::fs::read_to_string(legacy).unwrap(), legacy_before);
     assert!(!root.join("etc/appliance/config.json").exists());
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn appliance_logs_cli_reads_fields_and_bounded_rotation_is_receipted() {
+    let _guard = CLI_ENV_LOCK.lock().unwrap();
+    let prior_root = std::env::var_os("CADUCEUS_ROOT");
+    let root = std::env::temp_dir().join(format!("caduceus-log-cli-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+    std::fs::write(
+        root.join("etc/caduceus/profile.yaml"),
+        "schema: caduceus.profile.v1\nprofile: homeserver\ncommands:\n- logs read\n- logs clear\n",
+    )
+    .unwrap();
+    let log = root.join("var/log/appliance/appliance.log");
+    std::fs::create_dir_all(log.parent().unwrap()).unwrap();
+    std::fs::write(&log, b"line-one\nline-two\n").unwrap();
+    let read = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args(["logs", "read"])
+        .output()
+        .unwrap();
+    assert!(read.status.success());
+    let body: serde_json::Value = serde_json::from_slice(&read.stdout).unwrap();
+    assert_eq!(body["file_size"], 18);
+    assert!(body["last_rotation_timestamp"].is_null());
+
+    std::fs::write(&log, b"first bounded rotation payload\n").unwrap();
+    std::env::set_var("CADUCEUS_ROOT", &root);
+    let first_receipt = caduceus::maintenance::maintain_appliance_log_with_limit(1).unwrap();
+    assert_eq!(first_receipt["rotated"], true);
+    assert_eq!(std::fs::metadata(&log).unwrap().len(), 0);
+    let post = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args(["logs", "read"])
+        .output()
+        .unwrap();
+    assert!(post.status.success());
+    let post_body: serde_json::Value = serde_json::from_slice(&post.stdout).unwrap();
+    assert!(!post_body["last_rotation_timestamp"].is_null());
+
+    let rotation_payload = b"second bounded rotation payload\n".repeat(128);
+    let source_len = rotation_payload.len() as u64;
+    std::fs::write(&log, &rotation_payload).unwrap();
+    let second_receipt = caduceus::maintenance::maintain_appliance_log_with_limit(1).unwrap();
+    assert_eq!(second_receipt["rotated"], true);
+    assert_eq!(std::fs::metadata(&log).unwrap().len(), 0);
+    let generations: Vec<_> = std::fs::read_dir(log.parent().unwrap())
+        .unwrap()
+        .flatten()
+        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".1.gz"))
+        .collect();
+    assert_eq!(generations.len(), 1);
+    let generation_path = generations[0].path();
+    assert_eq!(std::fs::read(&generation_path).unwrap()[..2], [0x1f, 0x8b]);
+    assert!(
+        std::fs::metadata(&generation_path).unwrap().len() < source_len / 2,
+        "compressed generation should be meaningfully smaller than source payload"
+    );
+    let receipts = root.join("var/lib/caduceus/receipts");
+    let rotation_receipts = std::fs::read_dir(receipts)
+        .unwrap()
+        .flatten()
+        .filter_map(|entry| {
+            serde_json::from_slice::<serde_json::Value>(&std::fs::read(entry.path()).ok()?).ok()
+        })
+        .filter(|receipt| receipt["event"] == "rotation")
+        .count();
+    assert_eq!(rotation_receipts, 2);
+
+    let clear = Command::new(bin())
+        .env("CADUCEUS_ROOT", &root)
+        .args(["logs", "clear"])
+        .output()
+        .unwrap();
+    assert!(clear.status.success());
+    match prior_root {
+        Some(value) => std::env::set_var("CADUCEUS_ROOT", value),
+        None => std::env::remove_var("CADUCEUS_ROOT"),
+    }
+    let _ = std::fs::remove_dir_all(&root);
 }

@@ -249,6 +249,7 @@ pub async fn run_async() -> i32 {
     };
     attendance::bind();
     crate::stats::start();
+    crate::maintenance::start();
     let listener = match TcpListener::bind(addr).await {
         Ok(v) => v,
         Err(e) => {

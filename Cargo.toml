@@ -19,6 +19,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"]
 rusqlite = { version = "0.32", features = ["bundled"] }
 md5 = "0.7"
 base64 = "0.22"
+flate2 = "1.1.9"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

@@ -1435,3 +1435,47 @@ async fn csr_sign_route_has_profile_and_body_walls() {
         .unwrap();
     assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn appliance_logs_http_read_and_clear_expose_rotation_fields() {
+    let root = env::temp_dir().join(format!("caduceus-log-http-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+    fs::write(
+        root.join("etc/caduceus/profile.yaml"),
+        "schema: caduceus.profile.v1\nprofile: homeserver\ncommands:\n- logs read\n- logs clear\n",
+    )
+    .unwrap();
+    let _guard = use_fixture(root.to_str().unwrap());
+    let log = root.join("var/log/appliance/appliance.log");
+    fs::create_dir_all(log.parent().unwrap()).unwrap();
+    fs::write(&log, b"http-log-line\n").unwrap();
+    let app = serve::router();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/log/read")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    assert_eq!(body["file_size"], 14);
+    assert!(body["last_rotation_timestamp"].is_null());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/log/clear")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body_json(response).await["file_size"], 0);
+    let _ = fs::remove_dir_all(&root);
+}

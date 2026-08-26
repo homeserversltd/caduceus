@@ -3,16 +3,17 @@
 // Every appliance speaks through one path.  The appliance profile identifies
 // the speaker; this band never selects a body-specific fallback log.
 
+use crate::shared::config;
 use serde_json::{json, Value};
-use std::{fs, io, path::Path};
+use std::{fs, io};
 
-pub const LOG_PATH: &str = "/var/log/appliance/appliance.log";
+pub use crate::shared::hyalos::CHANNEL_PATH as LOG_PATH;
 pub const DEFAULT_LIMIT: usize = 1000;
 pub const MAX_LIMIT: usize = 5000;
 
 pub fn read_json(offset: usize, limit: usize) -> Value {
     let limit = limit.min(MAX_LIMIT);
-    match fs::read(LOG_PATH) {
+    match fs::read(config::path(LOG_PATH)) {
         Ok(bytes) => {
             let file_size = bytes.len() as u64;
             let text = String::from_utf8_lossy(&bytes);
@@ -35,6 +36,7 @@ pub fn read_json(offset: usize, limit: usize) -> Value {
                 "total_lines": total_lines,
                 "file_size": file_size,
                 "file_path": LOG_PATH,
+                "last_rotation_timestamp": crate::maintenance::latest_rotation_timestamp(),
                 "firstMissingSignal": "none"
             })
         }
@@ -47,7 +49,7 @@ pub fn clear_json() -> Value {
     match fs::OpenOptions::new()
         .write(true)
         .truncate(true)
-        .open(LOG_PATH)
+        .open(config::path(LOG_PATH))
     {
         Ok(file) => match file.metadata() {
             Ok(metadata) => json!({
@@ -58,6 +60,7 @@ pub fn clear_json() -> Value {
                 "cleared": true,
                 "file_size": metadata.len(),
                 "file_path": LOG_PATH,
+                "last_rotation_timestamp": crate::maintenance::latest_rotation_timestamp(),
                 "firstMissingSignal": "none"
             }),
             Err(error) => failure_receipt("clear", &error),
@@ -103,6 +106,7 @@ fn missing_receipt(action: &str) -> Value {
         "total_lines": 0,
         "file_size": 0,
         "file_path": LOG_PATH,
+        "last_rotation_timestamp": crate::maintenance::latest_rotation_timestamp(),
         "firstMissingSignal": "caduceus-appliance-log-missing"
     })
 }
@@ -116,8 +120,9 @@ fn failure_receipt(action: &str, error: &io::Error) -> Value {
         "lines": [],
         "logs": [],
         "total_lines": 0,
-        "file_size": Path::new(LOG_PATH).metadata().map(|metadata| metadata.len()).unwrap_or(0),
+        "file_size": config::path(LOG_PATH).metadata().map(|metadata| metadata.len()).unwrap_or(0),
         "file_path": LOG_PATH,
+        "last_rotation_timestamp": crate::maintenance::latest_rotation_timestamp(),
         "firstMissingSignal": "caduceus-appliance-log-unavailable"
     })
 }

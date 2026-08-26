@@ -7,7 +7,7 @@ use std::io::Write;
 use std::sync::{Mutex, OnceLock};
 
 pub const EVENT_SCHEMA: &str = "hyalos.channel.event.v2";
-const CHANNEL_PATH: &str = "var/log/appliance/appliance.log";
+pub const CHANNEL_PATH: &str = "/var/log/appliance/appliance.log";
 
 const LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error", "fatal"];
 
