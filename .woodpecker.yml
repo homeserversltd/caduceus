@@ -26,11 +26,54 @@ steps:
         fi
         export KETHER_ENDPOINT
         python3 - <<'PY'
+        import http.client
         import json
         import os
         import sys
+        import time
         import urllib.error
         import urllib.request
+
+        RETRY_STATUSES = {502, 503, 504}
+        MAX_ATTEMPTS = 5
+        BACKOFF_SECONDS = (2, 5, 10, 20, 30)
+
+        def post_json_with_retry(url, payload, label):
+            data = json.dumps(payload).encode("utf-8")
+            last_status = None
+            last_raw = b""
+            last_error = None
+            for attempt in range(1, MAX_ATTEMPTS + 1):
+                request = urllib.request.Request(
+                    url, data=data, headers={"Content-Type": "application/json"}, method="POST",
+                )
+                print(f"{label}: attempt {attempt}/{MAX_ATTEMPTS} POST {url}")
+                try:
+                    with urllib.request.urlopen(request, timeout=1800) as response:
+                        status = response.status
+                        raw = response.read()
+                except urllib.error.HTTPError as exc:
+                    status = exc.code
+                    raw = exc.read()
+                except (urllib.error.URLError, http.client.RemoteDisconnected, TimeoutError, OSError) as exc:
+                    status = None
+                    raw = b""
+                    last_error = str(exc)
+                else:
+                    last_error = None
+                last_status = status
+                last_raw = raw
+                if status is not None and 200 <= status < 300:
+                    return status, raw
+                retryable = status in RETRY_STATUSES or status is None
+                if not retryable or attempt == MAX_ATTEMPTS:
+                    break
+                delay = BACKOFF_SECONDS[min(attempt - 1, len(BACKOFF_SECONDS) - 1)]
+                print(f"{label}: retrying after {delay}s; last_status={status}; last_error={last_error or ''}")
+                time.sleep(delay)
+            if last_error:
+                print(f"{label}: last_transport_error={last_error}")
+            return last_status if last_status is not None else 0, last_raw
 
         child_repo = "caduceus"
         endpoint = os.environ["KETHER_ENDPOINT"].rstrip("/")
@@ -39,20 +82,8 @@ steps:
             "new_head": os.environ.get("CI_COMMIT_SHA", ""),
             "cause": os.environ.get("CI_PIPELINE_URL", ""),
         }
-        request = urllib.request.Request(
-            endpoint + "/v1/registry-pen/stamp",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
         print(f"{child_repo} registry-pen: POST {endpoint}/v1/registry-pen/stamp")
-        try:
-            with urllib.request.urlopen(request, timeout=1800) as response:
-                status = response.status
-                raw = response.read()
-        except urllib.error.HTTPError as exc:
-            status = exc.code
-            raw = exc.read()
+        status, raw = post_json_with_retry(endpoint + "/v1/registry-pen/stamp", payload, f"{child_repo} registry-pen")
         print(f"{child_repo} registry-pen: http_status={status}")
         if raw:
             print("response_body first 4096 bytes=")
