@@ -3,7 +3,7 @@ use crate::shared::config;
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::{
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fs,
     net::TcpStream,
     path::PathBuf,
@@ -91,37 +91,98 @@ fn load() -> Value {
         .map(|v| json!({"one":v[0],"five":v[1],"fifteen":v[2]}))
         .unwrap_or(Value::Null)
 }
+fn thermal_label(name: &str) -> &'static str {
+    let name = name.trim().to_ascii_lowercase();
+    if matches!(name.as_str(), "coretemp" | "k10temp" | "zenpower") {
+        "cpu"
+    } else if name == "amdgpu" || name.starts_with("nvidia") {
+        "gpu"
+    } else if name == "nvme" || name.starts_with("nvme") {
+        "storage"
+    } else {
+        "other"
+    }
+}
 fn temperatures() -> Value {
     let mut paths = BTreeSet::new();
+    let mut sources: BTreeMap<PathBuf, &'static str> = BTreeMap::new();
     if let Ok(entries) = fs::read_dir("/sys/class/thermal") {
         for e in entries.flatten() {
             if e.file_name().to_string_lossy().starts_with("thermal_zone") {
-                paths.insert(e.path().join("temp"));
+                let path = e.path().join("temp");
+                paths.insert(path.clone());
+                let label = read_text(&e.path().join("type").to_string_lossy())
+                    .map(|s| thermal_label(&s))
+                    .unwrap_or("other");
+                sources.insert(path, label);
             }
         }
     }
     if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
         for e in entries.flatten() {
+            let label = read_text(&e.path().join("name").to_string_lossy())
+                .map(|s| thermal_label(&s))
+                .unwrap_or("other");
             if let Ok(ts) = fs::read_dir(e.path()) {
                 for t in ts.flatten() {
                     let n = t.file_name().to_string_lossy().to_string();
                     if n.starts_with("temp") && n.ends_with("_input") {
-                        paths.insert(t.path());
+                        let path = t.path();
+                        paths.insert(path.clone());
+                        sources.insert(path, label);
                     }
                 }
             }
         }
     }
-    let values: Vec<f64> = paths
-        .into_iter()
-        .filter_map(|p| fs::read_to_string(p).ok())
-        .filter_map(|v| v.trim().parse::<f64>().ok())
-        .map(|v| v / 1000.0)
-        .collect();
+    let mut values = Vec::new();
+    let mut by_source = Vec::new();
+    for path in paths {
+        if let Some(value) = fs::read_to_string(&path)
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+        {
+            let celsius = value / 1000.0;
+            values.push(celsius);
+            by_source.push(json!({
+                "label": sources.get(&path).copied().unwrap_or("other"),
+                "celsius": celsius,
+            }));
+        }
+    }
     if values.is_empty() {
         Value::Null
     } else {
-        json!({"celsius": values.iter().sum::<f64>() / values.len() as f64, "sources": values.len()})
+        json!({"celsius": values.iter().sum::<f64>() / values.len() as f64, "sources": values.len(), "bySource": by_source})
+    }
+}
+fn fans() -> Value {
+    let mut out = Vec::new();
+    if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
+        for e in entries.flatten() {
+            let label = match read_text(&e.path().join("name").to_string_lossy()) {
+                Some(name) => name.trim().to_string(),
+                None => continue,
+            };
+            if let Ok(files) = fs::read_dir(e.path()) {
+                for file in files.flatten() {
+                    let name = file.file_name().to_string_lossy().to_string();
+                    if name.starts_with("fan") && name.ends_with("_input") {
+                        if let Some(rpm) = fs::read_to_string(file.path())
+                            .ok()
+                            .and_then(|v| v.trim().parse::<f64>().ok())
+                        {
+                            out.push(json!({"label":label,"rpm":rpm}));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if out.is_empty() {
+        Value::Null
+    } else {
+        json!(out)
     }
 }
 fn network() -> Value {
@@ -213,14 +274,15 @@ fn disk_io(usage: &Value) -> Value {
     }
     json!(out)
 }
-fn command(command: &str, args: &[&str]) -> Option<String> {
+fn command(command: &str, args: &[&str]) -> Option<(bool, String)> {
     let mut c = Command::new(command);
     c.args(args).stdout(Stdio::piped()).stderr(Stdio::null());
     let mut child = c.spawn().ok()?;
     let start = std::time::Instant::now();
     loop {
-        if child.try_wait().ok()?.is_some() {
-            return String::from_utf8(child.wait_with_output().ok()?.stdout).ok();
+        if let Some(status) = child.try_wait().ok()? {
+            let output = child.wait_with_output().ok()?;
+            return Some((status.success(), String::from_utf8(output.stdout).ok()?));
         }
         if start.elapsed() > Duration::from_millis(900) {
             let _ = child.kill();
@@ -229,10 +291,49 @@ fn command(command: &str, args: &[&str]) -> Option<String> {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
+fn gpu() -> Value {
+    let (_, output) = match command(
+        "nvidia-smi",
+        &[
+            "--query-gpu=utilization.gpu,temperature.gpu,fan.speed,memory.used,memory.total",
+            "--format=csv,noheader,nounits",
+        ],
+    ) {
+        Some(result) if result.0 => result,
+        _ => return Value::Null,
+    };
+    let fields = match output.lines().find(|line| !line.trim().is_empty()) {
+        Some(line) => line.split(',').map(str::trim).collect::<Vec<_>>(),
+        None => return Value::Null,
+    };
+    if fields.len() != 5 {
+        return Value::Null;
+    }
+    let parse_float = |value: &str| value.parse::<f64>().ok().filter(|v| v.is_finite());
+    let (utilization, temperature, fan) = match (
+        parse_float(fields[0]),
+        parse_float(fields[1]),
+        parse_float(fields[2]),
+    ) {
+        (Some(utilization), Some(temperature), Some(fan)) => (utilization, temperature, fan),
+        _ => return Value::Null,
+    };
+    let memory = |value: &str| {
+        value
+            .parse::<u64>()
+            .ok()
+            .and_then(|mib| mib.checked_mul(1024)?.checked_mul(1024))
+    };
+    let (memory_used, memory_total) = match (memory(fields[3]), memory(fields[4])) {
+        (Some(used), Some(total)) => (used, total),
+        _ => return Value::Null,
+    };
+    json!({"utilizationPercent":utilization,"temperatureCelsius":temperature,"fanPercent":fan,"memoryUsedBytes":memory_used,"memoryTotalBytes":memory_total})
+}
 fn disk_usage() -> Value {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
-    if let Some(s) = command("df", &["-B1", "-P", "/", "/home", "/vault", "/mnt/nas"]) {
+    if let Some((_, s)) = command("df", &["-B1", "-P", "/", "/home", "/vault", "/mnt/nas"]) {
         for l in s.lines().skip(1) {
             let p: Vec<_> = l.split_whitespace().collect();
             if p.len() >= 6 && seen.insert(p[5].to_string()) {
@@ -245,7 +346,7 @@ fn disk_usage() -> Value {
 fn processes() -> Value {
     let mut out = Vec::new();
     let skip = ["ps", "sh", "bash", "sudo", "python3"];
-    if let Some(s) = command("ps", &["-eo", "comm,pcpu,rss", "--sort=-pcpu"]) {
+    if let Some((_, s)) = command("ps", &["-eo", "comm,pcpu,rss", "--sort=-pcpu"]) {
         for l in s.lines().skip(1) {
             let p: Vec<_> = l.split_whitespace().collect();
             if p.len() >= 3 {
@@ -347,7 +448,7 @@ fn snapshot(previous: Option<&Value>) -> Value {
     let net = network();
     let usage = disk_usage();
     let io = disk_io(&usage);
-    let mut v = json!({"schema":"caduceus.appliance.stats.sample.v1","ts":ts,"collectedAt":chrono::DateTime::<chrono::Utc>::from_timestamp(ts,0).map(|d|d.to_rfc3339()),"load":load(),"temperature":temperatures(),"memory":meminfo(),"network":{"interfaces":net,"throughput":Value::Null},"tcp":tcp(),"disk":{"io":io,"usage":usage,"throughput":Value::Null},"processes":processes()});
+    let mut v = json!({"schema":"caduceus.appliance.stats.sample.v1","ts":ts,"collectedAt":chrono::DateTime::<chrono::Utc>::from_timestamp(ts,0).map(|d|d.to_rfc3339()),"load":load(),"temperature":temperatures(),"fans":fans(),"gpu":gpu(),"memory":meminfo(),"network":{"interfaces":net,"throughput":Value::Null},"tcp":tcp(),"disk":{"io":io,"usage":usage,"throughput":Value::Null},"processes":processes()});
     if let Some(prev) = previous {
         let dt = (ts - prev.get("ts").and_then(Value::as_i64).unwrap_or(ts)).max(1) as f64;
         let mut through = json!({});
@@ -398,7 +499,7 @@ fn avg(samples: &[Value], path: &str) -> Value {
     }
 }
 fn aggregate(bucket: i64, samples: &[Value]) -> Value {
-    json!({"schema":"caduceus.appliance.stats.minute.v1","bucket":bucket,"samples":samples.len(),"aggregation":{"loadOne":avg(samples,"/load/one"),"loadFive":avg(samples,"/load/five"),"loadFifteen":avg(samples,"/load/fifteen"),"temperatureCelsius":avg(samples,"/temperature/celsius"),"memoryUsedBytes":avg(samples,"/memory/usedBytes"),"swapUsedBytes":avg(samples,"/memory/usedBytesSwap"),"networkRxBytesPerSecond":avg(samples,"/network/throughput/rxBytesPerSecond"),"networkTxBytesPerSecond":avg(samples,"/network/throughput/txBytesPerSecond"),"diskReadBytesPerSecond":avg(samples,"/disk/throughput/readBytesPerSecond"),"diskWriteBytesPerSecond":avg(samples,"/disk/throughput/writeBytesPerSecond")},"last":samples.last()})
+    json!({"schema":"caduceus.appliance.stats.minute.v1","bucket":bucket,"samples":samples.len(),"aggregation":{"loadOne":avg(samples,"/load/one"),"loadFive":avg(samples,"/load/five"),"loadFifteen":avg(samples,"/load/fifteen"),"temperatureCelsius":avg(samples,"/temperature/celsius"),"gpuUtilizationPercent":avg(samples,"/gpu/utilizationPercent"),"gpuTemperatureCelsius":avg(samples,"/gpu/temperatureCelsius"),"memoryUsedBytes":avg(samples,"/memory/usedBytes"),"swapUsedBytes":avg(samples,"/memory/usedBytesSwap"),"networkRxBytesPerSecond":avg(samples,"/network/throughput/rxBytesPerSecond"),"networkTxBytesPerSecond":avg(samples,"/network/throughput/txBytesPerSecond"),"diskReadBytesPerSecond":avg(samples,"/disk/throughput/readBytesPerSecond"),"diskWriteBytesPerSecond":avg(samples,"/disk/throughput/writeBytesPerSecond")},"last":samples.last()})
 }
 fn persist(c: &Connection, v: &Value) -> Result<(), String> {
     let ts = v["ts"].as_i64().unwrap_or_else(now);
@@ -566,6 +667,6 @@ pub fn history() -> Result<Value, String> {
         return Err(e.clone());
     }
     Ok(
-        json!({"schema":"caduceus.appliance.stats.history.v1","retention":{"rawSeconds":3600,"rawMaxPoints":RAW_LIMIT,"minuteSeconds":604800,"minuteMaxPoints":MINUTE_LIMIT},"consolidation":{"raw":"one-second samples","minute":{"averages":["load.one","load.five","load.fifteen","temperature.celsius","memory.usedBytes","memory.usedBytesSwap","network.throughput","disk.throughput"],"lastValue":["cumulative counters","point-in-time gauges/lists: interfaces,tcp,disk.usage,disk.io,processes"]}},"tiers":{"raw":g.raw,"minute":g.minute}}),
+        json!({"schema":"caduceus.appliance.stats.history.v1","retention":{"rawSeconds":3600,"rawMaxPoints":RAW_LIMIT,"minuteSeconds":604800,"minuteMaxPoints":MINUTE_LIMIT},"consolidation":{"raw":"one-second samples","minute":{"averages":["load.one","load.five","load.fifteen","temperature.celsius","gpu.utilizationPercent","gpu.temperatureCelsius","memory.usedBytes","memory.usedBytesSwap","network.throughput","disk.throughput"],"lastValue":["cumulative counters","point-in-time gauges/lists: interfaces,tcp,temperature.bySource,fans,gpu,disk.usage,disk.io,processes"]}},"tiers":{"raw":g.raw,"minute":g.minute}}),
     )
 }
