@@ -3,6 +3,7 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 const CLI: &str = "/usr/local/sbin/agathodaimon/cli.py";
+const HOUSE_CA_LAUNCHER: &str = "/usr/local/sbin/caduceus-house-ca";
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 
 /// Cross the privileged agathodaimon Python CLI using its noun/verb grammar.
@@ -58,8 +59,19 @@ pub(crate) fn crossing_value(noun: &str, verb: &str, input: &Value) -> Result<Va
         let mut command = Command::new(&cli);
         command.args([noun, verb]);
         command
+    } else if noun == "cert" && verb == "house-ca" {
+        let mut command = Command::new("/usr/bin/sudo");
+        command.args(["-n", HOUSE_CA_LAUNCHER]);
+        let args = input
+            .get("args")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str);
+        command.args(args);
+        command
     } else {
-        let mut command = Command::new("sudo");
+        let mut command = Command::new("/usr/bin/sudo");
         command.args(["-n", &cli, noun, verb]);
         command
     };
