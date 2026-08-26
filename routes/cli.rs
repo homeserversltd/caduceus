@@ -78,6 +78,14 @@ where
                 Err(code) => code,
             }
         }
+        [domain, object, verb]
+            if domain == "storage" && object == "categories" && verb == "scan" =>
+        {
+            match require_policy("storage categories scan", &[]) {
+                Ok(_) => crate::storage_categories::scan_command(),
+                Err(code) => code,
+            }
+        }
         [domain, verb] if domain == "disk" && verb == "census" => {
             match policy::allows_command("disk census") {
                 Ok(true) => disk::show(),

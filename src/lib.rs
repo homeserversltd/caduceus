@@ -10,4 +10,6 @@ pub mod routes;
 pub mod shared;
 #[path = "stats.rs"]
 pub mod stats;
+#[path = "storage_categories.rs"]
+pub mod storage_categories;
 pub use routes::cli::run;

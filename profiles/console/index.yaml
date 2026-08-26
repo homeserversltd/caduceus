@@ -70,6 +70,7 @@ commands:
 - profile sources reseed
 - interactable list
 - interactable run
+- storage categories scan
 services:
   ledger: /var/lib/harmonia/receipts/homeconsole-ledger.jsonl
   update:
@@ -183,6 +184,8 @@ routes:
 - settings/pin
 - settings/sound
 - settings/ssh
+- storage/categories
+- storage/categories/scan
 - storage/disk/census
 - storage/disk/format
 - storage/disk/mount
