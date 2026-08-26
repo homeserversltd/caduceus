@@ -112,7 +112,16 @@ pub fn ensure_root_json(dry_run: bool, renewal_authority: Option<&str>) -> Resul
     if let Some(authority) = renewal_authority.filter(|value| !value.is_empty()) {
         args.extend(["--renewal-authority".into(), authority.into()]);
     }
-    invoke_json(&args)
+    invoke_json(&args).and_then(|receipt| {
+        let changed = receipt
+            .get("changed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        crate::routes::cert_dependent_reload::after_material_lands(
+            receipt,
+            json!({"material": "root", "scope": "household-root", "changed": changed}),
+        )
+    })
 }
 
 pub fn issue_leaf_json(
@@ -131,7 +140,16 @@ pub fn issue_leaf_json(
     if dry_run {
         args.push("--dry-run".into());
     }
-    invoke_json(&args)
+    invoke_json(&args).and_then(|receipt| {
+        let changed = receipt
+            .get("changed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        crate::routes::cert_dependent_reload::after_material_lands(
+            receipt,
+            json!({"material": "leaf", "identity": identity, "sans": sans, "changed": changed}),
+        )
+    })
 }
 pub fn issue_leaf(sans: &[String], dry_run: bool) -> i32 {
     print(issue_leaf_json("home.arpa", sans, &[], dry_run))
@@ -269,7 +287,16 @@ pub fn apply_json(
     if dry_run {
         args.push("--dry-run".into());
     }
-    invoke_json(&args)
+    invoke_json(&args).and_then(|receipt| {
+        let changed = receipt
+            .get("changed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        crate::routes::cert_dependent_reload::after_material_lands(
+            receipt,
+            json!({"material": "applied", "portal": portal, "certificate": certificate, "changed": changed}),
+        )
+    })
 }
 pub fn constituent_lock_json(portal: &str, lan_ip: &str, dry_run: bool) -> Result<Value, String> {
     let mut args = vec!["constituent-lock".into(), portal.into(), lan_ip.into()];

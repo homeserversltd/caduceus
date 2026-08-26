@@ -49,6 +49,8 @@ pub(crate) mod storage_support;
 pub(crate) mod update_support;
 pub use leaf_network_cert_trust as install_trust;
 pub use leaf_storage_disk_census as inspect_disks;
+#[path = "network/cert/support/dependent_reload/index.rs"]
+pub mod cert_dependent_reload;
 #[path = "network/cert/support/issue_certificate/index.rs"]
 pub mod issue_certificate;
 pub use leaf_appliance_name as name_device;

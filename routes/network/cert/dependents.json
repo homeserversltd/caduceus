@@ -1,0 +1,7 @@
+{
+  "schema": "caduceus.cert.dependent_reload.v1",
+  "dependents": [
+    {"service": "forgejo.service", "action": "restart"},
+    {"service": "nginx.service", "action": "reload"}
+  ]
+}
