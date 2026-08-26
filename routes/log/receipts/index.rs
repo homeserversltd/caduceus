@@ -89,7 +89,20 @@ pub fn latest() -> i32 {
 /// Canonical registration seam for this leaf.
 async fn latest_http() -> Result<axum::Json<Value>, (axum::http::StatusCode, axum::Json<crate::gate::ApiErrorBody>)> { crate::gate::gated_json("receipts latest", read_latest_json).await }
 
+async fn receipts_http(
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<axum::Json<Value>, (axum::http::StatusCode, axum::Json<crate::gate::ApiErrorBody>)> {
+    if query.contains_key("page")
+        || query.contains_key("per_page")
+        || query.contains_key("perPage")
+    {
+        crate::routes::update_support::receipts_ledger_route(axum::extract::Query(query)).await
+    } else {
+        latest_http().await
+    }
+}
+
 pub fn register(router: axum::Router) -> axum::Router {
-    let router = router.route("/api/v1/log/receipts", axum::routing::get(latest_http));
+    let router = router.route("/api/v1/log/receipts", axum::routing::get(receipts_http));
     router
 }
