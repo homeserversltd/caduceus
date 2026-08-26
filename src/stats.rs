@@ -5,9 +5,10 @@ use serde_json::{json, Value};
 use std::{
     collections::{BTreeSet, VecDeque},
     fs,
+    net::TcpStream,
     path::PathBuf,
     process::{Command, Stdio},
-    sync::{Arc, OnceLock, RwLock},
+    sync::{atomic::{AtomicBool, AtomicU64, Ordering}, Arc, OnceLock, RwLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::time::interval;
@@ -18,9 +19,14 @@ const UNAVAILABLE: &str = "collector unavailable";
 struct StatsState {
     raw: VecDeque<Value>,
     minute: VecDeque<Value>,
+    model_lanes: Vec<Value>,
+    last_model_lane_pulse_unix: AtomicU64,
+    model_lane_pulse_requested: AtomicBool,
     error: Option<String>,
 }
 static STATE: OnceLock<Arc<RwLock<StatsState>>> = OnceLock::new();
+const MODEL_LANE_PULSE_INTERVAL: u64 = 86_400;
+const MODEL_LANE_TIMEOUT: Duration = Duration::from_millis(400);
 
 fn db_path() -> PathBuf {
     config::path("var/lib/caduceus/stats.sqlite3")
@@ -258,6 +264,84 @@ fn processes() -> Value {
     }
     json!(out)
 }
+fn loopback_listener_ports() -> BTreeSet<u16> {
+    let mut ports = BTreeSet::new();
+    for (path, ipv6) in [("/proc/net/tcp", false), ("/proc/net/tcp6", true)] {
+        let Some(contents) = read_text(path) else { continue };
+        for line in contents.lines().skip(1) {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            if fields.len() < 4 || fields[3] != "0A" { continue; }
+            let Some((address, port)) = fields[1].split_once(':') else { continue };
+            let loopback = if ipv6 {
+                if address.len() != 32 { false } else {
+                    let mut bytes = [0u8; 16];
+                    let parsed = (0..16).all(|i| {
+                        u8::from_str_radix(&address[i * 2..i * 2 + 2], 16)
+                            .map(|v| bytes[i] = v).is_ok()
+                    });
+                    for chunk in bytes.chunks_exact_mut(4) { chunk.reverse(); }
+                    parsed && (bytes == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+                        || (0..10).all(|i| bytes[i] == 0)
+                            && bytes[10..12] == [255, 255]
+                            && bytes[12..] == [127, 0, 0, 1])
+                }
+            } else if address.len() == 8 {
+                u32::from_str_radix(address, 16).ok()
+                    .map(|v| v.to_le_bytes() == [127, 0, 0, 1])
+                    .unwrap_or(false)
+            } else { false };
+            if loopback {
+                if let Ok(port) = u16::from_str_radix(port, 16) { ports.insert(port); }
+            }
+        }
+    }
+    ports
+}
+
+fn http_json(port: u16, path: &str) -> Option<Value> {
+    let mut stream = TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)), MODEL_LANE_TIMEOUT,
+    ).ok()?;
+    stream.set_read_timeout(Some(MODEL_LANE_TIMEOUT)).ok()?;
+    stream.set_write_timeout(Some(MODEL_LANE_TIMEOUT)).ok()?;
+    use std::io::{Read, Write};
+    write!(stream, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").ok()?;
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes).ok()?;
+    let split = bytes.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let headers = std::str::from_utf8(&bytes[..split]).ok()?;
+    if !headers.lines().next()?.contains(" 200 ") { return None; }
+    serde_json::from_slice(&bytes[split + 4..]).ok()
+}
+
+fn model_lane(port: u16) -> Option<Value> {
+    let props = http_json(port, "/props");
+    if let Some(props) = props.as_ref() {
+        let total_slots = props.get("total_slots").and_then(Value::as_i64);
+        let alias = props.get("model_alias").and_then(Value::as_str)
+            .filter(|s| !s.is_empty()).map(str::to_owned);
+        if let (Some(alias), Some(total_slots)) = (alias, total_slots) {
+            let n_ctx_per_slot = props.pointer("/default_generation_settings/n_ctx")
+                .and_then(Value::as_i64);
+            let busy_slots = if props.get("endpoint_slots").and_then(Value::as_bool) == Some(true) {
+                http_json(port, "/slots").and_then(|slots| slots.as_array().map(|items|
+                    items.iter().filter(|item| item.get("is_processing").and_then(Value::as_bool) == Some(true)).count() as i64))
+            } else { None };
+            return Some(json!({"alias":alias,"total_slots":total_slots,"n_ctx_per_slot":n_ctx_per_slot,"busy_slots":busy_slots}));
+        }
+    }
+    let models = http_json(port, "/v1/models")?;
+    let first = models.get("data")?.as_array()?.first()?;
+    let n_ctx = first.pointer("/meta/n_ctx").and_then(Value::as_i64)?;
+    let alias = first.get("id").and_then(Value::as_str).filter(|s| !s.is_empty())
+        .or_else(|| first.pointer("/meta/model_alias").and_then(Value::as_str).filter(|s| !s.is_empty()))?;
+    Some(json!({"alias":alias,"total_slots":Value::Null,"n_ctx_per_slot":n_ctx,"busy_slots":Value::Null}))
+}
+
+fn scan_model_lanes() -> Vec<Value> {
+    loopback_listener_ports().into_iter().filter_map(model_lane).collect()
+}
+
 fn snapshot(previous: Option<&Value>) -> Value {
     let ts = now();
     let net = network();
@@ -383,6 +467,19 @@ async fn collect_loop(
             Ok(v) => v,
             Err(_) => continue,
         };
+        let pulse_due = state.read().map(|g| {
+            g.model_lane_pulse_requested.swap(false, Ordering::AcqRel)
+                || (now().max(0) as u64).saturating_sub(
+                    g.last_model_lane_pulse_unix.load(Ordering::Acquire),
+                ) >= MODEL_LANE_PULSE_INTERVAL
+        }).unwrap_or(false);
+        let model_lanes = if pulse_due {
+            let lanes = tokio::task::spawn_blocking(scan_model_lanes).await.unwrap_or_default();
+            if let Ok(g) = state.read() {
+                g.last_model_lane_pulse_unix.store(now() as u64, Ordering::Release);
+            }
+            Some(lanes)
+        } else { None };
         let b = v["ts"].as_i64().unwrap_or(0) / 60;
         if b != bucket && !samples.is_empty() {
             let coarse = aggregate(bucket, &samples);
@@ -403,6 +500,7 @@ async fn collect_loop(
         if let Ok(mut g) = state.write() {
             g.raw = raw.clone();
             g.minute = minute.clone();
+            if let Some(lanes) = model_lanes { g.model_lanes = lanes; }
         }
         previous = Some(v);
     }
@@ -416,6 +514,9 @@ pub fn start() {
             let state = Arc::new(RwLock::new(StatsState {
                 raw: r.clone(),
                 minute: m.clone(),
+                model_lanes: Vec::new(),
+                last_model_lane_pulse_unix: AtomicU64::new(0),
+                model_lane_pulse_requested: AtomicBool::new(false),
                 error: None,
             }));
             let _ = STATE.set(state.clone());
@@ -425,6 +526,9 @@ pub fn start() {
             let _ = STATE.set(Arc::new(RwLock::new(StatsState {
                 raw: VecDeque::new(),
                 minute: VecDeque::new(),
+                model_lanes: Vec::new(),
+                last_model_lane_pulse_unix: AtomicU64::new(0),
+                model_lane_pulse_requested: AtomicBool::new(false),
                 error: Some(format!("{UNAVAILABLE}: {e}")),
             })));
         }
@@ -442,10 +546,18 @@ pub fn current() -> Result<Value, String> {
     if let Some(e) = &g.error {
         return Err(e.clone());
     }
-    g.raw
+    let mut current = g.raw
         .back()
         .cloned()
-        .ok_or_else(|| format!("{UNAVAILABLE}: no samples yet"))
+        .ok_or_else(|| format!("{UNAVAILABLE}: no samples yet"))?;
+    current["model_lanes"] = json!(g.model_lanes);
+    Ok(current)
+}
+pub fn request_model_lane_pulse() -> Result<Value, String> {
+    let s = state()?;
+    let g = s.read().map_err(|_| format!("{UNAVAILABLE}: state lock"))?;
+    g.model_lane_pulse_requested.store(true, Ordering::Release);
+    Ok(json!(g.model_lanes))
 }
 pub fn history() -> Result<Value, String> {
     let s = state()?;

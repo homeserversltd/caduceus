@@ -10,6 +10,7 @@ commands:
 - identity show
 - profile show
 - health
+- appliance stats read
 - legacy-sbin list
 - legacy-sbin show
 - network status
@@ -106,6 +107,7 @@ routes:
 - appliance/claim
 - appliance/name
 - appliance/report
+- appliance/stats
 - cartridges/admit
 - cartridges/list
 - cartridges/remove
