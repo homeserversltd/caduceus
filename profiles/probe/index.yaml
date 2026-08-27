@@ -21,6 +21,7 @@ commands:
 - network dhcp status
 - network dhcp leases
 - network dhcp health
+- doors read
 - network dhcp boundary show
 - network device list
 - network device claim
