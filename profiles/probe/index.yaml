@@ -1,0 +1,115 @@
+schema: caduceus.profile.v1
+profile: probe
+mode: probe
+commands:
+- appliance stats read
+- appliance report
+- appliance name
+- appliance claim
+- appliance service restart
+- admin admittance open
+- admin admittance validate
+- admin admittance touch
+- admin admittance change-pin
+- admin admittance invalidate
+- network status
+- tailscale status
+- vpn status
+- network speedtest
+- network dns read
+- network dns status
+- network dhcp status
+- network dhcp leases
+- network dhcp health
+- network dhcp boundary show
+- network device list
+- network device claim
+- network device annotate
+- network device wake
+- network device pin-address
+- network device whitelist
+- cert status
+- cert bundle-export
+- cert issue-leaf
+- cert apply-nginx
+- cert ensure-root
+- cert trust-install
+- disk census
+- disk test
+- disk mount
+- disk unlock
+- disk format
+- disk wipe
+- vault status
+- vault unlock
+- vault auto-decrypt
+- logs read
+- hyalos tail
+- receipts latest
+- hyalos reflect
+- hyalos append
+- logs clear
+- python list
+- python status
+- python run
+- interactable list
+- interactable run
+- update status
+- update check
+- update now
+routes:
+- appliance/stats
+- appliance/report
+- appliance/name
+- appliance/claim
+- appliance/service/:service/restart
+- admin-admittance/open
+- admin-admittance/validate
+- admin-admittance/touch
+- admin-admittance/change-pin
+- admin-admittance/invalidate
+- network/status
+- network/tailnet
+- network/vpn
+- network/bandwidth/measure
+- network/dns/read
+- network/dns/status
+- network/dhcp/status
+- network/dhcp/leases
+- network/dhcp/health
+- network/dhcp/boundary
+- network/device/list
+- network/device/claim
+- network/device/annotate
+- network/device/wake
+- network/device/pin-address
+- network/device/whitelist
+- network/cert/status
+- network/cert/bundle
+- network/cert/issue-leaf
+- network/cert/apply
+- network/cert/ensure-root
+- network/cert/trust
+- storage/disk/census
+- storage/disk/test
+- storage/disk/mount
+- storage/disk/unlock
+- storage/disk/format
+- storage/disk/wipe
+- storage/vault/status
+- storage/vault/unlock
+- storage/vault/auto-decrypt
+- log/read
+- log/tail
+- log/receipts
+- log/reflect
+- log/write
+- log/clear
+- python/list
+- python/status
+- python/run
+- interactables
+- interactables/:id/run
+- update/status
+- update/check
+- update/now

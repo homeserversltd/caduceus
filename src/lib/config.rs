@@ -96,7 +96,7 @@ fn state() -> Option<Value> {
 
 fn normalize(value: &str) -> Option<String> {
     let value = value.to_ascii_lowercase();
-    ["homeserver", "console", "tv"]
+    ["homeserver", "console", "tv", "probe"]
         .iter()
         .find(|profile| value == **profile || value.contains(*profile))
         .map(|profile| (*profile).to_string())

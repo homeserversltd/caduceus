@@ -4,7 +4,9 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::routes::{dhcp, dns_control, linker};
+use crate::routes::{dhcp, dns_control};
+#[cfg(leaf_portals_deploy)]
+use crate::routes::linker;
 use crate::shared::hyalos;
 
 const PROFILE_PATH: &str = "/usr/local/sbin/profile.json";
@@ -217,6 +219,7 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
         "storage/upload/ingress" => execute_file_ingress(metadata),
         "storage/upload/force-permissions" => execute_force_permissions(metadata),
         "network-dhcp" => dhcp::intent_json("POST", "/api/dhcp/reservations", metadata),
+        #[cfg(leaf_portals_deploy)]
         "linker" => linker::intent_json(metadata),
         id @ ("backblaze-b2-recover"
         | "backblaze-forgejo-b2-push"
