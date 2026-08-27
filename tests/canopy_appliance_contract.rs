@@ -1,6 +1,9 @@
 use serde_json::Value;
 use std::{fs, path::Path};
 
+#[path = "../build.rs"]
+mod build_profile;
+
 const LEAVES: &[&str] = &[
     "appliance/restart",
     "appliance/reboot",
@@ -78,5 +81,23 @@ fn appliance_canopy_debt_signals_are_non_placeholder_unique_and_namespace_mapped
         signals.len(),
         LEAVES.len(),
         "appliance debt signals must be unique"
+    );
+}
+
+#[test]
+fn build_profile_resolution_uses_explicit_profile_then_birth_certificate() {
+    let console = Path::new("tests/fixtures/console");
+    let tv = Path::new("tests/fixtures/tv");
+    let missing = Path::new("tests/fixtures/missing");
+
+    assert_eq!(
+        build_profile::resolve_build_profile(None, console),
+        "console"
+    );
+    assert_eq!(build_profile::resolve_build_profile(None, tv), "probe");
+    assert_eq!(build_profile::resolve_build_profile(None, missing), "probe");
+    assert_eq!(
+        build_profile::resolve_build_profile(Some("everything-lit"), console),
+        "everything-lit"
     );
 }

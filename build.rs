@@ -1,4 +1,39 @@
-use std::{env, fs, path::Path};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
+
+fn caduceus_root() -> PathBuf {
+    env::var_os("CADUCEUS_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
+}
+
+fn birth_certificate_path(root: &Path) -> PathBuf {
+    root.join("etc/appliance/profile.json")
+}
+
+pub(crate) fn resolve_build_profile(explicit: Option<&str>, root: &Path) -> String {
+    if let Some(profile) = explicit {
+        return profile.to_owned();
+    }
+
+    let profile = fs::read_to_string(birth_certificate_path(root))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| {
+            value
+                .get("profile")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        });
+    match profile.as_deref() {
+        Some("homeserver") => "homeserver".to_owned(),
+        Some("console") => "console".to_owned(),
+        Some("tv") => "tv".to_owned(),
+        _ => "probe".to_owned(),
+    }
+}
 
 fn rust_string(value: &str) -> String {
     serde_json::to_string(value).expect("seat strings must be serializable")
@@ -117,12 +152,17 @@ fn shelf_band_is_indexed(sbin: &Path, wanted: &str) -> bool {
 
 fn main() {
     // Profile authority is read before the canopy walk and before code generation.
-    let requested = env::var("CADUCEUS_PROFILE").unwrap_or_else(|_| "homeserver".into());
+    let root = caduceus_root();
+    let birth_certificate = birth_certificate_path(&root);
+    let explicit = env::var("CADUCEUS_PROFILE").ok();
+    let requested = resolve_build_profile(explicit.as_deref(), &root);
     let profile_path = format!("profiles/{requested}/index.yaml");
     let _profile_authority = fs::read_to_string(&profile_path)
         .unwrap_or_else(|_| panic!("profile authority must be readable: {profile_path}"));
     println!("cargo:rerun-if-env-changed=CADUCEUS_BUILD_SHA");
     println!("cargo:rerun-if-env-changed=CADUCEUS_PROFILE");
+    println!("cargo:rerun-if-env-changed=CADUCEUS_ROOT");
+    println!("cargo:rerun-if-changed={}", birth_certificate.display());
     println!("cargo:rerun-if-env-changed=CADUCEUS_SBIN_PATH");
     println!("cargo:rerun-if-changed=protocol/index.json");
 
