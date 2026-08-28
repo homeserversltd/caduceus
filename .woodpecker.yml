@@ -94,10 +94,6 @@ steps:
 
   - name: build-publish-caduceus-package
     image: rust:1-bookworm
-    backend_options:
-      docker:
-        volumes:
-          - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
     when:
       - event: push
         branch: main
