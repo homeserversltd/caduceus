@@ -102,14 +102,14 @@ steps:
       - event: push
         branch: main
     environment:
-      FORGEJO_PACKAGE_TOKEN:
-        from_secret: FORGEJO_PACKAGE_TOKEN
+      FORGEJO_TOKEN:
+        from_secret: FORGEJO_TOKEN
     commands:
       - |
         set -eu
 
-        if [ -z "${FORGEJO_PACKAGE_TOKEN:-}" ]; then
-          echo "build-publish-caduceus-package: FORGEJO_PACKAGE_TOKEN is required" >&2
+        if [ -z "${FORGEJO_TOKEN:-}" ]; then
+          echo "build-publish-caduceus-package: FORGEJO_TOKEN is required" >&2
           exit 1
         fi
         if ! printf "%s" "${CI_COMMIT_SHA:-}" | grep -Eq "^[0-9a-f]{40}$"; then
@@ -140,7 +140,7 @@ steps:
           > manifest.json
 
         package_base="https://git.home.arpa/api/packages/HOMESERVERSLTD/generic/caduceus/${CI_COMMIT_SHA}"
-        auth_header="Authorization: token ${FORGEJO_PACKAGE_TOKEN}"
+        auth_header="Authorization: token ${FORGEJO_TOKEN}"
 
         verify_existing_manifest() {
           existing_status="$(curl --silent --show-error \
