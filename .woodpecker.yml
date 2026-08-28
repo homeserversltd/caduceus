@@ -103,6 +103,7 @@ steps:
     commands:
       - |
         set -eu
+        command -v curl >/dev/null || { echo "build-publish-caduceus-package: curl is required in rust:1-bookworm" >&2; exit 1; }
 
         FORGEJO_TOKEN="$(printf '%s' "$${FORGEJO_TOKEN:-}" | tr -d '[:space:]')"
         if [ -z "$FORGEJO_TOKEN" ] && [ -r /mnt/keyexchange/FORGEJO_TOKEN ] && [ -s /mnt/keyexchange/FORGEJO_TOKEN ]; then
@@ -121,22 +122,14 @@ steps:
           exit 1
         fi
 
-        apt-get update
-        apt-get install -y --no-install-recommends ca-certificates curl jq
-        rm -rf /var/lib/apt/lists/*
-
         CADUCEUS_BUILD_SHA="$CI_COMMIT_SHA" cargo build --release
         binary=target/release/caduceus
         test -f "$binary"
         binary_sha256="$(sha256sum "$binary" | cut -d " " -f 1)"
         built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-        jq -n \
-          --arg source_sha "$CI_COMMIT_SHA" \
-          --arg sha256 "$binary_sha256" \
-          --arg built_at "$built_at" \
-          --arg pipeline_url "$CI_PIPELINE_URL" \
-          "{\"schema\":\"estate.artifact.manifest.v1\",\"component\":\"caduceus\",\"source_sha\":\$source_sha,\"target\":\"x86_64-unknown-linux-gnu\",\"sha256\":\$sha256,\"built_at\":\$built_at,\"pipeline_url\":\$pipeline_url}" \
+        printf '{\n  "schema": "estate.artifact.manifest.v1",\n  "component": "caduceus",\n  "source_sha": "%s",\n  "target": "x86_64-unknown-linux-gnu",\n  "sha256": "%s",\n  "built_at": "%s",\n  "pipeline_url": "%s"\n}\n' \
+          "$CI_COMMIT_SHA" "$binary_sha256" "$built_at" "$CI_PIPELINE_URL" \
           > manifest.json
 
         package_base="https://git.home.arpa/api/packages/HOMESERVERSLTD/generic/caduceus/$CI_COMMIT_SHA"
@@ -152,10 +145,11 @@ steps:
             echo "build-publish-caduceus-package: collision but existing manifest returned HTTP $existing_status" >&2
             exit 1
           fi
-          existing_sha256="$(jq -er ".sha256 | select(type == \"string\")" existing-manifest.json)" || {
-            echo "build-publish-caduceus-package: existing manifest has no string sha256" >&2
+          existing_sha256="$(grep -Eo '"sha256"[[:space:]]*:[[:space:]]*"[0-9a-f]{64}"' existing-manifest.json | grep -Eo '[0-9a-f]{64}' || true)"
+          if ! printf "%s" "$existing_sha256" | grep -Eq "^[0-9a-f]{64}$"; then
+            echo "build-publish-caduceus-package: existing manifest has no unique 64-hex sha256" >&2
             exit 1
-          }
+          fi
           if [ "$existing_sha256" != "$binary_sha256" ]; then
             echo "build-publish-caduceus-package: immutable version collision: existing sha256 does not match fresh build" >&2
             exit 1
