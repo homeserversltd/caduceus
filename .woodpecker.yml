@@ -2,8 +2,6 @@ when:
   event:
     - push
 
-skip_clone: true
-
 steps:
   - name: registry-pen-caduceus
     image: python:3.12-alpine
@@ -93,3 +91,105 @@ steps:
             raise SystemExit(f"{child_repo} registry-pen: Kether stamp failed with HTTP {status}")
         print(f"{child_repo} registry-pen: stamped by Kether/Azoth blood lane")
         PY
+
+  - name: build-publish-caduceus-package
+    image: rust:1-bookworm
+    when:
+      - event: push
+        branch: main
+    environment:
+      FORGEJO_PACKAGE_TOKEN:
+        from_secret: FORGEJO_PACKAGE_TOKEN
+    commands:
+      - |
+        set -eu
+
+        if [ -z "${FORGEJO_PACKAGE_TOKEN:-}" ]; then
+          echo "build-publish-caduceus-package: FORGEJO_PACKAGE_TOKEN is required" >&2
+          exit 1
+        fi
+        if ! printf "%s" "${CI_COMMIT_SHA:-}" | grep -Eq "^[0-9a-f]{40}$"; then
+          echo "build-publish-caduceus-package: CI_COMMIT_SHA must be a full 40-hex commit SHA" >&2
+          exit 1
+        fi
+        if [ -z "${CI_PIPELINE_URL:-}" ]; then
+          echo "build-publish-caduceus-package: CI_PIPELINE_URL is required" >&2
+          exit 1
+        fi
+
+        apt-get update
+        apt-get install -y --no-install-recommends ca-certificates curl jq
+        rm -rf /var/lib/apt/lists/*
+
+        cargo build --release
+        binary=target/release/caduceus
+        test -f "$binary"
+        binary_sha256="$(sha256sum "$binary" | cut -d " " -f 1)"
+        built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+        jq -n \
+          --arg source_sha "$CI_COMMIT_SHA" \
+          --arg sha256 "$binary_sha256" \
+          --arg built_at "$built_at" \
+          --arg pipeline_url "$CI_PIPELINE_URL" \
+          "{\"schema\":\"estate.artifact.manifest.v1\",\"component\":\"caduceus\",\"source_sha\":\$source_sha,\"target\":\"x86_64-unknown-linux-gnu\",\"sha256\":\$sha256,\"built_at\":\$built_at,\"pipeline_url\":\$pipeline_url}" \
+          > manifest.json
+
+        package_base="https://git.home.arpa/api/packages/HOMESERVERSLTD/generic/caduceus/${CI_COMMIT_SHA}"
+        auth_header="Authorization: token ${FORGEJO_PACKAGE_TOKEN}"
+
+        verify_existing_manifest() {
+          existing_status="$(curl --silent --show-error \
+            --output existing-manifest.json \
+            --write-out "%{http_code}" \
+            --header "$auth_header" \
+            "$package_base/manifest.json")"
+          if [ "$existing_status" != "200" ]; then
+            echo "build-publish-caduceus-package: collision but existing manifest returned HTTP $existing_status" >&2
+            exit 1
+          fi
+          existing_sha256="$(jq -er ".sha256 | select(type == \"string\")" existing-manifest.json)" || {
+            echo "build-publish-caduceus-package: existing manifest has no string sha256" >&2
+            exit 1
+          }
+          if [ "$existing_sha256" != "$binary_sha256" ]; then
+            echo "build-publish-caduceus-package: immutable version collision: existing sha256 does not match fresh build" >&2
+            exit 1
+          fi
+          echo "build-publish-caduceus-package: immutable version already exists with matching sha256"
+        }
+
+        upload_file() {
+          local_path="$1"
+          remote_name="$2"
+          content_type="$3"
+          response_file="upload-${remote_name}.response"
+          upload_status="$(curl --silent --show-error \
+            --output "$response_file" \
+            --write-out "%{http_code}" \
+            --request PUT \
+            --header "$auth_header" \
+            --header "Content-Type: $content_type" \
+            --upload-file "$local_path" \
+            "$package_base/$remote_name")"
+          case "$upload_status" in
+            200|201|204)
+              echo "build-publish-caduceus-package: uploaded $remote_name (HTTP $upload_status)"
+              ;;
+            409)
+              echo "build-publish-caduceus-package: $remote_name already exists; verifying immutable manifest"
+              verify_existing_manifest
+              ;;
+            *)
+              echo "build-publish-caduceus-package: upload of $remote_name failed with HTTP $upload_status" >&2
+              if [ -s "$response_file" ]; then
+                head -c 4096 "$response_file" >&2
+                printf "\\n" >&2
+              fi
+              exit 1
+              ;;
+          esac
+        }
+
+        upload_file "$binary" caduceus application/octet-stream
+        upload_file manifest.json manifest.json application/json
