@@ -125,7 +125,7 @@ steps:
         apt-get install -y --no-install-recommends ca-certificates curl jq
         rm -rf /var/lib/apt/lists/*
 
-        cargo build --release
+        CADUCEUS_BUILD_SHA="$CI_COMMIT_SHA" cargo build --release
         binary=target/release/caduceus
         test -f "$binary"
         binary_sha256="$(sha256sum "$binary" | cut -d " " -f 1)"
