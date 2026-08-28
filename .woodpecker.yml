@@ -104,8 +104,12 @@ steps:
       - |
         set -eu
 
-        if [ -z "${FORGEJO_TOKEN:-}" ]; then
-          echo "build-publish-caduceus-package: FORGEJO_TOKEN is required" >&2
+        FORGEJO_TOKEN="$(printf '%s' "${FORGEJO_TOKEN:-}" | tr -d '[:space:]')"
+        if [ -z "$FORGEJO_TOKEN" ] && [ -r /mnt/keyexchange/FORGEJO_TOKEN ] && [ -s /mnt/keyexchange/FORGEJO_TOKEN ]; then
+          FORGEJO_TOKEN="$(tr -d '[:space:]' < /mnt/keyexchange/FORGEJO_TOKEN)"
+        fi
+        if [ -z "$FORGEJO_TOKEN" ]; then
+          printf '%s\n' "build-publish-caduceus-package: org secret injected empty and /mnt/keyexchange/FORGEJO_TOKEN absent — run keyman transmit forgejo-token --to homeserver-ci-agent" >&2
           exit 1
         fi
         if ! printf "%s" "${CI_COMMIT_SHA:-}" | grep -Eq "^[0-9a-f]{40}$"; then
