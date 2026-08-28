@@ -104,7 +104,7 @@ steps:
       - |
         set -eu
 
-        FORGEJO_TOKEN="$(printf '%s' "${FORGEJO_TOKEN:-}" | tr -d '[:space:]')"
+        FORGEJO_TOKEN="$(printf '%s' "$${FORGEJO_TOKEN:-}" | tr -d '[:space:]')"
         if [ -z "$FORGEJO_TOKEN" ] && [ -r /mnt/keyexchange/FORGEJO_TOKEN ] && [ -s /mnt/keyexchange/FORGEJO_TOKEN ]; then
           FORGEJO_TOKEN="$(tr -d '[:space:]' < /mnt/keyexchange/FORGEJO_TOKEN)"
         fi
@@ -112,11 +112,11 @@ steps:
           printf '%s\n' "build-publish-caduceus-package: org secret injected empty and /mnt/keyexchange/FORGEJO_TOKEN absent — run keyman transmit forgejo-token --to homeserver-ci-agent" >&2
           exit 1
         fi
-        if ! printf "%s" "${CI_COMMIT_SHA:-}" | grep -Eq "^[0-9a-f]{40}$"; then
+        if ! printf "%s" "$${CI_COMMIT_SHA:-}" | grep -Eq "^[0-9a-f]{40}$"; then
           echo "build-publish-caduceus-package: CI_COMMIT_SHA must be a full 40-hex commit SHA" >&2
           exit 1
         fi
-        if [ -z "${CI_PIPELINE_URL:-}" ]; then
+        if [ -z "$${CI_PIPELINE_URL:-}" ]; then
           echo "build-publish-caduceus-package: CI_PIPELINE_URL is required" >&2
           exit 1
         fi
@@ -139,8 +139,8 @@ steps:
           "{\"schema\":\"estate.artifact.manifest.v1\",\"component\":\"caduceus\",\"source_sha\":\$source_sha,\"target\":\"x86_64-unknown-linux-gnu\",\"sha256\":\$sha256,\"built_at\":\$built_at,\"pipeline_url\":\$pipeline_url}" \
           > manifest.json
 
-        package_base="https://git.home.arpa/api/packages/HOMESERVERSLTD/generic/caduceus/${CI_COMMIT_SHA}"
-        auth_header="Authorization: token ${FORGEJO_TOKEN}"
+        package_base="https://git.home.arpa/api/packages/HOMESERVERSLTD/generic/caduceus/$CI_COMMIT_SHA"
+        auth_header="Authorization: token $FORGEJO_TOKEN"
 
         verify_existing_manifest() {
           existing_status="$(curl --silent --show-error \
@@ -167,7 +167,7 @@ steps:
           local_path="$1"
           remote_name="$2"
           content_type="$3"
-          response_file="upload-${remote_name}.response"
+          response_file="upload-$remote_name.response"
           upload_status="$(curl --silent --show-error \
             --output "$response_file" \
             --write-out "%{http_code}" \
