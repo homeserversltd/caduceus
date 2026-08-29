@@ -9,6 +9,11 @@
 | `/api/admin/logs/homeserver` | `/api/v1/log/read` |
 | `/api/v1/access/pin/change` | `/api/v1/admin-admittance/change-pin` |
 | `/api/v1/access/pin/mode` | `/api/v1/admin-admittance/change-pin` |
+| `/api/v1/admin-admittance/change-pin` | `/api/v1/exousia/change-pin` |
+| `/api/v1/admin-admittance/invalidate` | `/api/v1/exousia/invalidate` |
+| `/api/v1/admin-admittance/open` | `/api/v1/exousia/open` |
+| `/api/v1/admin-admittance/touch` | `/api/v1/exousia/touch` |
+| `/api/v1/admin-admittance/validate` | `/api/v1/exousia/validate` |
 | `/api/v1/attendance/change-pin` | `/api/v1/admin-admittance/change-pin` |
 | `/api/v1/attendance/invalidate` | `/api/v1/admin-admittance/invalidate` |
 | `/api/v1/attendance/open` | `/api/v1/admin-admittance/open` |

@@ -64,11 +64,11 @@ routes:
 - appliance/name
 - appliance/claim
 - appliance/service/:service/restart
-- admin-admittance/open
-- admin-admittance/validate
-- admin-admittance/touch
-- admin-admittance/change-pin
-- admin-admittance/invalidate
+- exousia/open
+- exousia/validate
+- exousia/touch
+- exousia/change-pin
+- exousia/invalidate
 - network/status
 - network/tailnet
 - network/vpn

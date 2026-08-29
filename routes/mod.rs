@@ -15,8 +15,8 @@ pub use leaf_portals_admit as admit_portal;
 #[cfg(any(leaf_cartridges_admit, leaf_cartridges_list, leaf_cartridges_remove))]
 #[path = "cartridges/support/cartridges_shared.rs"]
 pub mod cartridges_shared;
-#[cfg(leaf_admin_admittance_change_pin)]
-pub use leaf_admin_admittance_change_pin as change_pin;
+#[cfg(leaf_exousia_change_pin)]
+pub use leaf_exousia_change_pin as change_pin;
 #[cfg(leaf_network_device_claim)]
 pub use leaf_network_device_claim as claim_device_identity;
 #[cfg(leaf_settings_appearance)]
@@ -50,8 +50,8 @@ pub mod control_service;
 pub mod discovery;
 #[cfg(leaf_settings_ssh)]
 pub use leaf_settings_ssh as expose_ssh;
-#[path = "admin-admittance/support.rs"]
-pub(crate) mod admin_admittance_support;
+#[path = "exousia/support.rs"]
+pub(crate) mod exousia_support;
 #[path = "appliance/support.rs"]
 pub(crate) mod appliance_support;
 #[cfg(any(leaf_cartridges_admit, leaf_cartridges_list, leaf_cartridges_remove))]

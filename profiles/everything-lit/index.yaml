@@ -2,11 +2,11 @@ schema: caduceus.profile.v1
 profile: everything-lit
 mode: everything-lit
 routes:
-- admin-admittance/change-pin
-- admin-admittance/invalidate
-- admin-admittance/open
-- admin-admittance/touch
-- admin-admittance/validate
+- exousia/change-pin
+- exousia/invalidate
+- exousia/open
+- exousia/touch
+- exousia/validate
 - appliance/claim
 - appliance/name
 - appliance/report
