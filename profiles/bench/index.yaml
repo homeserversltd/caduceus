@@ -2,6 +2,8 @@ schema: caduceus.profile.v1
 profile: bench
 mode: everything-lit
 commands:
+- update modules list
+- update modules toggle
 - appliance stats read
 routes:
 - exousia/change-pin
@@ -91,3 +93,5 @@ routes:
 - update/check
 - update/now
 - update/status
+- update/modules
+- update/modules/:id

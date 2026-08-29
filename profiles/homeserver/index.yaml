@@ -2,6 +2,8 @@ schema: caduceus.profile.v1
 profile: homeserver
 mode: homeserver
 commands:
+- update modules list
+- update modules toggle
 - hyalos reflect
 - hyalos append
 - hyalos tail
@@ -172,6 +174,8 @@ routes:
 - update/check
 - update/now
 - update/status
+- update/modules
+- update/modules/:id
 - interactables
 - interactables/:id/run
 - network/device/wifi/scan

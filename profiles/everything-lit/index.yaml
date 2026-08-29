@@ -88,3 +88,5 @@ routes:
 - update/check
 - update/now
 - update/status
+- update/modules
+- update/modules/:id

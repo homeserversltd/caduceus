@@ -2,6 +2,8 @@ schema: caduceus.profile.v1
 profile: probe
 mode: probe
 commands:
+- update modules list
+- update modules toggle
 - appliance stats read
 - appliance report
 - appliance name
@@ -113,5 +115,7 @@ routes:
 - interactables
 - interactables/:id/run
 - update/status
+- update/modules
+- update/modules/:id
 - update/check
 - update/now

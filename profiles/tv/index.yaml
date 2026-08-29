@@ -5,6 +5,8 @@ harmonia_profile: /etc/harmonia/profiles/tv/index.json
 planned_capabilities:
 - pjlink
 commands:
+- update modules list
+- update modules toggle
 - hyalos reflect
 - hyalos append
 - hyalos tail
@@ -153,5 +155,7 @@ routes:
 - update/check
 - update/now
 - update/status
+- update/modules
+- update/modules/:id
 - interactables
 - interactables/:id/run
