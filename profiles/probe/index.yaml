@@ -76,6 +76,7 @@ routes:
 - network/dns/read
 - network/dns/status
 - network/dhcp/status
+- network/dhcp/statistics
 - network/dhcp/leases
 - network/dhcp/health
 - network/dhcp/boundary

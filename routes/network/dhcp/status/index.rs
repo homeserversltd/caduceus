@@ -34,6 +34,10 @@ async fn dhcp_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBo
     network_read_route("network dhcp status").await
 }
 
+async fn dhcp_reservations_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    network_read_route("network dhcp reservations list").await
+}
+
 async fn dhcp_staff_actuator_route(
     headers: HeaderMap,
     OriginalUri(uri): OriginalUri,
@@ -90,5 +94,5 @@ async fn dhcp_reservation_staff_actuator_route(
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: Router) -> Router {
-    router.route("/api/v1/network/dhcp/status", axum::routing::get(dhcp_status_route)).route("/api/v1/network/dhcp/reservations", axum::routing::post(dhcp_staff_actuator_route)).route("/api/v1/network/dhcp/reservations/:reservation_id", axum::routing::put(dhcp_reservation_staff_actuator_route).delete(dhcp_reservation_staff_actuator_route)).route("/api/v1/network/dhcp/pool-boundary", axum::routing::post(dhcp_staff_actuator_route))
+    router.route("/api/v1/network/dhcp/status", axum::routing::get(dhcp_status_route)).route("/api/v1/network/dhcp/reservations", axum::routing::get(dhcp_reservations_read_route).post(dhcp_staff_actuator_route)).route("/api/v1/network/dhcp/reservations/:reservation_id", axum::routing::put(dhcp_reservation_staff_actuator_route).delete(dhcp_reservation_staff_actuator_route)).route("/api/v1/network/dhcp/pool-boundary", axum::routing::post(dhcp_staff_actuator_route))
 }

@@ -135,6 +135,7 @@ routes:
 - network/dhcp/boundary
 - network/dhcp/health
 - network/dhcp/leases
+- network/dhcp/statistics
 - network/dhcp/status
 - network/dns/read
 - network/dns/status
