@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -132,65 +132,173 @@ pub fn actuators() -> i32 {
     }
 }
 
-fn crossing_probe(noun: &str, verb: &str) -> Value {
+const CROSSING_SENTINEL: &str = "__caduceus_crossing_probe_nonexistent__";
+
+fn executable(path: &Path) -> bool {
+    path.is_file()
+        && std::fs::metadata(path)
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+}
+
+fn resolve_program(program: &str) -> Option<PathBuf> {
+    let path = Path::new(program);
+    if path.is_absolute() || program.contains('/') {
+        return executable(path).then(|| path.to_path_buf());
+    }
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|directory| directory.join(program))
+            .find(|candidate| executable(candidate))
+    })
+}
+
+fn special_program(noun: &str, verb: &str) -> Result<Option<PathBuf>, Value> {
+    for (matches, variable) in [
+        (noun == "time", "CADUCEUS_TIME_CMD"),
+        (noun == "network" && verb == "dns", "CADUCEUS_DNS_CMD"),
+    ] {
+        if matches {
+            let Some(command_line) = std::env::var_os(variable) else {
+                continue;
+            };
+            let command_line = command_line.to_string_lossy();
+            let Some(program) = command_line.split_whitespace().next() else {
+                continue;
+            };
+            let program = program.to_string();
+            return resolve_program(&program).map(Some).ok_or_else(|| {
+                json!({"ok":false,"class":"resolve","exit":null,"stderr":format!("{variable} program unavailable: {program}")})
+            });
+        }
+    }
+    Ok(None)
+}
+
+fn selected_cli() -> Result<PathBuf, Value> {
     let cli = std::env::var("CADUCEUS_AGATHODAIMON_CLI")
         .unwrap_or_else(|_| "/usr/local/sbin/agathodaimon/cli.py".to_string());
+    resolve_program(&cli).ok_or_else(|| {
+        json!({"ok":false,"class":"resolve","exit":null,"stderr":format!("agathodaimon cli unavailable: {cli}")})
+    })
+}
+
+fn child_names(index: &Value) -> Vec<String> {
+    match index.get("children") {
+        Some(Value::Object(children)) => children.keys().cloned().collect(),
+        Some(Value::Array(children)) => children
+            .iter()
+            .filter_map(|child| match child {
+                Value::String(name) => Some(name.clone()),
+                Value::Object(child) => ["name", "noun", "verb", "namespace"]
+                    .iter()
+                    .find_map(|key| child.get(*key).and_then(Value::as_str).map(str::to_string)),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn shelf_component(noun: &str) -> &str {
+    match noun {
+        "cert" => "network/cert",
+        "vault" => "storage/vault",
+        "backup" => "storage/backup",
+        "forgejo" => "storage/backup/forgejo",
+        "time" => "settings/datetime",
+        other => other,
+    }
+}
+
+fn resolve_manifest_entry(noun: &str, verb: &str) -> Value {
+    match special_program(noun, verb) {
+        Ok(Some(program)) => {
+            return json!({"ok":true,"resolution":"executable-program","program":program});
+        }
+        Ok(None) => {}
+        Err(error) => return error,
+    }
+    if noun == "cert"
+        && verb == "house-ca"
+        && std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_none()
+    {
+        let program = Path::new("/usr/local/sbin/caduceus-house-ca");
+        return if executable(program) {
+            json!({"ok":true,"resolution":"executable-program","program":program})
+        } else {
+            json!({"ok":false,"class":"resolve","exit":null,"stderr":"caduceus-house-ca unavailable"})
+        };
+    }
+    let cli = match selected_cli() {
+        Ok(path) => path,
+        Err(error) => return error,
+    };
+    let root = cli.parent().unwrap_or_else(|| Path::new("."));
+    let components = shelf_component(noun)
+        .split('/')
+        .chain(std::iter::once(verb));
+    let mut current = root.to_path_buf();
+    for component in components {
+        let index_path = current.join("index.json");
+        let index_text = match std::fs::read_to_string(&index_path) {
+            Ok(text) => text,
+            Err(error) => {
+                return json!({"ok":false,"class":"resolve","exit":null,"stderr":error.to_string()})
+            }
+        };
+        let index: Value = match serde_json::from_str(&index_text) {
+            Ok(value) => value,
+            Err(error) => {
+                return json!({"ok":false,"class":"resolve","exit":null,"stderr":error.to_string()})
+            }
+        };
+        if !child_names(&index).iter().any(|name| name == component) {
+            return json!({"ok":false,"class":"resolve","exit":null,"stderr":format!("missing shelf child: {component}")});
+        }
+        current.push(component);
+    }
+    let seat = current.join("index.py");
+    if !seat.is_file() {
+        return json!({"ok":false,"class":"resolve","exit":null,"stderr":format!("missing seat index.py: {}", seat.display())});
+    }
+    json!({"ok":true,"class":Value::Null,"exit":null,"stderr":"","seat":seat})
+}
+
+fn sentinel_probe(cli: &Path) -> Value {
     let override_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some();
     let mut command = if override_cli {
-        let mut command = Command::new(&cli);
-        command.args([noun, verb, "--probe"]);
+        let mut command = Command::new(cli);
+        command.arg(CROSSING_SENTINEL);
         command
     } else {
         let mut command = Command::new("/usr/bin/sudo");
-        command.args(["-n", &cli, noun, verb, "--probe"]);
+        command.arg("-n").arg(cli).arg(CROSSING_SENTINEL);
         command
     };
-    let payload = json!({"noun":noun,"verb":verb,"args":["--probe"],"probe":true});
-    let input = match serde_json::to_vec(&payload) {
-        Ok(input) => input,
-        Err(err) => return json!({"ok":false,"class":"stdin","exit":null,"stderr":err.to_string()}),
-    };
-    let spawn = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-    let mut child = match spawn {
-        Ok(child) => child,
-        Err(err) => return json!({"ok":false,"class":"spawn","exit":null,"stderr":err.to_string()}),
-    };
-    let Some(mut stdin) = child.stdin.take() else {
-        return json!({"ok":false,"class":"stdin","exit":null,"stderr":"stdin unavailable"});
-    };
-    if let Err(err) = stdin.write_all(&input) {
-        return json!({"ok":false,"class":"stdin","exit":null,"stderr":err.to_string()});
-    }
-    drop(stdin);
-    let output = match child.wait_with_output() {
+    let output = command.output();
+    let output = match output {
         Ok(output) => output,
-        Err(err) => return json!({"ok":false,"class":"exit","exit":null,"stderr":err.to_string()}),
-    };
-    let exit = output.status.code();
-    let stderr = String::from_utf8_lossy(&output.stderr)
-        .lines()
-        .next()
-        .unwrap_or("")
-        .chars()
-        .take(1024)
-        .collect::<String>();
-    if !output.status.success() {
-        return json!({"ok":false,"class":"exit","exit":exit,"stderr":stderr});
-    }
-    let value: Value = match serde_json::from_slice(&output.stdout) {
-        Ok(value) => value,
-        Err(err) => {
-            return json!({"ok":false,"class":"parse","exit":exit,"stderr":stderr,"detail":err.to_string()})
+        Err(error) => {
+            return json!({"ok":false,"class":"spawn","exit":null,"stderr":error.to_string()})
         }
     };
-    if value.get("ok").and_then(Value::as_bool) != Some(true) {
-        return json!({"ok":false,"class":"exit","exit":exit,"stderr":stderr,"receipt":value});
+    let exit = output.status.code();
+    let stderr = match String::from_utf8(output.stderr.clone()) {
+        Ok(stderr) => stderr,
+        Err(error) => {
+            return json!({"ok":false,"class":"parse","exit":exit,"stderr":error.to_string()})
+        }
+    };
+    let expected = format!("unknown noun: {CROSSING_SENTINEL}");
+    let exact = stderr == expected || stderr == format!("{expected}\n");
+    if exit != Some(2) {
+        return json!({"ok":false,"class":"exit","exit":exit,"stderr":stderr});
     }
-    json!({"ok":true,"class":Value::Null,"exit":exit,"stderr":stderr,"receipt":value})
+    if !exact {
+        return json!({"ok":false,"class":"parse","exit":exit,"stderr":stderr});
+    }
+    json!({"ok":true,"class":Value::Null,"exit":exit,"stderr":stderr})
 }
 
 pub fn crossings_json() -> Result<Value, String> {
@@ -204,8 +312,12 @@ pub fn crossings_json() -> Result<Value, String> {
     if manifest.is_empty() {
         return Err("caduceus-crossings-manifest-empty".to_string());
     }
+    let sentinel = match selected_cli() {
+        Ok(cli) => sentinel_probe(&cli),
+        Err(error) => error,
+    };
     let mut observed = Vec::new();
-    let mut all_ok = true;
+    let mut all_ok = sentinel.get("ok").and_then(Value::as_bool) == Some(true);
     for (index, entry) in manifest.into_iter().enumerate() {
         let object = entry
             .as_object()
@@ -223,21 +335,19 @@ pub fn crossings_json() -> Result<Value, String> {
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| format!("caduceus-crossings-manifest-entry-invalid:{index}:verb"))?;
-        {
-            let result = crossing_probe(noun, verb);
-            let ok = result.get("ok").and_then(Value::as_bool) == Some(true);
-            all_ok &= ok;
-            let mut step = json!({"noun":noun,"verb":verb,"attempt":1,"ok":ok,"result":result});
-            if !ok {
-                step["class"] = result.get("class").cloned().unwrap_or(Value::Null);
-                step["exit"] = result.get("exit").cloned().unwrap_or(Value::Null);
-                step["stderr"] = result
-                    .get("stderr")
-                    .cloned()
-                    .unwrap_or(Value::String(String::new()));
-            }
-            observed.push(step);
+        let result = resolve_manifest_entry(noun, verb);
+        let ok = result.get("ok").and_then(Value::as_bool) == Some(true);
+        all_ok &= ok;
+        let mut step = json!({"noun":noun,"verb":verb,"attempt":1,"ok":ok,"result":result});
+        if !ok {
+            step["class"] = result.get("class").cloned().unwrap_or(Value::Null);
+            step["exit"] = result.get("exit").cloned().unwrap_or(Value::Null);
+            step["stderr"] = result
+                .get("stderr")
+                .cloned()
+                .unwrap_or(Value::String(String::new()));
         }
+        observed.push(step);
     }
     let summary = hyalos::reflect_json(json!({
         "organ":"agathodaimon",
@@ -251,6 +361,7 @@ pub fn crossings_json() -> Result<Value, String> {
     Ok(json!({
         "schema":"caduceus.staff.crossings.v1",
         "observed":observed,
+        "sentinel":sentinel,
         "couldChange":false,
         "attemptPerStep":true,
         "final":{"resolved":all_ok,"firstMissingSignal":if all_ok {"none"} else {"caduceus-crossings-probe-failed"}},
