@@ -110,6 +110,8 @@ routes:
 - display/projector/power
 - display/projector/products
 - display/projector/scan
+- gaming/provider-keys
+- gaming/sync
 - local-ai/query
 - log/clear
 - log/read
