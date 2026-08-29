@@ -533,6 +533,7 @@ where
         }
         [domain, verb] if domain == "staff" && verb == "status" => staff::status(),
         [domain, verb] if domain == "staff" && verb == "actuators" => staff::actuators(),
+        [domain, verb] if domain == "staff" && verb == "crossings" => staff::crossings(),
         [domain, verb, method, route, rest @ ..] if domain == "staff" && verb == "intent" => {
             match require_policy("staff intent", rest) {
                 Ok(_) => staff::intent(method, route),
@@ -866,6 +867,7 @@ fn print_help() {
     println!("  caduceus pjlink power set <device-id> <on|off> [--dry-run]");
     println!("  caduceus staff status");
     println!("  caduceus staff actuators");
+    println!("  caduceus staff crossings");
     println!("  caduceus staff intent <method> <route>");
     println!("  caduceus hyalos reflect <organ> <kind> <message> [--payload JSON]");
     println!("  caduceus hyalos append <event-json>");

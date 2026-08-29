@@ -4,9 +4,9 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::routes::{dhcp, dns_control};
 #[cfg(leaf_portals_deploy)]
 use crate::routes::linker;
+use crate::routes::{dhcp, dns_control};
 use crate::shared::hyalos;
 
 const PROFILE_PATH: &str = "/usr/local/sbin/profile.json";
@@ -127,6 +127,151 @@ pub fn actuators() -> i32 {
         }
         Err(err) => {
             eprintln!("caduceus-staff-catalog-failed: {err}");
+            1
+        }
+    }
+}
+
+fn crossing_probe(noun: &str, verb: &str) -> Value {
+    let cli = std::env::var("CADUCEUS_AGATHODAIMON_CLI")
+        .unwrap_or_else(|_| "/usr/local/sbin/agathodaimon/cli.py".to_string());
+    let override_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some();
+    let mut command = if override_cli {
+        let mut command = Command::new(&cli);
+        command.args([noun, verb, "--probe"]);
+        command
+    } else {
+        let mut command = Command::new("/usr/bin/sudo");
+        command.args(["-n", &cli, noun, verb, "--probe"]);
+        command
+    };
+    let payload = json!({"noun":noun,"verb":verb,"args":["--probe"],"probe":true});
+    let input = match serde_json::to_vec(&payload) {
+        Ok(input) => input,
+        Err(err) => return json!({"ok":false,"class":"stdin","exit":null,"stderr":err.to_string()}),
+    };
+    let spawn = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let mut child = match spawn {
+        Ok(child) => child,
+        Err(err) => return json!({"ok":false,"class":"spawn","exit":null,"stderr":err.to_string()}),
+    };
+    let Some(mut stdin) = child.stdin.take() else {
+        return json!({"ok":false,"class":"stdin","exit":null,"stderr":"stdin unavailable"});
+    };
+    if let Err(err) = stdin.write_all(&input) {
+        return json!({"ok":false,"class":"stdin","exit":null,"stderr":err.to_string()});
+    }
+    drop(stdin);
+    let output = match child.wait_with_output() {
+        Ok(output) => output,
+        Err(err) => return json!({"ok":false,"class":"exit","exit":null,"stderr":err.to_string()}),
+    };
+    let exit = output.status.code();
+    let stderr = String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(1024)
+        .collect::<String>();
+    if !output.status.success() {
+        return json!({"ok":false,"class":"exit","exit":exit,"stderr":stderr});
+    }
+    let value: Value = match serde_json::from_slice(&output.stdout) {
+        Ok(value) => value,
+        Err(err) => {
+            return json!({"ok":false,"class":"parse","exit":exit,"stderr":stderr,"detail":err.to_string()})
+        }
+    };
+    if value.get("ok").and_then(Value::as_bool) != Some(true) {
+        return json!({"ok":false,"class":"exit","exit":exit,"stderr":stderr,"receipt":value});
+    }
+    json!({"ok":true,"class":Value::Null,"exit":exit,"stderr":stderr,"receipt":value})
+}
+
+pub fn crossings_json() -> Result<Value, String> {
+    let manifest = crate::protocol::seat()?
+        .get("crossings")
+        .and_then(Value::as_object)
+        .and_then(|value| value.get("entries"))
+        .and_then(Value::as_array)
+        .cloned()
+        .ok_or_else(|| "caduceus-crossings-manifest-missing".to_string())?;
+    if manifest.is_empty() {
+        return Err("caduceus-crossings-manifest-empty".to_string());
+    }
+    let mut observed = Vec::new();
+    let mut all_ok = true;
+    for (index, entry) in manifest.into_iter().enumerate() {
+        let object = entry
+            .as_object()
+            .ok_or_else(|| format!("caduceus-crossings-manifest-entry-invalid:{index}"))?;
+        if object.len() != 2 || !object.contains_key("noun") || !object.contains_key("verb") {
+            return Err(format!("caduceus-crossings-manifest-entry-invalid:{index}"));
+        }
+        let noun = object
+            .get("noun")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| format!("caduceus-crossings-manifest-entry-invalid:{index}:noun"))?;
+        let verb = object
+            .get("verb")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| format!("caduceus-crossings-manifest-entry-invalid:{index}:verb"))?;
+        {
+            let result = crossing_probe(noun, verb);
+            let ok = result.get("ok").and_then(Value::as_bool) == Some(true);
+            all_ok &= ok;
+            let mut step = json!({"noun":noun,"verb":verb,"attempt":1,"ok":ok,"result":result});
+            if !ok {
+                step["class"] = result.get("class").cloned().unwrap_or(Value::Null);
+                step["exit"] = result.get("exit").cloned().unwrap_or(Value::Null);
+                step["stderr"] = result
+                    .get("stderr")
+                    .cloned()
+                    .unwrap_or(Value::String(String::new()));
+            }
+            observed.push(step);
+        }
+    }
+    let summary = hyalos::reflect_json(json!({
+        "organ":"agathodaimon",
+        "kind":"crossings-self-check",
+        "level": if all_ok { "info" } else { "error" },
+        "ok":all_ok,
+        "message":"agathodaimon crossings self-check",
+        "attributes_redacted":{"entryCount":observed.len(),"ok":all_ok}
+    }))
+    .unwrap_or_else(|error| json!({"ok":false,"firstMissingSignal":error}));
+    Ok(json!({
+        "schema":"caduceus.staff.crossings.v1",
+        "observed":observed,
+        "couldChange":false,
+        "attemptPerStep":true,
+        "final":{"resolved":all_ok,"firstMissingSignal":if all_ok {"none"} else {"caduceus-crossings-probe-failed"}},
+        "ok":all_ok,
+        "hyalos":summary,
+        "firstMissingSignal":if all_ok {"none"} else {"caduceus-crossings-probe-failed"}
+    }))
+}
+
+pub fn crossings() -> i32 {
+    match crossings_json() {
+        Ok(value) => {
+            println!("{}", serde_json::to_string_pretty(&value).unwrap());
+            if value["ok"] == true {
+                0
+            } else {
+                1
+            }
+        }
+        Err(error) => {
+            eprintln!("caduceus-staff-crossings-failed: {error}");
             1
         }
     }
