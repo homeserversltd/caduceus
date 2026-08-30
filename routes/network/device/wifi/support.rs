@@ -52,7 +52,7 @@ pub async fn execute(
         action
     );
     let envelope =
-        json!({"schema":SCHEMA,"intent_id":intent_id,"transition":action,"target":route});
+        json!({"schema":SCHEMA,"intent_id":intent_id,"transition":action,"origin_of_intent":route});
     let mut receipt = match crate::gate::receive(
         envelope,
         declaration_value

@@ -603,7 +603,7 @@ fn staff_band_receipt(band: &str, metadata: Value) -> Result<Value, String> {
         "schema": crate::protocol::SCHEMA_ID,
         "intent_id": format!("caduceus-{band}"),
         "transition": band,
-        "target": crate::protocol::TARGET_DEFAULT,
+        "origin_of_intent": "near",
         "metadata": metadata,
     });
     let walked = match crate::gate::snake::run(band, &envelope) {

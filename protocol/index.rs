@@ -12,7 +12,7 @@ pub struct Envelope {
     schema: String,
     intent_id: String,
     transition: String,
-    target: Value,
+    origin_of_intent: Value,
     flags: Option<Value>,
 }
 
@@ -27,18 +27,18 @@ impl Envelope {
         }
         let intent_id = required_kernel_string(object, 1)?;
         let transition = required_kernel_string(object, 2)?;
-        let target = object
-            .get("target")
+        let origin_of_intent = object
+            .get("origin_of_intent")
             .filter(|value| !value.is_null())
             .cloned()
-            .unwrap_or_else(|| Value::String(TARGET_DEFAULT.to_string()));
+            .unwrap_or_else(|| Value::String("near".to_string()));
         let flags = object.get("flags").cloned();
         Ok(Self {
             raw,
             schema,
             intent_id,
             transition,
-            target,
+            origin_of_intent,
             flags,
         })
     }
@@ -55,8 +55,8 @@ impl Envelope {
     pub fn transition(&self) -> &str {
         &self.transition
     }
-    pub fn target(&self) -> &Value {
-        &self.target
+    pub fn origin_of_intent(&self) -> &Value {
+        &self.origin_of_intent
     }
     pub fn flags(&self) -> Option<&Value> {
         self.flags.as_ref()

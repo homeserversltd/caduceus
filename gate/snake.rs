@@ -6,7 +6,7 @@ use std::{
 };
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 fn shelf_root() -> PathBuf {
-    PathBuf::from(crate::protocol::SHELF_PATH).join("agathodaimon")
+    PathBuf::from(crate::protocol::SERPENTS_SHELF_PATH).join("agathodaimon")
 }
 fn cli_path() -> PathBuf {
     shelf_root().join("cli.py")
@@ -246,7 +246,7 @@ pub fn run(band: &str, envelope: &Value) -> Result<Value, String> {
     execute(&band, envelope.raw(), envelope.raw())
 }
 pub fn crossing_path(path: &str, input: &Value) -> Result<Value, String> {
-    let env = json!({"schema":crate::protocol::SCHEMA_ID,"intent_id":format!("caduceus-{path}"),"transition":path,"target":crate::protocol::TARGET_DEFAULT,"payload":input});
+    let env = json!({"schema":crate::protocol::SCHEMA_ID,"intent_id":format!("caduceus-{path}"),"transition":path,"origin_of_intent":"near","payload":input});
     let v = execute(path, input, &env)?;
     if v.get("ok").and_then(Value::as_bool) == Some(true) {
         Ok(v.get("receiptPayload").cloned().unwrap_or(v))

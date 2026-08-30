@@ -1,0 +1,50 @@
+{
+  "schema": "caduceus.staff.v1",
+  "kernel": {
+    "fields": ["schema", "intent_id", "transition"],
+    "required": ["schema", "intent_id", "transition"]
+  },
+  "origin_of_intent": {
+    "near": "acts on this machine alone, no further data needed",
+    "far": ["list of one or more destination identifiers -- mac, ip, body name, or named service -- this intent reaches toward"]
+  },
+  "flags": {
+    "presence_gated": true,
+    "version_compared": false,
+    "families": {
+      "correspondence_lease": {
+        "renew_after_seconds": 10,
+        "expire_after_seconds": 30
+      },
+      "truth_recomputation_cadence": {
+        "refresh_interval_seconds": 30
+      }
+    }
+  },
+  "correspondence_posture": {
+    "values": ["request", "response", "subscribe", "unsubscribe", "push"],
+    "default": "request"
+  },
+  "transitions": {
+    "carried_by": ["subscribe", "unsubscribe"]
+  },
+  "truth": {
+    "carried_by": ["response", "push"]
+  },
+  "receipt": {
+    "carried_by": ["response"],
+    "stamps": ["admittance(open|admitted)", "attendance witness", "registers_lit", "ok", "first_missing_signal"]
+  },
+  "serpents_shelf": { "path": "/usr/local/sbin" },
+  "transport_protocol": {
+    "http": "existing per-route request/response bodies, unchanged, for every LAN-open caller that isn't Arcadia",
+    "socket": {
+      "path": "/run/caduceus/staff.sock",
+      "framing": "4-byte big-endian length prefix, then this envelope as UTF-8 JSON",
+      "lanes": {
+        "request-response": "one frame in, one frame out, correlated by intent_id",
+        "subscribe-push": "one subscribe frame in, zero or more push frames out over the life of the connection, on the truth_recomputation_cadence"
+      }
+    }
+  }
+}

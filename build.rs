@@ -164,9 +164,9 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CADUCEUS_ROOT");
     println!("cargo:rerun-if-changed={}", birth_certificate.display());
     println!("cargo:rerun-if-env-changed=CADUCEUS_SBIN_PATH");
-    println!("cargo:rerun-if-changed=protocol/index.json");
+    println!("cargo:rerun-if-changed=schema.json");
 
-    let source = fs::read_to_string("protocol/index.json").expect("protocol seat must be readable");
+    let source = fs::read_to_string("schema.json").expect("protocol seat must be readable");
     let seat: serde_json::Value =
         serde_json::from_str(&source).expect("protocol seat must be valid JSON");
     let schema = seat
@@ -183,12 +183,9 @@ fn main() {
                 .expect("protocol seat kernel fields must be strings")
         })
         .collect::<Vec<_>>();
-    let target_default = seat["target"]["default"]
+    let serpents_shelf_path = seat["serpents_shelf"]["path"]
         .as_str()
-        .expect("protocol seat target.default must be a string");
-    let shelf_path = seat["shelf"]["path"]
-        .as_str()
-        .expect("protocol seat shelf.path must be a string");
+        .expect("protocol seat serpents_shelf.path must be a string");
     let flags_presence_gated = seat["flags"]["presence_gated"]
         .as_bool()
         .expect("protocol seat flags.presence_gated must be boolean");
@@ -196,7 +193,7 @@ fn main() {
         .as_bool()
         .expect("protocol seat flags.version_compared must be boolean");
 
-    let generated = format!("pub const SEAT_JSON: &str = {source};\n         pub const SCHEMA_ID: &str = {schema};\n         pub const KERNEL_FIELDS: &[&str] = &[{fields}];\n         pub const TARGET_DEFAULT: &str = {target_default};\n         pub const SHELF_PATH: &str = {shelf_path};\n         pub const FLAGS_PRESENCE_GATED: bool = {flags_presence_gated};\n         pub const FLAGS_VERSION_COMPARED: bool = {flags_version_compared};\n", source = rust_string(source.trim()), schema = rust_string(schema), fields = kernel_fields.iter().map(|field| rust_string(field)).collect::<Vec<_>>().join(", "), target_default = rust_string(target_default), shelf_path = rust_string(shelf_path));
+    let generated = format!("pub const SEAT_JSON: &str = {source};\n         pub const SCHEMA_ID: &str = {schema};\n         pub const KERNEL_FIELDS: &[&str] = &[{fields}];\n         pub const SERPENTS_SHELF_PATH: &str = {serpents_shelf_path};\n         pub const FLAGS_PRESENCE_GATED: bool = {flags_presence_gated};\n         pub const FLAGS_VERSION_COMPARED: bool = {flags_version_compared};\n", source = rust_string(source.trim()), schema = rust_string(schema), fields = kernel_fields.iter().map(|field| rust_string(field)).collect::<Vec<_>>().join(", "), serpents_shelf_path = rust_string(serpents_shelf_path));
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR must be set");
     fs::write(Path::new(&out_dir).join("protocol_seat.rs"), generated)
         .expect("generated protocol metadata must be writable");
