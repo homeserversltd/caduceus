@@ -4,7 +4,6 @@ Caduceus is the public Rust appliance-control lever for sovereign HOMESERVER dev
 
 It gives users a safe local command surface for public device management while the private land organs stay sealed away:
 
-- Fulcrum, Azoth, Kether, Cibation, and Paligenesis remain private.
 - Harmonia performs declared profile convergence.
 - Caduceus routes public appliance intent and writes public-safe receipts.
 - Arcadia and future front ends may call Caduceus instead of duplicating actuator code.

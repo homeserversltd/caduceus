@@ -9,7 +9,7 @@ const STATE: &str = "/var/lib/homeconsole/state.json";
 const APPLIANCE_CONFIG: &str = "/etc/appliance/config.json";
 const CRYPTTAB: &str = "/etc/crypttab";
 const POLICY_NAME: &str = ".keyman-vault-policy.json";
-const POLICY_SCHEMA: &str = "fulcrum.keyman.vault_policy.v1";
+const POLICY_SCHEMA: &str = "caduceus.vault_policy.v1";
 const GOVERNING_KEYFILE: &str = "/root/key/homeconsole-vault.key";
 
 #[derive(Clone)]

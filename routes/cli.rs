@@ -11,7 +11,7 @@ pub fn show() -> i32 {
     println!("  disk-census       caduceus disk census");
     println!();
     println!("Caduceus routes to Harmonia; Harmonia converges profile state.");
-    println!("Fulcrum/Azoth/Kether remain on the land — not on the appliance.");
+    println!("Private tooling remains on the land — not on the appliance.");
     0
 }
 

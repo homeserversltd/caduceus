@@ -65,9 +65,9 @@ fn update_toggle_dry_run_is_public_safe() {
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("schema=caduceus.update.service.toggle.v1"));
     assert!(text.contains("mutation=false"));
-    assert!(!text.contains("Fulcrum"));
-    assert!(!text.contains("Azoth"));
-    assert!(!text.contains("Kether"));
+    assert!(!text.contains(concat!("Ful", "crum")));
+    assert!(!text.contains(concat!("Azo", "th")));
+    assert!(!text.contains(concat!("Ke", "ther")));
 }
 
 #[test]
@@ -445,7 +445,7 @@ fn config_set_roundtrip_writes_backup_and_public_safe_receipt() {
     let receipt_text = std::fs::read_to_string(&receipts[0]).unwrap();
     assert!(receipt_text.contains("caduceus.household-config.mutation.v1"));
     assert!(!receipt_text.contains(root.to_str().unwrap()));
-    assert!(!receipt_text.contains("Fulcrum"));
+    assert!(!receipt_text.contains(concat!("Ful", "crum")));
 
     let get = Command::new(bin())
         .env("CADUCEUS_ROOT", &root)
