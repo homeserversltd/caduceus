@@ -124,7 +124,7 @@ fn bound_verifier(value: &Value) -> Option<BoundVerifier> {
 /// Bind only public verifier material at process startup. Any unsuccessful crossing is UNBOUND.
 pub fn bind() {
     let (bound, posture, signal) =
-        match crate::shared::agathodaimon::crossing("attendance", "bind", &json!({})) {
+        match crate::shared::agathodaimon::crossing("exousia", "bind", &json!({})) {
             Ok(value) => match bound_verifier(&value) {
                 Some(verifier) => (Some(verifier), "DERIVED_BOUND", "none".to_string()),
                 None => (None, "UNBOUND", "caduceus-derived-unbound".to_string()),
@@ -155,7 +155,7 @@ fn verifier() -> Result<BoundVerifier, String> {
 
 fn pin_verified(pin: &str, public_key: &str) -> bool {
     crate::shared::agathodaimon::crossing(
-        "attendance",
+        "exousia",
         "verify",
         &json!({ "pin": pin, "publicKey": public_key }),
     )
@@ -266,7 +266,7 @@ pub fn change_pin_json(body: &Value) -> Result<Value, String> {
         return Ok(envelope(false, "caduceus-attendance-pin-refused"));
     }
     let receipt = match crate::shared::agathodaimon::crossing(
-        "pin",
+        "exousia",
         "change",
         &json!({ "oldPin": current_pin, "newPin": new_pin }),
     ) {
@@ -323,7 +323,7 @@ pub fn change_pin_access_json(
         return Ok(envelope(false, "caduceus-attendance-pin-refused"));
     }
     let receipt = match crate::shared::agathodaimon::crossing(
-        "pin",
+        "exousia",
         "change",
         &json!({ "oldPin": current_pin, "newPin": new_pin }),
     ) {
@@ -342,7 +342,7 @@ pub fn change_pin_access_json(
 }
 
 pub fn reset_default_pin_json() -> Result<Value, String> {
-    let receipt = crate::shared::agathodaimon::crossing("pin", "reset-default", &json!({}))?;
+    let receipt = crate::shared::agathodaimon::crossing("exousia", "reset-default", &json!({}))?;
     let rebound =
         bound_verifier(&receipt).ok_or_else(|| "caduceus-pin-default-reset-failed".to_string())?;
     let mut guard = state()
