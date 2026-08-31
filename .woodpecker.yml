@@ -29,6 +29,8 @@ steps:
           exit 1
         fi
 
+        echo "checkout-caduceus: CA bundle SHA-256"
+        sha256sum /etc/ssl/certs/ca-certificates.crt
         git init .
         git remote add origin https://git.home.arpa/HOMESERVERSLTD/caduceus.git
         git -c http.extraHeader="Authorization: token $FORGEJO_TOKEN" fetch --depth 1 origin "$CI_COMMIT_SHA"
