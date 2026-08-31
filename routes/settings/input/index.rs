@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 
 const READ_COMMAND: &str = "settings input read";
 const SET_COMMAND: &str = "settings input set";
-const BAND: &str = "input-policy";
+const BAND: &str = "settings/input";
 const SCHEMA: &str = "caduceus.staff.v1";
 
 fn admitted(command: &str) -> Result<(), (StatusCode, Json<Value>)> {
@@ -33,5 +33,11 @@ async fn set_http(Json(body): Json<Value>) -> Result<(StatusCode, Json<Value>), 
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: Router) -> Router {
-    router.route("/api/v1/settings/input", axum::routing::get(read_http).post(set_http))
+    router.route(
+        "/api/v1/settings/input",
+        axum::routing::get(read_http)
+            .post(set_http)
+            .put(set_http)
+            .patch(set_http),
+    )
 }
