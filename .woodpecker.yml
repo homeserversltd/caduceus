@@ -5,7 +5,6 @@ when:
 clone:
   git:
     image: docker.io/woodpeckerci/plugin-git:2.8.0
-    entrypoint: ["/bin/sh", "-c", "echo clone-dns; getent hosts git.home.arpa || true; echo clone-ca-hash; sha256sum /etc/ssl/certs/ca-certificates.crt; echo clone-resolver; sed -n 1,20p /etc/resolv.conf; exec /bin/plugin-git"]
     environment:
       GIT_SSL_CAINFO: /etc/ssl/certs/ca-certificates.crt
 
