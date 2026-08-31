@@ -1,6 +1,5 @@
 use crate::gate::{
-    api_error, gated_json, gated_mutation, missing_signal, ApiErrorBody,
-    ServiceToggleBody,
+    api_error, gated_json, gated_mutation, missing_signal, ApiErrorBody, ServiceToggleBody,
 };
 use crate::routes::{receipts, update_appliance as update};
 use crate::shared::policy;

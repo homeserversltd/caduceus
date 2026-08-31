@@ -50,13 +50,13 @@ pub mod control_service;
 pub mod discovery;
 #[cfg(leaf_settings_ssh)]
 pub use leaf_settings_ssh as expose_ssh;
-#[path = "exousia/support.rs"]
-pub(crate) mod exousia_support;
 #[path = "appliance/support.rs"]
 pub(crate) mod appliance_support;
 #[cfg(any(leaf_cartridges_admit, leaf_cartridges_list, leaf_cartridges_remove))]
 #[path = "cartridges/support/routes.rs"]
 pub(crate) mod cartridges_route_support;
+#[path = "exousia/support.rs"]
+pub(crate) mod exousia_support;
 pub use crate::gate;
 #[cfg(leaf_settings_appearance)]
 #[path = "settings/support/config.rs"]

@@ -1,4 +1,6 @@
-use crate::gate::{api_error, api_error_signal, mutation_status, roster_allows, ApiErrorBody};
+use crate::gate::{
+    api_error, api_error_signal, mutation_status, roster_allows, ApiErrorBody, ConnectionInfo,
+};
 use crate::routes::staff;
 use crate::shared::policy;
 use axum::{
@@ -6,9 +8,8 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use serde_json::Value;
-use std::net::SocketAddr;
 pub(crate) async fn registered_service_restart_route(
-    connect_info: Option<ConnectInfo<SocketAddr>>,
+    connect_info: Option<ConnectInfo<ConnectionInfo>>,
     headers: HeaderMap,
     Path(service): Path<String>,
     Json(body): Json<Value>,
@@ -19,7 +20,8 @@ pub(crate) async fn registered_service_restart_route(
             "caduceus-action-request-malformed",
         ));
     }
-    let allowed = roster_allows("POST", "/api/v1/appliance/service/:service/restart").unwrap_or(false)
+    let allowed = roster_allows("POST", "/api/v1/appliance/service/:service/restart")
+        .unwrap_or(false)
         && policy::allows_command("staff intent").unwrap_or(false);
     if allowed {
         staff::restart_registered_service(&service)

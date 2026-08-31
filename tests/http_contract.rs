@@ -1,7 +1,7 @@
 use axum::body::{to_bytes, Body};
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
-use caduceus::routes::serve;
+use caduceus::{gate::ConnectionInfo, routes::serve};
 use std::{
     env,
     ffi::OsString,
@@ -593,9 +593,11 @@ async fn registered_service_restart_is_profile_allowed_for_loopback_and_remote_p
         .header("content-type", "application/json")
         .body(Body::from(body))
         .unwrap();
-    request.extensions_mut().insert(ConnectInfo(
-        "127.0.0.1:43210".parse::<std::net::SocketAddr>().unwrap(),
-    ));
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(ConnectionInfo::Tcp(
+            "127.0.0.1:43210".parse::<std::net::SocketAddr>().unwrap(),
+        )));
     let response = serve::router().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
@@ -609,9 +611,11 @@ async fn registered_service_restart_is_profile_allowed_for_loopback_and_remote_p
         .header("content-type", "application/json")
         .body(Body::from(body))
         .unwrap();
-    request.extensions_mut().insert(ConnectInfo(
-        "192.0.2.1:43210".parse::<std::net::SocketAddr>().unwrap(),
-    ));
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(ConnectionInfo::Tcp(
+            "192.0.2.1:43210".parse::<std::net::SocketAddr>().unwrap(),
+        )));
     assert_eq!(
         serve::router().oneshot(request).await.unwrap().status(),
         StatusCode::OK

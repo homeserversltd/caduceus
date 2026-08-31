@@ -1,50 +1,183 @@
-{"crossings":{"schema":"caduceus.agathodaimon.crossings.v1","entries":[{"noun":"attendance","verb":"bind"},{"noun":"attendance","verb":"verify"},{"noun":"pin","verb":"change"},{"noun":"pin","verb":"reset-default"},{"noun":"settings","verb":"display"},{"noun":"settings","verb":"appearance"},{"noun":"settings","verb":"sound"},{"noun":"settings","verb":"input"},{"noun":"settings","verb":"notifications"},{"noun":"settings","verb":"default-apps"},{"noun":"settings","verb":"datetime"},{"noun":"gui","verb":"update"},{"noun":"update","verb":"sources-reseed"},{"noun":"network","verb":"child-device"},{"noun":"network","verb":"dns"},{"noun":"network","verb":"dhcp"},{"noun":"network","verb":"firewall"},{"noun":"network","verb":"identity"},{"noun":"network","verb":"linker"},{"noun":"vault","verb":"open"},{"noun":"cert","verb":"house-ca"},{"noun":"forgejo","verb":"credential-get"},{"noun":"time","verb":"state"},{"noun":"time","verb":"resolve"},{"noun":"time","verb":"ensure-ntp"},{"noun":"time","verb":"set-timezone"}]},
+{
+  "crossings": {
+    "schema": "caduceus.agathodaimon.crossings.v1",
+    "entries": [
+      {
+        "noun": "attendance",
+        "verb": "bind"
+      },
+      {
+        "noun": "attendance",
+        "verb": "verify"
+      },
+      {
+        "noun": "pin",
+        "verb": "change"
+      },
+      {
+        "noun": "pin",
+        "verb": "reset-default"
+      },
+      {
+        "noun": "settings",
+        "verb": "display"
+      },
+      {
+        "noun": "settings",
+        "verb": "appearance"
+      },
+      {
+        "noun": "settings",
+        "verb": "sound"
+      },
+      {
+        "noun": "settings",
+        "verb": "input"
+      },
+      {
+        "noun": "settings",
+        "verb": "notifications"
+      },
+      {
+        "noun": "settings",
+        "verb": "default-apps"
+      },
+      {
+        "noun": "settings",
+        "verb": "datetime"
+      },
+      {
+        "noun": "gui",
+        "verb": "update"
+      },
+      {
+        "noun": "update",
+        "verb": "sources-reseed"
+      },
+      {
+        "noun": "network",
+        "verb": "child-device"
+      },
+      {
+        "noun": "network",
+        "verb": "dns"
+      },
+      {
+        "noun": "network",
+        "verb": "dhcp"
+      },
+      {
+        "noun": "network",
+        "verb": "firewall"
+      },
+      {
+        "noun": "network",
+        "verb": "identity"
+      },
+      {
+        "noun": "network",
+        "verb": "linker"
+      },
+      {
+        "noun": "vault",
+        "verb": "open"
+      },
+      {
+        "noun": "cert",
+        "verb": "house-ca"
+      },
+      {
+        "noun": "forgejo",
+        "verb": "credential-get"
+      },
+      {
+        "noun": "time",
+        "verb": "state"
+      },
+      {
+        "noun": "time",
+        "verb": "resolve"
+      },
+      {
+        "noun": "time",
+        "verb": "ensure-ntp"
+      },
+      {
+        "noun": "time",
+        "verb": "set-timezone"
+      }
+    ]
+  },
   "schema": "caduceus.staff.v1",
   "kernel": {
-    "fields": ["schema", "intent_id", "transition"],
-    "required": ["schema", "intent_id", "transition"]
+    "fields": [
+      "schema",
+      "intent_id",
+      "transition"
+    ],
+    "required": [
+      "schema",
+      "intent_id",
+      "transition"
+    ]
   },
   "origin_of_intent": {
     "near": "acts on this machine alone, no further data needed",
-    "far": ["list of one or more destination identifiers -- mac, ip, body name, or named service -- this intent reaches toward"]
+    "far": [
+      "list of one or more destination identifiers -- mac, ip, body name, or named service -- this intent reaches toward"
+    ]
   },
-  "flags": {
-    "presence_gated": true,
-    "version_compared": false,
-    "families": {
-      "correspondence_lease": {
-        "renew_after_seconds": 10,
-        "expire_after_seconds": 30
-      },
-      "truth_recomputation_cadence": {
-        "refresh_interval_seconds": 30
-      }
-    }
+  "serpents_shelf": {
+    "path": "/usr/local/sbin"
   },
-  "correspondence_posture": {
-    "values": ["request", "response", "subscribe", "unsubscribe", "push"],
-    "default": "request"
-  },
-  "transitions": {
-    "carried_by": ["subscribe", "unsubscribe"]
-  },
-  "truth": {
-    "carried_by": ["response", "push"]
-  },
-  "receipt": {
-    "carried_by": ["response"],
-    "stamps": ["admittance(open|admitted)", "attendance witness", "registers_lit", "ok", "first_missing_signal"]
-  },
-  "serpents_shelf": { "path": "/usr/local/sbin" },
   "transport_protocol": {
     "http": "existing per-route request/response bodies, unchanged, for every LAN-open caller that isn't Arcadia",
     "socket": {
-      "path": "/run/caduceus/staff.sock",
-      "framing": "4-byte big-endian length prefix, then this envelope as UTF-8 JSON",
-      "lanes": {
-        "request-response": "one frame in, one frame out, correlated by intent_id",
-        "subscribe-push": "one subscribe frame in, zero or more push frames out over the life of the connection, on the truth_recomputation_cadence"
+      "schema": "caduceus.transport.v1",
+      "kind": "dual-transport",
+      "transports": {
+        "tcp": {
+          "address": "0.0.0.0:8787",
+          "audience": "LAN-open HTTP callers",
+          "connection_info": "peer SocketAddr",
+          "authorization": {
+            "existing_http_policy": true,
+            "attendance": true
+          }
+        },
+        "staff-uds": {
+          "path": "/run/caduceus/staff.sock",
+          "audience": "local staff",
+          "connection_info": "Linux peer credentials (uid,gid,pid)",
+          "authorization": {
+            "filesystem": {
+              "owner": "root",
+              "owner_group": "owner",
+              "mode": "0660"
+            },
+            "existing_http_policy": true,
+            "attendance": true,
+            "peer_credentials": "observational/audit-only; not admission"
+          },
+          "lifecycle": {
+            "parent_directory": {
+              "owner": "root",
+              "owner_group": "root",
+              "mode": "0755"
+            },
+            "stale_socket": "type/liveness-safe refusal unless connect probe is refused",
+            "shutdown_cleanup": "remove only the socket identity created by this process"
+          }
+        }
+      },
+      "event_streaming": {
+        "status": "deferred",
+        "inheritance": "workflow-coronatio-subscription-broadcast-arcadia-inheritance-contract"
       }
     }
+  },
+  "flags": {
+    "presence_gated": true,
+    "version_compared": false
   }
 }

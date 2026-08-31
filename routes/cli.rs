@@ -15,24 +15,16 @@ pub fn show() -> i32 {
     0
 }
 
-use crate::routes::{
-    dhcp, disk, dns, drive_test, health, help, homeserver_sbin, hyalos, identity, legacy_sbin,
-    logs, network, network_identity, network_read, profile, receipts, serve, source_map, staff,
-};
 #[cfg(leaf_settings_child_device)]
 use crate::routes::child_device;
-#[cfg(leaf_local_ai_query)]
-use crate::routes::local_ai;
-use crate::routes::{
-    sync_sources as sync, toggle_harmonia_module as profile_module,
-    update_appliance as update,
-};
 #[cfg(any(
     leaf_display_projector_power,
     leaf_display_projector_products,
     leaf_display_projector_scan
 ))]
 use crate::routes::control_projector as pjlink;
+#[cfg(leaf_local_ai_query)]
+use crate::routes::local_ai;
 #[cfg(any(
     leaf_settings_appearance,
     leaf_settings_child_device,
@@ -46,6 +38,13 @@ use crate::routes::control_projector as pjlink;
     leaf_settings_ssh
 ))]
 use crate::routes::open_settings_pane as gui;
+use crate::routes::{
+    dhcp, disk, dns, drive_test, health, help, homeserver_sbin, hyalos, identity, legacy_sbin,
+    logs, network, network_identity, network_read, profile, receipts, serve, source_map, staff,
+};
+use crate::routes::{
+    sync_sources as sync, toggle_harmonia_module as profile_module, update_appliance as update,
+};
 use crate::shared::config;
 use crate::shared::policy;
 #[cfg(any(
@@ -359,18 +358,18 @@ where
             }
         }
         #[cfg(any(
-    leaf_settings_appearance,
-    leaf_settings_child_device,
-    leaf_settings_datetime,
-    leaf_settings_default_apps,
-    leaf_settings_display,
-    leaf_settings_input,
-    leaf_settings_notifications,
-    leaf_settings_pin,
-    leaf_settings_sound,
-    leaf_settings_ssh
-))]
-[domain, family, rest @ ..] if domain == "settings" && !rest.is_empty() => {
+            leaf_settings_appearance,
+            leaf_settings_child_device,
+            leaf_settings_datetime,
+            leaf_settings_default_apps,
+            leaf_settings_display,
+            leaf_settings_input,
+            leaf_settings_notifications,
+            leaf_settings_pin,
+            leaf_settings_sound,
+            leaf_settings_ssh
+        ))]
+        [domain, family, rest @ ..] if domain == "settings" && !rest.is_empty() => {
             let command = if rest.first().is_some_and(|verb| verb == "read") {
                 settings::read_command(family)
             } else {
@@ -471,46 +470,46 @@ where
             })
         }
         #[cfg(any(
-    leaf_display_projector_power,
-    leaf_display_projector_products,
-    leaf_display_projector_scan
-))]
-[domain, verb] if domain == "pjlink" && verb == "devices" => pjlink::devices(),
+            leaf_display_projector_power,
+            leaf_display_projector_products,
+            leaf_display_projector_scan
+        ))]
+        [domain, verb] if domain == "pjlink" && verb == "devices" => pjlink::devices(),
         #[cfg(any(
-    leaf_display_projector_power,
-    leaf_display_projector_products,
-    leaf_display_projector_scan
-))]
-[domain, verb] if domain == "pjlink" && verb == "known-products" => {
+            leaf_display_projector_power,
+            leaf_display_projector_products,
+            leaf_display_projector_scan
+        ))]
+        [domain, verb] if domain == "pjlink" && verb == "known-products" => {
             pjlink::known_products()
         }
         #[cfg(any(
-    leaf_display_projector_power,
-    leaf_display_projector_products,
-    leaf_display_projector_scan
-))]
-[domain, verb, device_id, rest @ ..] if domain == "pjlink" && verb == "scan" => {
+            leaf_display_projector_power,
+            leaf_display_projector_products,
+            leaf_display_projector_scan
+        ))]
+        [domain, verb, device_id, rest @ ..] if domain == "pjlink" && verb == "scan" => {
             match require_policy("pjlink scan", rest) {
                 Ok(filtered) => pjlink::scan_product(device_id, &filtered),
                 Err(code) => code,
             }
         }
         #[cfg(any(
-    leaf_display_projector_power,
-    leaf_display_projector_products,
-    leaf_display_projector_scan
-))]
-[domain, object, verb, device_id]
+            leaf_display_projector_power,
+            leaf_display_projector_products,
+            leaf_display_projector_scan
+        ))]
+        [domain, object, verb, device_id]
             if domain == "pjlink" && object == "power" && verb == "status" =>
         {
             pjlink::power_status(device_id)
         }
         #[cfg(any(
-    leaf_display_projector_power,
-    leaf_display_projector_products,
-    leaf_display_projector_scan
-))]
-[domain, object, verb, device_id, rest @ ..]
+            leaf_display_projector_power,
+            leaf_display_projector_products,
+            leaf_display_projector_scan
+        ))]
+        [domain, object, verb, device_id, rest @ ..]
             if domain == "pjlink" && object == "known" && verb == "add" =>
         {
             match require_policy("pjlink known add", rest) {
@@ -519,11 +518,11 @@ where
             }
         }
         #[cfg(any(
-    leaf_display_projector_power,
-    leaf_display_projector_products,
-    leaf_display_projector_scan
-))]
-[domain, object, verb, entry_id, rest @ ..]
+            leaf_display_projector_power,
+            leaf_display_projector_products,
+            leaf_display_projector_scan
+        ))]
+        [domain, object, verb, entry_id, rest @ ..]
             if domain == "pjlink" && object == "known" && verb == "remove" =>
         {
             match require_policy("pjlink known remove", rest) {
@@ -568,18 +567,18 @@ where
             }
         }
         #[cfg(any(
-    leaf_settings_appearance,
-    leaf_settings_child_device,
-    leaf_settings_datetime,
-    leaf_settings_default_apps,
-    leaf_settings_display,
-    leaf_settings_input,
-    leaf_settings_notifications,
-    leaf_settings_pin,
-    leaf_settings_sound,
-    leaf_settings_ssh
-))]
-[domain, object, verb, rest @ ..]
+            leaf_settings_appearance,
+            leaf_settings_child_device,
+            leaf_settings_datetime,
+            leaf_settings_default_apps,
+            leaf_settings_display,
+            leaf_settings_input,
+            leaf_settings_notifications,
+            leaf_settings_pin,
+            leaf_settings_sound,
+            leaf_settings_ssh
+        ))]
+        [domain, object, verb, rest @ ..]
             if domain == "gui" && object == "update" && verb == "now" =>
         {
             match require_policy("gui update now", rest) {
@@ -622,11 +621,11 @@ where
             }
         }
         #[cfg(any(
-    leaf_display_projector_power,
-    leaf_display_projector_products,
-    leaf_display_projector_scan
-))]
-[domain, object, verb, device_id, state, rest @ ..]
+            leaf_display_projector_power,
+            leaf_display_projector_products,
+            leaf_display_projector_scan
+        ))]
+        [domain, object, verb, device_id, state, rest @ ..]
             if domain == "pjlink" && object == "power" && verb == "set" =>
         {
             match require_policy("pjlink power set", rest) {

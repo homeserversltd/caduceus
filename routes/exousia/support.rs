@@ -1,3 +1,4 @@
+use crate::gate::ConnectionInfo;
 use crate::gate::{
     access_attendance_admits, api_error, api_error_signal, gated_json, gated_mutation,
     mutation_status, vault_attendance_admits, ApiErrorBody, VaultAutoBody, VaultUnlockBody,
@@ -11,10 +12,8 @@ use axum::{
     response::Response,
 };
 use serde_json::Value;
-use std::net::SocketAddr;
 
-pub(crate) async fn pin_mode_read_route(
-) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+pub(crate) async fn pin_mode_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     Ok(Json(crate::shared::attendance::pin_mode_json()))
 }
 
@@ -91,7 +90,7 @@ pub(crate) async fn vault_auto_route(
 }
 
 pub(crate) async fn attendance_route(
-    connect_info: Option<ConnectInfo<SocketAddr>>,
+    connect_info: Option<ConnectInfo<ConnectionInfo>>,
     OriginalUri(uri): OriginalUri,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -99,7 +98,9 @@ pub(crate) async fn attendance_route(
         "/api/v1/exousia/open" => attendance::open_json(&body),
         "/api/v1/exousia/validate" => attendance::validate_json(&body),
         "/api/v1/exousia/touch" => attendance::touch_json(&body),
-        "/api/v1/exousia/change-pin" | "/api/v1/access/pin/change" => attendance::change_pin_json(&body),
+        "/api/v1/exousia/change-pin" | "/api/v1/access/pin/change" => {
+            attendance::change_pin_json(&body)
+        }
         "/api/v1/exousia/invalidate" => attendance::invalidate_json(&body),
         _ => Err("caduceus-attendance-route-invalid".to_string()),
     };
@@ -122,7 +123,7 @@ pub(crate) async fn attendance_route(
             "firstMissingSignal": signal,
             "documentId": body.get("documentId").and_then(Value::as_str),
             "attendanceId": attendance_id,
-            "peer": connect_info.map(|ConnectInfo(peer)| peer.to_string()).unwrap_or_else(|| "unknown".to_string()),
+            "peer": connect_info.map(|ConnectInfo(peer)| peer.to_string()).unwrap_or_else(|| "unknown".to_string()), // UDS credentials are audit/readback only, never admission
         })
     );
     let _ = hyalos::reflect_json(serde_json::json!({
