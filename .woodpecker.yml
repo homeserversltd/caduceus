@@ -2,6 +2,12 @@ when:
   event:
     - push
 
+clone:
+  - name: git
+    image: woodpeckerci/plugin-git
+    settings:
+      custom_ssl_url: http://192.168.123.1:7100/v1/trust/ca-bundle
+
 steps:
   - name: registry-pen-caduceus
     image: python:3.12-alpine
