@@ -2,6 +2,12 @@ when:
   event:
     - push
 
+clone:
+  git:
+    image: docker.io/woodpeckerci/plugin-git:2.8.0
+    environment:
+      GIT_SSL_CAINFO: /etc/ssl/certs/ca-certificates.crt
+
 steps:
   - name: registry-pen-caduceus
     image: python:3.12-alpine
