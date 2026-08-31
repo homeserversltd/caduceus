@@ -2,13 +2,39 @@ when:
   event:
     - push
 
-clone:
-  git:
-    image: docker.io/woodpeckerci/plugin-git:2.8.0
-    environment:
-      GIT_SSL_CAINFO: /etc/ssl/certs/ca-certificates.crt
+skip_clone: true
 
 steps:
+  - name: checkout-caduceus
+    image: rust:1-bookworm
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: FORGEJO_TOKEN
+      GIT_SSL_CAINFO: /etc/ssl/certs/ca-certificates.crt
+    commands:
+      - |
+        set -eu
+        command -v git >/dev/null || { echo "checkout-caduceus: git is required in rust:1-bookworm" >&2; exit 1; }
+
+        FORGEJO_TOKEN="$(printf '%s' "$${FORGEJO_TOKEN:-}" | tr -d '[:space:]')"
+        if [ -z "$FORGEJO_TOKEN" ] && [ -r /mnt/keyexchange/FORGEJO_TOKEN ] && [ -s /mnt/keyexchange/FORGEJO_TOKEN ]; then
+          FORGEJO_TOKEN="$(tr -d '[:space:]' < /mnt/keyexchange/FORGEJO_TOKEN)"
+        fi
+        if [ -z "$FORGEJO_TOKEN" ]; then
+          printf '%s\n' "checkout-caduceus: org secret injected empty and /mnt/keyexchange/FORGEJO_TOKEN absent — run keyman transmit forgejo-token --to homeserver-ci-agent" >&2
+          exit 1
+        fi
+        if ! printf "%s" "$${CI_COMMIT_SHA:-}" | grep -Eq "^[0-9a-f]{40}$"; then
+          echo "checkout-caduceus: CI_COMMIT_SHA must be a full 40-hex commit SHA" >&2
+          exit 1
+        fi
+
+        git init .
+        git remote add origin https://git.home.arpa/HOMESERVERSLTD/caduceus.git
+        git -c http.extraHeader="Authorization: token $FORGEJO_TOKEN" fetch --depth 1 origin "$CI_COMMIT_SHA"
+        git checkout --detach "$CI_COMMIT_SHA"
+        test "$(git rev-parse HEAD)" = "$CI_COMMIT_SHA"
+
   - name: registry-pen-caduceus
     image: python:3.12-alpine
     backend_options:
