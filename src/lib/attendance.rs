@@ -44,7 +44,7 @@ fn evict_expired(current: &mut HashMap<String, Attendance>, now: Instant) {
     current.retain(|_, attendance| !expired(attendance, now));
 }
 
-fn text(body: &Value, field: &str) -> Result<String, String> {
+pub(crate) fn text(body: &Value, field: &str) -> Result<String, String> {
     let value = body
         .get(field)
         .and_then(Value::as_str)
@@ -341,8 +341,13 @@ pub fn change_pin_access_json(
     Ok(envelope(true, "none"))
 }
 
-pub fn reset_default_pin_json() -> Result<Value, String> {
-    let receipt = crate::shared::agathodaimon::crossing("exousia", "reset-default", &json!({}))?;
+pub fn reset_default_pin_json(body: &Value) -> Result<Value, String> {
+    let new_pin = text(body, "newPin")?;
+    let receipt = crate::shared::agathodaimon::crossing(
+        "exousia",
+        "reset-default",
+        &json!({ "newPin": new_pin }),
+    )?;
     let rebound =
         bound_verifier(&receipt).ok_or_else(|| "caduceus-pin-default-reset-failed".to_string())?;
     let mut guard = state()

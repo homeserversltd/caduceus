@@ -28,19 +28,47 @@ pub(crate) async fn pin_mode_route(
 }
 
 pub(crate) async fn pin_reset_default_route(
-    headers: HeaderMap,
+    connect_info: Option<ConnectInfo<ConnectionInfo>>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    if body != serde_json::json!({"action":"reset-default"}) {
+    if !peer_is_loopback(connect_info.as_ref()) {
         return Err(api_error_signal(
             "access pin reset-default",
-            "caduceus-access-pin-reset-default-invalid",
+            "caduceus-local-access-required",
         ));
     }
-    access_attendance_admits(&headers)?;
-    change_pin::reset_default_pin_json()
+    change_pin::reset_default_pin_json(&body)
         .map(Json)
         .map_err(|signal| api_error_signal("access pin reset-default", &signal))
+}
+
+fn peer_is_loopback(connect_info: Option<&ConnectInfo<ConnectionInfo>>) -> bool {
+    matches!(
+        connect_info,
+        Some(ConnectInfo(ConnectionInfo::Tcp(addr))) if addr.ip().is_loopback()
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::peer_is_loopback;
+    use crate::gate::ConnectionInfo;
+    use axum::extract::ConnectInfo;
+    use std::net::SocketAddr;
+
+    #[test]
+    fn peer_is_loopback_accepts_only_loopback_tcp_peers() {
+        assert!(peer_is_loopback(Some(&ConnectInfo(ConnectionInfo::Tcp(
+            "127.0.0.1:43210".parse::<SocketAddr>().unwrap(),
+        )))));
+        assert!(peer_is_loopback(Some(&ConnectInfo(ConnectionInfo::Tcp(
+            "[::1]:43210".parse::<SocketAddr>().unwrap(),
+        )))));
+        assert!(!peer_is_loopback(Some(&ConnectInfo(ConnectionInfo::Tcp(
+            "192.168.1.50:43210".parse::<SocketAddr>().unwrap(),
+        )))));
+        assert!(!peer_is_loopback(None));
+    }
 }
 
 pub(crate) async fn vault_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
