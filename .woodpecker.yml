@@ -5,6 +5,7 @@ when:
 clone:
   git:
     image: docker.io/woodpeckerci/plugin-git:2.8.0
+    entrypoint: ["/bin/sh", "-c", "sleep 15; exec /bin/plugin-git"]
     settings:
       custom-ssl-path: /etc/ssl/certs/ca-certificates.crt
 
