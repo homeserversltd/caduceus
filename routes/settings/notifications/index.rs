@@ -11,5 +11,5 @@ async fn mutate_http(axum::Json(body): axum::Json<serde_json::Value>) -> Result<
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: axum::Router) -> axum::Router {
-    router
+    router.route("/api/v1/settings/notifications", axum::routing::get(read_http).put(mutate_http).patch(mutate_http))
 }

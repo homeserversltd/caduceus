@@ -122,7 +122,11 @@ fn bounded_value(value: &Value) -> bool {
 
 fn validated_fields(family: &str, body: Value) -> Result<BTreeMap<String, Value>, String> {
     let allowed = fields(family).ok_or_else(|| "caduceus-settings-family-invalid".to_string())?;
-    let object = body
+    let field_room = match body {
+        Value::Object(mut object) => object.remove("payload").unwrap_or(Value::Object(object)),
+        body => body,
+    };
+    let object = field_room
         .as_object()
         .ok_or_else(|| "caduceus-settings-fields-object-required".to_string())?;
     if object.is_empty() {
@@ -200,5 +204,39 @@ pub fn command(family: &str, args: &[String]) -> i32 {
             eprintln!("{error}");
             1
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validated_fields;
+    use serde_json::json;
+
+    #[test]
+    fn enveloped_payload_is_accepted() {
+        let values = validated_fields(
+            "input",
+            json!({
+                "schema": "caduceus.staff.v1",
+                "intent_id": "caduceus-settings-input",
+                "transition": "settings/input",
+                "target": "dark",
+                "payload": {"pointer_speed": 0.1}
+            }),
+        )
+        .unwrap();
+        assert_eq!(values.get("pointer_speed"), Some(&json!(0.1)));
+    }
+
+    #[test]
+    fn bare_field_map_is_accepted() {
+        let values = validated_fields("input", json!({"pointer_speed": 0.1})).unwrap();
+        assert_eq!(values.get("pointer_speed"), Some(&json!(0.1)));
+    }
+
+    #[test]
+    fn present_null_payload_is_rejected() {
+        let error = validated_fields("appearance", json!({"payload": null})).unwrap_err();
+        assert_eq!(error, "caduceus-settings-fields-object-required");
     }
 }
