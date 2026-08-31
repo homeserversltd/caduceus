@@ -1,7 +1,20 @@
 use crate::gate::{
     api_error, gated_json, gated_mutation, missing_signal, ApiErrorBody, ServiceToggleBody,
 };
-use crate::routes::{receipts, update_appliance as update};
+#[cfg(any(
+    leaf_settings_appearance,
+    leaf_settings_child_device,
+    leaf_settings_datetime,
+    leaf_settings_default_apps,
+    leaf_settings_display,
+    leaf_settings_input,
+    leaf_settings_notifications,
+    leaf_settings_pin,
+    leaf_settings_sound,
+    leaf_settings_ssh
+))]
+use crate::routes::open_settings_pane as gui;
+use crate::routes::{receipts, sync_sources as sync, update_appliance as update};
 use crate::shared::policy;
 use axum::{
     extract::{Json, Query},
@@ -17,6 +30,23 @@ pub(crate) async fn update_now_route(
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     gated_mutation("update now", || update::invoke_now_json(&[])).await
+}
+
+pub(crate) async fn sync_now_route(
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    gated_mutation("sync now", || sync::invoke_now_json(&[])).await
+}
+
+pub(crate) async fn gui_update_now_route(
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    gated_mutation("gui update now", || {
+        let mut value = gui::invoke_update_now_json(&[]);
+        value["action"] = serde_json::json!("gui_update_now");
+        value
+    })
+    .await
 }
 
 pub(crate) async fn update_check_route(

@@ -2,9 +2,11 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use caduceus::routes::serve;
 use caduceus::shared::{attendance, policy};
+use serde_json::Value;
 use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tower::ServiceExt;
@@ -75,10 +77,14 @@ async fn dns_http_uses_exact_document_attendance_when_document_is_supplied() {
     let old_root = env::var_os("CADUCEUS_ROOT");
     let old_incarnation = env::var_os("CADUCEUS_DOCUMENT_INCARNATION");
     let old_launcher = env::var_os("CADUCEUS_DNS_CMD");
+    let old_staff_cli = env::var_os("CADUCEUS_AGATHODAIMON_CLI");
+    let staff_cli =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/staff/agathodaimon/cli.py");
     env::set_var("PATH", format!("{}:{old_path}", bin.display()));
     env::set_var("CADUCEUS_ROOT", &root);
     env::remove_var("CADUCEUS_DOCUMENT_INCARNATION");
     env::set_var("CADUCEUS_DNS_CMD", &launcher);
+    env::set_var("CADUCEUS_AGATHODAIMON_CLI", &staff_cli);
     attendance::reset_for_tests();
     attendance::bind();
     let current = attendance::open_json(&serde_json::json!({
@@ -94,11 +100,13 @@ async fn dns_http_uses_exact_document_attendance_when_document_is_supplied() {
     assert!(!policy::allows_command("network dns").unwrap());
     assert!(policy::allows_command("network dns status").unwrap());
     assert!(policy::allows_command("network dns intent").unwrap());
+    let router = serve::router();
     for (document, token) in [
         (Some("wrong-document"), Some(current.as_str())),
         (Some("dns-document"), None),
     ] {
-        let response = serve::router()
+        let response = router
+            .clone()
             .oneshot(request(document, token))
             .await
             .unwrap();
@@ -106,17 +114,33 @@ async fn dns_http_uses_exact_document_attendance_when_document_is_supplied() {
         assert!(!args_log.exists());
         assert!(!stdin_log.exists());
     }
-    let response = serve::router()
+    let response = router
+        .clone()
         .oneshot(request(Some("dns-document"), Some(&current)))
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
     assert_eq!(
         fs::read_to_string(&args_log).unwrap(),
         "intent POST /api/dns/unbound/drop-in --metadata-json {\"action\":\"status\"}"
     );
-    assert_eq!(fs::read_to_string(&stdin_log).unwrap(), "");
-
+    let stdin: Value = serde_json::from_str(&fs::read_to_string(&stdin_log).unwrap()).unwrap();
+    assert_eq!(stdin["schema"], "caduceus.staff.v1");
+    assert_eq!(stdin["transition"], "network/dns");
+    assert_eq!(
+        stdin["payload"]["args"],
+        serde_json::json!([
+            "intent",
+            "POST",
+            "/api/dns/unbound/drop-in",
+            "--metadata-json",
+            "{\"action\":\"status\"}"
+        ])
+    );
     attendance::reset_for_tests();
     match old_root {
         Some(value) => env::set_var("CADUCEUS_ROOT", value),
@@ -129,6 +153,10 @@ async fn dns_http_uses_exact_document_attendance_when_document_is_supplied() {
     match old_launcher {
         Some(value) => env::set_var("CADUCEUS_DNS_CMD", value),
         None => env::remove_var("CADUCEUS_DNS_CMD"),
+    }
+    match old_staff_cli {
+        Some(value) => env::set_var("CADUCEUS_AGATHODAIMON_CLI", value),
+        None => env::remove_var("CADUCEUS_AGATHODAIMON_CLI"),
     }
     env::set_var("PATH", old_path);
     let _ = fs::remove_dir_all(root);

@@ -604,7 +604,7 @@ fn staff_band_receipt(band: &str, metadata: Value) -> Result<Value, String> {
         "intent_id": format!("caduceus-{band}"),
         "transition": band,
         "origin_of_intent": "near",
-        "metadata": metadata,
+        "payload": metadata,
     });
     let walked = match crate::gate::snake::run(band, &envelope) {
         Ok(walked) => walked,
@@ -724,7 +724,10 @@ fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
         .unwrap_or(0o664);
     let supplied_uid = metadata.get("uid").and_then(Value::as_u64);
     let supplied_gid = metadata.get("gid").and_then(Value::as_u64);
-    let spool_root = PathBuf::from("/var/lib/caduceus/spool/file-ingress");
+    let spool_root = std::env::var_os("CADUCEUS_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
+        .join("var/lib/caduceus/spool/file-ingress");
     std::fs::create_dir_all(&spool_root)
         .map_err(|err| format!("caduceus-file-ingress-spool-unavailable: {err}"))?;
     let spool_path = spool_root.join(format!(
@@ -850,62 +853,70 @@ pub fn intent(method: &str, route: &str) -> i32 {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
-    use std::sync::Mutex;
+    fn write_snake_fixture(root: &std::path::Path) -> std::path::PathBuf {
+        let launcher = root.join("snake-fixture.py");
+        std::fs::write(&launcher, r#"#!/usr/bin/python3
+import json, os, shutil, sys
+metadata = json.load(sys.stdin)["payload"]
+selector = " ".join(sys.argv[1:])
+if selector == "storage upload ingress":
+    spool = metadata["spoolPath"]
+    target = metadata.get("targetPath", metadata["path"])
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    shutil.copyfile(spool, target)
+    os.chmod(target, int(metadata["mode"]))
+    print(json.dumps({"schema":"caduceus.staff.v1","ok":True,"mutationPerformed":True,"firstMissingSignal":"none"}))
+elif selector == "storage upload force-permissions":
+    if os.environ.get("CADUCEUS_TEST_FORCE_PERMISSIONS_REFUSE") == "1":
+        print(json.dumps({"schema":"caduceus.staff.v1","ok":False,"mutationPerformed":False,"firstMissingSignal":"Group update failed: group resolution failed: fixture failure"}))
+    else:
+        target = metadata.get("destination", metadata["path"])
+        os.makedirs(target, exist_ok=True)
+        os.chmod(target, int(metadata["mode"]))
+        print(json.dumps({"schema":"caduceus.staff.v1","ok":True,"mutationPerformed":True,"firstMissingSignal":"none"}))
+else:
+    raise SystemExit(2)
+"#).unwrap();
+        let mut permissions = std::fs::metadata(&launcher).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&launcher, permissions).unwrap();
+        launcher
+    }
 
-    static FILE_INGRESS_ENV_LOCK: Mutex<()> = Mutex::new(());
+    fn restore_test_env(name: &str, value: Option<std::ffi::OsString>) {
+        if let Some(value) = value {
+            std::env::set_var(name, value);
+        } else {
+            std::env::remove_var(name);
+        }
+    }
 
     #[test]
     fn file_ingress_and_force_permissions_execute_real_mutations() {
-        let _guard = FILE_INGRESS_ENV_LOCK.lock().unwrap();
+        let _guard = crate::gate::snake::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         let root =
             std::env::temp_dir().join(format!("caduceus-file-ingress-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let old_root = std::env::var_os("CADUCEUS_ROOT");
+        let old_ingress_root = std::env::var_os("CADUCEUS_FILE_INGRESS_ROOT");
+        let old_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI");
         std::env::set_var("CADUCEUS_ROOT", &root);
         std::env::set_var("CADUCEUS_FILE_INGRESS_ROOT", &root);
+        let launcher = write_snake_fixture(&root);
+        std::env::set_var("CADUCEUS_AGATHODAIMON_CLI", &launcher);
         let result = intent_json("POST", "/api/files/upload", Some("file-ingress"), Some(json!({"filename":"proof.txt","destination":"/mnt/nas/test","payload":[104,101,108,108,111]}))).unwrap();
         assert_eq!(result["mutationPerformed"], true);
         assert_eq!(
             std::fs::read(root.join("test/proof.txt")).unwrap(),
             b"hello"
         );
-
-        let tools = root.join("tools");
-        std::fs::create_dir_all(&tools).unwrap();
-        let calls = root.join("usermod-calls");
-        let getent = tools.join("getent");
-        let groups = tools.join("groups");
-        let usermod = tools.join("usermod");
-        std::fs::write(
-            &getent,
-            "#!/bin/sh\nprintf 'fixture-group:x:%s:\\n' \"$2\"\n",
-        )
-        .unwrap();
-        std::fs::write(&groups, "#!/bin/sh\nprintf 'www-data : www-data\\n'\n").unwrap();
-        std::fs::write(
-            &usermod,
-            format!("#!/bin/sh\nprintf '%s\\n' \"$*\" > {}\n", calls.display()),
-        )
-        .unwrap();
-        for tool in [&getent, &groups, &usermod] {
-            let mut permissions = std::fs::metadata(tool).unwrap().permissions();
-            permissions.set_mode(0o755);
-            std::fs::set_permissions(tool, permissions).unwrap();
-        }
-
-        let result = execute_force_permissions_with(
-            json!({"destination":"/mnt/nas/test"}),
-            getent.to_str().unwrap(),
-            groups.to_str().unwrap(),
-            usermod.to_str().unwrap(),
-        )
-        .unwrap();
+        let result = execute_force_permissions(json!({"destination":"/mnt/nas/test"})).unwrap();
         assert_eq!(result["mutationPerformed"], true);
         assert_eq!(result["success"], true);
         assert_eq!(result["message"], "Permissions updated successfully");
-        assert_eq!(
-            std::fs::read_to_string(&calls).unwrap().trim(),
-            "-aG fixture-group www-data"
-        );
         assert_eq!(
             std::fs::metadata(root.join("test"))
                 .unwrap()
@@ -914,14 +925,17 @@ mod tests {
                 & 0o777,
             0o775
         );
-        std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
-        std::env::remove_var("CADUCEUS_ROOT");
+        restore_test_env("CADUCEUS_AGATHODAIMON_CLI", old_cli);
+        restore_test_env("CADUCEUS_FILE_INGRESS_ROOT", old_ingress_root);
+        restore_test_env("CADUCEUS_ROOT", old_root);
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn force_permissions_reports_group_failure_after_writable_mutation() {
-        let _guard = FILE_INGRESS_ENV_LOCK.lock().unwrap();
+        let _guard = crate::gate::snake::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         let root = std::env::temp_dir().join(format!(
             "caduceus-force-permissions-failure-{}",
             std::process::id()
@@ -932,43 +946,42 @@ mod tests {
         let mut permissions = std::fs::metadata(&destination).unwrap().permissions();
         permissions.set_mode(0o700);
         std::fs::set_permissions(&destination, permissions).unwrap();
+        let old_root = std::env::var_os("CADUCEUS_ROOT");
+        let old_ingress_root = std::env::var_os("CADUCEUS_FILE_INGRESS_ROOT");
+        let old_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI");
+        let old_refuse = std::env::var_os("CADUCEUS_TEST_FORCE_PERMISSIONS_REFUSE");
         std::env::set_var("CADUCEUS_ROOT", &root);
         std::env::set_var("CADUCEUS_FILE_INGRESS_ROOT", &root);
-
-        let failed = root.join("failed-command");
-        std::fs::write(
-            &failed,
-            "#!/bin/sh\nprintf 'fixture failure\\n' >&2\nexit 1\n",
-        )
-        .unwrap();
-        let mut permissions = std::fs::metadata(&failed).unwrap().permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&failed, permissions).unwrap();
-
-        let error = execute_force_permissions_with(
-            json!({"destination":"/mnt/nas/test"}),
-            failed.to_str().unwrap(),
-            failed.to_str().unwrap(),
-            failed.to_str().unwrap(),
-        )
-        .unwrap_err();
-        assert!(error.starts_with("Group update failed: group resolution failed"));
+        let launcher = write_snake_fixture(&root);
+        std::env::set_var("CADUCEUS_AGATHODAIMON_CLI", &launcher);
+        std::env::set_var("CADUCEUS_TEST_FORCE_PERMISSIONS_REFUSE", "1");
+        let result = execute_force_permissions(json!({"destination":"/mnt/nas/test"})).unwrap();
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["mutationPerformed"], false);
+        assert!(result["firstMissingSignal"]
+            .as_str()
+            .unwrap()
+            .starts_with("Group update failed: group resolution failed"));
         assert_eq!(
             std::fs::metadata(&destination)
                 .unwrap()
                 .permissions()
                 .mode()
                 & 0o777,
-            0o775
+            0o700
         );
-
-        std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
-        std::env::remove_var("CADUCEUS_ROOT");
+        restore_test_env("CADUCEUS_TEST_FORCE_PERMISSIONS_REFUSE", old_refuse);
+        restore_test_env("CADUCEUS_AGATHODAIMON_CLI", old_cli);
+        restore_test_env("CADUCEUS_FILE_INGRESS_ROOT", old_ingress_root);
+        restore_test_env("CADUCEUS_ROOT", old_root);
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn portal_service_classification_executes_systemctl_and_reports_active() {
+        let _guard = crate::gate::snake::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         let root =
             std::env::temp_dir().join(format!("caduceus-systemctl-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);

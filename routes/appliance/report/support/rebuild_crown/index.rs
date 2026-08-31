@@ -229,6 +229,9 @@ mod tests {
     }
     #[test]
     fn source_currency_reflects_to_hyalos_without_changing_the_response() {
+        let _guard = crate::gate::snake::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         let root =
             std::env::temp_dir().join(format!("caduceus-coronatio-hyalos-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);

@@ -8,4 +8,8 @@ pub fn register(router: axum::Router) -> axum::Router {
             "/api/v1/exousia/touch",
             axum::routing::post(crate::routes::exousia_support::attendance_route),
         )
+        .route(
+            "/api/v1/attendance/touch",
+            axum::routing::post(crate::routes::exousia_support::attendance_route),
+        )
 }

@@ -35,11 +35,6 @@ pub use leaf_settings_notifications as change_notifications;
 pub use leaf_settings_sound as change_sound;
 #[path = "cli.rs"]
 pub mod cli;
-#[cfg(any(
-    leaf_display_projector_power,
-    leaf_display_projector_products,
-    leaf_display_projector_scan
-))]
 #[path = "display/projector/index.rs"]
 pub mod control_projector;
 #[cfg(leaf_network_dns_status)]
@@ -58,6 +53,24 @@ pub(crate) mod cartridges_route_support;
 #[path = "exousia/support.rs"]
 pub(crate) mod exousia_support;
 pub use crate::gate;
+
+#[cfg(test)]
+mod selected_cli_registry_tests {
+    use super::{route_for_cli, selected_declaration, SELECTED_LEAF_MODULES};
+
+    #[test]
+    fn every_selected_namespace_has_canonical_cli_and_valid_declaration() {
+        for namespace in SELECTED_LEAF_MODULES {
+            let args = namespace.split('/').map(str::to_owned).collect::<Vec<_>>();
+            assert_eq!(route_for_cli(&args), Some(*namespace));
+            let declaration = selected_declaration(namespace).expect("selected declaration");
+            let value: serde_json::Value =
+                serde_json::from_str(declaration).expect("selected declaration JSON");
+            assert_eq!(value["namespace"], *namespace);
+            assert!(value["serve"].is_array());
+        }
+    }
+}
 #[cfg(leaf_settings_appearance)]
 #[path = "settings/support/config.rs"]
 pub(crate) mod config_support;

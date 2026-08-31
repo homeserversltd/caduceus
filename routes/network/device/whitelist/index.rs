@@ -13,6 +13,11 @@ pub fn command_json(intent: Value) -> Result<Value, Value> {
                 .and_then(Value::as_str)
                 .or_else(|| v.get("firstMissingSignal").and_then(Value::as_str))
                 .unwrap_or("firewall-staff-refused");
+            let signal = if signal == "caduceus-agathodaimon-output-too-large" {
+                "firewall-staff-output-too-large"
+            } else {
+                signal
+            };
             Err(serde_json::json!({"ok":false,"firstMissingSignal":signal}))
         }
     }
@@ -284,5 +289,23 @@ async fn firewall_delete_route(
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: Router) -> Router {
-    router.route("/api/v1/network/firewall/status", axum::routing::get(firewall_status_route)).route("/api/v1/network/firewall/policies", axum::routing::get(firewall_policies_route)).route("/api/v1/network/firewall/policies/:mac", axum::routing::get(firewall_policy_route).put(firewall_put_route).delete(firewall_delete_route))
+    router
+        .route(
+            "/api/v1/network/firewall/status",
+            axum::routing::get(firewall_status_route),
+        )
+        .route(
+            "/api/v1/network/firewall/policies",
+            axum::routing::get(firewall_policies_route),
+        )
+        .route(
+            "/api/v1/network/firewall/policies/:mac",
+            axum::routing::get(firewall_policy_route)
+                .put(axum::routing::put(firewall_put_route).layer(
+                    axum::extract::DefaultBodyLimit::max(8192),
+                ))
+                .delete(axum::routing::delete(firewall_delete_route).layer(
+                    axum::extract::DefaultBodyLimit::max(8192),
+                )),
+        )
 }

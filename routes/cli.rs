@@ -17,11 +17,6 @@ pub fn show() -> i32 {
 
 #[cfg(leaf_settings_child_device)]
 use crate::routes::child_device;
-#[cfg(any(
-    leaf_display_projector_power,
-    leaf_display_projector_products,
-    leaf_display_projector_scan
-))]
 use crate::routes::control_projector as pjlink;
 #[cfg(leaf_local_ai_query)]
 use crate::routes::local_ai;
@@ -67,6 +62,40 @@ where
     S: Into<String>,
 {
     let args: Vec<String> = args.into_iter().map(Into::into).collect();
+    if let Some(namespace) = crate::routes::route_for_cli(&args) {
+        let declaration_source = crate::routes::selected_declaration(namespace)
+            .expect("selected CLI route must have a declaration");
+        let declaration = match serde_json::from_str::<serde_json::Value>(declaration_source) {
+            Ok(declaration) => declaration,
+            Err(error) => {
+                eprintln!("{error}");
+                return 2;
+            }
+        };
+        let serve = match declaration
+            .get("serve")
+            .and_then(serde_json::Value::as_array)
+        {
+            Some(serve) => serve,
+            None => {
+                eprintln!("serve");
+                return 2;
+            }
+        };
+        let prefix_len = namespace.split('/').count();
+        let raw = serde_json::json!({
+            "schema": crate::protocol::SCHEMA_ID,
+            "intent_id": format!("cli:{namespace}"),
+            "transition": namespace,
+            "origin_of_intent": "near",
+            "payload": { "args": args[prefix_len..].to_vec() }
+        });
+        if let Err(signal) = crate::gate::receive(raw, serve, &declaration, false) {
+            eprintln!("{signal}");
+            return 2;
+        }
+    }
+    // Legacy dispatch debt remains below: admission is compiled, but dispatch is not collapsed.
     match args.as_slice() {
         [] => {
             print_help();
@@ -469,46 +498,21 @@ where
                 crate::routes::set_time::command(&["set-timezone".into(), timezone.clone()])
             })
         }
-        #[cfg(any(
-            leaf_display_projector_power,
-            leaf_display_projector_products,
-            leaf_display_projector_scan
-        ))]
         [domain, verb] if domain == "pjlink" && verb == "devices" => pjlink::devices(),
-        #[cfg(any(
-            leaf_display_projector_power,
-            leaf_display_projector_products,
-            leaf_display_projector_scan
-        ))]
         [domain, verb] if domain == "pjlink" && verb == "known-products" => {
             pjlink::known_products()
         }
-        #[cfg(any(
-            leaf_display_projector_power,
-            leaf_display_projector_products,
-            leaf_display_projector_scan
-        ))]
         [domain, verb, device_id, rest @ ..] if domain == "pjlink" && verb == "scan" => {
             match require_policy("pjlink scan", rest) {
                 Ok(filtered) => pjlink::scan_product(device_id, &filtered),
                 Err(code) => code,
             }
         }
-        #[cfg(any(
-            leaf_display_projector_power,
-            leaf_display_projector_products,
-            leaf_display_projector_scan
-        ))]
         [domain, object, verb, device_id]
             if domain == "pjlink" && object == "power" && verb == "status" =>
         {
             pjlink::power_status(device_id)
         }
-        #[cfg(any(
-            leaf_display_projector_power,
-            leaf_display_projector_products,
-            leaf_display_projector_scan
-        ))]
         [domain, object, verb, device_id, rest @ ..]
             if domain == "pjlink" && object == "known" && verb == "add" =>
         {
@@ -517,11 +521,6 @@ where
                 Err(code) => code,
             }
         }
-        #[cfg(any(
-            leaf_display_projector_power,
-            leaf_display_projector_products,
-            leaf_display_projector_scan
-        ))]
         [domain, object, verb, entry_id, rest @ ..]
             if domain == "pjlink" && object == "known" && verb == "remove" =>
         {
@@ -620,11 +619,6 @@ where
                 Err(code) => code,
             }
         }
-        #[cfg(any(
-            leaf_display_projector_power,
-            leaf_display_projector_products,
-            leaf_display_projector_scan
-        ))]
         [domain, object, verb, device_id, state, rest @ ..]
             if domain == "pjlink" && object == "power" && verb == "set" =>
         {

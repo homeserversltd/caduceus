@@ -1,15 +1,22 @@
 use serde_json::{json, Value};
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
 };
+
+#[cfg(test)]
+pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 fn shelf_root() -> PathBuf {
     PathBuf::from(crate::protocol::SERPENTS_SHELF_PATH).join("agathodaimon")
 }
 fn cli_path() -> PathBuf {
-    shelf_root().join("cli.py")
+    std::env::var_os("CADUCEUS_AGATHODAIMON_CLI")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| shelf_root().join("cli.py"))
 }
 fn safe_band_path(value: &str) -> Result<String, String> {
     let value = value.trim_matches('/');
@@ -165,27 +172,52 @@ pub fn status(band: Option<&str>) -> Value {
     }
     body
 }
-fn execute(band: &str, cli_envelope: &Value, outer_envelope: &Value) -> Result<Value, String> {
+fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
     let outer = crate::protocol::Envelope::parse(outer_envelope.clone())?;
+    let override_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some();
     let cli = cli_path();
     if !cli.is_file() {
         return Err("caduceus-agathodaimon-cli-missing".into());
     }
-    let es = index_entries(&shelf_root())?;
-    let e = es
-        .iter()
-        .find(|v| {
-            v.get("bandPath").and_then(Value::as_str) == Some(band)
-                && profile_allows(v, active_profile())
-        })
-        .ok_or_else(|| "caduceus-snake-band-not-profile-lit".to_string())?;
-    let raw = serde_json::to_string(cli_envelope)
+    let e = if override_cli {
+        json!({"bandPath": band, "facePath": cli})
+    } else {
+        let es = index_entries(&shelf_root())?;
+        es.iter()
+            .find(|v| {
+                v.get("bandPath").and_then(Value::as_str) == Some(band)
+                    && profile_allows(v, active_profile())
+            })
+            .cloned()
+            .ok_or_else(|| "caduceus-snake-band-not-profile-lit".to_string())?
+    };
+    let mut command = if override_cli {
+        let mut command = Command::new(&cli);
+        command.args(band.split('/'));
+        command
+    } else {
+        let mut command = Command::new("/usr/bin/python3");
+        command.arg(&cli).arg(band);
+        command
+    };
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "caduceus-agathodaimon-cli-unavailable".to_string())?;
+    let raw = serde_json::to_string(outer.raw())
         .map_err(|_| "caduceus-snake-envelope-invalid".to_string())?;
-    let o = Command::new("/usr/bin/python3")
-        .arg(&cli)
-        .arg(band)
-        .arg(&raw)
-        .output()
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "caduceus-agathodaimon-cli-stdin-unavailable".to_string())?;
+    stdin
+        .write_all(raw.as_bytes())
+        .map_err(|_| "caduceus-agathodaimon-cli-stdin-write-failed".to_string())?;
+    drop(stdin);
+    let o = child
+        .wait_with_output()
         .map_err(|_| "caduceus-agathodaimon-cli-unavailable".to_string())?;
     if o.stdout.len() > MAX_OUTPUT_BYTES {
         return Err("caduceus-agathodaimon-output-too-large".into());
@@ -243,17 +275,23 @@ fn execute(band: &str, cli_envelope: &Value, outer_envelope: &Value) -> Result<V
 pub fn run(band: &str, envelope: &Value) -> Result<Value, String> {
     let band = safe_band_path(band)?;
     let envelope = crate::protocol::Envelope::parse(envelope.clone())?;
-    execute(&band, envelope.raw(), envelope.raw())
+    execute(&band, envelope.raw())
 }
 pub fn crossing_path(path: &str, input: &Value) -> Result<Value, String> {
     let env = json!({"schema":crate::protocol::SCHEMA_ID,"intent_id":format!("caduceus-{path}"),"transition":path,"origin_of_intent":"near","payload":input});
-    let v = execute(path, input, &env)?;
+    let v = execute(path, &env)?;
     if v.get("ok").and_then(Value::as_bool) == Some(true) {
         Ok(v.get("receiptPayload").cloned().unwrap_or(v))
     } else {
         Err(v
-            .get("firstMissingSignal")
-            .and_then(Value::as_str)
+            .get("receiptPayload")
+            .and_then(|payload| {
+                payload
+                    .get("error")
+                    .or_else(|| payload.get("firstMissingSignal"))
+                    .and_then(Value::as_str)
+            })
+            .or_else(|| v.get("firstMissingSignal").and_then(Value::as_str))
             .unwrap_or("caduceus-agathodaimon-refused")
             .into())
     }

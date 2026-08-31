@@ -27,6 +27,7 @@ fn use_fixture(root: &str) -> std::sync::MutexGuard<'static, ()> {
 struct DnsCommandFixture {
     root: PathBuf,
     prior_command: Option<std::ffi::OsString>,
+    prior_cli: Option<std::ffi::OsString>,
 }
 
 impl DnsCommandFixture {
@@ -56,10 +57,16 @@ impl DnsCommandFixture {
         permissions.set_mode(0o755);
         fs::set_permissions(&launcher, permissions).unwrap();
         let prior_command = env::var_os("CADUCEUS_DNS_CMD");
+        let prior_cli = env::var_os("CADUCEUS_AGATHODAIMON_CLI");
         env::set_var("CADUCEUS_DNS_CMD", &launcher);
+        env::set_var(
+            "CADUCEUS_AGATHODAIMON_CLI",
+            "tests/fixtures/staff/agathodaimon/cli.py",
+        );
         Self {
             root,
             prior_command,
+            prior_cli,
         }
     }
 
@@ -77,6 +84,10 @@ impl Drop for DnsCommandFixture {
         match &self.prior_command {
             Some(command) => env::set_var("CADUCEUS_DNS_CMD", command),
             None => env::remove_var("CADUCEUS_DNS_CMD"),
+        }
+        match &self.prior_cli {
+            Some(value) => env::set_var("CADUCEUS_AGATHODAIMON_CLI", value),
+            None => env::remove_var("CADUCEUS_AGATHODAIMON_CLI"),
         }
         let _ = fs::remove_dir_all(&self.root);
     }
@@ -453,7 +464,11 @@ async fn network_dns_mutation_invokes_staff_launcher_when_profile_allowed() {
         fixture.launcher_args(),
         "intent POST /api/dns/unbound/drop-in --metadata-json {\"dropIn\":\"server: local-zone: \\\"home.arpa.\\\" transparent\",\"dryRun\":true}"
     );
-    assert_eq!(fixture.launcher_stdin(), "");
+    let envelope: serde_json::Value = serde_json::from_str(&fixture.launcher_stdin()).unwrap();
+    assert_eq!(envelope["schema"], "caduceus.staff.v1");
+    assert_eq!(envelope["transition"], "network/dns");
+    assert_eq!(envelope["payload"]["args"][0], "intent");
+    assert_eq!(envelope["payload"]["args"][1], "POST");
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -637,6 +652,11 @@ async fn homeserver_named_file_ingress_route_executes_upload_bytes() {
     .unwrap();
     std::env::set_var("CADUCEUS_ROOT", &root);
     std::env::set_var("CADUCEUS_FILE_INGRESS_ROOT", &root);
+    let prior_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI");
+    std::env::set_var(
+        "CADUCEUS_AGATHODAIMON_CLI",
+        "tests/fixtures/staff/agathodaimon/cli.py",
+    );
     let app = serve::router();
     let response = app
         .oneshot(
@@ -656,7 +676,7 @@ async fn homeserver_named_file_ingress_route_executes_upload_bytes() {
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.staff.file_ingress.v1");
     assert_eq!(json["mutationPerformed"], true);
-    assert_eq!(json["execution"], "native-rust-file-ingress");
+    assert_eq!(json["execution"], "staff-snake");
     assert_eq!(json["hyalos"]["event"]["kind"], "upload");
     assert_eq!(std::fs::read(root.join("proof.txt")).unwrap(), b"hello");
     assert!(
@@ -665,6 +685,10 @@ async fn homeserver_named_file_ingress_route_executes_upload_bytes() {
             .contains("proof.txt")
     );
     std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
+    match prior_cli {
+        Some(v) => std::env::set_var("CADUCEUS_AGATHODAIMON_CLI", v),
+        None => std::env::remove_var("CADUCEUS_AGATHODAIMON_CLI"),
+    }
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -1154,7 +1178,7 @@ fn cert_temp_root(tag: &str, profile: &str) -> CertTempRoot {
 }
 
 fn run_house_ca(root: &Path, args: &[&str]) -> serde_json::Value {
-    let output = Command::new("python3")
+    let mut child = Command::new("python3")
         .args([
             "tests/fixtures/staff/agathodaimon/cli.py",
             "cert",
@@ -1164,8 +1188,20 @@ fn run_house_ca(root: &Path, args: &[&str]) -> serde_json::Value {
         .env("PYTHONPATH", "tests/fixtures/staff")
         .env("PYTHONDONTWRITEBYTECODE", "1")
         .env("CADUCEUS_ROOT", root)
-        .output()
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .unwrap();
+    use std::io::Write;
+    let envelope = serde_json::json!({"payload":{"args":args}}).to_string();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(envelope.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
     assert!(
         output.status.success(),
         "house_ca {:?} failed: {} {}",

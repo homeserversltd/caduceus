@@ -79,8 +79,17 @@ pub fn now(rest: &[String]) -> i32 {
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: axum::Router) -> axum::Router {
-    router.route(
-        "/api/v1/update/now",
-        axum::routing::post(crate::routes::update_support::update_now_route),
-    )
+    router
+        .route(
+            "/api/v1/update/now",
+            axum::routing::post(crate::routes::update_support::update_now_route),
+        )
+        .route(
+            "/api/v1/sync/now",
+            axum::routing::post(crate::routes::update_support::sync_now_route),
+        )
+        .route(
+            "/api/v1/gui/update/now",
+            axum::routing::post(crate::routes::update_support::gui_update_now_route),
+        )
 }

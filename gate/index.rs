@@ -5,10 +5,7 @@ use crate::shared::{attendance, policy};
 use axum::serve::IncomingStream;
 use axum::{
     body::Body,
-    extract::{
-        connect_info::{ConnectInfo, Connected},
-        DefaultBodyLimit,
-    },
+    extract::connect_info::{ConnectInfo, Connected},
     http::{header::CONTENT_TYPE, HeaderMap, Request, StatusCode},
     middleware,
     response::{IntoResponse, Response},
@@ -83,7 +80,8 @@ pub(crate) fn roster_allows(method: &str, path: &str) -> Result<bool, String> {
         *route == path
             || *route == key
             || (*route == "appliance/service/:service/restart"
-                && path.starts_with("/api/v1/service/")
+                && (path.starts_with("/api/v1/service/")
+                    || path.starts_with("/api/v1/appliance/service/"))
                 && path.ends_with("/restart"))
     }))
 }
@@ -253,8 +251,7 @@ pub fn router() -> Router {
     crate::routes::register_selected(
         Router::new()
             .route("/health", get(health_route))
-            .route("/api/v1/doors", get(doors_route))
-            .layer(DefaultBodyLimit::max(8192)),
+            .route("/api/v1/doors", get(doors_route)),
     )
 }
 

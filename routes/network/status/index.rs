@@ -7,10 +7,10 @@
 use serde_json::{json, Value};
 
 fn invoke(args: &[String]) -> Result<Value, String> {
-    let (verb, rest) = args
-        .split_first()
-        .ok_or_else(|| "caduceus-household-time-command-missing".to_string())?;
-    crate::gate::snake::crossing_path("settings/datetime", &json!({"args": rest}))
+    if args.is_empty() {
+        return Err("caduceus-household-time-command-missing".to_string());
+    }
+    crate::gate::snake::crossing_path("settings/datetime", &json!({"args": args}))
 }
 
 pub fn state_json() -> Result<Value, String> {
@@ -37,24 +37,34 @@ mod tests {
 
     #[test]
     fn delegates_to_named_launcher_without_time_mutation_in_rust() {
+        let _guard = crate::gate::snake::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         let root =
             std::env::temp_dir().join(format!("caduceus-time-fixture-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let log = root.join("args");
+        let stdin_log = root.join("stdin");
         let launcher = root.join("launcher");
         std::fs::write(&launcher, format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$*\" > {}\nprintf '{{\"schema\":\"caduceus.household-time.receipt.v1\",\"ok\":true,\"primitive\":\"state\"}}\\n'\n",
-            log.display()
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" > {}\ncat > {}\nprintf '{{\"schema\":\"caduceus.household-time.receipt.v1\",\"ok\":true,\"primitive\":\"state\"}}\\n'\n",
+            log.display(),
+            stdin_log.display()
         )).unwrap();
         let mut permissions = std::fs::metadata(&launcher).unwrap().permissions();
         permissions.set_mode(0o755);
         std::fs::set_permissions(&launcher, permissions).unwrap();
-        std::env::set_var("CADUCEUS_TIME_CMD", launcher.to_str().unwrap());
+        std::env::set_var("CADUCEUS_AGATHODAIMON_CLI", launcher.to_str().unwrap());
         let state = state_json().unwrap();
         assert_eq!(state["primitive"], "state");
-        assert_eq!(std::fs::read_to_string(&log).unwrap().trim(), "state");
-        std::env::remove_var("CADUCEUS_TIME_CMD");
+        assert_eq!(std::fs::read_to_string(&log).unwrap().trim(), "settings datetime");
+        let envelope: Value = serde_json::from_str(&std::fs::read_to_string(&stdin_log).unwrap()).unwrap();
+        assert_eq!(envelope["transition"], "settings/datetime");
+        assert_eq!(envelope["payload"]["args"], json!(["state"]));
+        assert_eq!(envelope["schema"], crate::protocol::SCHEMA_ID);
+        assert!(envelope["intent_id"].as_str().is_some_and(|v| !v.is_empty()));
+        std::env::remove_var("CADUCEUS_AGATHODAIMON_CLI");
         let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -18,6 +18,10 @@ fn first_stderr_line(stderr: &[u8]) -> String {
 }
 
 fn reflect_failure(noun: &str, verb: &str, class: &str, exit: Option<i32>, stderr: &str) {
+    // Public bundle reads are observational and must not emit Hyalos writes.
+    if noun == "cert" && verb == "house-ca" {
+        return;
+    }
     // Reflection is deliberately best effort: it must never replace the crossing result.
     let _ = crate::shared::hyalos::reflect_json(json!({
         "organ": "agathodaimon",

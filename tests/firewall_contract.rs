@@ -34,8 +34,11 @@ impl Fixture {
         fs::create_dir_all(&root).unwrap();
         let launcher = root.join("launcher");
         fs::write(&launcher, r#"#!/bin/sh
-if [ "$1" = attendance ] && [ "$2" = bind ]; then printf '%s' '{"ok":true,"publicKey":"fixture-public","epoch":"1"}'; exit 0; fi
-if [ "$1" = attendance ] && [ "$2" = verify ]; then printf '%s' '{"ok":true,"verified":true}'; exit 0; fi
+if [ "$1" = exousia ] && [ "$2" = bind ]; then printf '%s' '{"ok":true,"publicKey":"fixture-public","epoch":"1"}'; exit 0; fi
+if [ "$1" = exousia ] && [ "$2" = verify ]; then
+    python3 -c 'import json,sys; v=json.load(sys.stdin); x=v.get("flags",{}).get("exousia",v); ok=x.get("pin")=="2468" and x.get("publicKey")=="fixture-public"; print(json.dumps({"ok":ok,"verified":ok}))'
+    exit 0
+fi
 [ "$1" = network ] && [ "$2" = firewall ] || exit 9
 cat > "$(dirname "$0")/stdin"
 printf '%s' '{"ok":true}'
@@ -136,18 +139,8 @@ fn firewall_request(method: &str, request_body: String, attendance: &str) -> Req
 async fn firewall_document_attendance_is_static_and_precedes_staff() {
     let _lock = LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let fixture = Fixture::new();
-    let bin = fixture.root.join("bin");
-    let sudo = bin.join("sudo");
-    fs::create_dir_all(&bin).unwrap();
-    fs::write(
-        &sudo,
-        "#!/bin/sh\n[ \"$1\" = -n ] || exit 9\ncase \"$2\" in\n/usr/local/sbin/agathodaimon/cli.py bind) echo '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}' ;;\n/usr/local/sbin/agathodaimon/cli.py verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) echo '{\"ok\":true,\"verified\":true}' ;; *) echo '{\"ok\":false,\"verified\":false}' ;; esac ;;\n*) exit 8 ;;\nesac\n",
-    )
-    .unwrap();
-    fs::set_permissions(&sudo, fs::Permissions::from_mode(0o700)).unwrap();
-    let old_path = env::var("PATH").unwrap();
+    let app = serve::router();
     let old_incarnation = env::var_os("CADUCEUS_DOCUMENT_INCARNATION");
-    env::set_var("PATH", format!("{}:{old_path}", bin.display()));
     env::set_var("CADUCEUS_DOCUMENT_INCARNATION", "inc-1");
     attendance::reset_for_tests();
     attendance::bind();
@@ -166,49 +159,57 @@ async fn firewall_document_attendance_is_static_and_precedes_staff() {
     let concrete = open(&format!("/api/v1/network/firewall/policies/{MAC}"));
     let wrong_static = open("/api/v1/network/firewall/policies/{device}");
     for token in [&concrete, &wrong_static] {
-        let response = serve::router()
+        let response = app
+            .clone()
             .oneshot(firewall_request("PUT", body(true), token))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert_eq!(fixture.calls(), 0);
     }
-    let put = serve::router()
+    let put = app
+        .clone()
         .oneshot(firewall_request("PUT", body(true), &current))
         .await
         .unwrap();
     assert_eq!(put.status(), StatusCode::OK);
     assert_eq!(fixture.calls(), 1);
+    let envelope: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(fixture.root.join("stdin")).unwrap()).unwrap();
     assert_eq!(
-        fs::read_to_string(fixture.root.join("stdin")).unwrap(),
+        envelope["payload"],
         serde_json::json!({"action":"put","mac":MAC,"fqdns":["example.com"],"revision":REVISION})
-            .to_string()
     );
-    let disabled = serve::router()
+    let disabled = app
+        .clone()
         .oneshot(firewall_request("PUT", body(false), &current))
         .await
         .unwrap();
     assert_eq!(disabled.status(), StatusCode::OK);
+    let envelope: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(fixture.root.join("stdin")).unwrap()).unwrap();
     assert_eq!(
-        fs::read_to_string(fixture.root.join("stdin")).unwrap(),
-        serde_json::json!({"action":"delete","mac":MAC,"revision":REVISION}).to_string()
+        envelope["payload"],
+        serde_json::json!({"action":"delete","mac":MAC,"revision":REVISION})
     );
     let delete = serde_json::json!({"schema":"caduceus.network.firewall.policy.delete.v1","mac":MAC,"expectedRevision":REVISION}).to_string();
-    let deleted = serve::router()
+    let deleted = app
+        .clone()
         .oneshot(firewall_request("DELETE", delete, &current))
         .await
         .unwrap();
     assert_eq!(deleted.status(), StatusCode::OK);
+    let envelope: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(fixture.root.join("stdin")).unwrap()).unwrap();
     assert_eq!(
-        fs::read_to_string(fixture.root.join("stdin")).unwrap(),
-        serde_json::json!({"action":"delete","mac":MAC,"revision":REVISION}).to_string()
+        envelope["payload"],
+        serde_json::json!({"action":"delete","mac":MAC,"revision":REVISION})
     );
     attendance::reset_for_tests();
     match old_incarnation {
         Some(value) => env::set_var("CADUCEUS_DOCUMENT_INCARNATION", value),
         None => env::remove_var("CADUCEUS_DOCUMENT_INCARNATION"),
     }
-    env::set_var("PATH", old_path);
 }
 
 #[test]

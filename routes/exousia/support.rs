@@ -95,13 +95,17 @@ pub(crate) async fn attendance_route(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     let result = match uri.path() {
-        "/api/v1/exousia/open" => attendance::open_json(&body),
-        "/api/v1/exousia/validate" => attendance::validate_json(&body),
-        "/api/v1/exousia/touch" => attendance::touch_json(&body),
-        "/api/v1/exousia/change-pin" | "/api/v1/access/pin/change" => {
-            attendance::change_pin_json(&body)
+        "/api/v1/exousia/open" | "/api/v1/attendance/open" => attendance::open_json(&body),
+        "/api/v1/exousia/validate" | "/api/v1/attendance/validate" => {
+            attendance::validate_json(&body)
         }
-        "/api/v1/exousia/invalidate" => attendance::invalidate_json(&body),
+        "/api/v1/exousia/touch" | "/api/v1/attendance/touch" => attendance::touch_json(&body),
+        "/api/v1/exousia/change-pin"
+        | "/api/v1/access/pin/change"
+        | "/api/v1/attendance/change-pin" => attendance::change_pin_json(&body),
+        "/api/v1/exousia/invalidate" | "/api/v1/attendance/invalidate" => {
+            attendance::invalidate_json(&body)
+        }
         _ => Err("caduceus-attendance-route-invalid".to_string()),
     };
     let signal = match &result {
