@@ -51,7 +51,7 @@ commands:
 - settings sound read
 - settings sound mutate
 - settings input read
-- settings input mutate
+- settings input set
 - settings notifications read
 - settings notifications mutate
 - settings default-apps read

@@ -1,1 +1,1 @@
-{"namespace":"settings/input","admittance":"open","flags":{},"serve":[{"rust":"settings_input_read_mutate"}]}
+{"namespace":"settings/input","admittance":"open","flags":{},"serve":[{"snake":"input-policy"}]}
