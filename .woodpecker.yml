@@ -3,11 +3,10 @@ when:
     - push
 
 clone:
-  - name: git
+  git:
     image: docker.io/woodpeckerci/plugin-git:2.8.0
-    entrypoint: ["/bin/sh", "-c", "printf 'clone-ca-env=%s\\n' \"$${GIT_SSL_CAINFO:-<ABSENT>}\"; if [ -r \"$${GIT_SSL_CAINFO:-/nonexistent}\" ]; then echo clone-ca-file=readable; else echo clone-ca-file=missing; fi; sleep 8; exec /bin/plugin-git"]
-    environment:
-      GIT_SSL_CAINFO: /etc/ssl/certs/ca-certificates.crt
+    settings:
+      custom-ssl-path: /etc/ssl/certs/ca-certificates.crt
 
 steps:
   - name: registry-pen-caduceus
