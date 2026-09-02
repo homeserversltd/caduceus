@@ -4,6 +4,7 @@ use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    ffi::CString,
     fs,
     net::TcpStream,
     path::PathBuf,
@@ -12,6 +13,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, OnceLock, RwLock,
     },
+    time::Instant,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::time::interval;
@@ -26,6 +28,10 @@ struct StatsState {
     last_model_lane_pulse_unix: AtomicU64,
     model_lane_pulse_requested: AtomicBool,
     error: Option<String>,
+    process_ticks: BTreeMap<u32, u64>,
+    process_sample_at: Option<Instant>,
+    gpu_cache: Option<Value>,
+    last_gpu_refresh: Option<Instant>,
 }
 static STATE: OnceLock<Arc<RwLock<StatsState>>> = OnceLock::new();
 const MODEL_LANE_PULSE_INTERVAL: u64 = 86_400;
@@ -277,97 +283,299 @@ fn disk_io(usage: &Value) -> Value {
     }
     json!(out)
 }
-fn command(command: &str, args: &[&str]) -> Option<(bool, String)> {
-    let mut c = Command::new(command);
-    c.args(args).stdout(Stdio::piped()).stderr(Stdio::null());
+fn has_nvidia_gpu() -> bool {
+    if fs::read_dir("/proc/driver/nvidia/gpus")
+        .ok()
+        .and_then(|mut entries| entries.next())
+        .is_some()
+    {
+        return true;
+    }
+    fs::read_dir("/sys/class/drm")
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .strip_prefix("card")
+                .map_or(false, |n| {
+                    !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())
+                })
+        })
+        .any(|e| {
+            read_text(&e.path().join("device/vendor").to_string_lossy())
+                .map_or(false, |v| v.trim().eq_ignore_ascii_case("0x10de"))
+        })
+}
+fn refresh_nvidia_gpu_cache() -> Option<(bool, String)> {
+    let mut c = Command::new("nvidia-smi");
+    c.args([
+        "--query-gpu=utilization.gpu,temperature.gpu,fan.speed,memory.used,memory.total",
+        "--format=csv,noheader,nounits",
+    ])
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null());
     let mut child = c.spawn().ok()?;
-    let start = std::time::Instant::now();
+    let start = Instant::now();
     loop {
         if let Some(status) = child.try_wait().ok()? {
             let output = child.wait_with_output().ok()?;
             return Some((status.success(), String::from_utf8(output.stdout).ok()?));
         }
-        if start.elapsed() > Duration::from_millis(900) {
+        if start.elapsed() >= Duration::from_millis(900) {
             let _ = child.kill();
             return None;
         }
         std::thread::sleep(Duration::from_millis(10));
     }
 }
-fn gpu() -> Value {
-    let (_, output) = match command(
-        "nvidia-smi",
-        &[
-            "--query-gpu=utilization.gpu,temperature.gpu,fan.speed,memory.used,memory.total",
-            "--format=csv,noheader,nounits",
-        ],
-    ) {
-        Some(result) if result.0 => result,
-        _ => return Value::Null,
-    };
-    let fields = match output.lines().find(|line| !line.trim().is_empty()) {
-        Some(line) => line.split(',').map(str::trim).collect::<Vec<_>>(),
+fn nvidia_gpu_output(output: &str) -> Value {
+    let f = match output.lines().find(|l| !l.trim().is_empty()) {
+        Some(l) => l.split(',').map(str::trim).collect::<Vec<_>>(),
         None => return Value::Null,
     };
-    if fields.len() != 5 {
+    if f.len() != 5 {
         return Value::Null;
     }
-    let parse_float = |value: &str| value.parse::<f64>().ok().filter(|v| v.is_finite());
-    let (utilization, temperature, fan) = match (
-        parse_float(fields[0]),
-        parse_float(fields[1]),
-        parse_float(fields[2]),
-    ) {
-        (Some(utilization), Some(temperature), Some(fan)) => (utilization, temperature, fan),
+    let n = |s: &str| s.parse::<f64>().ok().filter(|v| v.is_finite());
+    let (u, t, fan) = match (n(f[0]), n(f[1]), n(f[2])) {
+        (Some(a), Some(b), Some(c)) => (a, b, c),
         _ => return Value::Null,
     };
-    let memory = |value: &str| {
-        value
-            .parse::<u64>()
-            .ok()
-            .and_then(|mib| mib.checked_mul(1024)?.checked_mul(1024))
-    };
-    let (memory_used, memory_total) = match (memory(fields[3]), memory(fields[4])) {
-        (Some(used), Some(total)) => (used, total),
+    let m = |s: &str| s.parse::<u64>().ok()?.checked_mul(1024)?.checked_mul(1024);
+    let (used, total) = match (m(f[3]), m(f[4])) {
+        (Some(a), Some(b)) => (a, b),
         _ => return Value::Null,
     };
-    json!({"utilizationPercent":utilization,"temperatureCelsius":temperature,"fanPercent":fan,"memoryUsedBytes":memory_used,"memoryTotalBytes":memory_total})
+    json!({"utilizationPercent":u,"temperatureCelsius":t,"fanPercent":fan,"memoryUsedBytes":used,"memoryTotalBytes":total})
+}
+fn gpu_sysfs() -> Value {
+    let mut out = serde_json::Map::new();
+    let mut temps = Vec::new();
+    if let Ok(es) = fs::read_dir("/sys/class/drm") {
+        for e in es.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if !name.strip_prefix("card").map_or(false, |n| {
+                !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())
+            }) {
+                continue;
+            }
+            let d = e.path().join("device");
+            if read_text(&d.join("vendor").to_string_lossy()).is_none() {
+                continue;
+            }
+            for (file, key) in [
+                ("gpu_busy_percent", "utilizationPercent"),
+                ("mem_info_vram_used", "memoryUsedBytes"),
+                ("mem_info_vram_total", "memoryTotalBytes"),
+            ] {
+                if let Some(v) = read_text(&d.join(file).to_string_lossy())
+                    .and_then(|x| x.trim().parse::<u64>().ok())
+                {
+                    out.insert(key.into(), json!(v));
+                }
+            }
+            if let Ok(hs) = fs::read_dir(d.join("hwmon")) {
+                for h in hs.flatten() {
+                    if let Ok(fs2) = fs::read_dir(h.path()) {
+                        for f in fs2.flatten() {
+                            let n = f.file_name().to_string_lossy().to_string();
+                            if n.starts_with("temp") && n.ends_with("_input") {
+                                if let Some(v) = read_text(&f.path().to_string_lossy())
+                                    .and_then(|x| x.trim().parse::<f64>().ok())
+                                {
+                                    temps.push(v / 1000.0)
+                                }
+                            } else if n.starts_with("pwm") && n.ends_with("_max") {
+                                if let Some(max) = read_text(&f.path().to_string_lossy())
+                                    .and_then(|x| x.trim().parse::<f64>().ok())
+                                    .filter(|v| v.is_finite() && *v > 0.0)
+                                {
+                                    let pwm_name = n.trim_end_matches("_max");
+                                    let pwm_path = f.path().with_file_name(pwm_name);
+                                    if let Some(value) = read_text(&pwm_path.to_string_lossy())
+                                        .and_then(|x| x.trim().parse::<f64>().ok())
+                                        .filter(|v| v.is_finite())
+                                    {
+                                        out.insert("fanPercent".into(), json!(value * 100.0 / max));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Some(v) = temps.first() {
+        out.insert("temperatureCelsius".into(), json!(*v));
+    }
+    if out.is_empty() {
+        Value::Null
+    } else {
+        Value::Object(out)
+    }
+}
+fn gpu(cached: Option<&Value>) -> Value {
+    let mut out = match cached {
+        Some(Value::Object(m)) => m.clone(),
+        _ => serde_json::Map::new(),
+    };
+    if let Value::Object(m) = gpu_sysfs() {
+        for (k, v) in m {
+            out.insert(k, v);
+        }
+    }
+    if out.is_empty() {
+        Value::Null
+    } else {
+        Value::Object(out)
+    }
+}
+fn statvfs_bytes(path: &str) -> Option<(u64, u64, u64)> {
+    let path = CString::new(path).ok()?;
+    let mut st = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    if unsafe { libc::statvfs(path.as_ptr(), st.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    let st = unsafe { st.assume_init() };
+    let block = st.f_frsize.max(1) as u64;
+    Some((
+        (st.f_blocks as u64).checked_mul(block)?,
+        (st.f_blocks as u64)
+            .saturating_sub(st.f_bfree as u64)
+            .checked_mul(block)?,
+        (st.f_bavail as u64).checked_mul(block)?,
+    ))
+}
+fn unescape_mountinfo(s: &str) -> String {
+    let mut o = String::new();
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if i + 4 <= b.len()
+            && b[i] == b'\\'
+            && b[i + 1..i + 4].iter().all(|x| (b'0'..=b'7').contains(x))
+        {
+            o.push((b[i + 1..i + 4].iter().fold(0, |n, x| n * 8 + x - b'0')) as char);
+            i += 4
+        } else {
+            o.push(b[i] as char);
+            i += 1
+        }
+    }
+    o
+}
+fn mount_owner(path: &str) -> Option<(String, String)> {
+    let mut best = None;
+    for line in read_text("/proc/self/mountinfo")?.lines() {
+        let Some((l, r)) = line.split_once(" - ") else {
+            continue;
+        };
+        let f: Vec<_> = l.split_whitespace().collect();
+        let Some(mf) = f.get(4) else { continue };
+        let m = unescape_mountinfo(mf);
+        if (path == m || path.starts_with(&(m.trim_end_matches('/').to_owned() + "/")))
+            && best
+                .as_ref()
+                .map_or(true, |b: &(String, String, usize)| m.len() > b.2)
+        {
+            let Some(sf) = r.split_whitespace().nth(1) else {
+                continue;
+            };
+            let mount_len = m.len();
+            best = Some((unescape_mountinfo(sf), m, mount_len));
+        }
+    }
+    best.map(|(s, m, _)| (s, m))
 }
 fn disk_usage() -> Value {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
-    if let Some((_, s)) = command("df", &["-B1", "-P", "/", "/home", "/vault", "/mnt/nas"]) {
-        for l in s.lines().skip(1) {
-            let p: Vec<_> = l.split_whitespace().collect();
-            if p.len() >= 6 && seen.insert(p[5].to_string()) {
-                out.push(json!({"filesystem":p[0],"path":p[5],"totalBytes":p[1].parse::<u64>().unwrap_or(0),"usedBytes":p[2].parse::<u64>().unwrap_or(0),"availableBytes":p[3].parse::<u64>().unwrap_or(0),"usePercent":p[4]}));
-            }
+    for path in ["/", "/home", "/vault", "/mnt/nas"] {
+        let Some((total, used, available)) = statvfs_bytes(path) else {
+            continue;
+        };
+        let (fsname, mount) = mount_owner(path).unwrap_or_else(|| ("unknown".into(), path.into()));
+        if !seen.insert(mount.clone()) {
+            continue;
         }
+        let d = used.saturating_add(available);
+        let pct = if d == 0 {
+            0
+        } else {
+            used.saturating_mul(100).saturating_add(d - 1) / d
+        };
+        out.push(json!({"filesystem":fsname,"path":mount,"totalBytes":total,"usedBytes":used,"availableBytes":available,"usePercent":format!("{pct}%")}));
     }
     json!(out)
 }
-fn processes() -> Value {
-    let mut out = Vec::new();
-    let skip = ["ps", "sh", "bash", "sudo", "python3"];
-    if let Some((_, s)) = command("ps", &["-eo", "comm,pcpu,rss", "--sort=-pcpu"]) {
-        for l in s.lines().skip(1) {
-            let p: Vec<_> = l.split_whitespace().collect();
-            if p.len() >= 3 {
-                let cpu = number(p[1]).unwrap_or(0.0);
-                let rss = p[2].parse::<u64>().unwrap_or(0) * 1024;
-                if !skip.contains(&p[0]) && (cpu > 0.0 || rss > 0) {
-                    out.push(
-                        json!({"command":p[0],"cpuPercent":cpu,"rssBytes":rss,"processCount":1}),
-                    );
+fn processes(
+    previous: &BTreeMap<u32, u64>,
+    elapsed: Option<Duration>,
+) -> (Value, BTreeMap<u32, u64>) {
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as f64;
+    let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(1) as u64;
+    let mut next = BTreeMap::new();
+    let mut rows = Vec::new();
+    if let Ok(es) = fs::read_dir("/proc") {
+        for e in es.flatten() {
+            let Ok(pid) = e.file_name().to_string_lossy().parse::<u32>() else {
+                continue;
+            };
+            let Some(stat) = read_text(&e.path().join("stat").to_string_lossy()) else {
+                continue;
+            };
+            let Some(close) = stat.rfind(')') else {
+                continue;
+            };
+            let Some(open) = stat.find('(').filter(|open| *open < close) else {
+                continue;
+            };
+            let f: Vec<_> = stat[close + 2..].split_whitespace().collect();
+            if f.len() <= 19 {
+                continue;
+            }
+            let Ok(u) = f[11].parse::<u64>() else {
+                continue;
+            };
+            let Ok(st) = f[12].parse::<u64>() else {
+                continue;
+            };
+            let ticks = u + st;
+            next.insert(pid, ticks);
+            let rss = read_text(&e.path().join("statm").to_string_lossy())
+                .and_then(|x| x.split_whitespace().nth(1)?.parse::<u64>().ok())
+                .unwrap_or(0)
+                * page;
+            let command = stat[open + 1..close].to_string();
+            let cpu = match (previous.get(&pid), elapsed) {
+                (Some(old), Some(dt)) if dt.as_secs_f64() > 0.0 => {
+                    ticks.saturating_sub(*old) as f64 / hz / dt.as_secs_f64() * 100.0
                 }
-                if out.len() >= 10 {
-                    break;
-                }
+                _ => 0.0,
+            };
+            if !["ps", "sh", "bash", "sudo", "python3"].contains(&command.as_str())
+                && (cpu > 0.0 || rss > 0)
+            {
+                rows.push(
+                    json!({"command":command,"cpuPercent":cpu,"rssBytes":rss,"processCount":1}),
+                );
             }
         }
     }
-    json!(out)
+    rows.sort_by(|a, b| {
+        b["cpuPercent"]
+            .as_f64()
+            .partial_cmp(&a["cpuPercent"].as_f64())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    rows.truncate(10);
+    (json!(rows), next)
 }
+
 fn loopback_listener_ports() -> BTreeSet<u16> {
     let mut ports = BTreeSet::new();
     for (path, ipv6) in [("/proc/net/tcp", false), ("/proc/net/tcp6", true)] {
@@ -500,12 +708,17 @@ fn scan_model_lanes() -> Vec<Value> {
         .collect()
 }
 
-fn snapshot(previous: Option<&Value>) -> Value {
+fn snapshot_with_state(
+    previous: Option<&Value>,
+    process_ticks: &BTreeMap<u32, u64>,
+    elapsed: Option<Duration>,
+    gpu_cache: Option<&Value>,
+) -> (Value, BTreeMap<u32, u64>) {
     let ts = now();
     let net = network();
     let usage = disk_usage();
     let io = disk_io(&usage);
-    let mut v = json!({"schema":"caduceus.appliance.stats.sample.v1","ts":ts,"collectedAt":chrono::DateTime::<chrono::Utc>::from_timestamp(ts,0).map(|d|d.to_rfc3339()),"load":load(),"temperature":temperatures(),"fans":fans(),"gpu":gpu(),"memory":meminfo(),"network":{"interfaces":net,"throughput":Value::Null},"tcp":tcp(),"disk":{"io":io,"usage":usage,"throughput":Value::Null},"processes":processes()});
+    let mut v = json!({"schema":"caduceus.appliance.stats.sample.v1","ts":ts,"collectedAt":chrono::DateTime::<chrono::Utc>::from_timestamp(ts,0).map(|d|d.to_rfc3339()),"load":load(),"temperature":temperatures(),"fans":fans(),"gpu":gpu(gpu_cache),"memory":meminfo(),"network":{"interfaces":net,"throughput":Value::Null},"tcp":tcp(),"disk":{"io":io,"usage":usage,"throughput":Value::Null},"processes":Value::Null});
     if let Some(prev) = previous {
         let dt = (ts - prev.get("ts").and_then(Value::as_i64).unwrap_or(ts)).max(1) as f64;
         let mut through = json!({});
@@ -542,7 +755,9 @@ fn snapshot(previous: Option<&Value>) -> Value {
             v["disk"]["throughput"] = json!({"readBytesPerSecond":total(b,"readBytes").saturating_sub(total(a,"readBytes")) as f64/dt,"writeBytesPerSecond":total(b,"writeBytes").saturating_sub(total(a,"writeBytes")) as f64/dt});
         }
     }
-    v
+    let (processes, ticks) = processes(process_ticks, elapsed);
+    v["processes"] = processes;
+    (v, ticks)
 }
 fn avg(samples: &[Value], path: &str) -> Value {
     let v: Vec<f64> = samples
@@ -620,42 +835,73 @@ async fn collect_loop(
     let mut samples = Vec::new();
     loop {
         tick.tick().await;
+        let (old_ticks, old_at, old_gpu, old_refresh, pulse) = match state.read() {
+            Ok(g) => (
+                g.process_ticks.clone(),
+                g.process_sample_at,
+                g.gpu_cache.clone(),
+                g.last_gpu_refresh,
+                g.model_lane_pulse_requested.swap(false, Ordering::AcqRel)
+                    || old_elapsed(g.last_model_lane_pulse_unix.load(Ordering::Acquire)),
+            ),
+            Err(_) => continue,
+        };
+        let instant = Instant::now();
+        let elapsed = old_at.map(|at| instant.saturating_duration_since(at));
+        let mut cache = old_gpu;
+        let due = old_refresh.map_or(true, |at| at.elapsed() >= Duration::from_secs(60));
+        let mut refreshed = old_refresh;
+        if has_nvidia_gpu() && due {
+            let fresh = tokio::task::spawn_blocking(refresh_nvidia_gpu_cache)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|(ok, text)| {
+                    if ok {
+                        Some(nvidia_gpu_output(&text))
+                    } else {
+                        None
+                    }
+                })
+                .filter(|v| !v.is_null());
+            if fresh.is_some() {
+                cache = fresh
+            }
+            refreshed = Some(instant)
+        }
         let p = previous.clone();
-        let v = match tokio::task::spawn_blocking(move || snapshot(p.as_ref())).await {
+        let c2 = cache.clone();
+        let t2 = old_ticks.clone();
+        let (v, ticks) = match tokio::task::spawn_blocking(move || {
+            snapshot_with_state(p.as_ref(), &t2, elapsed, c2.as_ref())
+        })
+        .await
+        {
             Ok(v) => v,
             Err(_) => continue,
         };
-        let pulse_due = state
-            .read()
-            .map(|g| {
-                g.model_lane_pulse_requested.swap(false, Ordering::AcqRel)
-                    || (now().max(0) as u64)
-                        .saturating_sub(g.last_model_lane_pulse_unix.load(Ordering::Acquire))
-                        >= MODEL_LANE_PULSE_INTERVAL
-            })
-            .unwrap_or(false);
-        let model_lanes = if pulse_due {
-            let lanes = tokio::task::spawn_blocking(scan_model_lanes)
+        let lanes = if pulse {
+            let x = tokio::task::spawn_blocking(scan_model_lanes)
                 .await
                 .unwrap_or_default();
             if let Ok(g) = state.read() {
                 g.last_model_lane_pulse_unix
-                    .store(now() as u64, Ordering::Release);
+                    .store(now() as u64, Ordering::Release)
             }
-            Some(lanes)
+            Some(x)
         } else {
             None
         };
         let b = v["ts"].as_i64().unwrap_or(0) / 60;
         if b != bucket && !samples.is_empty() {
-            let coarse = aggregate(bucket, &samples);
-            let _ = persist_minute(&c, &coarse);
-            minute.push_back(coarse);
+            let q = aggregate(bucket, &samples);
+            let _ = persist_minute(&c, &q);
+            minute.push_back(q);
             while minute.len() > MINUTE_LIMIT {
                 minute.pop_front();
             }
             samples.clear();
-            bucket = b;
+            bucket = b
         }
         samples.push(v.clone());
         raw.push_back(v.clone());
@@ -666,12 +912,19 @@ async fn collect_loop(
         if let Ok(mut g) = state.write() {
             g.raw = raw.clone();
             g.minute = minute.clone();
-            if let Some(lanes) = model_lanes {
-                g.model_lanes = lanes;
+            g.process_ticks = ticks;
+            g.process_sample_at = Some(instant);
+            g.gpu_cache = cache;
+            g.last_gpu_refresh = refreshed;
+            if let Some(x) = lanes {
+                g.model_lanes = x
             }
         }
-        previous = Some(v);
+        previous = Some(v)
     }
+}
+fn old_elapsed(last: u64) -> bool {
+    now().max(0) as u64 >= last.saturating_add(MODEL_LANE_PULSE_INTERVAL)
 }
 pub fn start() {
     if STATE.get().is_some() {
@@ -686,6 +939,10 @@ pub fn start() {
                 last_model_lane_pulse_unix: AtomicU64::new(0),
                 model_lane_pulse_requested: AtomicBool::new(false),
                 error: None,
+                process_ticks: BTreeMap::new(),
+                process_sample_at: None,
+                gpu_cache: None,
+                last_gpu_refresh: None,
             }));
             let _ = STATE.set(state.clone());
             tokio::spawn(collect_loop(state, c, r, m));
@@ -698,6 +955,10 @@ pub fn start() {
                 last_model_lane_pulse_unix: AtomicU64::new(0),
                 model_lane_pulse_requested: AtomicBool::new(false),
                 error: Some(format!("{UNAVAILABLE}: {e}")),
+                process_ticks: BTreeMap::new(),
+                process_sample_at: None,
+                gpu_cache: None,
+                last_gpu_refresh: None,
             })));
         }
     }
@@ -707,6 +968,9 @@ fn state() -> Result<Arc<RwLock<StatsState>>, String> {
         .get()
         .cloned()
         .ok_or_else(|| format!("{UNAVAILABLE}: not started"))
+}
+pub fn snapshot() -> Value {
+    snapshot_with_state(None, &BTreeMap::new(), None, None).0
 }
 pub fn current() -> Result<Value, String> {
     let s = state()?;
