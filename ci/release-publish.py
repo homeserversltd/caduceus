@@ -1,112 +1,324 @@
 #!/usr/bin/env python3
-import hashlib, json, os, re, sys, tomllib
+"""Publish the release binary identified by the CI commit SHA to Forgejo."""
+
+import hashlib
+import json
+import os
+import re
+import sys
+import tomllib
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
-API="https://git.home.arpa/api/v1"; OWNER="HOMESERVERSLTD"; REPO="caduceus"; SCHEMA="caduceus.forgejo-release-publish.v1"
-class ReleaseError(RuntimeError): pass
 
-def api(method,path,token,body=None,data=None,query=None,binary=False):
-    url=API+path+(("?"+urlencode(query)) if query else "")
-    h={"Accept":"application/octet-stream" if binary else "application/json","Authorization":"token "+token}
-    if body is not None: data=json.dumps(body).encode(); h["Content-Type"]="application/json"
-    elif data is not None: h["Content-Type"]="application/octet-stream"
+API = "https://git.home.arpa/api/v1"
+OWNER = "HOMESERVERSLTD"
+REPO = "caduceus"
+SCHEMA = "caduceus.forgejo-release-publish.v1"
+
+
+class ReleaseError(RuntimeError):
+    pass
+
+
+def request(method, path, token, *, body=None, data=None, query=None, binary=False):
+    url = API + path
+    if query:
+        url += "?" + urlencode(query)
+    headers = {
+        "Accept": "application/octet-stream" if binary else "application/json",
+        "Authorization": "token " + token,
+    }
+    payload = data
+    if body is not None:
+        payload = json.dumps(body, separators=(",", ":")).encode()
+        headers["Content-Type"] = "application/json"
+    elif data is not None:
+        headers["Content-Type"] = "application/octet-stream"
     try:
-        with urlopen(Request(url,data=data,headers=h,method=method),timeout=60) as r:
-            b=r.read()
-            if binary: return r.status,b
-            try: return r.status,(json.loads(b) if b else None)
-            except json.JSONDecodeError: return r.status,b
-    except HTTPError as e: return e.code,None
-    except (OSError,URLError,TimeoutError) as e: raise ReleaseError("forgejo-transport-"+type(e).__name__) from e
+        with urlopen(Request(url, data=payload, headers=headers, method=method), timeout=60) as response:
+            content = response.read()
+            if binary:
+                return response.status, content
+            if not content:
+                return response.status, None
+            try:
+                return response.status, json.loads(content)
+            except json.JSONDecodeError as exc:
+                raise ReleaseError("forgejo-invalid-json-response") from exc
+    except HTTPError as exc:
+        return exc.code, None
+    except (OSError, URLError, TimeoutError) as exc:
+        raise ReleaseError("forgejo-transport-" + type(exc).__name__) from exc
 
-def absolute(url,token):
-    if not isinstance(url,str) or not url.startswith("https://git.home.arpa/"): raise ReleaseError("asset-download-url-invalid")
+
+def download(url, token):
+    if not isinstance(url, str):
+        raise ReleaseError("asset-download-url-invalid")
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != "git.home.arpa":
+        raise ReleaseError("asset-download-url-invalid")
     try:
-        with urlopen(Request(url,headers={"Accept":"application/octet-stream","Authorization":"token "+token}),timeout=60) as r: return r.status,r.read()
-    except HTTPError as e: return e.code,None
-    except (OSError,URLError,TimeoutError) as e: raise ReleaseError("forgejo-transport-"+type(e).__name__) from e
+        with urlopen(
+            Request(url, headers={
+                "Accept": "application/octet-stream",
+                "Authorization": "token " + token,
+            }),
+            timeout=60,
+        ) as response:
+            return response.status, response.read()
+    except HTTPError as exc:
+        return exc.code, None
+    except (OSError, URLError, TimeoutError) as exc:
+        raise ReleaseError("forgejo-transport-" + type(exc).__name__) from exc
 
-def digest(p):
-    h=hashlib.sha256()
-    with p.open("rb") as f:
-        for b in iter(lambda:f.read(1048576),b""): h.update(b)
-    return h.hexdigest()
 
-def identity(root):
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def read_identity(root):
     try:
-        m=json.loads((root/".release/cargo-metadata.json").read_text()); c=tomllib.loads((root/"Cargo.toml").read_text())
-    except (OSError,json.JSONDecodeError,tomllib.TOMLDecodeError) as e: raise ReleaseError("build-metadata-read-"+type(e).__name__) from e
-    p=c.get("package"); bins=c.get("bin",[])
-    if not isinstance(p,dict) or not isinstance(bins,list) or len(bins)!=1 or not isinstance(bins[0],dict): raise ReleaseError("cargo-toml-must-declare-one-binary")
-    v=n=None
-    v=p.get("version"); n=bins[0].get("name")
-    if not isinstance(v,str) or not v or not isinstance(n,str) or not n: raise ReleaseError("cargo-toml-binary-identity-missing")
-    ps=m.get("packages",[]); td=m.get("target_directory")
-    if not isinstance(ps,list) or len(ps)!=1 or not isinstance(td,str): raise ReleaseError("cargo-metadata-package-shape-invalid")
-    mt=ps[0]; ts=mt.get("targets",[]) if isinstance(mt,dict) else []
-    bs=[x for x in ts if isinstance(x,dict) and "bin" in x.get("kind",[])]
-    if mt.get("version")!=v or len(bs)!=1 or bs[0].get("name")!=n: raise ReleaseError("cargo-metadata-does-not-match-one-binary")
-    b=root/td/"release"/n
-    if not b.is_file(): raise ReleaseError("release-binary-missing")
-    return v,n,b
+        metadata = json.loads((root / ".release/cargo-metadata.json").read_text())
+        cargo = tomllib.loads((root / "Cargo.toml").read_text())
+    except (OSError, json.JSONDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise ReleaseError("build-metadata-read-" + type(exc).__name__) from exc
 
-def verify(assets,artifact,sidecar,token,want=None):
-    if not isinstance(assets,list): raise ReleaseError("release-assets-invalid")
-    a={x.get("name"):x for x in assets if isinstance(x,dict) and isinstance(x.get("name"),str)}
-    if artifact not in a or sidecar not in a: raise ReleaseError("release-assets-incomplete")
-    def get(x):
-        u=x.get("browser_download_url") or x.get("url"); s,b=absolute(u,token)
-        if s!=200 or not isinstance(b,bytes): raise ReleaseError("asset-download-failed")
-        return b
-    remote=hashlib.sha256(get(a[artifact])).hexdigest()
-    if want is not None and remote!=want: raise ReleaseError("release-binary-digest-mismatch")
-    if get(a[sidecar])!=(remote+"  "+artifact+"\n").encode(): raise ReleaseError("release-sidecar-mismatch")
-    return remote
+    package = cargo.get("package")
+    toml_bins = cargo.get("bin")
+    if not isinstance(package, dict) or not isinstance(toml_bins, list) or len(toml_bins) != 1:
+        raise ReleaseError("cargo-toml-must-declare-one-binary")
+    toml_bin = toml_bins[0]
+    cargo_version = package.get("version")
+    binary_name = toml_bin.get("name") if isinstance(toml_bin, dict) else None
+    if not isinstance(cargo_version, str) or not cargo_version:
+        raise ReleaseError("cargo-version-missing")
+    if not isinstance(binary_name, str) or not binary_name:
+        raise ReleaseError("cargo-binary-name-missing")
 
-def tagsha(x):
-    if not isinstance(x,dict): return None
-    x=x.get("commit",x); return x.get("sha") or x.get("id") or x.get("target") if isinstance(x,dict) else None
+    packages = metadata.get("packages")
+    target_directory = metadata.get("target_directory")
+    if not isinstance(packages, list) or len(packages) != 1 or not isinstance(target_directory, str):
+        raise ReleaseError("cargo-metadata-package-shape-invalid")
+    metadata_package = packages[0]
+    targets = metadata_package.get("targets", []) if isinstance(metadata_package, dict) else []
+    binaries = [
+        target for target in targets
+        if isinstance(target, dict) and "bin" in target.get("kind", [])
+    ]
+    if (
+        not isinstance(metadata_package, dict)
+        or metadata_package.get("version") != cargo_version
+        or len(binaries) != 1
+        or binaries[0].get("name") != binary_name
+    ):
+        raise ReleaseError("cargo-metadata-does-not-match-one-binary")
 
-def publish(root,token):
-    if os.environ.get("CI_REPO") not in (None,OWNER+"/"+REPO): raise ReleaseError("CI_REPO-mismatch")
-    commit=os.environ.get("CI_COMMIT_SHA","")
-    if not re.fullmatch(r"[0-9a-fA-F]{40}",commit): raise ReleaseError("CI_COMMIT_SHA-missing-or-invalid")
-    if not token: raise ReleaseError("FORGEJO_TOKEN-missing")
-    v,n,b=identity(root); artifact=f"{n}-{v}-x86_64"; sidecar=artifact+".sha256"; want=digest(b)
-    base=f"/repos/{quote(OWNER,safe='')}/{quote(REPO,safe='')}"; q=quote(v,safe='')
-    s,r=api("GET",base+"/releases/tags/"+q,token)
-    if s==200:
-        if not isinstance(r,dict) or r.get("id") is None: raise ReleaseError("release-read-failed")
-        s,a=api("GET",base+f"/releases/{r['id']}/assets",token)
-        if s!=200: raise ReleaseError("release-assets-read-failed")
-        remote=verify(a,artifact,sidecar,token)
-        return {"schema":SCHEMA,"repository":OWNER+"/"+REPO,"status":"no-op","changed":False,"version":v,"tag":v,"artifact":artifact,"sha256":remote}
-    if s!=404: raise ReleaseError("release-read-failed")
-    s,t=api("GET",base+"/tags/"+q,token)
-    if s==200:
-        if tagsha(t)!=commit: raise ReleaseError("tag-conflicts-with-source-head")
-    elif s!=404: raise ReleaseError("tag-read-failed")
-    tag_exists=s==200
-    changed=False
-    if not tag_exists:
-        s,_=api("POST",base+"/tags",token,body={"tag_name":v,"target":commit})
-        if s not in (200,201): raise ReleaseError("tag-create-failed")
-        changed=True
-    s,r=api("POST",base+"/releases",token,body={"tag_name":v,"name":v,"body":"caduceus "+v,"draft":False,"prerelease":False})
-    if s not in (200,201) or not isinstance(r,dict) or r.get("id") is None: raise ReleaseError("release-create-failed")
-    rid=r['id']; changed=True
-    for name,data in ((artifact,b.read_bytes()),(sidecar,(want+"  "+artifact+"\n").encode())):
-        s,_=api("POST",base+f"/releases/{rid}/assets",token,data=data,query={"name":name})
-        if s not in (200,201): raise ReleaseError("asset-upload-failed")
-    s,a=api("GET",base+f"/releases/{rid}/assets",token)
-    if s!=200: raise ReleaseError("release-assets-reread-failed")
-    verify(a,artifact,sidecar,token,want)
-    return {"schema":SCHEMA,"repository":OWNER+"/"+REPO,"status":"published","changed":changed,"version":v,"tag":v,"artifact":artifact,"sha256":want}
+    artifact = root / target_directory / "release" / binary_name
+    if not artifact.is_file():
+        raise ReleaseError("release-binary-missing")
+    return cargo_version, binary_name, artifact
+
+
+def tag_target(tag):
+    if not isinstance(tag, dict):
+        return None
+    commit = tag.get("commit")
+    if isinstance(commit, dict):
+        return commit.get("sha") or commit.get("id")
+    return tag.get("sha") or tag.get("id") or tag.get("target")
+
+
+def assets_by_name(assets):
+    if not isinstance(assets, list):
+        raise ReleaseError("release-assets-invalid")
+    return {
+        asset.get("name"): asset
+        for asset in assets
+        if isinstance(asset, dict) and isinstance(asset.get("name"), str)
+    }
+
+
+def verify_assets(assets, artifact_name, sidecar_name, token, expected_digest=None):
+    named = assets_by_name(assets)
+    if artifact_name not in named or sidecar_name not in named:
+        raise ReleaseError("release-assets-incomplete")
+
+    def fetch(asset):
+        url = asset.get("browser_download_url") or asset.get("url")
+        status, content = download(url, token)
+        if status != 200 or not isinstance(content, bytes):
+            raise ReleaseError("asset-download-failed")
+        return content
+
+    remote_digest = hashlib.sha256(fetch(named[artifact_name])).hexdigest()
+    if expected_digest is not None and remote_digest != expected_digest:
+        raise ReleaseError("release-binary-digest-mismatch")
+    expected_sidecar = (remote_digest + "  " + artifact_name + "\n").encode()
+    if fetch(named[sidecar_name]) != expected_sidecar:
+        raise ReleaseError("release-sidecar-mismatch")
+    return remote_digest
+
+
+def publish(root, token):
+    if os.environ.get("CI_REPO") not in (None, OWNER + "/" + REPO):
+        raise ReleaseError("CI_REPO-mismatch")
+    commit = os.environ.get("CI_COMMIT_SHA", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ReleaseError("CI_COMMIT_SHA-missing-or-invalid")
+    if not token:
+        raise ReleaseError("FORGEJO_TOKEN-missing")
+
+    cargo_version, binary_name, artifact = read_identity(root)
+    artifact_name = binary_name + "-x86_64"
+    sidecar_name = artifact_name + ".sha256"
+    expected_digest = sha256(artifact)
+    release_name = f"{binary_name} {commit[:8]}"
+    base = "/repos/" + quote(OWNER, safe="") + "/" + quote(REPO, safe="")
+    encoded_tag = quote(commit, safe="")
+
+    status, release = request("GET", base + "/releases/tags/" + encoded_tag, token)
+    if status == 200:
+        if not isinstance(release, dict) or release.get("id") is None:
+            raise ReleaseError("release-read-failed")
+        tag_status, tag = request("GET", base + "/tags/" + encoded_tag, token)
+        if tag_status != 200 or tag_target(tag) != commit:
+            raise ReleaseError("tag-target-mismatch")
+        if (
+            release.get("tag_name") != commit
+            or release.get("name") != release_name
+            or release.get("target_commitish") != commit
+        ):
+            raise ReleaseError("release-identity-mismatch")
+        asset_status, assets = request(
+            "GET", base + f"/releases/{release['id']}/assets", token
+        )
+        if asset_status != 200:
+            raise ReleaseError("release-assets-read-failed")
+        remote_digest = verify_assets(assets, artifact_name, sidecar_name, token)
+        if remote_digest != expected_digest:
+            raise ReleaseError("existing-release-digest-conflict")
+        return {
+            "schema": SCHEMA,
+            "repository": OWNER + "/" + REPO,
+            "cargo_version": cargo_version,
+            "tag": commit,
+            "name": release_name,
+            "target_commitish": commit,
+            "assets": [artifact_name, sidecar_name],
+            "sha256": remote_digest,
+            "status": "no-op",
+            "changed": False,
+        }
+    if status != 404:
+        raise ReleaseError("release-read-failed")
+
+    tag_status, tag = request("GET", base + "/tags/" + encoded_tag, token)
+    if tag_status == 200:
+        if tag_target(tag) != commit:
+            raise ReleaseError("tag-conflicts-with-source-head")
+    elif tag_status == 404:
+        tag_status, _ = request(
+            "POST", base + "/tags", token,
+            body={"tag_name": commit, "target": commit},
+        )
+        if tag_status not in (200, 201):
+            raise ReleaseError("tag-create-failed")
+    else:
+        raise ReleaseError("tag-read-failed")
+
+    tag_status, tag = request("GET", base + "/tags/" + encoded_tag, token)
+    if tag_status != 200 or tag_target(tag) != commit:
+        raise ReleaseError("tag-target-mismatch-after-create")
+
+    release_status, release = request(
+        "POST", base + "/releases", token,
+        body={
+            "tag_name": commit,
+            "name": release_name,
+            "body": "caduceus release for " + commit,
+            "target_commitish": commit,
+            "draft": False,
+            "prerelease": False,
+        },
+    )
+    if release_status not in (200, 201) or not isinstance(release, dict) or release.get("id") is None:
+        raise ReleaseError("release-create-failed")
+    release_id = release["id"]
+
+    for name, content in (
+        (artifact_name, artifact.read_bytes()),
+        (sidecar_name, (expected_digest + "  " + artifact_name + "\n").encode()),
+    ):
+        upload_status, _ = request(
+            "POST", base + f"/releases/{release_id}/assets", token,
+            data=content, query={"name": name},
+        )
+        if upload_status not in (200, 201):
+            raise ReleaseError("asset-upload-failed")
+
+    reread_status, reread_release = request(
+        "GET", base + "/releases/tags/" + encoded_tag, token
+    )
+    if (
+        reread_status != 200
+        or not isinstance(reread_release, dict)
+        or reread_release.get("id") is None
+    ):
+        raise ReleaseError("release-reread-failed")
+    if (
+        reread_release.get("tag_name") != commit
+        or reread_release.get("name") != release_name
+        or reread_release.get("target_commitish") != commit
+    ):
+        raise ReleaseError("release-identity-mismatch-after-upload")
+    tag_status, tag = request("GET", base + "/tags/" + encoded_tag, token)
+    if tag_status != 200 or tag_target(tag) != commit:
+        raise ReleaseError("tag-target-mismatch-after-upload")
+    asset_status, assets = request(
+        "GET", base + f"/releases/{reread_release['id']}/assets", token
+    )
+    if asset_status != 200:
+        raise ReleaseError("release-assets-reread-failed")
+    verify_assets(assets, artifact_name, sidecar_name, token, expected_digest)
+    return {
+        "schema": SCHEMA,
+        "repository": OWNER + "/" + REPO,
+        "cargo_version": cargo_version,
+        "tag": commit,
+        "name": release_name,
+        "target_commitish": commit,
+        "assets": [artifact_name, sidecar_name],
+        "sha256": expected_digest,
+        "status": "published",
+        "changed": True,
+    }
+
 
 def main():
-    try: out=publish(Path(os.environ.get("CI_WORKSPACE",".")).resolve(),os.environ.get("FORGEJO_TOKEN","")); code=0
-    except (OSError,ValueError,ReleaseError) as e: out={"schema":SCHEMA,"repository":OWNER+"/"+REPO,"status":"error","changed":False,"error":str(e)}; code=1
-    print(json.dumps(out,sort_keys=True,separators=(",",":"))); return code
-if __name__=="__main__": sys.exit(main())
+    try:
+        receipt = publish(
+            Path(os.environ.get("CI_WORKSPACE", ".")).resolve(),
+            os.environ.get("FORGEJO_TOKEN", ""),
+        )
+        code = 0
+    except (OSError, ValueError, ReleaseError) as exc:
+        receipt = {
+            "schema": SCHEMA,
+            "repository": OWNER + "/" + REPO,
+            "status": "error",
+            "changed": False,
+            "error": str(exc),
+        }
+        code = 1
+    print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())
