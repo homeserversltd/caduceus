@@ -160,6 +160,7 @@ fn main() {
     let _profile_authority = fs::read_to_string(&profile_path)
         .unwrap_or_else(|_| panic!("profile authority must be readable: {profile_path}"));
     println!("cargo:rerun-if-env-changed=CADUCEUS_BUILD_SHA");
+    println!("cargo:rerun-if-env-changed=CADUCEUS_BUILD_ENV_SHA");
     println!("cargo:rerun-if-env-changed=CADUCEUS_PROFILE");
     println!("cargo:rerun-if-env-changed=CADUCEUS_ROOT");
     println!("cargo:rerun-if-changed={}", birth_certificate.display());
@@ -207,6 +208,19 @@ fn main() {
             "CADUCEUS_BUILD_SHA must be 40 lowercase hexadecimal characters"
         );
         println!("cargo:rustc-env=CADUCEUS_BUILD_SHA={build_sha}");
+    }
+    match env::var("CADUCEUS_BUILD_ENV_SHA") {
+        Ok(env_sha) => {
+            assert!(
+                env_sha.len() == 64
+                    && env_sha
+                        .bytes()
+                        .all(|byte| matches!(byte, 48..=57 | 97..=102)),
+                "CADUCEUS_BUILD_ENV_SHA must be 64 lowercase hexadecimal characters"
+            );
+            println!("cargo:rustc-env=CADUCEUS_BUILD_ENV_SHA={env_sha}");
+        }
+        Err(_) => println!("cargo:rustc-env=CADUCEUS_BUILD_ENV_SHA=unset"),
     }
 
     // C2 compile-time canopy selection: YAML is the profile authority.
@@ -283,7 +297,12 @@ fn main() {
     generated.push_str("pub fn compiled_route_leaves(profile: &str) -> Option<&'static [&'static str]> { routes_for(profile) }\n");
     // Emit the selected leaf module set and canonical registrations. The routes module
     // includes only this generated set, so an unlit leaf is never compiled.
-    let selected = yaml_for_profile(&requested);
+    let mut selected = yaml_for_profile(&requested);
+    if !selected.iter().any(|route| route == "beam") {
+        selected.push("beam".to_owned());
+    }
+    selected.sort();
+    selected.dedup();
     for entry in walk_json_leaves(Path::new("routes")) {
         if let Some(namespace) = entry.get("namespace").and_then(serde_json::Value::as_str) {
             let cfg = module_ident(namespace);

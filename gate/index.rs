@@ -243,8 +243,14 @@ async fn doors_route() -> Result<Response, (StatusCode, Json<ApiErrorBody>)> {
     }
 }
 fn audit_doors() -> Result<(), String> {
-    if crate::routes::SELECTED_DISCOVERY.is_empty() {
-        Err("selected-route-discovery-empty".into())
+    if crate::routes::SELECTED_DISCOVERY.is_empty()
+        || crate::routes::SELECTED_DISCOVERY
+            .iter()
+            .filter(|route| **route == "/api/v1/beam")
+            .count()
+            != 1
+    {
+        Err("beam-door-bijection-failed".into())
     } else {
         Ok(())
     }

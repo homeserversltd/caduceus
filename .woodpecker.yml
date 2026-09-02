@@ -123,14 +123,15 @@ steps:
           exit 1
         fi
 
-        CADUCEUS_BUILD_SHA="$CI_COMMIT_SHA" cargo build --release
+        env_sha=$(printf '%s\n%s\n%s\n' "$(rustc -Vv)" "$(cargo -V)" x86_64-unknown-linux-gnu | sha256sum | cut -d' ' -f1)
+        CADUCEUS_BUILD_SHA="$CI_COMMIT_SHA" CADUCEUS_BUILD_ENV_SHA="$env_sha" cargo build --release
         binary=target/release/caduceus
         test -f "$binary"
         binary_sha256="$(sha256sum "$binary" | cut -d " " -f 1)"
         built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-        printf '{\n  "schema": "estate.artifact.manifest.v1",\n  "component": "caduceus",\n  "source_sha": "%s",\n  "target": "x86_64-unknown-linux-gnu",\n  "sha256": "%s",\n  "built_at": "%s",\n  "pipeline_url": "%s"\n}\n' \
-          "$CI_COMMIT_SHA" "$binary_sha256" "$built_at" "$CI_PIPELINE_URL" \
+        printf '{\n  "schema": "estate.artifact.manifest.v1",\n  "component": "caduceus",\n  "source_sha": "%s",\n  "env_sha": "%s",\n  "target": "x86_64-unknown-linux-gnu",\n  "sha256": "%s",\n  "built_at": "%s",\n  "pipeline_url": "%s"\n}\n' \
+          "$CI_COMMIT_SHA" "$env_sha" "$binary_sha256" "$built_at" "$CI_PIPELINE_URL" \
           > manifest.json
 
         package_base="https://git.home.arpa/api/packages/HOMESERVERSLTD/generic/caduceus/$CI_COMMIT_SHA"
@@ -202,7 +203,8 @@ steps:
       - |
         set -eu
         mkdir -p .release
-        CADUCEUS_BUILD_SHA="$CI_COMMIT_SHA" cargo build --release
+        env_sha=$(printf '%s\n%s\n%s\n' "$(rustc -Vv)" "$(cargo -V)" x86_64-unknown-linux-gnu | sha256sum | cut -d' ' -f1)
+        CADUCEUS_BUILD_SHA="$CI_COMMIT_SHA" CADUCEUS_BUILD_ENV_SHA="$env_sha" cargo build --release
         cargo metadata --no-deps --format-version 1 > .release/cargo-metadata.json
 
   - name: publish-caduceus-forgejo-release
