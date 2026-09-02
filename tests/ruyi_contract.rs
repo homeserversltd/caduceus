@@ -101,6 +101,21 @@ async fn ruyi_door_stores_observed_peer_and_lists_rows() {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let fixture = Fixture::new();
     let mac = "aa:bb:cc:dd:ee:ff";
+    let mut loopback_row = row(mac);
+    loopback_row.as_object_mut().unwrap().remove("last_seen");
+    loopback_row.as_object_mut().unwrap().remove("spine");
+    let mut loopback_put = request("PUT", "/api/v1/ruyi/aa:bb:cc:dd:ee:ff", Some(loopback_row));
+    loopback_put
+        .extensions_mut()
+        .insert(ConnectInfo(ConnectionInfo::Tcp(
+            "127.0.0.1:4567".parse().unwrap(),
+        )));
+    let response = serve::router().oneshot(loopback_put).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let loopback_written = body_json(response).await;
+    assert_eq!(loopback_written["stored"]["ipv4"], "192.0.2.44");
+    assert_eq!(loopback_written["stored"]["spine"], "client-claimed");
+
     let mut put = request("PUT", "/api/v1/ruyi/aa:bb:cc:dd:ee:ff", Some(row(mac)));
     put.extensions_mut().insert(ConnectInfo(ConnectionInfo::Tcp(
         "192.0.2.17:4567".parse().unwrap(),

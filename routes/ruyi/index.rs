@@ -29,8 +29,10 @@ struct RuyiRow {
     env_sha: String,
     harmonia_sha: String,
     syzygy_sha: Option<String>,
+    #[serde(default)]
     last_seen: u64,
     last_update: RuyiLastUpdate,
+    #[serde(default)]
     spine: String,
 }
 
@@ -43,6 +45,8 @@ struct RuyiPutBody {
 
 #[derive(Serialize)]
 struct RuyiSeat {
+    mac: Option<String>,
+    hostname: String,
     profile: String,
     caduceus_sha: &'static str,
 }
@@ -107,6 +111,25 @@ fn server_now() -> u64 {
         .as_secs()
 }
 
+fn local_hostname() -> String {
+    std::fs::read_to_string("/etc/hostname")
+        .map(|hostname| hostname.trim().to_owned())
+        .unwrap_or_else(|_| "unknown".to_owned())
+}
+
+fn local_mac() -> Option<String> {
+    let route = std::fs::read_to_string("/proc/net/route").ok()?;
+    let iface = route.lines().skip(1).find_map(|line| {
+        let mut fields = line.split_whitespace();
+        let iface = fields.next()?;
+        let destination = fields.next()?;
+        (destination == "00000000").then(|| iface.to_owned())
+    })?;
+    std::fs::read_to_string(format!("/sys/class/net/{iface}/address"))
+        .ok()
+        .map(|mac| mac.trim().to_owned())
+}
+
 async fn put(
     Path(path_mac): Path<String>,
     peer: Option<ConnectInfo<crate::gate::ConnectionInfo>>,
@@ -123,8 +146,10 @@ async fn put(
     row.last_seen = server_now();
     row.spine = "client-claimed".to_owned();
     if let Some(ConnectInfo(crate::gate::ConnectionInfo::Tcp(address))) = peer {
-        row.ipv4 = address.ip().to_string();
-        row.spine = "observed-peer".to_owned();
+        if !address.ip().is_loopback() {
+            row.ipv4 = address.ip().to_string();
+            row.spine = "observed-peer".to_owned();
+        }
     }
     let row_json = serde_json::to_string(&row).map_err(|_| {
         error(
@@ -163,6 +188,8 @@ async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::Api
         ok: true,
         service: "caduceus",
         seat: RuyiSeat {
+            mac: local_mac(),
+            hostname: local_hostname(),
             profile: std::env::var("CADUCEUS_PROFILE").unwrap_or_else(|_| "unknown".to_owned()),
             caduceus_sha: CADUCEUS_BUILD_SHA.unwrap_or("unset"),
         },
