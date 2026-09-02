@@ -142,6 +142,7 @@ dependencies = [
  "flate2",
  "hyper",
  "hyper-util",
+ "libc",
  "md5",
  "rusqlite",
  "serde",

@@ -301,6 +301,9 @@ fn main() {
     if !selected.iter().any(|route| route == "beam") {
         selected.push("beam".to_owned());
     }
+    if !selected.iter().any(|route| route == "ruyi") {
+        selected.push("ruyi".to_owned());
+    }
     selected.sort();
     selected.dedup();
     for entry in walk_json_leaves(Path::new("routes")) {

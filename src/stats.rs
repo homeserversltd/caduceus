@@ -46,8 +46,34 @@ fn open_db() -> Result<Connection, String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let c = Connection::open(path).map_err(|e| e.to_string())?;
-    c.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS raw_samples (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS minute_samples (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL); CREATE INDEX IF NOT EXISTS raw_ts ON raw_samples(ts); CREATE INDEX IF NOT EXISTS minute_bucket ON minute_samples(bucket);") .map_err(|e| e.to_string())?;
+    c.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS raw_samples (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS minute_samples (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL); CREATE INDEX IF NOT EXISTS raw_ts ON raw_samples(ts); CREATE INDEX IF NOT EXISTS minute_bucket ON minute_samples(bucket); CREATE TABLE IF NOT EXISTS ruyi (mac TEXT PRIMARY KEY, row TEXT NOT NULL, last_seen INTEGER NOT NULL);") .map_err(|e| e.to_string())?;
     Ok(c)
+}
+
+pub fn ruyi_upsert(mac: &str, row_json: &str, last_seen: i64) -> Result<(), String> {
+    let c = open_db()?;
+    c.execute(
+        "INSERT INTO ruyi(mac,row,last_seen) VALUES(?1,?2,?3) ON CONFLICT(mac) DO UPDATE SET row=excluded.row,last_seen=excluded.last_seen",
+        params![mac, row_json, last_seen],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn ruyi_list_result() -> Result<Vec<(String, String, i64)>, String> {
+    let c = open_db()?;
+    let mut statement = c
+        .prepare("SELECT mac,row,last_seen FROM ruyi ORDER BY mac")
+        .map_err(|e| e.to_string())?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .map_err(|e| e.to_string())?;
+    rows.map(|row| row.map_err(|e| e.to_string()))
+        .collect::<Result<Vec<_>, _>>()
+}
+
+pub fn ruyi_list() -> Vec<(String, String, i64)> {
+    ruyi_list_result().unwrap_or_default()
 }
 fn now() -> i64 {
     SystemTime::now()
