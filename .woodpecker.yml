@@ -229,3 +229,177 @@ steps:
         test -s /tmp/house-ca.pem
         export SSL_CERT_FILE=/tmp/house-ca.pem
         python3 ci/release-publish.py
+
+  - name: flag-caduceus-release
+    image: rust:1-bookworm
+    when:
+      - event: push
+        branch: main
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: FORGEJO_TOKEN
+    commands:
+      - |
+        set -eu
+        command -v curl >/dev/null || { echo "flag-caduceus-release: curl is required in rust:1-bookworm" >&2; exit 1; }
+
+        if ! printf "%s" "$${CI_COMMIT_SHA:-}" | grep -Eq "^[0-9a-f]{40}$"; then
+          echo "flag-caduceus-release: CI_COMMIT_SHA must be a full 40-hex commit SHA" >&2
+          exit 1
+        fi
+        if [ -z "$${CI_PIPELINE_URL:-}" ]; then
+          echo "flag-caduceus-release: CI_PIPELINE_URL is required" >&2
+          exit 1
+        fi
+
+        FORGEJO_TOKEN="$(printf "%s" "$${FORGEJO_TOKEN:-}" | tr -d "[:space:]")"
+        if [ -z "$FORGEJO_TOKEN" ] && [ -r /mnt/keyexchange/FORGEJO_TOKEN ] && [ -s /mnt/keyexchange/FORGEJO_TOKEN ]; then
+          FORGEJO_TOKEN="$(tr -d "[:space:]" < /mnt/keyexchange/FORGEJO_TOKEN)"
+        fi
+        if [ -z "$FORGEJO_TOKEN" ]; then
+          printf "%s\n" "flag-caduceus-release: org secret injected empty and /mnt/keyexchange/FORGEJO_TOKEN absent — run keyman transmit forgejo-token --to homeserver-ci-agent" >&2
+          exit 1
+        fi
+
+        package_base="https://git.home.arpa/api/packages/HOMESERVERSLTD/generic/caduceus/$CI_COMMIT_SHA"
+        auth_header="Authorization: token $FORGEJO_TOKEN"
+
+        extract_unique_field() {
+          field="$1"
+          input_file="$2"
+          matches="$(grep -Eo "\"$field\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$input_file" || true)"
+          count="$(printf "%s\n" "$matches" | awk "NF { count++ } END { print count + 0 }")"
+          if [ "$count" != "1" ]; then
+            echo "flag-caduceus-release: $input_file has ambiguous or missing $field" >&2
+            return 1
+          fi
+          printf "%s\n" "$matches" | sed -E "s/^[^:]*:[[:space:]]*\"([^\"]*)\"$/\1/"
+        }
+
+        validate_manifest() {
+          manifest_file="$1"
+          manifest_source_sha="$(extract_unique_field source_sha "$manifest_file")" || exit 1
+          manifest_env_sha="$(extract_unique_field env_sha "$manifest_file")" || exit 1
+          manifest_sha256="$(extract_unique_field sha256 "$manifest_file")" || exit 1
+          if ! printf "%s" "$manifest_source_sha" | grep -Eq "^[0-9a-f]{40}$"; then
+            echo "flag-caduceus-release: manifest source_sha is not lowercase 40-hex" >&2
+            exit 1
+          fi
+          if ! printf "%s" "$manifest_env_sha" | grep -Eq "^[0-9a-f]{64}$"; then
+            echo "flag-caduceus-release: manifest env_sha is not lowercase 64-hex" >&2
+            exit 1
+          fi
+          if ! printf "%s" "$manifest_sha256" | grep -Eq "^[0-9a-f]{64}$"; then
+            echo "flag-caduceus-release: manifest sha256 is not lowercase 64-hex" >&2
+            exit 1
+          fi
+          if [ "$manifest_source_sha" != "$CI_COMMIT_SHA" ]; then
+            echo "flag-caduceus-release: manifest source_sha does not equal CI_COMMIT_SHA" >&2
+            exit 1
+          fi
+        }
+
+        verify_existing_release_flag() {
+          existing_source_sha="$(extract_unique_field source_sha "$1")" || exit 1
+          existing_sha256="$(extract_unique_field sha256 "$1")" || exit 1
+          if ! printf "%s" "$existing_source_sha" | grep -Eq "^[0-9a-f]{40}$" || \
+             ! printf "%s" "$existing_sha256" | grep -Eq "^[0-9a-f]{64}$"; then
+            echo "flag-caduceus-release: existing release.flag has malformed hashes" >&2
+            exit 1
+          fi
+          if [ "$existing_source_sha" = "$manifest_source_sha" ] && [ "$existing_sha256" = "$manifest_sha256" ]; then
+            echo "flag-caduceus-release: no-op; release.flag already matches manifest source_sha and sha256"
+            return 0
+          fi
+          echo "flag-caduceus-release: existing release.flag differs from manifest" >&2
+          exit 1
+        }
+
+        upload_file() {
+          local_path="$1"
+          remote_name="$2"
+          content_type="$3"
+          response_file="upload-$remote_name.response"
+          upload_status="$(curl --silent --show-error \
+            --output "$response_file" \
+            --write-out "%{http_code}" \
+            --request PUT \
+            --header "$auth_header" \
+            --header "Content-Type: $content_type" \
+            --upload-file "$local_path" \
+            "$package_base/$remote_name")"
+          case "$upload_status" in
+            200|201|204)
+              echo "flag-caduceus-release: uploaded $remote_name (HTTP $upload_status)"
+              ;;
+            409)
+              echo "flag-caduceus-release: $remote_name already exists; verifying immutable release flag"
+              existing_flag_status="$(curl --silent --show-error \
+                --output existing-release.flag \
+                --write-out "%{http_code}" \
+                --header "$auth_header" \
+                "$package_base/$remote_name")"
+              if [ "$existing_flag_status" != "200" ]; then
+                echo "flag-caduceus-release: collision but existing $remote_name returned HTTP $existing_flag_status" >&2
+                exit 1
+              fi
+              verify_existing_release_flag existing-release.flag
+              exit 0
+              ;;
+            *)
+              echo "flag-caduceus-release: upload of $remote_name failed with HTTP $upload_status" >&2
+              if [ -s "$response_file" ]; then
+                head -c 4096 "$response_file" >&2
+                printf "\n" >&2
+              fi
+              exit 1
+              ;;
+          esac
+        }
+
+        manifest_status="$(curl --silent --show-error \
+          --output manifest.json \
+          --write-out "%{http_code}" \
+          --header "$auth_header" \
+          "$package_base/manifest.json")"
+        if [ "$manifest_status" != "200" ]; then
+          echo "flag-caduceus-release: manifest GET failed with HTTP $manifest_status" >&2
+          if [ -s manifest.json ]; then
+            head -c 4096 manifest.json >&2
+            printf "\n" >&2
+          fi
+          exit 1
+        fi
+        validate_manifest manifest.json
+
+        flag_status="$(curl --silent --show-error \
+          --output existing-release.flag \
+          --write-out "%{http_code}" \
+          --header "$auth_header" \
+          "$package_base/release.flag")"
+        case "$flag_status" in
+          200)
+            verify_existing_release_flag existing-release.flag
+            exit 0
+            ;;
+          404)
+            ;;
+          *)
+            echo "flag-caduceus-release: release.flag GET failed with HTTP $flag_status" >&2
+            if [ -s existing-release.flag ]; then
+              head -c 4096 existing-release.flag >&2
+              printf "\n" >&2
+            fi
+            exit 1
+            ;;
+        esac
+
+        if printf "%s" "$CI_PIPELINE_URL" | od -An -t x1 | grep -Eq "(^|[[:space:]])(22|5c|0d|0a)([[:space:]]|$)"; then
+          echo "flag-caduceus-release: CI_PIPELINE_URL contains JSON-breaking quote, backslash, CR, or LF" >&2
+          exit 1
+        fi
+        printf "{\n  \"schema\": \"estate.release-flag.v1\",\n  \"component\": \"caduceus\",\n  \"source_sha\": \"%s\",\n  \"env_sha\": \"%s\",\n  \"sha256\": \"%s\",\n  \"flagged_at\": \"%s\",\n  \"pipeline_url\": \"%s\"\n}\n" \
+          "${manifest_source_sha}" "${manifest_env_sha}" "${manifest_sha256}" \
+          "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$CI_PIPELINE_URL" > release.flag
+
+        upload_file release.flag release.flag application/json
