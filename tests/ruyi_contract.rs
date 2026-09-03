@@ -62,7 +62,7 @@ impl Drop for Fixture {
 
 fn row(mac: &str) -> Value {
     json!({
-        "schema": "caduceus.ruyi-row.v1",
+        "schema": "caduceus.ruyi.v1",
         "mac": mac,
         "hostname": "fixture-host",
         "canonical_name": "fixture-host.home.arpa",
@@ -165,6 +165,22 @@ async fn ruyi_door_stores_observed_peer_and_lists_rows() {
     assert_eq!(
         mismatch_body["firstMissingSignal"],
         "caduceus-ruyi-mac-mismatch"
+    );
+    let mut invalid_schema_row = row(mac);
+    invalid_schema_row["schema"] = json!("caduceus.ruyi-row.v1");
+    let invalid_schema = serve::router()
+        .oneshot(request(
+            "PUT",
+            "/api/v1/ruyi/aa:bb:cc:dd:ee:ff",
+            Some(invalid_schema_row),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid_schema.status(), StatusCode::BAD_REQUEST);
+    let invalid_schema_body = body_json(invalid_schema).await;
+    assert_eq!(
+        invalid_schema_body["firstMissingSignal"],
+        "caduceus-ruyi-row-invalid"
     );
     assert!(fixture
         .root

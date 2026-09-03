@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const ROW_SCHEMA: &str = "caduceus.ruyi-row.v1";
+const ROW_SCHEMA: &str = "caduceus.ruyi.v1";
 const RESPONSE_SCHEMA: &str = "caduceus.ruyi.v1";
 const CADUCEUS_BUILD_SHA: Option<&str> = option_env!("CADUCEUS_BUILD_SHA");
 
