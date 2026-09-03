@@ -1,9 +1,10 @@
 //! Native, persistent per-host appliance telemetry.
 use crate::shared::config;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet},
     ffi::CString,
     fs,
     net::TcpStream,
@@ -13,17 +14,17 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, OnceLock, RwLock,
     },
+    thread,
     time::Instant,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::time::interval;
 
-const RAW_LIMIT: usize = 3600;
-const MINUTE_LIMIT: usize = 10_080;
+const RAW_RETENTION_SECONDS: i64 = 3600;
+const MINUTE_RETENTION_SECONDS: i64 = 604_800;
 const UNAVAILABLE: &str = "collector unavailable";
 struct StatsState {
-    raw: VecDeque<Value>,
-    minute: VecDeque<Value>,
+    latest: Option<Arc<str>>,
+    latest_ts: i64,
     model_lanes: Vec<Value>,
     last_model_lane_pulse_unix: AtomicU64,
     model_lane_pulse_requested: AtomicBool,
@@ -46,7 +47,9 @@ fn open_db() -> Result<Connection, String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let c = Connection::open(path).map_err(|e| e.to_string())?;
-    c.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS raw_samples (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS minute_samples (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL); CREATE INDEX IF NOT EXISTS raw_ts ON raw_samples(ts); CREATE INDEX IF NOT EXISTS minute_bucket ON minute_samples(bucket); CREATE TABLE IF NOT EXISTS ruyi (mac TEXT PRIMARY KEY, row TEXT NOT NULL, last_seen INTEGER NOT NULL);") .map_err(|e| e.to_string())?;
+    c.execute_batch(
+        "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY; PRAGMA journal_size_limit=8388608; CREATE TABLE IF NOT EXISTS raw_samples (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS minute_samples (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS self_benchmark (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL); CREATE INDEX IF NOT EXISTS raw_ts ON raw_samples(ts); CREATE INDEX IF NOT EXISTS minute_bucket ON minute_samples(bucket); CREATE INDEX IF NOT EXISTS self_benchmark_bucket ON self_benchmark(bucket); CREATE TABLE IF NOT EXISTS ruyi (mac TEXT PRIMARY KEY, row TEXT NOT NULL, last_seen INTEGER NOT NULL);",
+    ).map_err(|e| e.to_string())?;
     Ok(c)
 }
 
@@ -734,297 +737,910 @@ fn scan_model_lanes() -> Vec<Value> {
         .collect()
 }
 
+fn proc_status_value(status: &str, key: &str) -> Option<u64> {
+    status.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if name != key {
+            return None;
+        }
+        value.split_whitespace().next()?.parse().ok()
+    })
+}
+
+fn proc_stat_fields(stat: &str) -> Option<(u64, u64, u64)> {
+    let close = stat.rfind(')')?;
+    let fields: Vec<_> = stat[close + 2..].split_whitespace().collect();
+    if fields.len() <= 19 {
+        return None;
+    }
+    Some((
+        fields[11].parse().ok()?,
+        fields[12].parse().ok()?,
+        fields[19].parse().ok()?,
+    ))
+}
+
+fn proc_maps_metrics(maps: &str) -> (u64, u64) {
+    const LARGE_ANON: u64 = 64 * 1024 * 1024;
+    let mut large_anonymous = 0u64;
+    let mut arenas = 0u64;
+    for line in maps.lines() {
+        let fields: Vec<_> = line.split_whitespace().collect();
+        let Some(range) = fields.first() else {
+            continue;
+        };
+        let Some((start, end)) = range.split_once('-') else {
+            continue;
+        };
+        let (Ok(start), Ok(end)) = (u64::from_str_radix(start, 16), u64::from_str_radix(end, 16))
+        else {
+            continue;
+        };
+        let size = end.saturating_sub(start);
+        if fields.get(1) == Some(&"rw-p") && fields.len() == 5 && size >= LARGE_ANON {
+            large_anonymous = large_anonymous.saturating_add(1);
+        }
+        if fields.last() == Some(&"[heap]") {
+            arenas = arenas.saturating_add(1);
+        }
+    }
+    (large_anonymous, arenas.min(1024))
+}
+
+fn proc_uptime_seconds() -> Option<f64> {
+    read_text("/proc/uptime")
+        .and_then(|value| value.split_whitespace().next()?.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+}
+
+fn file_bytes(path: &PathBuf) -> u64 {
+    fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+}
+
+fn db_file_bytes() -> (u64, u64) {
+    let path = db_path();
+    (
+        file_bytes(&path),
+        file_bytes(&PathBuf::from(format!("{}-wal", path.display()))),
+    )
+}
+
+fn self_sample(
+    doors: Value,
+    tick_millis: u64,
+    persist_millis: u64,
+    previous_ticks: Option<u64>,
+    elapsed: Option<Duration>,
+) -> (Value, Option<u64>, u64) {
+    let status = read_text("/proc/self/status").unwrap_or_default();
+    let stat = read_text("/proc/self/stat").and_then(|value| proc_stat_fields(&value));
+    let fd_count = fs::read_dir("/proc/self/fd")
+        .map(|entries| entries.flatten().count() as u64)
+        .unwrap_or(0)
+        .min(65_536);
+    let maps = read_text("/proc/self/maps").unwrap_or_default();
+    let (anon_mappings, _) = proc_maps_metrics(&maps);
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as f64;
+    let (user_ticks, system_ticks, start_ticks) = stat.unwrap_or((0, 0, 0));
+    let total_ticks = user_ticks.saturating_add(system_ticks);
+    let cpu_percent = match (previous_ticks, elapsed) {
+        (Some(previous), Some(elapsed)) if elapsed.as_secs_f64() > 0.0 => {
+            (total_ticks.saturating_sub(previous) as f64 / hz / elapsed.as_secs_f64() * 100.0)
+                .clamp(0.0, 100_000.0)
+        }
+        _ => 0.0,
+    };
+    let uptime_seconds = proc_uptime_seconds()
+        .map(|uptime| (uptime - start_ticks as f64 / hz).max(0.0))
+        .unwrap_or(0.0);
+    let rss = proc_status_value(&status, "VmRSS")
+        .unwrap_or(0)
+        .saturating_mul(1024);
+    let hwm = proc_status_value(&status, "VmHWM")
+        .unwrap_or(0)
+        .saturating_mul(1024);
+    let swap = proc_status_value(&status, "VmSwap")
+        .unwrap_or(0)
+        .saturating_mul(1024);
+    let data = proc_status_value(&status, "VmData")
+        .unwrap_or(0)
+        .saturating_mul(1024);
+    let threads = proc_status_value(&status, "Threads")
+        .unwrap_or(0)
+        .min(65_536);
+    let (db_bytes, wal_bytes) = db_file_bytes();
+    (
+        json!({
+            "pid": std::process::id(),
+            "uptimeSeconds": uptime_seconds,
+            "rssBytes": rss,
+            "hwmBytes": hwm,
+            "swapBytes": swap,
+            "dataBytes": data,
+            "threads": threads,
+            "fdCount": fd_count,
+            "cpuPercent": cpu_percent,
+            "tickMillis": tick_millis,
+            "persistMillis": persist_millis,
+            "dbBytes": db_bytes,
+            "walBytes": wal_bytes,
+            "anonMappingsOver64MiB": anon_mappings,
+            "doors": doors,
+        }),
+        Some(total_ticks),
+        rss,
+    )
+}
+
 fn snapshot_with_state(
     previous: Option<&Value>,
     process_ticks: &BTreeMap<u32, u64>,
     elapsed: Option<Duration>,
     gpu_cache: Option<&Value>,
-) -> (Value, BTreeMap<u32, u64>) {
+    doors: Value,
+    tick_millis: u64,
+    persist_millis: u64,
+    previous_self_ticks: Option<u64>,
+) -> (Value, BTreeMap<u32, u64>, Option<u64>, u64) {
     let ts = now();
     let net = network();
     let usage = disk_usage();
     let io = disk_io(&usage);
-    let mut v = json!({"schema":"caduceus.appliance.stats.sample.v1","ts":ts,"collectedAt":chrono::DateTime::<chrono::Utc>::from_timestamp(ts,0).map(|d|d.to_rfc3339()),"load":load(),"temperature":temperatures(),"fans":fans(),"gpu":gpu(gpu_cache),"memory":meminfo(),"network":{"interfaces":net,"throughput":Value::Null},"tcp":tcp(),"disk":{"io":io,"usage":usage,"throughput":Value::Null},"processes":Value::Null});
+    let (self_value, self_ticks, self_rss) = self_sample(
+        doors,
+        tick_millis,
+        persist_millis,
+        previous_self_ticks,
+        elapsed,
+    );
+    let mut value = json!({"schema":"caduceus.appliance.stats.sample.v1","ts":ts,"collectedAt":chrono::DateTime::<chrono::Utc>::from_timestamp(ts,0).map(|d|d.to_rfc3339()),"load":load(),"temperature":temperatures(),"fans":fans(),"gpu":gpu(gpu_cache),"memory":meminfo(),"network":{"interfaces":net,"throughput":Value::Null},"tcp":tcp(),"disk":{"io":io,"usage":usage,"throughput":Value::Null},"processes":Value::Null,"self":self_value});
     if let Some(prev) = previous {
         let dt = (ts - prev.get("ts").and_then(Value::as_i64).unwrap_or(ts)).max(1) as f64;
-        let mut through = json!({});
+        let mut throughput = json!({});
         if let (Some(a), Some(b)) = (
             prev.pointer("/network/interfaces")
                 .and_then(Value::as_array),
-            v.pointer("/network/interfaces").and_then(Value::as_array),
+            value
+                .pointer("/network/interfaces")
+                .and_then(Value::as_array),
         ) {
-            let rx = a
-                .iter()
-                .filter_map(|x| x.get("rxBytes").and_then(Value::as_u64))
-                .sum::<u64>();
-            let tx = a
-                .iter()
-                .filter_map(|x| x.get("txBytes").and_then(Value::as_u64))
-                .sum::<u64>();
-            let rx2 = b
-                .iter()
-                .filter_map(|x| x.get("rxBytes").and_then(Value::as_u64))
-                .sum::<u64>();
-            let tx2 = b
-                .iter()
-                .filter_map(|x| x.get("txBytes").and_then(Value::as_u64))
-                .sum::<u64>();
-            through = json!({"rxBytesPerSecond":(rx2.saturating_sub(rx) as f64)/dt,"txBytesPerSecond":(tx2.saturating_sub(tx) as f64)/dt});
+            let total = |items: &[Value], key: &str| {
+                items
+                    .iter()
+                    .filter_map(|item| item[key].as_u64())
+                    .sum::<u64>()
+            };
+            throughput = json!({
+                "rxBytesPerSecond": total(b, "rxBytes").saturating_sub(total(a, "rxBytes")) as f64 / dt,
+                "txBytesPerSecond": total(b, "txBytes").saturating_sub(total(a, "txBytes")) as f64 / dt,
+            });
         }
-        v["network"]["throughput"] = through;
-        let total = |x: &Value, key: &str| {
-            x.as_array()
-                .map(|a| a.iter().filter_map(|r| r[key].as_u64()).sum::<u64>())
+        value["network"]["throughput"] = throughput;
+        let total = |items: &Value, key: &str| {
+            items
+                .as_array()
+                .map(|array| {
+                    array
+                        .iter()
+                        .filter_map(|row| row[key].as_u64())
+                        .sum::<u64>()
+                })
                 .unwrap_or(0)
         };
-        if let (Some(a), Some(b)) = (prev.pointer("/disk/io"), v.pointer("/disk/io")) {
-            v["disk"]["throughput"] = json!({"readBytesPerSecond":total(b,"readBytes").saturating_sub(total(a,"readBytes")) as f64/dt,"writeBytesPerSecond":total(b,"writeBytes").saturating_sub(total(a,"writeBytes")) as f64/dt});
+        if let (Some(a), Some(b)) = (prev.pointer("/disk/io"), value.pointer("/disk/io")) {
+            value["disk"]["throughput"] = json!({
+                "readBytesPerSecond": total(b, "readBytes").saturating_sub(total(a, "readBytes")) as f64 / dt,
+                "writeBytesPerSecond": total(b, "writeBytes").saturating_sub(total(a, "writeBytes")) as f64 / dt,
+            });
         }
     }
     let (processes, ticks) = processes(process_ticks, elapsed);
-    v["processes"] = processes;
-    (v, ticks)
+    value["processes"] = processes;
+    (value, ticks, self_ticks, self_rss)
 }
-fn avg(samples: &[Value], path: &str) -> Value {
-    let v: Vec<f64> = samples
-        .iter()
-        .filter_map(|x| x.pointer(path).and_then(Value::as_f64))
-        .collect();
-    if v.is_empty() {
-        Value::Null
-    } else {
-        json!(v.iter().sum::<f64>() / v.len() as f64)
-    }
+
+const AGGREGATE_SQL: &str = "SELECT COUNT(*), AVG(json_extract(data, '$.load.one')), AVG(json_extract(data, '$.load.five')), AVG(json_extract(data, '$.load.fifteen')), AVG(json_extract(data, '$.temperature.celsius')), AVG(json_extract(data, '$.gpu.utilizationPercent')), AVG(json_extract(data, '$.gpu.temperatureCelsius')), AVG(json_extract(data, '$.memory.usedBytes')), AVG(json_extract(data, '$.memory.usedBytesSwap')), AVG(json_extract(data, '$.network.throughput.rxBytesPerSecond')), AVG(json_extract(data, '$.network.throughput.txBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.readBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.writeBytesPerSecond')), AVG(json_extract(data, '$.self.rssBytes')), MAX(json_extract(data, '$.self.rssBytes')), AVG(json_extract(data, '$.self.tickMillis')), MAX(json_extract(data, '$.self.tickMillis')) FROM raw_samples WHERE ts >= ?1 AND ts < ?2";
+
+fn sql_value(value: Option<f64>) -> Value {
+    value.map_or(Value::Null, |value| json!(value))
 }
-fn aggregate(bucket: i64, samples: &[Value]) -> Value {
-    json!({"schema":"caduceus.appliance.stats.minute.v1","bucket":bucket,"samples":samples.len(),"aggregation":{"loadOne":avg(samples,"/load/one"),"loadFive":avg(samples,"/load/five"),"loadFifteen":avg(samples,"/load/fifteen"),"temperatureCelsius":avg(samples,"/temperature/celsius"),"gpuUtilizationPercent":avg(samples,"/gpu/utilizationPercent"),"gpuTemperatureCelsius":avg(samples,"/gpu/temperatureCelsius"),"memoryUsedBytes":avg(samples,"/memory/usedBytes"),"swapUsedBytes":avg(samples,"/memory/usedBytesSwap"),"networkRxBytesPerSecond":avg(samples,"/network/throughput/rxBytesPerSecond"),"networkTxBytesPerSecond":avg(samples,"/network/throughput/txBytesPerSecond"),"diskReadBytesPerSecond":avg(samples,"/disk/throughput/readBytesPerSecond"),"diskWriteBytesPerSecond":avg(samples,"/disk/throughput/writeBytesPerSecond")},"last":samples.last()})
-}
-fn persist(c: &Connection, v: &Value) -> Result<(), String> {
-    let ts = v["ts"].as_i64().unwrap_or_else(now);
-    c.execute(
-        "INSERT INTO raw_samples(ts,data) VALUES(?1,?2)",
-        params![ts, v.to_string()],
-    )
-    .map_err(|e| e.to_string())?;
-    c.execute("DELETE FROM raw_samples WHERE id NOT IN (SELECT id FROM raw_samples ORDER BY ts DESC,id DESC LIMIT ?1)",[RAW_LIMIT]).map_err(|e|e.to_string())?;
-    Ok(())
-}
-fn persist_minute(c: &Connection, v: &Value) -> Result<(), String> {
-    c.execute(
-        "INSERT INTO minute_samples(bucket,data) VALUES(?1,?2)",
-        params![v["bucket"].as_i64().unwrap_or(0), v.to_string()],
-    )
-    .map_err(|e| e.to_string())?;
-    c.execute("DELETE FROM minute_samples WHERE id NOT IN (SELECT id FROM minute_samples ORDER BY bucket DESC,id DESC LIMIT ?1)",[MINUTE_LIMIT]).map_err(|e|e.to_string())?;
-    Ok(())
-}
-fn load_state(c: &Connection) -> Result<(VecDeque<Value>, VecDeque<Value>), String> {
-    let mut r = VecDeque::new();
-    let mut q = c
-        .prepare("SELECT data FROM raw_samples ORDER BY ts ASC,id ASC")
-        .map_err(|e| e.to_string())?;
-    for x in q
-        .query_map([], |z| z.get::<_, String>(0))
-        .map_err(|e| e.to_string())?
-    {
-        if let Ok(v) = serde_json::from_str(&x.map_err(|e| e.to_string())?) {
-            r.push_back(v)
-        }
-    }
-    let mut m = VecDeque::new();
-    let mut q = c
-        .prepare("SELECT data FROM minute_samples ORDER BY bucket ASC,id ASC")
-        .map_err(|e| e.to_string())?;
-    for x in q
-        .query_map([], |z| z.get::<_, String>(0))
-        .map_err(|e| e.to_string())?
-    {
-        if let Ok(v) = serde_json::from_str(&x.map_err(|e| e.to_string())?) {
-            m.push_back(v)
-        }
-    }
-    Ok((r, m))
-}
-async fn collect_loop(
-    state: Arc<RwLock<StatsState>>,
-    c: Connection,
-    mut raw: VecDeque<Value>,
-    mut minute: VecDeque<Value>,
-) {
-    let mut tick = interval(Duration::from_secs(1));
-    let mut previous = raw.back().cloned();
-    let mut bucket = previous
-        .as_ref()
-        .and_then(|v| v["ts"].as_i64())
-        .unwrap_or_else(now)
-        / 60;
-    let mut samples = Vec::new();
-    loop {
-        tick.tick().await;
-        let (old_ticks, old_at, old_gpu, old_refresh, pulse) = match state.read() {
-            Ok(g) => (
-                g.process_ticks.clone(),
-                g.process_sample_at,
-                g.gpu_cache.clone(),
-                g.last_gpu_refresh,
-                g.model_lane_pulse_requested.swap(false, Ordering::AcqRel)
-                    || old_elapsed(g.last_model_lane_pulse_unix.load(Ordering::Acquire)),
-            ),
-            Err(_) => continue,
-        };
-        let instant = Instant::now();
-        let elapsed = old_at.map(|at| instant.saturating_duration_since(at));
-        let mut cache = old_gpu;
-        let due = old_refresh.map_or(true, |at| at.elapsed() >= Duration::from_secs(60));
-        let mut refreshed = old_refresh;
-        if has_nvidia_gpu() && due {
-            let fresh = tokio::task::spawn_blocking(refresh_nvidia_gpu_cache)
-                .await
-                .ok()
-                .flatten()
-                .and_then(|(ok, text)| {
-                    if ok {
-                        Some(nvidia_gpu_output(&text))
-                    } else {
-                        None
-                    }
-                })
-                .filter(|v| !v.is_null());
-            if fresh.is_some() {
-                cache = fresh
-            }
-            refreshed = Some(instant)
-        }
-        let p = previous.clone();
-        let c2 = cache.clone();
-        let t2 = old_ticks.clone();
-        let (v, ticks) = match tokio::task::spawn_blocking(move || {
-            snapshot_with_state(p.as_ref(), &t2, elapsed, c2.as_ref())
+
+fn aggregate(c: &Connection, bucket: i64) -> Result<String, String> {
+    let start = bucket.saturating_mul(60);
+    let end = start.saturating_add(60);
+    let row = c
+        .query_row(AGGREGATE_SQL, params![start, end], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<f64>>(1)?,
+                row.get::<_, Option<f64>>(2)?,
+                row.get::<_, Option<f64>>(3)?,
+                row.get::<_, Option<f64>>(4)?,
+                row.get::<_, Option<f64>>(5)?,
+                row.get::<_, Option<f64>>(6)?,
+                row.get::<_, Option<f64>>(7)?,
+                row.get::<_, Option<f64>>(8)?,
+                row.get::<_, Option<f64>>(9)?,
+                row.get::<_, Option<f64>>(10)?,
+                row.get::<_, Option<f64>>(11)?,
+                row.get::<_, Option<f64>>(12)?,
+                row.get::<_, Option<f64>>(13)?,
+                row.get::<_, Option<f64>>(14)?,
+                row.get::<_, Option<f64>>(15)?,
+                row.get::<_, Option<f64>>(16)?,
+            ))
         })
-        .await
-        {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        let lanes = if pulse {
-            let x = tokio::task::spawn_blocking(scan_model_lanes)
-                .await
-                .unwrap_or_default();
-            if let Ok(g) = state.read() {
-                g.last_model_lane_pulse_unix
-                    .store(now() as u64, Ordering::Release)
-            }
-            Some(x)
-        } else {
-            None
-        };
-        let b = v["ts"].as_i64().unwrap_or(0) / 60;
-        if b != bucket && !samples.is_empty() {
-            let q = aggregate(bucket, &samples);
-            let _ = persist_minute(&c, &q);
-            minute.push_back(q);
-            while minute.len() > MINUTE_LIMIT {
-                minute.pop_front();
-            }
-            samples.clear();
-            bucket = b
+        .map_err(|error| error.to_string())?;
+    let last: Option<String> = c
+        .query_row(
+            "SELECT data FROM raw_samples WHERE ts < ?2 ORDER BY ts DESC, id DESC LIMIT 1",
+            params![start, end],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let (
+        samples,
+        load_one,
+        load_five,
+        load_fifteen,
+        temperature,
+        gpu_utilization,
+        gpu_temperature,
+        memory,
+        swap,
+        network_rx,
+        network_tx,
+        disk_read,
+        disk_write,
+        self_rss,
+        self_rss_max,
+        self_tick,
+        self_tick_max,
+    ) = row;
+    let mut result = json!({
+        "schema": "caduceus.appliance.stats.minute.v1",
+        "bucket": bucket,
+        "samples": samples,
+        "aggregation": {
+            "loadOne": sql_value(load_one),
+            "loadFive": sql_value(load_five),
+            "loadFifteen": sql_value(load_fifteen),
+            "temperatureCelsius": sql_value(temperature),
+            "gpuUtilizationPercent": sql_value(gpu_utilization),
+            "gpuTemperatureCelsius": sql_value(gpu_temperature),
+            "memoryUsedBytes": sql_value(memory),
+            "swapUsedBytes": sql_value(swap),
+            "networkRxBytesPerSecond": sql_value(network_rx),
+            "networkTxBytesPerSecond": sql_value(network_tx),
+            "diskReadBytesPerSecond": sql_value(disk_read),
+            "diskWriteBytesPerSecond": sql_value(disk_write),
+            "selfRssBytes": sql_value(self_rss),
+            "selfRssBytesMax": sql_value(self_rss_max),
+            "selfTickMillis": sql_value(self_tick),
+            "selfTickMillisMax": sql_value(self_tick_max),
+        },
+        "last": Value::Null,
+    })
+    .to_string();
+    if let Some(last) = last {
+        let marker = "\"last\":null";
+        if let Some(position) = result.find(marker) {
+            result.replace_range(
+                position..position + marker.len(),
+                &format!("\"last\":{last}"),
+            );
         }
-        samples.push(v.clone());
-        raw.push_back(v.clone());
-        while raw.len() > RAW_LIMIT {
-            raw.pop_front();
-        }
-        let _ = persist(&c, &v);
-        if let Ok(mut g) = state.write() {
-            g.raw = raw.clone();
-            g.minute = minute.clone();
-            g.process_ticks = ticks;
-            g.process_sample_at = Some(instant);
-            g.gpu_cache = cache;
-            g.last_gpu_refresh = refreshed;
-            if let Some(x) = lanes {
-                g.model_lanes = x
-            }
-        }
-        previous = Some(v)
+    }
+    Ok(result)
+}
+
+fn prune_retention(c: &mut Connection, timestamp: i64) -> Result<(), String> {
+    let mut raw = c
+        .prepare_cached("DELETE FROM raw_samples WHERE ts < ?1")
+        .map_err(|error| error.to_string())?;
+    raw.execute(params![timestamp.saturating_sub(RAW_RETENTION_SECONDS)])
+        .map_err(|error| error.to_string())?;
+    drop(raw);
+
+    let before = timestamp
+        .saturating_div(60)
+        .saturating_sub(MINUTE_RETENTION_SECONDS / 60);
+    let mut minute = c
+        .prepare_cached("DELETE FROM minute_samples WHERE bucket < ?1")
+        .map_err(|error| error.to_string())?;
+    minute
+        .execute(params![before])
+        .map_err(|error| error.to_string())?;
+    drop(minute);
+
+    let mut self_benchmark = c
+        .prepare_cached("DELETE FROM self_benchmark WHERE bucket < ?1")
+        .map_err(|error| error.to_string())?;
+    self_benchmark
+        .execute(params![before])
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn persist_raw(c: &mut Connection, ts: i64, data: &str) -> Result<(), String> {
+    let mut statement = c
+        .prepare_cached("INSERT INTO raw_samples(ts,data) VALUES(?1,?2)")
+        .map_err(|error| error.to_string())?;
+    statement
+        .execute(params![ts, data])
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn persist_minute(c: &mut Connection, bucket: i64, data: &str, benchmark: &str) -> Result<(), String> {
+    let mut minute = c
+        .prepare_cached("INSERT INTO minute_samples(bucket,data) VALUES(?1,?2)")
+        .map_err(|error| error.to_string())?;
+    minute
+        .execute(params![bucket, data])
+        .map_err(|error| error.to_string())?;
+    drop(minute);
+
+    let mut self_benchmark = c
+        .prepare_cached("INSERT INTO self_benchmark(bucket,data) VALUES(?1,?2)")
+        .map_err(|error| error.to_string())?;
+    self_benchmark
+        .execute(params![bucket, benchmark])
+        .map_err(|error| error.to_string())?;
+    drop(self_benchmark);
+
+    prune_retention(c, now())?;
+    c.execute_batch("PRAGMA wal_checkpoint(PASSIVE);")
+        .map_err(|error| error.to_string())?;
+    #[cfg(target_os = "linux")]
+    unsafe {
+        libc::malloc_trim(0);
+    }
+    Ok(())
+}
+
+fn histogram_index(duration: Duration) -> usize {
+    match duration.as_millis() {
+        0..=1 => 0,
+        2..=4 => 1,
+        5..=9 => 2,
+        10..=24 => 3,
+        25..=49 => 4,
+        50..=99 => 5,
+        100..=249 => 6,
+        _ => 7,
     }
 }
+
+fn percentile(histogram: &[u64; 8]) -> u64 {
+    let total: u64 = histogram.iter().copied().sum();
+    if total == 0 {
+        return 0;
+    }
+    let target = (total.saturating_mul(95).saturating_add(99)) / 100;
+    let mut seen = 0u64;
+    for (index, count) in histogram.iter().copied().enumerate() {
+        seen = seen.saturating_add(count);
+        if seen >= target {
+            return match index {
+                0 => 1,
+                1 => 4,
+                2 => 9,
+                3 => 24,
+                4 => 49,
+                5 => 99,
+                6 => 249,
+                _ => u64::MAX,
+            };
+        }
+    }
+    u64::MAX
+}
+
+fn scalar_percentiles(histogram: &[u64; 8]) -> Value {
+    let p50 = {
+        let total: u64 = histogram.iter().copied().sum();
+        if total == 0 {
+            0
+        } else {
+            let target = (total.saturating_add(1)) / 2;
+            let mut seen: u64 = 0;
+            let mut value = 0;
+            for (index, count) in histogram.iter().copied().enumerate() {
+                seen = seen.saturating_add(count);
+                if seen >= target {
+                    value = match index {
+                        0 => 1,
+                        1 => 4,
+                        2 => 9,
+                        3 => 24,
+                        4 => 49,
+                        5 => 99,
+                        6 => 249,
+                        _ => u64::MAX,
+                    };
+                    break;
+                }
+            }
+            value
+        }
+    };
+    let p95 = percentile(histogram);
+    let max = histogram
+        .iter()
+        .rposition(|count| *count != 0)
+        .map(|index| match index {
+            0 => 1,
+            1 => 4,
+            2 => 9,
+            3 => 24,
+            4 => 49,
+            5 => 99,
+            6 => 249,
+            _ => u64::MAX,
+        })
+        .unwrap_or(0);
+    json!({"p50Millis":p50,"p95Millis":p95,"maxMillis":max})
+}
+
+fn route_percentiles(histogram: &[u64; 32]) -> (u64, u64, u64) {
+    let total: u64 = histogram.iter().copied().sum();
+    if total == 0 {
+        return (0, 0, 0);
+    }
+    let quantile = |fraction: u64| {
+        let target = (total.saturating_mul(fraction).saturating_add(99)) / 100;
+        let mut seen = 0u64;
+        for (index, count) in histogram.iter().copied().enumerate() {
+            seen = seen.saturating_add(count);
+            if seen >= target {
+                return if index == 0 {
+                    1
+                } else {
+                    (1u64 << (index + 1)).saturating_sub(1)
+                };
+            }
+        }
+        u64::MAX
+    };
+    let max = histogram
+        .iter()
+        .rposition(|count| *count != 0)
+        .map(|index| {
+            if index == 0 {
+                1
+            } else {
+                (1u64 << (index + 1)).saturating_sub(1)
+            }
+        })
+        .unwrap_or(0);
+    (quantile(50), quantile(95), max)
+}
+
+fn route_benchmark(doors: &crate::routes::leaf_appliance_stats::DoorSnapshot) -> Value {
+    let mut result = serde_json::Map::new();
+    for (index, label) in crate::routes::leaf_appliance_stats::ROUTE_LABELS
+        .iter()
+        .enumerate()
+    {
+        let (p50, p95, max) = route_percentiles(&doors.latency_log2[index]);
+        result.insert(
+            (*label).to_owned(),
+            json!({
+                "requests": doors.requests[index],
+                "errors": doors.errors[index],
+                "p50Millis": p50,
+                "p95Millis": p95,
+                "maxMillis": max,
+            }),
+        );
+    }
+    Value::Object(result)
+}
+
+fn benchmark(
+    bucket: i64,
+    tick_histogram: &[u64; 8],
+    persist_histogram: &[u64; 8],
+    rss_start: u64,
+    rss_end: u64,
+    rss_max: u64,
+    doors: &crate::routes::leaf_appliance_stats::DoorSnapshot,
+    c: &Connection,
+) -> Result<String, String> {
+    let (db_bytes, wal_bytes) = db_file_bytes();
+    let raw_rows = c
+        .query_row("SELECT COUNT(*) FROM raw_samples", [], |row| {
+            row.get::<_, u64>(0)
+        })
+        .map_err(|error| error.to_string())?;
+    let minute_rows = c
+        .query_row("SELECT COUNT(*) FROM minute_samples", [], |row| {
+            row.get::<_, u64>(0)
+        })
+        .map_err(|error| error.to_string())?;
+    let (anon_mappings_over_64_mib, _) =
+        proc_maps_metrics(&read_text("/proc/self/maps").unwrap_or_default());
+    let value = json!({
+        "schema": "caduceus.self.benchmark.v1",
+        "bucket": bucket,
+        "tick": scalar_percentiles(tick_histogram),
+        "persist": scalar_percentiles(persist_histogram),
+        "rss": {
+            "startBytes": rss_start,
+            "endBytes": rss_end,
+            "deltaBytes": rss_end.saturating_sub(rss_start),
+            "maxBytes": rss_max,
+        },
+        "db": {
+            "bytes": db_bytes,
+            "walBytes": wal_bytes,
+            "rawRows": raw_rows,
+            "minuteRows": minute_rows,
+        },
+        "arena": {
+            "anonMappingsOver64MiB": anon_mappings_over_64_mib,
+        },
+        "doors": route_benchmark(doors),
+        "mallocTrim": true,
+    });
+    Ok(value.to_string())
+}
+
+fn collector_error(state: &Arc<RwLock<StatsState>>, error: String) {
+    if let Ok(mut guard) = state.write() {
+        guard.error = Some(format!("{UNAVAILABLE}: {error}"));
+    }
+}
+
+fn clear_collector_error(state: &Arc<RwLock<StatsState>>) {
+    if let Ok(mut guard) = state.write() {
+        guard.error = None;
+    }
+}
+
+fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
+    let mut next = Instant::now() + Duration::from_secs(1);
+    let mut previous: Option<Value> = None;
+    let mut previous_self_ticks: Option<u64> = None;
+    let mut previous_persist_millis: Option<u64> = None;
+    let mut bucket = now() / 60;
+    let mut tick_histogram = [0u64; 8];
+    let mut persist_histogram = [0u64; 8];
+    let mut bucket_rss_start = 0u64;
+    let mut bucket_rss_end = 0u64;
+    let mut bucket_rss_max = 0u64;
+    let mut minute_doors = crate::routes::leaf_appliance_stats::DoorSnapshot::default();
+    let mut process_ticks = BTreeMap::new();
+    let mut process_sample_at: Option<Instant> = None;
+    let mut gpu_cache = None;
+    let mut last_gpu_refresh: Option<Instant> = None;
+    loop {
+        let delay = next.saturating_duration_since(Instant::now());
+        if !delay.is_zero() {
+            thread::sleep(delay);
+        }
+        next += Duration::from_secs(1);
+        let instant = Instant::now();
+        let elapsed = process_sample_at.map(|at| instant.saturating_duration_since(at));
+        let pulse = match state.read() {
+            Ok(guard) => {
+                guard
+                    .model_lane_pulse_requested
+                    .swap(false, Ordering::AcqRel)
+                    || old_elapsed(guard.last_model_lane_pulse_unix.load(Ordering::Acquire))
+            }
+            Err(_) => false,
+        };
+        if has_nvidia_gpu()
+            && last_gpu_refresh.map_or(true, |at| at.elapsed() >= Duration::from_secs(60))
+        {
+            if let Some((ok, output)) = refresh_nvidia_gpu_cache() {
+                if ok {
+                    let value = nvidia_gpu_output(&output);
+                    if !value.is_null() {
+                        gpu_cache = Some(value);
+                    }
+                }
+            }
+            last_gpu_refresh = Some(instant);
+        }
+        if pulse {
+            let lanes = scan_model_lanes();
+            if let Ok(guard) = state.read() {
+                guard
+                    .last_model_lane_pulse_unix
+                    .store(now() as u64, Ordering::Release);
+            }
+            if let Ok(mut guard) = state.write() {
+                guard.model_lanes = lanes;
+            }
+        }
+
+        let current_bucket = now() / 60;
+        let mut rollover_failed = false;
+        if current_bucket != bucket {
+            let completed_doors = std::mem::take(&mut minute_doors);
+            let result = aggregate(&connection, bucket).and_then(|minute| {
+                benchmark(
+                    bucket,
+                    &tick_histogram,
+                    &persist_histogram,
+                    bucket_rss_start,
+                    bucket_rss_end,
+                    bucket_rss_max,
+                    &completed_doors,
+                    &connection,
+                )
+                .and_then(|benchmark| persist_minute(&mut connection, bucket, &minute, &benchmark))
+            });
+            if let Err(error) = result {
+                rollover_failed = true;
+                collector_error(&state, error);
+            }
+            bucket = current_bucket;
+            tick_histogram = [0; 8];
+            persist_histogram = [0; 8];
+            bucket_rss_start = 0;
+            bucket_rss_max = 0;
+        }
+        let door_snapshot = crate::routes::leaf_appliance_stats::snapshot_and_reset();
+        minute_doors.add_assign(&door_snapshot);
+        let doors = door_snapshot.as_value();
+        let sample_started = Instant::now();
+        let (mut value, ticks, self_ticks, self_rss) = snapshot_with_state(
+            previous.as_ref(),
+            &process_ticks,
+            elapsed,
+            gpu_cache.as_ref(),
+            doors,
+            0,
+            previous_persist_millis.unwrap_or(0),
+            previous_self_ticks,
+        );
+        let sample_millis = sample_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        value["self"]["tickMillis"] = json!(sample_millis);
+        let tick_bin = histogram_index(Duration::from_millis(sample_millis));
+        tick_histogram[tick_bin] = tick_histogram[tick_bin].saturating_add(1);
+        process_ticks = ticks;
+        process_sample_at = Some(instant);
+        previous_self_ticks = self_ticks;
+        if bucket_rss_start == 0 {
+            bucket_rss_start = self_rss;
+        }
+        bucket_rss_end = self_rss;
+        bucket_rss_max = bucket_rss_max.max(self_rss);
+
+        let data: Arc<str> = Arc::from(value.to_string());
+        let ts = value["ts"].as_i64().unwrap_or_else(now);
+        let persist_started = Instant::now();
+        let write_result = persist_raw(&mut connection, ts, data.as_ref());
+        let persist_millis = persist_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        let persist_bin = histogram_index(Duration::from_millis(persist_millis));
+        persist_histogram[persist_bin] = persist_histogram[persist_bin].saturating_add(1);
+        if let Err(error) = write_result {
+            collector_error(&state, error);
+        } else {
+            previous_persist_millis = Some(persist_millis);
+            if !rollover_failed {
+                clear_collector_error(&state);
+            }
+            if let Ok(mut guard) = state.write() {
+                guard.latest = Some(Arc::clone(&data));
+                guard.latest_ts = ts;
+                guard.process_ticks = process_ticks.clone();
+                guard.process_sample_at = process_sample_at;
+                guard.gpu_cache = gpu_cache.clone();
+                guard.last_gpu_refresh = last_gpu_refresh;
+            }
+        }
+        previous = Some(value);
+    }
+}
+
 fn old_elapsed(last: u64) -> bool {
     now().max(0) as u64 >= last.saturating_add(MODEL_LANE_PULSE_INTERVAL)
 }
+
 pub fn start() {
     if STATE.get().is_some() {
         return;
     }
-    match open_db().and_then(|c| load_state(&c).map(|(r, m)| (c, r, m))) {
-        Ok((c, r, m)) => {
-            let state = Arc::new(RwLock::new(StatsState {
-                raw: r.clone(),
-                minute: m.clone(),
-                model_lanes: Vec::new(),
-                last_model_lane_pulse_unix: AtomicU64::new(0),
-                model_lane_pulse_requested: AtomicBool::new(false),
-                error: None,
-                process_ticks: BTreeMap::new(),
-                process_sample_at: None,
-                gpu_cache: None,
-                last_gpu_refresh: None,
-            }));
-            let _ = STATE.set(state.clone());
-            tokio::spawn(collect_loop(state, c, r, m));
+    let state = Arc::new(RwLock::new(StatsState {
+        latest: None,
+        latest_ts: 0,
+        model_lanes: Vec::new(),
+        last_model_lane_pulse_unix: AtomicU64::new(0),
+        model_lane_pulse_requested: AtomicBool::new(false),
+        error: None,
+        process_ticks: BTreeMap::new(),
+        process_sample_at: None,
+        gpu_cache: None,
+        last_gpu_refresh: None,
+    }));
+    let _ = STATE.set(Arc::clone(&state));
+    match open_db() {
+        Ok(connection) => {
+            if let Err(error) = thread::Builder::new()
+                .name("caduceus-stats".to_owned())
+                .spawn(move || collect_loop(state, connection))
+            {
+                collector_error(STATE.get().expect("stats state"), error.to_string());
+            }
         }
-        Err(e) => {
-            let _ = STATE.set(Arc::new(RwLock::new(StatsState {
-                raw: VecDeque::new(),
-                minute: VecDeque::new(),
-                model_lanes: Vec::new(),
-                last_model_lane_pulse_unix: AtomicU64::new(0),
-                model_lane_pulse_requested: AtomicBool::new(false),
-                error: Some(format!("{UNAVAILABLE}: {e}")),
-                process_ticks: BTreeMap::new(),
-                process_sample_at: None,
-                gpu_cache: None,
-                last_gpu_refresh: None,
-            })));
-        }
+        Err(error) => collector_error(&state, error),
     }
 }
+
 fn state() -> Result<Arc<RwLock<StatsState>>, String> {
     STATE
         .get()
         .cloned()
         .ok_or_else(|| format!("{UNAVAILABLE}: not started"))
 }
+
 pub fn snapshot() -> Value {
-    snapshot_with_state(None, &BTreeMap::new(), None, None).0
-}
-pub fn current() -> Result<Value, String> {
-    let s = state()?;
-    let g = s.read().map_err(|_| format!("{UNAVAILABLE}: state lock"))?;
-    if let Some(e) = &g.error {
-        return Err(e.clone());
-    }
-    let mut current = g
-        .raw
-        .back()
-        .cloned()
-        .ok_or_else(|| format!("{UNAVAILABLE}: no samples yet"))?;
-    current["model_lanes"] = json!(g.model_lanes);
-    Ok(current)
-}
-pub fn request_model_lane_pulse() -> Result<Value, String> {
-    let s = state()?;
-    let g = s.read().map_err(|_| format!("{UNAVAILABLE}: state lock"))?;
-    g.model_lane_pulse_requested.store(true, Ordering::Release);
-    Ok(json!(g.model_lanes))
-}
-pub fn history() -> Result<Value, String> {
-    let s = state()?;
-    let g = s.read().map_err(|_| format!("{UNAVAILABLE}: state lock"))?;
-    if let Some(e) = &g.error {
-        return Err(e.clone());
-    }
-    Ok(
-        json!({"schema":"caduceus.appliance.stats.history.v1","retention":{"rawSeconds":3600,"rawMaxPoints":RAW_LIMIT,"minuteSeconds":604800,"minuteMaxPoints":MINUTE_LIMIT},"consolidation":{"raw":"one-second samples","minute":{"averages":["load.one","load.five","load.fifteen","temperature.celsius","gpu.utilizationPercent","gpu.temperatureCelsius","memory.usedBytes","memory.usedBytesSwap","network.throughput","disk.throughput"],"lastValue":["cumulative counters","point-in-time gauges/lists: interfaces,tcp,temperature.bySource,fans,gpu,disk.usage,disk.io,processes"]}},"tiers":{"raw":g.raw,"minute":g.minute}}),
+    snapshot_with_state(
+        None,
+        &BTreeMap::new(),
+        None,
+        None,
+        crate::routes::leaf_appliance_stats::door_stats(false),
+        0,
+        0,
+        None,
     )
+    .0
+}
+
+fn splice_model_lanes(raw: &str, model_lanes: &[Value]) -> String {
+    let encoded = serde_json::to_string(model_lanes).unwrap_or_else(|_| "[]".to_owned());
+    let Some(end) = raw.rfind('}') else {
+        return raw.to_owned();
+    };
+    let mut output = raw.to_owned();
+    output.insert_str(end, &format!(",\"model_lanes\":{encoded}"));
+    output
+}
+
+pub fn current() -> Result<String, String> {
+    let state = state()?;
+    let guard = state
+        .read()
+        .map_err(|_| format!("{UNAVAILABLE}: state lock"))?;
+    if let Some(error) = &guard.error {
+        return Err(error.clone());
+    }
+    let latest = guard
+        .latest
+        .as_deref()
+        .ok_or_else(|| format!("{UNAVAILABLE}: no samples yet"))?;
+    Ok(splice_model_lanes(latest, &guard.model_lanes))
+}
+
+pub fn request_model_lane_pulse() -> Result<Value, String> {
+    let state = state()?;
+    let guard = state
+        .read()
+        .map_err(|_| format!("{UNAVAILABLE}: state lock"))?;
+    guard
+        .model_lane_pulse_requested
+        .store(true, Ordering::Release);
+    Ok(json!(guard.model_lanes))
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HistoryQuery {
+    pub tier: Option<String>,
+    pub since: Option<i64>,
+    pub until: Option<i64>,
+    pub limit: Option<usize>,
+}
+
+fn history_array(
+    c: &Connection,
+    sql: &str,
+    since: i64,
+    until: i64,
+    limit: usize,
+) -> Result<String, String> {
+    let mut statement = c.prepare(sql).map_err(|error| error.to_string())?;
+    let count: usize = c
+        .query_row(
+            &format!("SELECT COUNT(*) FROM ({sql})"),
+            params![since, until, limit],
+            |row| row.get::<_, usize>(0),
+        )
+        .unwrap_or(0);
+    let mut output = String::with_capacity(count.saturating_mul(256).saturating_add(2));
+    output.push('[');
+    let rows = statement
+        .query_map(params![since, until, limit], |row| row.get::<_, String>(0))
+        .map_err(|error| error.to_string())?;
+    for (index, row) in rows.enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str(&row.map_err(|error| error.to_string())?);
+    }
+    output.push(']');
+    Ok(output)
+}
+
+pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
+    let tier = query.tier.as_deref().unwrap_or("both");
+    if !matches!(tier, "raw" | "minute" | "both" | "self") {
+        return Err(format!("{UNAVAILABLE}: invalid history tier"));
+    }
+    let limit = query
+        .limit
+        .unwrap_or(RAW_RETENTION_SECONDS as usize)
+        .clamp(1, 20_000);
+    let until = query.until.unwrap_or_else(now);
+    let default_retention = if tier == "raw" {
+        RAW_RETENTION_SECONDS
+    } else {
+        MINUTE_RETENTION_SECONDS
+    };
+    let since = query
+        .since
+        .unwrap_or_else(|| until.saturating_sub(default_retention));
+    let raw_since = since.max(until.saturating_sub(RAW_RETENTION_SECONDS));
+    let minute_points = MINUTE_RETENTION_SECONDS / 60;
+    let db = Connection::open_with_flags(
+        db_path(),
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|error| format!("{UNAVAILABLE}: {error}"))?;
+    let raw = if matches!(tier, "raw" | "both") {
+        history_array(
+            &db,
+            "SELECT data FROM raw_samples WHERE ts >= ?1 AND ts <= ?2 ORDER BY ts ASC,id ASC LIMIT ?3",
+            raw_since,
+            until,
+            limit,
+        )?
+    } else {
+        "[]".to_owned()
+    };
+    let minute = if matches!(tier, "minute" | "both") {
+        history_array(
+            &db,
+            "SELECT data FROM minute_samples WHERE bucket >= (?1 / 60) AND bucket <= (?2 / 60) ORDER BY bucket ASC,id ASC LIMIT ?3",
+            since,
+            until,
+            limit,
+        )?
+    } else {
+        "[]".to_owned()
+    };
+    let self_benchmark = if tier == "self" {
+        history_array(
+            &db,
+            "SELECT data FROM self_benchmark WHERE bucket >= (?1 / 60) AND bucket <= (?2 / 60) ORDER BY bucket ASC,id ASC LIMIT ?3",
+            since,
+            until,
+            limit,
+        )?
+    } else {
+        "[]".to_owned()
+    };
+    Ok(format!(
+        "{{\"schema\":\"caduceus.appliance.stats.history.v1\",\"retention\":{{\"rawSeconds\":{RAW_RETENTION_SECONDS},\"rawMaxPoints\":{RAW_RETENTION_SECONDS},\"minuteSeconds\":{MINUTE_RETENTION_SECONDS},\"minuteMaxPoints\":{minute_points},\"selfSeconds\":{MINUTE_RETENTION_SECONDS},\"selfMaxPoints\":{minute_points}}},\"consolidation\":{{\"raw\":\"sqlite-backed one-second samples\",\"minute\":{{\"averages\":[\"load.one\",\"load.five\",\"load.fifteen\",\"temperature.celsius\",\"gpu.utilizationPercent\",\"gpu.temperatureCelsius\",\"memory.usedBytes\",\"memory.usedBytesSwap\",\"network.throughput\",\"disk.throughput\",\"self.rssBytes\",\"self.tickMillis\"]}}}},\"window\":{{\"tier\":{},\"since\":{},\"until\":{},\"limit\":{}}},\"tiers\":{{\"raw\":{},\"minute\":{},\"self\":{}}}}}",
+        serde_json::to_string(tier).unwrap_or_else(|_| "\"both\"".to_owned()),
+        since,
+        until,
+        limit,
+        raw,
+        minute,
+        self_benchmark,
+    ))
+}
+
+pub fn history(query: HistoryQuery) -> Result<String, String> {
+    history_with_query(query)
 }

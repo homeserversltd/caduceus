@@ -74,8 +74,8 @@ fn maintenance_tick() -> Result<(), String> {
 }
 
 fn vacuum_journal() -> Result<u64, String> {
-    let output = Command::new("journalctl")
-        .arg("--vacuum-size=300M")
+    let output = Command::new("/usr/bin/sudo")
+        .args(["-n", "/usr/bin/journalctl", "--vacuum-size=300M"])
         .env("LC_ALL", "C")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -84,7 +84,11 @@ fn vacuum_journal() -> Result<u64, String> {
     let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&output.stderr));
     if !output.status.success() {
-        return Err(format!("journalctl exited {}", output.status));
+        return Err(String::from_utf8_lossy(&output.stderr)
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_string());
     }
     Ok(parse_freed(&text))
 }

@@ -27,6 +27,7 @@ use std::{
         unix::fs::{FileTypeExt, MetadataExt, PermissionsExt},
     },
     path::{Path, PathBuf},
+    time::Instant,
 };
 use tokio::{
     net::{TcpListener, UnixListener, UnixStream},
@@ -109,22 +110,35 @@ pub(crate) fn missing_signal(err: &str) -> &'static str {
         "caduceus-profile-missing"
     }
 }
+pub(crate) fn service_unavailable(command: &str, signal: &str) -> (StatusCode, Json<ApiErrorBody>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(ApiErrorBody {
+            schema: "caduceus.api.error.v1",
+            ok: false,
+            command: command.into(),
+            first_missing_signal: signal.into(),
+        }),
+    )
+}
 pub(crate) async fn gated_json(
     command: &str,
     read: fn() -> Result<Value, String>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
-        Ok(true) => read().map(Json).map_err(|err| {
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(ApiErrorBody {
-                    schema: "caduceus.api.error.v1",
-                    ok: false,
-                    command: command.into(),
-                    first_missing_signal: missing_signal(&err).into(),
-                }),
-            )
-        }),
+        Ok(true) => read()
+            .map(Json)
+            .map_err(|err| service_unavailable(command, missing_signal(&err))),
+        Ok(false) => Err(api_error(command)),
+        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+    }
+}
+pub(crate) async fn gated_body(
+    command: &str,
+    read: fn() -> Result<String, String>,
+) -> Result<String, (StatusCode, Json<ApiErrorBody>)> {
+    match policy::allows_command(command) {
+        Ok(true) => read().map_err(|err| service_unavailable(command, missing_signal(&err))),
         Ok(false) => Err(api_error(command)),
         Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
     }
@@ -220,6 +234,18 @@ pub(crate) async fn local_access_route(request: Request<Body>, next: middleware:
     next.run(request).await
 }
 
+async fn self_telemetry_route(request: Request<Body>, next: middleware::Next) -> Response {
+    let path = request.uri().path().to_owned();
+    let started = Instant::now();
+    let response = next.run(request).await;
+    crate::routes::leaf_appliance_stats::record_request(
+        &path,
+        response.status(),
+        started.elapsed(),
+    );
+    response
+}
+
 async fn health_route() -> Json<LivenessBody> {
     Json(LivenessBody {
         schema: "caduceus.liveness.v1",
@@ -262,12 +288,13 @@ fn audit_doors() -> Result<(), String> {
     Ok(())
 }
 pub fn router() -> Router {
-    crate::routes::register_selected(
+    let router = crate::routes::register_selected(
         Router::new()
             .route("/health", get(health_route))
             .route("/api/v1/doors", get(doors_route))
             .layer(DefaultBodyLimit::max(8192)),
-    )
+    );
+    router.layer(middleware::from_fn(self_telemetry_route))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -20,6 +20,7 @@ fn stats_contract_keeps_subprocesses_bounded_and_sample_keys_stable() {
         Some("caduceus.appliance.stats.sample.v1")
     );
     let expected = BTreeSet::from([
+        "self",
         "ts",
         "collectedAt",
         "load",
