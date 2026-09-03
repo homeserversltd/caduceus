@@ -454,8 +454,24 @@ pub fn prepare_staff_socket(path: &Path) -> Result<(UnixListener, SocketIdentity
     };
     if unsafe { chown(cpath.as_ptr().cast(), uid, gid) } != 0 {
         let e = std::io::Error::last_os_error();
-        let _ = cleanup_staff_socket(path, &id);
-        return Err(format!("staff-socket-owner: {e}"));
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            // The service account is not a member of the declared staff group, so the
+            // kernel refuses the group change. The socket stays owned by this process's
+            // own uid:gid at 0660; root staff clients connect regardless. A service
+            // SHALL NOT crash-loop over a group it cannot own: witness it and serve.
+            eprintln!(
+                "{}",
+                serde_json::json!({
+                    "event": "caduceus-staff-socket-group-unowned",
+                    "group": group,
+                    "gid": gid,
+                    "firstMissingSignal": "caduceus-staff-socket-group-unowned",
+                })
+            );
+        } else {
+            let _ = cleanup_staff_socket(path, &id);
+            return Err(format!("staff-socket-owner: {e}"));
+        }
     }
     let mut perms = match fs::metadata(path) {
         Ok(m) => m.permissions(),
