@@ -84,11 +84,16 @@ fn vacuum_journal() -> Result<u64, String> {
     let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&output.stderr));
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr)
+        let first_line = String::from_utf8_lossy(&output.stderr)
             .lines()
             .next()
             .unwrap_or_default()
-            .to_string());
+            .to_string();
+        return Err(if first_line.is_empty() {
+            format!("journalctl exited {}", output.status)
+        } else {
+            format!("journalctl exited {}: {first_line}", output.status)
+        });
     }
     Ok(parse_freed(&text))
 }

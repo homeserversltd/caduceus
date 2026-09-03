@@ -21,6 +21,9 @@ use std::{
 
 const RAW_RETENTION_SECONDS: i64 = 3600;
 const MINUTE_RETENTION_SECONDS: i64 = 604_800;
+const RAW_HISTORY_DEFAULT_LIMIT: usize = 3600;
+const MINUTE_HISTORY_DEFAULT_LIMIT: usize = 10_080;
+const HISTORY_LIMIT_MAX: usize = 20_000;
 const UNAVAILABLE: &str = "collector unavailable";
 struct StatsState {
     latest: Option<Arc<str>>,
@@ -1248,6 +1251,7 @@ fn benchmark(
     rss_start: u64,
     rss_end: u64,
     rss_max: u64,
+    skipped_ticks: u64,
     doors: &crate::routes::leaf_appliance_stats::DoorSnapshot,
     c: &Connection,
 ) -> Result<String, String> {
@@ -1268,6 +1272,7 @@ fn benchmark(
         "schema": "caduceus.self.benchmark.v1",
         "bucket": bucket,
         "tick": scalar_percentiles(tick_histogram),
+        "skippedTicks": skipped_ticks,
         "persist": scalar_percentiles(persist_histogram),
         "rss": {
             "startBytes": rss_start,
@@ -1318,7 +1323,14 @@ fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
     let mut process_sample_at: Option<Instant> = None;
     let mut gpu_cache = None;
     let mut last_gpu_refresh: Option<Instant> = None;
+    let mut skipped_ticks = 0u64;
     loop {
+        let behind = Instant::now().saturating_duration_since(next);
+        if behind > Duration::from_secs(1) {
+            // Stalled (suspend, slow tick, scheduler): resnap instead of bursting catch-up samples.
+            skipped_ticks = skipped_ticks.saturating_add(behind.as_secs());
+            next = Instant::now();
+        }
         let delay = next.saturating_duration_since(Instant::now());
         if !delay.is_zero() {
             thread::sleep(delay);
@@ -1372,6 +1384,7 @@ fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
                     bucket_rss_start,
                     bucket_rss_end,
                     bucket_rss_max,
+                    skipped_ticks,
                     &completed_doors,
                     &connection,
                 )
@@ -1386,6 +1399,7 @@ fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
             persist_histogram = [0; 8];
             bucket_rss_start = 0;
             bucket_rss_max = 0;
+            skipped_ticks = 0;
         }
         let door_snapshot = crate::routes::leaf_appliance_stats::snapshot_and_reset();
         minute_doors.add_assign(&door_snapshot);
@@ -1548,24 +1562,24 @@ fn history_array(
     until: i64,
     limit: usize,
 ) -> Result<String, String> {
+    // The SQL selects newest-first so a limit keeps the most recent rows;
+    // the array is emitted oldest-first without parsing any stored JSON.
     let mut statement = c.prepare(sql).map_err(|error| error.to_string())?;
-    let count: usize = c
-        .query_row(
-            &format!("SELECT COUNT(*) FROM ({sql})"),
-            params![since, until, limit],
-            |row| row.get::<_, usize>(0),
-        )
-        .unwrap_or(0);
-    let mut output = String::with_capacity(count.saturating_mul(256).saturating_add(2));
-    output.push('[');
     let rows = statement
         .query_map(params![since, until, limit], |row| row.get::<_, String>(0))
         .map_err(|error| error.to_string())?;
-    for (index, row) in rows.enumerate() {
+    let mut collected: Vec<String> = Vec::with_capacity(limit.min(HISTORY_LIMIT_MAX));
+    for row in rows {
+        collected.push(row.map_err(|error| error.to_string())?);
+    }
+    let bytes = collected.iter().map(|row| row.len() + 1).sum::<usize>();
+    let mut output = String::with_capacity(bytes.saturating_add(2));
+    output.push('[');
+    for (index, row) in collected.iter().rev().enumerate() {
         if index != 0 {
             output.push(',');
         }
-        output.push_str(&row.map_err(|error| error.to_string())?);
+        output.push_str(row);
     }
     output.push(']');
     Ok(output)
@@ -1576,10 +1590,18 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
     if !matches!(tier, "raw" | "minute" | "both" | "self") {
         return Err(format!("{UNAVAILABLE}: invalid history tier"));
     }
-    let limit = query
+    let raw_limit = query
         .limit
-        .unwrap_or(RAW_RETENTION_SECONDS as usize)
-        .clamp(1, 20_000);
+        .unwrap_or(RAW_HISTORY_DEFAULT_LIMIT)
+        .clamp(1, HISTORY_LIMIT_MAX);
+    let minute_limit = query
+        .limit
+        .unwrap_or(MINUTE_HISTORY_DEFAULT_LIMIT)
+        .clamp(1, HISTORY_LIMIT_MAX);
+    let limit_window = match query.limit {
+        Some(limit) => json!(limit.clamp(1, HISTORY_LIMIT_MAX)),
+        None => json!({"raw": RAW_HISTORY_DEFAULT_LIMIT, "minute": MINUTE_HISTORY_DEFAULT_LIMIT, "self": MINUTE_HISTORY_DEFAULT_LIMIT}),
+    };
     let until = query.until.unwrap_or_else(now);
     let default_retention = if tier == "raw" {
         RAW_RETENTION_SECONDS
@@ -1599,10 +1621,10 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
     let raw = if matches!(tier, "raw" | "both") {
         history_array(
             &db,
-            "SELECT data FROM raw_samples WHERE ts >= ?1 AND ts <= ?2 ORDER BY ts ASC,id ASC LIMIT ?3",
+            "SELECT data FROM raw_samples WHERE ts >= ?1 AND ts <= ?2 ORDER BY ts DESC,id DESC LIMIT ?3",
             raw_since,
             until,
-            limit,
+            raw_limit,
         )?
     } else {
         "[]".to_owned()
@@ -1610,10 +1632,10 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
     let minute = if matches!(tier, "minute" | "both") {
         history_array(
             &db,
-            "SELECT data FROM minute_samples WHERE bucket >= (?1 / 60) AND bucket <= (?2 / 60) ORDER BY bucket ASC,id ASC LIMIT ?3",
+            "SELECT data FROM minute_samples WHERE bucket >= (?1 / 60) AND bucket <= (?2 / 60) ORDER BY bucket DESC,id DESC LIMIT ?3",
             since,
             until,
-            limit,
+            minute_limit,
         )?
     } else {
         "[]".to_owned()
@@ -1621,10 +1643,10 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
     let self_benchmark = if tier == "self" {
         history_array(
             &db,
-            "SELECT data FROM self_benchmark WHERE bucket >= (?1 / 60) AND bucket <= (?2 / 60) ORDER BY bucket ASC,id ASC LIMIT ?3",
+            "SELECT data FROM self_benchmark WHERE bucket >= (?1 / 60) AND bucket <= (?2 / 60) ORDER BY bucket DESC,id DESC LIMIT ?3",
             since,
             until,
-            limit,
+            minute_limit,
         )?
     } else {
         "[]".to_owned()
@@ -1634,7 +1656,7 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
         serde_json::to_string(tier).unwrap_or_else(|_| "\"both\"".to_owned()),
         since,
         until,
-        limit,
+        limit_window,
         raw,
         minute,
         self_benchmark,
