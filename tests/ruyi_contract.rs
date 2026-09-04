@@ -35,10 +35,16 @@ impl Fixture {
         ));
         fs::create_dir_all(&root).unwrap();
         let unbound_root = root.join("etc/unbound");
-        fs::create_dir_all(&unbound_root).unwrap();
+        let dns_dir = unbound_root.join("unbound.conf.d");
+        fs::create_dir_all(&dns_dir).unwrap();
         fs::write(
             unbound_root.join("unbound.conf"),
-            "server:\n  local-data: \"fixture-host.home.arpa. IN A 192.0.2.44\"\n  local-data: \"updated-host.home.arpa. IN A 192.0.2.45\"\n",
+            "server:\n  local-data: \"fixture-host.home.arpa. IN A 192.0.2.44\"\n",
+        )
+        .unwrap();
+        fs::write(
+            dns_dir.join("fixture.conf"),
+            "server:\n  local-data: \"updated-host.home.arpa. IN A 192.0.2.45\"\n",
         )
         .unwrap();
         let prior_root = env::var_os("CADUCEUS_ROOT");
@@ -279,11 +285,16 @@ async fn ruyi_mac_upsert_order_and_old_timestamp_survive_later_write() {
     let _lock = ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let _fixture = Fixture::new();
+    let fixture = Fixture::new();
     let first = "aa:bb:cc:dd:ee:ff";
     let second = "bb:cc:dd:ee:ff:00";
     let old_mac = "cc:dd:ee:ff:00:11";
     assert_eq!(put(first, row(first)).await.0, StatusCode::OK);
+    fs::write(
+        fixture.root.join("etc/unbound/unbound.conf.d/fixture.conf"),
+        "server:\n  local-data: \"updated-host.home.arpa. IN A 192.0.2.46\"\n  local-data: \"fixture-host.home.arpa. IN A 192.0.2.44\"\n",
+    )
+    .unwrap();
     let mut update = row(first);
     update["hostname"] = json!("updated-host");
     update["canonical_name"] = json!("updated-host.home.arpa");
@@ -335,7 +346,7 @@ async fn ruyi_dhcp_conflict_does_not_override_submitted_identity_or_dns_ipv4() {
     let kea = fixture.root.join("etc/kea/kea-dhcp4.conf");
     let unbound_dir = fixture.root.join("etc/unbound/unbound.conf.d");
     fs::create_dir_all(kea.parent().unwrap()).unwrap();
-    fs::create_dir_all(&unbound_dir).unwrap();
+    fs::remove_file(unbound_dir.join("fixture.conf")).unwrap();
     fs::write(
         &kea,
         r#"{"Dhcp4":{"subnet4":[{"reservations":[{"hw-address":"AA-BB-CC-DD-EE-FF","hostname":"gateway-host","ip-address":"192.0.2.99"}]}]}}"#,
@@ -367,6 +378,7 @@ async fn ruyi_missing_dns_refuses_put_without_overwriting_stored_row() {
     assert_eq!(put(mac, row(mac)).await.0, StatusCode::OK);
 
     fs::remove_file(fixture.root.join("etc/unbound/unbound.conf")).unwrap();
+    fs::remove_file(fixture.root.join("etc/unbound/unbound.conf.d/fixture.conf")).unwrap();
     let mut attempted = row(mac);
     attempted["hostname"] = json!("updated-host");
     attempted["canonical_name"] = json!("updated-host.home.arpa");
