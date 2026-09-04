@@ -10,6 +10,7 @@ commands:
 - hyalos reflect
 - hyalos append
 - hyalos tail
+- appliance stats read
 - pjlink devices
 - pjlink power status
 - pjlink power set
@@ -78,6 +79,7 @@ routes:
 - appliance/claim
 - appliance/name
 - appliance/report
+- appliance/stats
 - cartridges/admit
 - cartridges/list
 - cartridges/remove
