@@ -224,13 +224,19 @@ fn unbound_records(root: &FsPath) -> Vec<(String, String, Ipv4Addr)> {
         .collect()
 }
 
-fn unbound_ipv4_for_hostname(hostname: &str) -> Option<Ipv4Addr> {
+fn unbound_dns_view(root: &FsPath) -> Option<Vec<(String, String, Ipv4Addr)>> {
+    let records = unbound_records(root);
+    (!records.is_empty()).then_some(records)
+}
+
+fn unbound_ipv4_for_hostname(
+    records: &[(String, String, Ipv4Addr)],
+    hostname: &str,
+) -> Option<Ipv4Addr> {
     let canonical_name = format!("{hostname}.home.arpa");
-    unbound_records(&crate::shared::config::path("etc/unbound"))
-        .into_iter()
-        .find_map(|(name, dns_hostname, ipv4)| {
-            (name == canonical_name && dns_hostname == hostname).then_some(ipv4)
-        })
+    records.iter().find_map(|(name, dns_hostname, ipv4)| {
+        (name == &canonical_name && dns_hostname == hostname).then_some(*ipv4)
+    })
 }
 
 async fn put(
@@ -246,14 +252,16 @@ async fn put(
         return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"));
     }
     let canonical_name = format!("{}.home.arpa", row.hostname);
-    let dns_ipv4 = unbound_ipv4_for_hostname(&row.hostname).ok_or_else(|| {
-        error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "caduceus-ruyi-dns-unresolved",
-        )
-    })?;
+    if let Some(records) = unbound_dns_view(&crate::shared::config::path("etc/unbound")) {
+        let dns_ipv4 = unbound_ipv4_for_hostname(&records, &row.hostname).ok_or_else(|| {
+            error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "caduceus-ruyi-dns-record-missing",
+            )
+        })?;
+        row.ipv4 = dns_ipv4.to_string();
+    }
     row.canonical_name = canonical_name;
-    row.ipv4 = dns_ipv4.to_string();
     row.last_seen = server_now();
     let row_json = serde_json::to_string(&row).map_err(|_| {
         error(

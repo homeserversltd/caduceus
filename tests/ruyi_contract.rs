@@ -337,6 +337,32 @@ async fn ruyi_dns_replaces_claimed_ipv4_and_preserves_submitted_identity() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn ruyi_missing_dns_refuses_put_without_overwriting_stored_row() {
+    let _lock = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _fixture = Fixture::new();
+    let mac = "aa:bb:cc:dd:ee:ff";
+    let (status, original) = put(mac, row(mac)).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let mut attempted = row(mac);
+    attempted["hostname"] = json!("missing-host");
+    attempted["canonical_name"] = json!("missing-host.home.arpa");
+    attempted["ipv4"] = json!("192.0.2.99");
+    let (status, value) = put(mac, attempted).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        value["firstMissingSignal"],
+        "caduceus-ruyi-dns-record-missing"
+    );
+
+    let (status, listed) = list().await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(listed["staves"].as_array().unwrap(), &[original]);
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn ruyi_dhcp_conflict_does_not_override_submitted_identity_or_dns_ipv4() {
     let _lock = ENV_LOCK
         .lock()
@@ -369,24 +395,20 @@ async fn ruyi_dhcp_conflict_does_not_override_submitted_identity_or_dns_ipv4() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn ruyi_missing_dns_refuses_put_without_overwriting_stored_row() {
+async fn ruyi_no_dns_view_non_seat_put_succeeds_and_persists_claimed_ipv4() {
     let _lock = ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let fixture = Fixture::new();
     let mac = "aa:bb:cc:dd:ee:ff";
-    assert_eq!(put(mac, row(mac)).await.0, StatusCode::OK);
-
     fs::remove_file(fixture.root.join("etc/unbound/unbound.conf")).unwrap();
     fs::remove_file(fixture.root.join("etc/unbound/unbound.conf.d/fixture.conf")).unwrap();
     let mut attempted = row(mac);
-    attempted["hostname"] = json!("updated-host");
-    attempted["canonical_name"] = json!("updated-host.home.arpa");
-    attempted["ipv4"] = json!("192.0.2.45");
+    attempted["ipv4"] = json!("192.0.2.99");
     attempted["last_update"]["run_id"] = json!("run-2");
     let (status, value) = put(mac, attempted).await;
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(value["firstMissingSignal"], "caduceus-ruyi-dns-unresolved");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(value["ipv4"], "192.0.2.99");
 
     let (status, listed) = list().await;
     assert_eq!(status, StatusCode::OK);
@@ -394,8 +416,45 @@ async fn ruyi_missing_dns_refuses_put_without_overwriting_stored_row() {
     let stored = &listed["staves"][0];
     assert_eq!(stored["hostname"], "fixture-host");
     assert_eq!(stored["canonical_name"], "fixture-host.home.arpa");
-    assert_eq!(stored["ipv4"], "192.0.2.44");
-    assert_eq!(stored["last_update"]["run_id"], "run-1");
+    assert_eq!(stored["ipv4"], "192.0.2.99");
+    assert_eq!(stored["last_update"]["run_id"], "run-2");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn ruyi_seat_dns_view_refuses_submitted_hostname_without_a_record() {
+    let _lock = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _fixture = Fixture::new();
+    let mac = "aa:bb:cc:dd:ee:ff";
+    let mut attempted = row(mac);
+    attempted["hostname"] = json!("missing-host");
+    attempted["canonical_name"] = json!("missing-host.home.arpa");
+    attempted["ipv4"] = json!("192.0.2.99");
+    let (status, value) = put(mac, attempted).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        value["firstMissingSignal"],
+        "caduceus-ruyi-dns-record-missing"
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn ruyi_seat_dns_view_replaces_distinct_claimed_ipv4_with_dns_answer() {
+    let _lock = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _fixture = Fixture::new();
+    let mac = "aa:bb:cc:dd:ee:ff";
+    let mut submitted = row(mac);
+    submitted["hostname"] = json!("updated-host");
+    submitted["canonical_name"] = json!("updated-host.home.arpa");
+    submitted["ipv4"] = json!("192.0.2.99");
+    let (status, resolved) = put(mac, submitted).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(resolved["hostname"], "updated-host");
+    assert_eq!(resolved["canonical_name"], "updated-host.home.arpa");
+    assert_eq!(resolved["ipv4"], "192.0.2.45");
 }
 
 #[tokio::test(flavor = "current_thread")]
