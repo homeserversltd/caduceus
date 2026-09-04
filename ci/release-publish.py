@@ -17,6 +17,7 @@ OWNER = "HOMESERVERSLTD"
 REPO = "caduceus"
 SCHEMA = "caduceus.forgejo-release-publish.v2"
 PROFILES = ("homeserver", "console", "tv", "probe")
+LEGACY_ASSETS = frozenset({REPO + "-x86_64", REPO + "-x86_64.sha256"})
 
 
 class ReleaseError(RuntimeError):
@@ -182,18 +183,29 @@ def fetch_asset(asset, token):
     return content
 
 
-def verify_assets(assets, expected, token):
+def verify_asset_content(name, asset, wanted, token):
+    content = fetch_asset(asset, token)
+    if name.endswith(".sha256"):
+        if content != wanted["content"]:
+            raise ReleaseError("release-sidecar-mismatch")
+    elif content != wanted["content"] or hashlib.sha256(content).hexdigest() != wanted["digest"]:
+        raise ReleaseError("existing-release-digest-conflict")
+
+
+def verify_present_assets(assets, expected, token):
     named = assets_by_name(assets)
+    allowed = set(expected) | LEGACY_ASSETS
+    if not set(named) <= allowed:
+        raise ReleaseError("release-assets-shape-mismatch")
+    for name in set(named).intersection(expected):
+        verify_asset_content(name, named[name], expected[name], token)
+    return named
+
+
+def verify_assets(assets, expected, token):
+    named = verify_present_assets(assets, expected, token)
     if set(named) != set(expected):
         raise ReleaseError("release-assets-shape-mismatch")
-    for name in expected:
-        content = fetch_asset(named[name], token)
-        wanted = expected[name]
-        if name.endswith(".sha256"):
-            if content != wanted["content"]:
-                raise ReleaseError("release-sidecar-mismatch")
-        elif content != wanted["content"] or hashlib.sha256(content).hexdigest() != wanted["digest"]:
-            raise ReleaseError("existing-release-digest-conflict")
     return named
 
 
@@ -206,15 +218,55 @@ def release_assets(release_id, token):
     return assets
 
 
-def upload_assets(release_id, expected, token):
+def upload_asset(release_id, name, item, token):
     base = "/repos/" + quote(OWNER, safe="") + "/" + quote(REPO, safe="")
+    status, _ = request(
+        "POST", base + f"/releases/{release_id}/assets", token,
+        data=item["content"], query={"name": name},
+    )
+    if status in (200, 201):
+        return
+    if status != 409:
+        raise ReleaseError("asset-upload-failed")
+
+    assets = release_assets(release_id, token)
+    named = assets_by_name(assets)
+    existing = named.get(name)
+    if existing is None:
+        raise ReleaseError("asset-upload-conflict-missing")
+    if fetch_asset(existing, token) != item["content"]:
+        raise ReleaseError("existing-release-digest-conflict")
+
+
+def upload_assets(release_id, expected, token, present=None):
+    names = set() if present is None else set(present)
+    changed = False
     for name, item in expected.items():
+        if name in names:
+            continue
+        upload_asset(release_id, name, item, token)
+        names.add(name)
+        changed = True
+    return changed
+
+
+def delete_legacy_assets(release_id, named, token):
+    base = "/repos/" + quote(OWNER, safe="") + "/" + quote(REPO, safe="")
+    changed = False
+    for name in sorted(LEGACY_ASSETS):
+        asset = named.get(name)
+        if asset is None:
+            continue
+        asset_id = asset.get("id")
+        if asset_id is None:
+            raise ReleaseError("legacy-asset-id-invalid")
         status, _ = request(
-            "POST", base + f"/releases/{release_id}/assets", token,
-            data=item["content"], query={"name": name},
+            "DELETE", base + f"/releases/{release_id}/assets/{quote(str(asset_id), safe='')}", token,
         )
-        if status not in (200, 201):
-            raise ReleaseError("asset-upload-failed")
+        if status not in (200, 204):
+            raise ReleaseError("legacy-asset-delete-failed")
+        changed = True
+    return changed
 
 
 def verify_release_identity(release, commit, release_name):
@@ -251,7 +303,13 @@ def publish(root, token):
             raise ReleaseError("tag-target-mismatch")
         release_id = release["id"]
         assets = release_assets(release_id, token)
-        verify_assets(assets, expected, token)
+        named = verify_present_assets(assets, expected, token)
+        changed = upload_assets(release_id, expected, token, named)
+        assets = release_assets(release_id, token)
+        named = verify_present_assets(assets, expected, token)
+        if not set(expected) <= set(named):
+            raise ReleaseError("release-assets-shape-mismatch")
+        changed = delete_legacy_assets(release_id, named, token) or changed
     elif status == 404:
         tag_status, tag = request("GET", base + "/tags/" + encoded_tag, token)
         if tag_status == 200:
@@ -286,8 +344,7 @@ def publish(root, token):
             raise ReleaseError("release-create-failed")
         verify_release_identity(release, commit, release_name)
         release_id = release["id"]
-        upload_assets(release_id, expected, token)
-        changed = True
+        changed = upload_assets(release_id, expected, token)
     else:
         raise ReleaseError("release-read-failed")
 
