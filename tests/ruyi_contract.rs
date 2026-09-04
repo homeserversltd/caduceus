@@ -34,6 +34,13 @@ impl Fixture {
                 .as_nanos()
         ));
         fs::create_dir_all(&root).unwrap();
+        let unbound_root = root.join("etc/unbound");
+        fs::create_dir_all(&unbound_root).unwrap();
+        fs::write(
+            unbound_root.join("unbound.conf"),
+            "server:\n  local-data: \"fixture-host.home.arpa. IN A 192.0.2.44\"\n  local-data: \"updated-host.home.arpa. IN A 192.0.2.45\"\n",
+        )
+        .unwrap();
         let prior_root = env::var_os("CADUCEUS_ROOT");
         let prior_profile = env::var_os("CADUCEUS_PROFILE");
         env::set_var("CADUCEUS_ROOT", &root);
@@ -301,7 +308,25 @@ async fn ruyi_mac_upsert_order_and_old_timestamp_survive_later_write() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn ruyi_gateway_projection_needs_dhcp_and_dns_and_reads_confd() {
+async fn ruyi_dns_replaces_claimed_ipv4_and_preserves_submitted_identity() {
+    let _lock = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _fixture = Fixture::new();
+    let mac = "aa:bb:cc:dd:ee:ff";
+    let mut submitted = row(mac);
+    submitted["hostname"] = json!("updated-host");
+    submitted["canonical_name"] = json!("updated-host.home.arpa");
+    submitted["ipv4"] = json!("192.0.2.99");
+    let (status, resolved) = put(mac, submitted).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(resolved["hostname"], "updated-host");
+    assert_eq!(resolved["canonical_name"], "updated-host.home.arpa");
+    assert_eq!(resolved["ipv4"], "192.0.2.45");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn ruyi_dhcp_conflict_does_not_override_submitted_identity_or_dns_ipv4() {
     let _lock = ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -318,23 +343,47 @@ async fn ruyi_gateway_projection_needs_dhcp_and_dns_and_reads_confd() {
     .unwrap();
     fs::write(
         unbound_dir.join("projection.conf"),
-        "server:\n  local-data: \"gateway-host.home.arpa. IN A 192.0.2.99\"\n",
+        "server:\n  local-data: \"confd-host.home.arpa. IN A 192.0.2.88\"\n",
     )
     .unwrap();
-    let (status, projected) = put(mac, row(mac)).await;
+    let mut submitted = row(mac);
+    submitted["hostname"] = json!("confd-host");
+    submitted["canonical_name"] = json!("confd-host.home.arpa");
+    submitted["ipv4"] = json!("192.0.2.77");
+    let (status, resolved) = put(mac, submitted).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(projected["hostname"], "gateway-host");
-    assert_eq!(projected["canonical_name"], "gateway-host.home.arpa");
-    assert_eq!(projected["ipv4"], "192.0.2.99");
+    assert_eq!(resolved["hostname"], "confd-host");
+    assert_eq!(resolved["canonical_name"], "confd-host.home.arpa");
+    assert_eq!(resolved["ipv4"], "192.0.2.88");
+}
 
-    fs::remove_file(unbound_dir.join("projection.conf")).unwrap();
-    let mut dhcp_only = row(mac);
-    dhcp_only["last_update"]["run_id"] = json!("run-dhcp-only");
-    let (status, retained) = put(mac, dhcp_only).await;
+#[tokio::test(flavor = "current_thread")]
+async fn ruyi_missing_dns_refuses_put_without_overwriting_stored_row() {
+    let _lock = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let fixture = Fixture::new();
+    let mac = "aa:bb:cc:dd:ee:ff";
+    assert_eq!(put(mac, row(mac)).await.0, StatusCode::OK);
+
+    fs::remove_file(fixture.root.join("etc/unbound/unbound.conf")).unwrap();
+    let mut attempted = row(mac);
+    attempted["hostname"] = json!("updated-host");
+    attempted["canonical_name"] = json!("updated-host.home.arpa");
+    attempted["ipv4"] = json!("192.0.2.45");
+    attempted["last_update"]["run_id"] = json!("run-2");
+    let (status, value) = put(mac, attempted).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(value["firstMissingSignal"], "caduceus-ruyi-dns-unresolved");
+
+    let (status, listed) = list().await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(retained["hostname"], "fixture-host");
-    assert_eq!(retained["canonical_name"], "fixture-host.home.arpa");
-    assert_eq!(retained["ipv4"], "192.0.2.44");
+    assert_eq!(listed["staves"].as_array().unwrap().len(), 1);
+    let stored = &listed["staves"][0];
+    assert_eq!(stored["hostname"], "fixture-host");
+    assert_eq!(stored["canonical_name"], "fixture-host.home.arpa");
+    assert_eq!(stored["ipv4"], "192.0.2.44");
+    assert_eq!(stored["last_update"]["run_id"], "run-1");
 }
 
 #[tokio::test(flavor = "current_thread")]
