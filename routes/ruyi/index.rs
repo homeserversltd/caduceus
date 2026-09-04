@@ -81,25 +81,6 @@ fn valid_mac(value: &str) -> bool {
         })
 }
 
-fn normalize_mac(value: &str) -> Option<String> {
-    let compact: String = value
-        .bytes()
-        .filter(|byte| *byte != b':' && *byte != b'-')
-        .map(char::from)
-        .collect();
-    if compact.len() != 12 || !compact.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return None;
-    }
-    Some(
-        compact
-            .as_bytes()
-            .chunks_exact(2)
-            .map(|pair| String::from_utf8_lossy(pair).to_ascii_lowercase())
-            .collect::<Vec<_>>()
-            .join(":"),
-    )
-}
-
 fn valid_hex(value: &str, length: usize) -> bool {
     value.len() == length
         && value
@@ -179,40 +160,6 @@ fn bounded_read(path: &FsPath) -> Option<String> {
     fs::read_to_string(path).ok()
 }
 
-fn reservation_canonical(value: &str) -> Option<(String, String)> {
-    let value = value.trim().trim_end_matches('.').to_ascii_lowercase();
-    let hostname = value.strip_suffix(".home.arpa").unwrap_or(&value);
-    valid_hostname(hostname).then(|| (format!("{hostname}.home.arpa"), hostname.to_owned()))
-}
-
-fn dhcp_projection(mac: &str) -> Option<(String, String, Ipv4Addr)> {
-    let path = crate::shared::config::path("etc/kea/kea-dhcp4.conf");
-    let text = bounded_read(&path)?;
-    let start = text.find('{')?;
-    let end = text.rfind('}')?;
-    if start > end {
-        return None;
-    }
-    let value: Value = serde_json::from_str(&text[start..=end]).ok()?;
-    let subnets = value.get("Dhcp4")?.get("subnet4")?.as_array()?;
-    subnets
-        .iter()
-        .filter_map(|subnet| subnet.get("reservations")?.as_array())
-        .flatten()
-        .filter_map(|reservation| {
-            let object = reservation.as_object()?;
-            let reservation_mac = object.get("hw-address")?.as_str().and_then(normalize_mac)?;
-            if reservation_mac != mac {
-                return None;
-            }
-            let kea_hostname = object.get("hostname")?.as_str()?;
-            let (canonical_name, hostname) = reservation_canonical(kea_hostname)?;
-            let ipv4 = object.get("ip-address")?.as_str()?.parse().ok()?;
-            Some((hostname, canonical_name, ipv4))
-        })
-        .next()
-}
-
 fn canonical_dns_name(value: &str) -> Option<(String, String)> {
     let name = value.trim().trim_end_matches('.').to_ascii_lowercase();
     let hostname = name.strip_suffix(".home.arpa")?;
@@ -277,20 +224,13 @@ fn unbound_records(root: &FsPath) -> Vec<(String, String, Ipv4Addr)> {
         .collect()
 }
 
-fn apply_gateway_projection(row: &mut RuyiRow) {
-    let Some((hostname, canonical_name, ipv4)) = dhcp_projection(&row.mac) else {
-        return;
-    };
-    let projected = unbound_records(&crate::shared::config::path("etc/unbound"))
+fn unbound_ipv4_for_hostname(hostname: &str) -> Option<Ipv4Addr> {
+    let canonical_name = format!("{hostname}.home.arpa");
+    unbound_records(&crate::shared::config::path("etc/unbound"))
         .into_iter()
-        .any(|(name, dns_hostname, dns_ipv4)| {
-            name == canonical_name && dns_hostname == hostname && dns_ipv4 == ipv4
-        });
-    if projected {
-        row.hostname = hostname;
-        row.canonical_name = canonical_name;
-        row.ipv4 = ipv4.to_string();
-    }
+        .find_map(|(name, dns_hostname, ipv4)| {
+            (name == canonical_name && dns_hostname == hostname).then_some(ipv4)
+        })
 }
 
 async fn put(
@@ -306,7 +246,13 @@ async fn put(
         return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"));
     }
     row.last_seen = server_now();
-    apply_gateway_projection(&mut row);
+    let Some(ipv4) = unbound_ipv4_for_hostname(&row.hostname) else {
+        return Err(error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "caduceus-ruyi-dns-record-missing",
+        ));
+    };
+    row.ipv4 = ipv4.to_string();
     let row_json = serde_json::to_string(&row).map_err(|_| {
         error(
             StatusCode::SERVICE_UNAVAILABLE,

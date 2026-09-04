@@ -34,6 +34,13 @@ impl Fixture {
                 .as_nanos()
         ));
         fs::create_dir_all(&root).unwrap();
+        let dns_dir = root.join("etc/unbound/unbound.conf.d");
+        fs::create_dir_all(&dns_dir).unwrap();
+        fs::write(
+            dns_dir.join("fixture.conf"),
+            "server:\n  local-data: \"fixture-host.home.arpa. IN A 192.0.2.44\"\n",
+        )
+        .unwrap();
         let prior_root = env::var_os("CADUCEUS_ROOT");
         let prior_profile = env::var_os("CADUCEUS_PROFILE");
         env::set_var("CADUCEUS_ROOT", &root);
@@ -272,11 +279,16 @@ async fn ruyi_mac_upsert_order_and_old_timestamp_survive_later_write() {
     let _lock = ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let _fixture = Fixture::new();
+    let fixture = Fixture::new();
     let first = "aa:bb:cc:dd:ee:ff";
     let second = "bb:cc:dd:ee:ff:00";
     let old_mac = "cc:dd:ee:ff:00:11";
     assert_eq!(put(first, row(first)).await.0, StatusCode::OK);
+    fs::write(
+        fixture.root.join("etc/unbound/unbound.conf.d/fixture.conf"),
+        "server:\n  local-data: \"updated-host.home.arpa. IN A 192.0.2.46\"\n  local-data: \"fixture-host.home.arpa. IN A 192.0.2.44\"\n",
+    )
+    .unwrap();
     let mut update = row(first);
     update["hostname"] = json!("updated-host");
     update["canonical_name"] = json!("updated-host.home.arpa");
@@ -301,7 +313,7 @@ async fn ruyi_mac_upsert_order_and_old_timestamp_survive_later_write() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn ruyi_gateway_projection_needs_dhcp_and_dns_and_reads_confd() {
+async fn ruyi_hostname_is_supreme_and_dns_supplies_ipv4() {
     let _lock = ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -310,7 +322,7 @@ async fn ruyi_gateway_projection_needs_dhcp_and_dns_and_reads_confd() {
     let kea = fixture.root.join("etc/kea/kea-dhcp4.conf");
     let unbound_dir = fixture.root.join("etc/unbound/unbound.conf.d");
     fs::create_dir_all(kea.parent().unwrap()).unwrap();
-    fs::create_dir_all(&unbound_dir).unwrap();
+    fs::remove_file(unbound_dir.join("fixture.conf")).unwrap();
     fs::write(
         &kea,
         r#"{"Dhcp4":{"subnet4":[{"reservations":[{"hw-address":"AA-BB-CC-DD-EE-FF","hostname":"gateway-host","ip-address":"192.0.2.99"}]}]}}"#,
@@ -318,23 +330,24 @@ async fn ruyi_gateway_projection_needs_dhcp_and_dns_and_reads_confd() {
     .unwrap();
     fs::write(
         unbound_dir.join("projection.conf"),
-        "server:\n  local-data: \"gateway-host.home.arpa. IN A 192.0.2.99\"\n",
+        "server:\n  local-data: \"fixture-host.home.arpa. IN A 192.0.2.55\"\n",
     )
     .unwrap();
     let (status, projected) = put(mac, row(mac)).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(projected["hostname"], "gateway-host");
-    assert_eq!(projected["canonical_name"], "gateway-host.home.arpa");
-    assert_eq!(projected["ipv4"], "192.0.2.99");
+    assert_eq!(projected["hostname"], "fixture-host");
+    assert_eq!(projected["canonical_name"], "fixture-host.home.arpa");
+    assert_eq!(projected["ipv4"], "192.0.2.55");
 
     fs::remove_file(unbound_dir.join("projection.conf")).unwrap();
-    let mut dhcp_only = row(mac);
-    dhcp_only["last_update"]["run_id"] = json!("run-dhcp-only");
-    let (status, retained) = put(mac, dhcp_only).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(retained["hostname"], "fixture-host");
-    assert_eq!(retained["canonical_name"], "fixture-host.home.arpa");
-    assert_eq!(retained["ipv4"], "192.0.2.44");
+    let mut missing_dns = row(mac);
+    missing_dns["last_update"]["run_id"] = json!("run-dns-missing");
+    let (status, refused) = put(mac, missing_dns).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        refused["firstMissingSignal"],
+        "caduceus-ruyi-dns-record-missing"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
