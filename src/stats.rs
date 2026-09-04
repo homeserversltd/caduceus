@@ -78,8 +78,8 @@ fn ruyi_list_result() -> Result<Vec<(String, String, i64)>, String> {
         .collect::<Result<Vec<_>, _>>()
 }
 
-pub fn ruyi_list() -> Vec<(String, String, i64)> {
-    ruyi_list_result().unwrap_or_default()
+pub fn ruyi_list() -> Result<Vec<(String, String, i64)>, String> {
+    ruyi_list_result()
 }
 fn now() -> i64 {
     SystemTime::now()
