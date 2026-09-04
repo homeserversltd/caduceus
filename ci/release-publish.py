@@ -15,7 +15,8 @@ from urllib.request import Request, urlopen
 API = "https://git.home.arpa/api/v1"
 OWNER = "HOMESERVERSLTD"
 REPO = "caduceus"
-SCHEMA = "caduceus.forgejo-release-publish.v1"
+SCHEMA = "caduceus.forgejo-release-publish.v2"
+PROFILES = ("homeserver", "console", "tv", "probe")
 
 
 class ReleaseError(RuntimeError):
@@ -82,9 +83,9 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def read_identity(root):
+def read_identity(root, profile):
     try:
-        metadata = json.loads((root / ".release/cargo-metadata.json").read_text())
+        metadata = json.loads((root / ".release" / profile / "cargo-metadata.json").read_text())
         cargo = tomllib.loads((root / "Cargo.toml").read_text())
     except (OSError, json.JSONDecodeError, tomllib.TOMLDecodeError) as exc:
         raise ReleaseError("build-metadata-read-" + type(exc).__name__) from exc
@@ -119,10 +120,35 @@ def read_identity(root):
     ):
         raise ReleaseError("cargo-metadata-does-not-match-one-binary")
 
-    artifact = root / target_directory / "release" / binary_name
+    artifact = root / ".release" / f"caduceus-{profile}-x86_64"
     if not artifact.is_file():
         raise ReleaseError("release-binary-missing")
     return cargo_version, binary_name, artifact
+
+
+def read_artifacts(root):
+    expected = {}
+    versions = set()
+    for profile in PROFILES:
+        cargo_version, binary_name, artifact = read_identity(root, profile)
+        if binary_name != REPO:
+            raise ReleaseError("cargo-binary-name-mismatch")
+        versions.add(cargo_version)
+        artifact_name = f"{REPO}-{profile}-x86_64"
+        digest = sha256(artifact)
+        expected[artifact_name] = {
+            "profile": profile,
+            "digest": digest,
+            "content": artifact.read_bytes(),
+        }
+        expected[artifact_name + ".sha256"] = {
+            "profile": profile,
+            "digest": digest,
+            "content": (digest + "  " + artifact_name + "\n").encode(),
+        }
+    if len(versions) != 1:
+        raise ReleaseError("cargo-versions-differ-between-profiles")
+    return versions.pop(), expected
 
 
 def tag_target(tag):
@@ -137,32 +163,69 @@ def tag_target(tag):
 def assets_by_name(assets):
     if not isinstance(assets, list):
         raise ReleaseError("release-assets-invalid")
-    return {
-        asset.get("name"): asset
-        for asset in assets
-        if isinstance(asset, dict) and isinstance(asset.get("name"), str)
-    }
+    named = {}
+    for asset in assets:
+        if not isinstance(asset, dict) or not isinstance(asset.get("name"), str):
+            raise ReleaseError("release-assets-invalid")
+        name = asset["name"]
+        if name in named:
+            raise ReleaseError("release-assets-duplicate")
+        named[name] = asset
+    return named
 
 
-def verify_assets(assets, artifact_name, sidecar_name, token, expected_digest=None):
+def fetch_asset(asset, token):
+    url = asset.get("browser_download_url") or asset.get("url")
+    status, content = download(url, token)
+    if status != 200 or not isinstance(content, bytes):
+        raise ReleaseError("asset-download-failed")
+    return content
+
+
+def verify_assets(assets, expected, token):
     named = assets_by_name(assets)
-    if artifact_name not in named or sidecar_name not in named:
-        raise ReleaseError("release-assets-incomplete")
+    if set(named) != set(expected):
+        raise ReleaseError("release-assets-shape-mismatch")
+    for name in expected:
+        content = fetch_asset(named[name], token)
+        wanted = expected[name]
+        if name.endswith(".sha256"):
+            if content != wanted["content"]:
+                raise ReleaseError("release-sidecar-mismatch")
+        elif content != wanted["content"] or hashlib.sha256(content).hexdigest() != wanted["digest"]:
+            raise ReleaseError("existing-release-digest-conflict")
+    return named
 
-    def fetch(asset):
-        url = asset.get("browser_download_url") or asset.get("url")
-        status, content = download(url, token)
-        if status != 200 or not isinstance(content, bytes):
-            raise ReleaseError("asset-download-failed")
-        return content
 
-    remote_digest = hashlib.sha256(fetch(named[artifact_name])).hexdigest()
-    if expected_digest is not None and remote_digest != expected_digest:
-        raise ReleaseError("release-binary-digest-mismatch")
-    expected_sidecar = (remote_digest + "  " + artifact_name + "\n").encode()
-    if fetch(named[sidecar_name]) != expected_sidecar:
-        raise ReleaseError("release-sidecar-mismatch")
-    return remote_digest
+def release_assets(release_id, token):
+    asset_status, assets = request(
+        "GET", f"/repos/{quote(OWNER, safe='')}/{quote(REPO, safe='')}/releases/{release_id}/assets", token
+    )
+    if asset_status != 200:
+        raise ReleaseError("release-assets-read-failed")
+    return assets
+
+
+def upload_assets(release_id, expected, token):
+    base = "/repos/" + quote(OWNER, safe="") + "/" + quote(REPO, safe="")
+    for name, item in expected.items():
+        status, _ = request(
+            "POST", base + f"/releases/{release_id}/assets", token,
+            data=item["content"], query={"name": name},
+        )
+        if status not in (200, 201):
+            raise ReleaseError("asset-upload-failed")
+
+
+def verify_release_identity(release, commit, release_name):
+    if not isinstance(release, dict) or release.get("id") is None:
+        raise ReleaseError("release-read-failed")
+    if (
+        release.get("tag_name") != commit
+        or release.get("name") != release_name
+        or release.get("target_commitish") != commit
+    ):
+        raise ReleaseError("release-identity-mismatch")
 
 
 def publish(root, token):
@@ -174,118 +237,71 @@ def publish(root, token):
     if not token:
         raise ReleaseError("FORGEJO_TOKEN-missing")
 
-    cargo_version, binary_name, artifact = read_identity(root)
-    artifact_name = binary_name + "-x86_64"
-    sidecar_name = artifact_name + ".sha256"
-    expected_digest = sha256(artifact)
-    release_name = f"{binary_name} {commit[:8]}"
+    cargo_version, expected = read_artifacts(root)
+    release_name = f"{REPO} {commit[:8]}"
     base = "/repos/" + quote(OWNER, safe="") + "/" + quote(REPO, safe="")
     encoded_tag = quote(commit, safe="")
 
     status, release = request("GET", base + "/releases/tags/" + encoded_tag, token)
+    changed = False
     if status == 200:
-        if not isinstance(release, dict) or release.get("id") is None:
-            raise ReleaseError("release-read-failed")
+        verify_release_identity(release, commit, release_name)
         tag_status, tag = request("GET", base + "/tags/" + encoded_tag, token)
         if tag_status != 200 or tag_target(tag) != commit:
             raise ReleaseError("tag-target-mismatch")
-        if (
-            release.get("tag_name") != commit
-            or release.get("name") != release_name
-            or release.get("target_commitish") != commit
-        ):
-            raise ReleaseError("release-identity-mismatch")
-        asset_status, assets = request(
-            "GET", base + f"/releases/{release['id']}/assets", token
-        )
-        if asset_status != 200:
-            raise ReleaseError("release-assets-read-failed")
-        remote_digest = verify_assets(assets, artifact_name, sidecar_name, token)
-        if remote_digest != expected_digest:
-            raise ReleaseError("existing-release-digest-conflict")
-        return {
-            "schema": SCHEMA,
-            "repository": OWNER + "/" + REPO,
-            "cargo_version": cargo_version,
-            "tag": commit,
-            "name": release_name,
-            "target_commitish": commit,
-            "assets": [artifact_name, sidecar_name],
-            "sha256": remote_digest,
-            "status": "no-op",
-            "changed": False,
-        }
-    if status != 404:
-        raise ReleaseError("release-read-failed")
+        release_id = release["id"]
+        assets = release_assets(release_id, token)
+        verify_assets(assets, expected, token)
+    elif status == 404:
+        tag_status, tag = request("GET", base + "/tags/" + encoded_tag, token)
+        if tag_status == 200:
+            if tag_target(tag) != commit:
+                raise ReleaseError("tag-conflicts-with-source-head")
+        elif tag_status == 404:
+            tag_status, _ = request(
+                "POST", base + "/tags", token,
+                body={"tag_name": commit, "target": commit},
+            )
+            if tag_status not in (200, 201):
+                raise ReleaseError("tag-create-failed")
+        else:
+            raise ReleaseError("tag-read-failed")
 
-    tag_status, tag = request("GET", base + "/tags/" + encoded_tag, token)
-    if tag_status == 200:
-        if tag_target(tag) != commit:
-            raise ReleaseError("tag-conflicts-with-source-head")
-    elif tag_status == 404:
-        tag_status, _ = request(
-            "POST", base + "/tags", token,
-            body={"tag_name": commit, "target": commit},
+        tag_status, tag = request("GET", base + "/tags/" + encoded_tag, token)
+        if tag_status != 200 or tag_target(tag) != commit:
+            raise ReleaseError("tag-target-mismatch-after-create")
+
+        release_status, release = request(
+            "POST", base + "/releases", token,
+            body={
+                "tag_name": commit,
+                "name": release_name,
+                "body": "caduceus release for " + commit,
+                "target_commitish": commit,
+                "draft": False,
+                "prerelease": False,
+            },
         )
-        if tag_status not in (200, 201):
-            raise ReleaseError("tag-create-failed")
+        if release_status not in (200, 201):
+            raise ReleaseError("release-create-failed")
+        verify_release_identity(release, commit, release_name)
+        release_id = release["id"]
+        upload_assets(release_id, expected, token)
+        changed = True
     else:
-        raise ReleaseError("tag-read-failed")
-
-    tag_status, tag = request("GET", base + "/tags/" + encoded_tag, token)
-    if tag_status != 200 or tag_target(tag) != commit:
-        raise ReleaseError("tag-target-mismatch-after-create")
-
-    release_status, release = request(
-        "POST", base + "/releases", token,
-        body={
-            "tag_name": commit,
-            "name": release_name,
-            "body": "caduceus release for " + commit,
-            "target_commitish": commit,
-            "draft": False,
-            "prerelease": False,
-        },
-    )
-    if release_status not in (200, 201) or not isinstance(release, dict) or release.get("id") is None:
-        raise ReleaseError("release-create-failed")
-    release_id = release["id"]
-
-    for name, content in (
-        (artifact_name, artifact.read_bytes()),
-        (sidecar_name, (expected_digest + "  " + artifact_name + "\n").encode()),
-    ):
-        upload_status, _ = request(
-            "POST", base + f"/releases/{release_id}/assets", token,
-            data=content, query={"name": name},
-        )
-        if upload_status not in (200, 201):
-            raise ReleaseError("asset-upload-failed")
+        raise ReleaseError("release-read-failed")
 
     reread_status, reread_release = request(
         "GET", base + "/releases/tags/" + encoded_tag, token
     )
-    if (
-        reread_status != 200
-        or not isinstance(reread_release, dict)
-        or reread_release.get("id") is None
-    ):
+    if reread_status != 200:
         raise ReleaseError("release-reread-failed")
-    if (
-        reread_release.get("tag_name") != commit
-        or reread_release.get("name") != release_name
-        or reread_release.get("target_commitish") != commit
-    ):
-        raise ReleaseError("release-identity-mismatch-after-upload")
+    verify_release_identity(reread_release, commit, release_name)
     tag_status, tag = request("GET", base + "/tags/" + encoded_tag, token)
     if tag_status != 200 or tag_target(tag) != commit:
         raise ReleaseError("tag-target-mismatch-after-upload")
-    asset_status, assets = request(
-        "GET", base + f"/releases/{reread_release['id']}/assets", token
-    )
-    if asset_status != 200:
-        raise ReleaseError("release-assets-reread-failed")
-    verify_assets(assets, artifact_name, sidecar_name, token, expected_digest)
+    assets = release_assets(reread_release["id"], token)
+    verify_assets(assets, expected, token)
     return {
         "schema": SCHEMA,
         "repository": OWNER + "/" + REPO,
@@ -293,10 +309,10 @@ def publish(root, token):
         "tag": commit,
         "name": release_name,
         "target_commitish": commit,
-        "assets": [artifact_name, sidecar_name],
-        "sha256": expected_digest,
-        "status": "published",
-        "changed": True,
+        "assets": list(expected),
+        "sha256": {name: expected[name]["digest"] for name in expected if not name.endswith(".sha256")},
+        "status": "published" if changed else "no-op",
+        "changed": changed,
     }
 
 

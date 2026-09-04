@@ -204,8 +204,40 @@ steps:
         set -eu
         mkdir -p .release
         env_sha=$(printf '%s\n%s\n%s\n' "$(rustc -Vv)" "$(cargo -V)" x86_64-unknown-linux-gnu | sha256sum | cut -d' ' -f1)
-        CADUCEUS_BUILD_SHA="$CI_COMMIT_SHA" CADUCEUS_BUILD_ENV_SHA="$env_sha" cargo build --release
-        cargo metadata --no-deps --format-version 1 > .release/cargo-metadata.json
+
+        build_profile() {
+          profile="$1"
+          target_dir=".release/target-$profile"
+          rm -rf "$target_dir"
+          mkdir -p ".release/$profile"
+
+          CADUCEUS_PROFILE="$profile" CADUCEUS_BUILD_SHA="$CI_COMMIT_SHA" CADUCEUS_BUILD_ENV_SHA="$env_sha" \
+            CARGO_TARGET_DIR="$target_dir" cargo build --release
+          CADUCEUS_PROFILE="$profile" CARGO_TARGET_DIR="$target_dir" \
+            cargo metadata --no-deps --format-version 1 > ".release/$profile/cargo-metadata.json"
+
+          binary="$target_dir/release/caduceus"
+          test -f "$binary"
+          profile_metadata="$(find "$target_dir/release/build" -type f -readable \
+            -path '*/caduceus-*/out/profile_routes.rs' -print)"
+          if [ -z "$profile_metadata" ] || [ "$(printf '%s\n' "$profile_metadata" | wc -l | tr -d '[:space:]')" != "1" ]; then
+            echo "build-caduceus-release: expected exactly one readable generated profile metadata file for $profile" >&2
+            exit 1
+          fi
+          expected_profile_line="pub const ACTIVE_PROFILE: &str = \"$profile\";"
+          active_profile_count="$(grep -Fc 'pub const ACTIVE_PROFILE: &str =' "$profile_metadata" || true)"
+          expected_profile_count="$(grep -Fx "$expected_profile_line" "$profile_metadata" | wc -l | tr -d '[:space:]')"
+          if [ "$active_profile_count" != "1" ] || [ "$expected_profile_count" != "1" ]; then
+            echo "build-caduceus-release: generated profile metadata does not contain exactly one ACTIVE_PROFILE declaration equal to $expected_profile_line" >&2
+            exit 1
+          fi
+          cp "$binary" ".release/caduceus-$profile-x86_64"
+        }
+
+        build_profile homeserver
+        build_profile console
+        build_profile tv
+        build_profile probe
 
   - name: publish-caduceus-forgejo-release
     image: python:3.12-alpine
