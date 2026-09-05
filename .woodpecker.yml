@@ -403,6 +403,9 @@ steps:
           exit 1
         fi
         validate_manifest manifest.json
+        flag_source_sha="$(extract_unique_field source_sha manifest.json)" || exit 1
+        flag_env_sha="$(extract_unique_field env_sha manifest.json)" || exit 1
+        flag_sha256="$(extract_unique_field sha256 manifest.json)" || exit 1
 
         flag_status="$(curl --silent --show-error \
           --output existing-release.flag \
@@ -431,7 +434,7 @@ steps:
           exit 1
         fi
         printf "{\n  \"schema\": \"estate.release-flag.v1\",\n  \"component\": \"caduceus\",\n  \"source_sha\": \"%s\",\n  \"env_sha\": \"%s\",\n  \"sha256\": \"%s\",\n  \"flagged_at\": \"%s\",\n  \"pipeline_url\": \"%s\"\n}\n" \
-          "${manifest_source_sha}" "${manifest_env_sha}" "${manifest_sha256}" \
+          "$flag_source_sha" "$flag_env_sha" "$flag_sha256" \
           "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$CI_PIPELINE_URL" > release.flag
 
         upload_file release.flag release.flag application/json
