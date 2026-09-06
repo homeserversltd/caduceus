@@ -1,0 +1,17 @@
+{
+  "description": "Root schema seat index for Caduceus repository-owned envelopes and release records.",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/index.json",
+    "readers": [
+      "ci/release-flag.py",
+      "Caduceus release readers"
+    ]
+  },
+  "seats": {
+    "estate.release-flag.v1": {
+      "file": "schema/estate.release-flag.v1.json",
+      "schema_version": "1.0.0"
+    }
+  }
+}

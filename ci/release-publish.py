@@ -194,7 +194,7 @@ def verify_asset_content(name, asset, wanted, token):
 
 def verify_present_assets(assets, expected, token):
     named = assets_by_name(assets)
-    allowed = set(expected) | LEGACY_ASSETS
+    allowed = set(expected) | LEGACY_ASSETS | {"release.flag"}
     if not set(named) <= allowed:
         raise ReleaseError("release-assets-shape-mismatch")
     for name in set(named).intersection(expected):
@@ -204,7 +204,7 @@ def verify_present_assets(assets, expected, token):
 
 def verify_assets(assets, expected, token):
     named = verify_present_assets(assets, expected, token)
-    if set(named) != set(expected):
+    if set(named) - {"release.flag"} != set(expected):
         raise ReleaseError("release-assets-shape-mismatch")
     return named
 

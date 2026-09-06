@@ -1,0 +1,41 @@
+{
+  "schema": "estate.release-flag.v1",
+  "schema_version": "1.0.0",
+  "role": "Immutable Caduceus release verification flag for one Forgejo release and its four profile digests",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/estate.release-flag.v1.json",
+    "producer": "ci/release-flag.py",
+    "consumers": [
+      "Caduceus release readers",
+      "ci/release-flag.py"
+    ],
+    "source_docs": [
+      "harmonia-component-release-identity-law",
+      "harmonia-beam-syzygy-law"
+    ]
+  },
+  "description": "The immutable release.flag Forgejo Release asset for Caduceus. sha256 is the SHA256 of the compact UTF-8 serialization json.dumps(profile_digest_map, separators=(\",\", \":\")), with profile_digest_map inserted in publisher PROFILES order (homeserver, console, tv, probe), and with no trailing newline. Unknown fields are tolerated and preserved by readers; a reader refuses a foreign schema id or any missing required field.",
+  "required_fields": [
+    "schema",
+    "component",
+    "source_sha",
+    "env_sha",
+    "sha256",
+    "flagged_at",
+    "pipeline_url"
+  ],
+  "field_types": {
+    "schema": "literal:estate.release-flag.v1",
+    "component": "string",
+    "source_sha": "string",
+    "env_sha": "string",
+    "sha256": "string",
+    "flagged_at": "string",
+    "pipeline_url": "string"
+  },
+  "evolution": {
+    "law": "additive-only; missing declared field is a refusal; unknown fields are skipped without reconstructing or discarding the raw existing record",
+    "unknown_fields_preserved": true
+  }
+}
