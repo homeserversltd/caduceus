@@ -604,7 +604,7 @@ fn staff_band_receipt(band: &str, metadata: Value) -> Result<Value, String> {
         "intent_id": format!("caduceus-{band}"),
         "transition": band,
         "origin_of_intent": "near",
-        "metadata": metadata,
+        "payload": metadata,
     });
     let walked = match crate::gate::snake::run(band, &envelope) {
         Ok(walked) => walked,
@@ -724,7 +724,10 @@ fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
         .unwrap_or(0o664);
     let supplied_uid = metadata.get("uid").and_then(Value::as_u64);
     let supplied_gid = metadata.get("gid").and_then(Value::as_u64);
-    let spool_root = PathBuf::from("/var/lib/caduceus/spool/file-ingress");
+    let spool_root = std::env::var_os("CADUCEUS_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
+        .join("var/lib/caduceus/spool/file-ingress");
     std::fs::create_dir_all(&spool_root)
         .map_err(|err| format!("caduceus-file-ingress-spool-unavailable: {err}"))?;
     let spool_path = spool_root.join(format!(

@@ -7,10 +7,10 @@
 use serde_json::{json, Value};
 
 fn invoke(args: &[String]) -> Result<Value, String> {
-    let (verb, rest) = args
-        .split_first()
-        .ok_or_else(|| "caduceus-household-time-command-missing".to_string())?;
-    crate::gate::snake::crossing_path("settings/datetime", &json!({"args": rest}))
+    if args.is_empty() {
+        return Err("caduceus-household-time-command-missing".to_string());
+    }
+    crate::gate::snake::crossing_path("settings/datetime", &json!({"args": args}))
 }
 
 pub fn state_json() -> Result<Value, String> {

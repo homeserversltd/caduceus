@@ -10,6 +10,10 @@ pub fn register(router: axum::Router) -> axum::Router {
             axum::routing::post(crate::routes::exousia_support::attendance_route),
         )
         .route(
+            "/api/v1/attendance/change-pin",
+            axum::routing::post(crate::routes::exousia_support::attendance_route),
+        )
+        .route(
             "/api/v1/access/pin/mode",
             axum::routing::get(crate::routes::exousia_support::pin_mode_read_route)
                 .post(crate::routes::exousia_support::pin_mode_route),

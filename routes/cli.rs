@@ -67,6 +67,40 @@ where
     S: Into<String>,
 {
     let args: Vec<String> = args.into_iter().map(Into::into).collect();
+    if let Some(namespace) = crate::routes::route_for_cli(&args) {
+        let declaration_source = crate::routes::selected_declaration(namespace)
+            .expect("selected CLI route must have a declaration");
+        let declaration = match serde_json::from_str::<serde_json::Value>(declaration_source) {
+            Ok(declaration) => declaration,
+            Err(error) => {
+                eprintln!("{error}");
+                return 2;
+            }
+        };
+        let serve = match declaration
+            .get("serve")
+            .and_then(serde_json::Value::as_array)
+        {
+            Some(serve) => serve,
+            None => {
+                eprintln!("serve");
+                return 2;
+            }
+        };
+        let prefix_len = namespace.split('/').count();
+        let raw = serde_json::json!({
+            "schema": crate::protocol::SCHEMA_ID,
+            "intent_id": format!("cli:{namespace}"),
+            "transition": namespace,
+            "origin_of_intent": "near",
+            "payload": { "args": args[prefix_len..].to_vec() }
+        });
+        if let Err(signal) = crate::gate::receive(raw, serve, &declaration, false) {
+            eprintln!("{signal}");
+            return 2;
+        }
+    }
+    // Legacy dispatch remains below; the declaration pass is admission only.
     match args.as_slice() {
         [] => {
             print_help();

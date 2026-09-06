@@ -403,6 +403,24 @@ fn main() {
             .collect::<Vec<_>>()
             .join(",")
     ));
+    for namespace in &selected {
+        assert!(
+            namespace.split('/').all(|component| !component.is_empty()),
+            "selected namespace must be representable by namespace.split('/'): {namespace}"
+        );
+    }
+    modules.push_str("pub fn selected_declaration(namespace: &str) -> Option<&'static str> { match namespace {\n");
+    for namespace in &selected {
+        let path = format!("routes/{namespace}/index.json");
+        modules.push_str(&format!(
+            "    {} => Some(include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/{path}\"))),\n",
+            rust_string(namespace)
+        ));
+    }
+    modules.push_str("    _ => None,\n} }\n");
+    modules.push_str("pub fn route_for_cli(args: &[String]) -> Option<&'static str> {\n");
+    modules.push_str("    if let Some(namespace) = SELECTED_LEAF_MODULES.iter().find(|namespace| **namespace == args.join(\"/\")) { return Some(*namespace); }\n");
+    modules.push_str("    let mut best = None; let mut best_len = 0usize; let mut ambiguous = false;\n    for namespace in SELECTED_LEAF_MODULES {\n        let components = namespace.split('/').collect::<Vec<_>>();\n        if components.len() <= args.len() && components.iter().zip(args).all(|(component, arg)| *component == arg.as_str()) {\n            if components.len() > best_len { best = Some(*namespace); best_len = components.len(); ambiguous = false; } else if components.len() == best_len { ambiguous = true; }\n        }\n    }\n    if ambiguous { None } else { best }\n}\n");
     modules.push_str(&format!(
         "pub const SELECTED_DISCOVERY: &[&str] = &[{}];\n",
         selected
