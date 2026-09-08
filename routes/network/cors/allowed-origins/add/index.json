@@ -1,0 +1,1 @@
+{"namespace":"network/cors/allowed-origins/add","admittance":"open","flags":{},"serve":[{"rust":"network_cors_allowed_origins_add"}]}

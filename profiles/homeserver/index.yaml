@@ -96,6 +96,7 @@ harmonia_routes:
     positional: true
     raw_json: true
 routes:
+- network/cors/allowed-origins/add
 - exousia/change-pin
 - exousia/invalidate
 - exousia/open

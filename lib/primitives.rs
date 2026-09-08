@@ -17,6 +17,7 @@ pub static RUST_PRIMITIVES: &[&str] = &[
     "network_wifi_forget_mutate",
     "network_wifi_ipv4_mutate",
     "network_wifi_radio_mutate",
+    "network_cors_allowed_origins_add",
     "network_device_connect_mutate",
     "network_device_disconnect_mutate",
     "network_device_ipv4_mutate",
