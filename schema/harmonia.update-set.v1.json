@@ -1,0 +1,101 @@
+{
+  "schema": "harmonia.update-set.v1",
+  "schema_version": "1.0.0",
+  "role": "Harmonia's appliance update-set and member release evidence",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/harmonia.update-set.v1.json",
+    "grant": "Operator-elected public seat for the Harmonia update-set"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields mean no evidence; an unresolved syzygy remains a signal, not failed module convergence",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "harmonia.update-set.v1"
+    },
+    "profile": {
+      "type": "string"
+    },
+    "members": {
+      "type": "array",
+      "items": {
+        "type_ref": "Member"
+      }
+    },
+    "member_flags": {
+      "type": "object",
+      "values": {
+        "one_of": [
+          {
+            "type_ref": "MemberFlag"
+          },
+          {
+            "type": "string",
+            "description": "Unresolved member flag signal"
+          }
+        ]
+      }
+    },
+    "syzygy_signal": {
+      "type": "string"
+    },
+    "syzygy_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "profile": "string",
+    "members": "array<Member>",
+    "member_flags": "map<member,MemberFlag|string>",
+    "syzygy_signal": "string",
+    "syzygy_sha": "string|null"
+  },
+  "required": [
+    "schema",
+    "members",
+    "syzygy_signal"
+  ],
+  "optional": [
+    "profile",
+    "member_flags",
+    "syzygy_sha"
+  ],
+  "types": {
+    "Member": {
+      "fields": {
+        "source_sha": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      },
+      "description": "Member observations retain their existing fields unchanged; source_sha is additive release evidence"
+    },
+    "MemberFlag": {
+      "fields": {
+        "source_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "flagged_at": {
+          "type": "string"
+        },
+        "malformed_flags": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

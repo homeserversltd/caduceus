@@ -19,6 +19,10 @@ from urllib.request import HTTPSHandler, Request, build_opener, install_opener, 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT / "schema" / "estate.release-flag.v1.json"
 SCHEMA_ID = "estate.release-flag.v1"
+# This producer emits these fields; the shared seat alone declares the kernel.
+EMITTED_FIELDS = (
+    "schema", "component", "source_sha", "env_sha", "sha256", "flagged_at", "pipeline_url"
+)
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -59,7 +63,7 @@ def load_schema(path=SCHEMA_PATH):
         "schema",
         "authority",
         "description",
-        "required_fields",
+        "required",
         "field_types",
         "schema_version",
         "role",
@@ -68,7 +72,7 @@ def load_schema(path=SCHEMA_PATH):
             raise FlagError("release-flag-schema-missing-" + field)
     if schema["schema"] != SCHEMA_ID:
         raise FlagError("release-flag-schema-foreign-id")
-    required = schema["required_fields"]
+    required = schema["required"]
     field_types = schema["field_types"]
     if (
         not isinstance(required, list)
@@ -88,13 +92,14 @@ def validate_flag_record(record, schema):
         raise FlagError("release.flag is not a JSON object")
     if record.get("schema") != schema["schema"]:
         raise FlagError("release.flag has foreign schema id")
-    required = schema["required_fields"]
+    required = schema["required"]
     missing = [field for field in required if field not in record]
     if missing:
         raise FlagError("release.flag missing required fields: " + ", ".join(missing))
     wrong_type = [
         field
-        for field in required
+        for field in EMITTED_FIELDS
+        if field in record
         if not isinstance(record[field], str)
         or (
             schema["field_types"].get(field) == "literal:" + schema["schema"]
@@ -103,7 +108,7 @@ def validate_flag_record(record, schema):
     ]
     if wrong_type:
         raise FlagError("release.flag non-string declared fields: " + ", ".join(wrong_type))
-    return {field: record[field] for field in required}
+    return {field: record[field] for field in EMITTED_FIELDS if field in record}
 
 
 def compare_existing_flag(existing, candidate, schema=None):
@@ -117,8 +122,8 @@ def compare_existing_flag(existing, candidate, schema=None):
     candidate_declared = validate_flag_record(candidate, schema)
     differing = [
         field
-        for field in schema["required_fields"]
-        if existing_declared[field] != candidate_declared[field]
+        for field in EMITTED_FIELDS
+        if existing_declared.get(field) != candidate_declared.get(field)
     ]
     if differing:
         raise FlagConflict(differing)
@@ -126,7 +131,7 @@ def compare_existing_flag(existing, candidate, schema=None):
         "status": "no-op",
         "differing_fields": [],
         "unknown_fields_preserved": [
-            field for field in existing if field not in schema["required_fields"]
+            field for field in existing if field not in EMITTED_FIELDS
         ],
     }
 
@@ -308,7 +313,7 @@ def make_flag(commit, env_sha, aggregate, flagged_at, pipeline_url, schema):
     }
     return {
         field: values[field]
-        for field in schema["required_fields"]
+        for field in EMITTED_FIELDS
         if field in values
     }
 

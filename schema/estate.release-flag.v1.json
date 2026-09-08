@@ -1,7 +1,7 @@
 {
   "schema": "estate.release-flag.v1",
   "schema_version": "1.0.0",
-  "role": "Immutable Caduceus release verification flag for one Forgejo release and its four profile digests",
+  "role": "Immutable component release verification flag",
   "authority": {
     "owner": "caduceus",
     "path": "schema/estate.release-flag.v1.json",
@@ -15,16 +15,35 @@
       "harmonia-beam-syzygy-law"
     ]
   },
-  "description": "The immutable release.flag Forgejo Release asset for Caduceus. sha256 is the SHA256 of the compact UTF-8 serialization json.dumps(profile_digest_map, separators=(\",\", \":\")), with profile_digest_map inserted in publisher PROFILES order (homeserver, console, tv, probe), and with no trailing newline. Unknown fields are tolerated and preserved by readers; a reader refuses a foreign schema id or any missing required field.",
-  "required_fields": [
-    "schema",
-    "component",
-    "source_sha",
-    "env_sha",
-    "sha256",
-    "flagged_at",
-    "pipeline_url"
-  ],
+  "description": "The immutable release.flag asset for a producing component. The five-field kernel also admits interpreted components; env_sha and sha256 are optional producer-declared evidence.",
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "estate.release-flag.v1"
+    },
+    "component": {
+      "type": "string"
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "flagged_at": {
+      "type": "string"
+    },
+    "pipeline_url": {
+      "type": "string"
+    },
+    "env_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "64-hex digest whose input the producing component declares in its own release documentation; for caduceus, the compact JSON of the per-profile digest map in publisher PROFILES order; for a single-binary component, that binary."
+    }
+  },
   "field_types": {
     "schema": "literal:estate.release-flag.v1",
     "component": "string",
@@ -34,8 +53,21 @@
     "flagged_at": "string",
     "pipeline_url": "string"
   },
+  "required": [
+    "schema",
+    "component",
+    "source_sha",
+    "flagged_at",
+    "pipeline_url"
+  ],
+  "optional": [
+    "env_sha",
+    "sha256"
+  ],
   "evolution": {
-    "law": "additive-only; missing declared field is a refusal; unknown fields are skipped without reconstructing or discarding the raw existing record",
+    "law": "additive-only",
+    "missing_field_semantics": "Missing frozen kernel fields are refused; absent optional fields mean no evidence",
     "unknown_fields_preserved": true
-  }
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }

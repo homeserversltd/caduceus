@@ -202,13 +202,14 @@ fn main() {
 
     // Public seats have one source each. Preserve their exact bytes in the binary.
     println!("cargo:rerun-if-changed=schema");
-    // Only the four contracted public faces are exposed; the existing release index
-    // and release-flag seat keep their own reader and are not API declarations.
+    // Expose the six contracted public seats, including release and update-set.
     let seats = [
         "caduceus.beam.v1",
         "caduceus.ruyi.v1",
         "harmonia.ruyi-perspective.v1",
         "harmonia.ruyi-register.v1",
+        "estate.release-flag.v1",
+        "harmonia.update-set.v1",
     ]
     .map(|id| PathBuf::from(format!("schema/{id}.json")));
     let mut embedded = String::from("const EMBEDDED_SEATS: &[(&str, &str)] = &[\n");
