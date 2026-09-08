@@ -44,19 +44,24 @@ fn mutate(
     match policy::allows_command(command) {
         Ok(true) => {
             if target != "tabs.starred" {
-                if let Some(doc) = headers
+                let document = headers
                     .get("x-caduceus-document")
                     .and_then(|v| v.to_str().ok())
-                    .filter(|v| !v.trim().is_empty())
-                {
-                    document_attendance_admits(
-                        doc,
-                        headers
-                            .get("x-caduceus-attendance")
-                            .and_then(|v| v.to_str().ok()),
-                    )
-                    .map_err(|e| api_error_signal(command, &e))?;
-                }
+                    .filter(|v| !v.trim().is_empty());
+                let attendance = headers
+                    .get("x-caduceus-attendance")
+                    .and_then(|v| v.to_str().ok())
+                    .filter(|v| !v.trim().is_empty());
+                document_attendance_admits(document.unwrap_or_default(), attendance).map_err(
+                    |e| {
+                        let signal = if document.is_none() || attendance.is_none() {
+                            "caduceus-attendance-required"
+                        } else {
+                            &e
+                        };
+                        api_error_signal(command, signal)
+                    },
+                )?;
             }
             f().map(|v| (mutation_status(&v), Json(v)))
                 .map_err(|e| err(command, e))
