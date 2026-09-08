@@ -2,6 +2,11 @@ schema: caduceus.profile.v1
 profile: everything-lit
 mode: everything-lit
 routes:
+- xenia/validate
+- xenia/admit
+- xenia/remove
+- xenia/status
+- xenia/status/:id
 - exousia/change-pin
 - exousia/invalidate
 - exousia/open

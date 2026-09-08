@@ -101,6 +101,11 @@ harmonia_routes:
     positional: true
     raw_json: true
 routes:
+- xenia/validate
+- xenia/admit
+- xenia/remove
+- xenia/status
+- xenia/status/:id
 - exousia/change-pin
 - exousia/invalidate
 - exousia/open

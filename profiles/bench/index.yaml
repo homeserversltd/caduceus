@@ -6,6 +6,11 @@ commands:
 - update modules toggle
 - appliance stats read
 routes:
+- xenia/validate
+- xenia/admit
+- xenia/remove
+- xenia/status
+- xenia/status/:id
 - exousia/change-pin
 - exousia/invalidate
 - exousia/open
