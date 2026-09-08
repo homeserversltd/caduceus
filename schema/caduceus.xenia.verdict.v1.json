@@ -1,0 +1,185 @@
+{
+  "schema": "caduceus.xenia.verdict.v1",
+  "schema_version": "1.0.0",
+  "role": "Xenia door outcome and proposed admission row; not a household configuration schema",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.xenia.verdict.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Absent optional fields select null primitive behavior; only the named form kernel is required."
+  },
+  "required": [
+    "schema",
+    "ok",
+    "verdict"
+  ],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.xenia.verdict.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "admissible",
+        "admitted",
+        "removed",
+        "status",
+        "refused"
+      ]
+    },
+    "id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "check": {
+      "type": "string"
+    },
+    "field": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "suggestion": {
+      "type": "string"
+    },
+    "entry": {
+      "schema_ref": "appliance.xenia.v1",
+      "form": "entry"
+    },
+    "tabs": {
+      "type": "object",
+      "description": "Only the proposed guest row produced by C1. Unknown household fields survive. This does not govern the whole native registry or config document.",
+      "required": [
+        "displayName",
+        "order",
+        "visibility",
+        "adminOnly",
+        "data"
+      ],
+      "fields": {
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "visibility": {
+          "type": "object",
+          "fields": {
+            "tab": {
+              "type": "boolean"
+            },
+            "elements": {
+              "type": "object",
+              "values": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "adminOnly": {
+          "type": "boolean"
+        },
+        "data": {
+          "type": "object"
+        }
+      }
+    },
+    "changed": {
+      "type": "boolean"
+    },
+    "observed": {
+      "type": "object"
+    },
+    "attempt": {
+      "type": "object"
+    },
+    "final": {
+      "type": "object"
+    },
+    "xenoi": {
+      "type": "object",
+      "values": {
+        "schema_ref": "appliance.xenia.v1",
+        "form": "entry"
+      }
+    },
+    "runtime": {
+      "type": "object"
+    }
+  },
+  "admission_policy": {
+    "forbidden_instructions": [
+      "dependencies",
+      "packages",
+      "apt",
+      "pip",
+      "npm",
+      "sudoers",
+      "shell",
+      "command",
+      "commands",
+      "clone",
+      "rebuild",
+      "instructions",
+      "install_script",
+      "unit_text",
+      "authorized_keys",
+      "private_key",
+      "keys",
+      "dotfiles"
+    ],
+    "forbidden_inventory_names": [
+      "passwd",
+      "shadow",
+      "sudoers",
+      "authorized_keys",
+      "id_rsa",
+      "id_ed25519",
+      ".ssh",
+      ".gnupg",
+      ".bashrc",
+      ".profile"
+    ],
+    "forbidden_inventory_suffixes": [
+      ".service",
+      ".socket",
+      ".timer",
+      ".sudoers"
+    ],
+    "forbidden_row_keys": [
+      "__proto__",
+      "constructor",
+      "prototype"
+    ]
+  },
+  "forms": {
+    "refusal": {
+      "required": [
+        "check",
+        "field",
+        "message",
+        "suggestion"
+      ]
+    },
+    "admissible": {
+      "required": [
+        "entry",
+        "tabs"
+      ]
+    }
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF."
+}

@@ -39,6 +39,11 @@ fn seats() -> &'static BTreeMap<&'static str, Seat> {
     })
 }
 
+/// Borrow the declaration already loaded by the startup registry.
+pub(crate) fn declaration(id: &str) -> Option<&'static Value> {
+    seats().get(id).map(|seat| &seat.declaration)
+}
+
 pub(crate) fn row_schema() -> &'static str {
     schema_id("caduceus.ruyi.v1")
 }

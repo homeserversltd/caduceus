@@ -30,6 +30,7 @@ commands:
 - network dhcp health
 - doors read
 - cartridges mutate
+- xenia mutate
 - network dhcp reservations
 - network dhcp reload
 - network dhcp reservation add
@@ -96,6 +97,11 @@ harmonia_routes:
     positional: true
     raw_json: true
 routes:
+- xenia/validate
+- xenia/admit
+- xenia/remove
+- xenia/status
+- xenia/status/:id
 - network/cors/allowed-origins/add
 - exousia/change-pin
 - exousia/invalidate

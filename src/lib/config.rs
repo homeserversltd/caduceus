@@ -245,7 +245,15 @@ pub fn atomic_write_owned(path: &Path, bytes: &[u8], mode: u32) -> Result<(), St
     result.map_err(|err| err.to_string())
 }
 
+/// Shared with paired Xenia transactions. Acquire before reading either document;
+/// callers must release it before network I/O and must not call mutate while held.
+pub fn transaction_lock() -> Result<std::sync::MutexGuard<'static, ()>, String> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().map_err(|_| "caduceus-config-lock-poisoned".to_owned())
+}
+
 fn mutate(op: &str, target: &str, update: Value) -> Result<Value, String> {
+    let _guard = transaction_lock()?;
     let resolved = resolve()?;
     if !resolved.fs_path.is_file() {
         return Err("caduceus-household-config-installed-path-missing".to_string());
