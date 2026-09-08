@@ -28,6 +28,7 @@ struct RuyiRow {
     hostname: String,
     canonical_name: String,
     ipv4: String,
+    ipv4_source: Option<String>,
     profile: String,
     gui_face: Option<String>,
     caduceus_sha: String,
@@ -54,6 +55,7 @@ struct RuyiListBody {
     staves: Vec<RuyiRow>,
     perspectives: BTreeMap<String, Value>,
     trust: Vec<Value>,
+    dns_unresolved: Vec<Value>,
 }
 
 fn error(
@@ -282,14 +284,12 @@ async fn put(
         return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"));
     }
     let canonical_name = format!("{}.home.arpa", row.hostname);
-    if let Some(records) = unbound_dns_view(&crate::shared::config::path("etc/unbound")) {
-        let dns_ipv4 = unbound_ipv4_for_hostname(&records, &row.hostname).ok_or_else(|| {
-            error(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "caduceus-ruyi-dns-record-missing",
-            )
-        })?;
+    row.ipv4_source = Some("declared".to_owned());
+    if let Some(dns_ipv4) = unbound_dns_view(&crate::shared::config::path("etc/unbound"))
+        .and_then(|records| unbound_ipv4_for_hostname(&records, &row.hostname))
+    {
         row.ipv4 = dns_ipv4.to_string();
+        row.ipv4_source = Some("dns".to_owned());
     }
     row.canonical_name = canonical_name;
     row.last_seen = server_now();
@@ -350,6 +350,18 @@ async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::Api
         perspectives.insert(mac, value);
     }
     let trust = derive_trust(&staves, &perspectives, &received);
+    let dns_unresolved = if unbound_dns_view(&crate::shared::config::path("etc/unbound")).is_some() {
+        staves
+            .iter()
+            .filter(|row| row.ipv4_source.as_deref() == Some("declared"))
+            .map(|row| {
+                json!({"mac":row.mac,"hostname":row.hostname,
+                    "canonical_name":row.canonical_name,"ipv4":row.ipv4})
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     Ok(Json(RuyiListBody {
         schema: row_schema(),
         ok: true,
@@ -361,6 +373,7 @@ async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::Api
         staves,
         perspectives,
         trust,
+        dns_unresolved,
     }))
 }
 

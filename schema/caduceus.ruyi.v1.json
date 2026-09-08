@@ -33,6 +33,18 @@
       "type": "string",
       "format": "ipv4"
     },
+    "ipv4_source": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "dns",
+        "declared",
+        null
+      ],
+      "description": "Seat-written address source; absent or null on older rows"
+    },
     "profile": {
       "type": "string"
     },
@@ -178,6 +190,28 @@
     },
     "removed": {
       "type": "string"
+    },
+    "dns_unresolved": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "fields": {
+          "mac": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "canonical_name": {
+            "type": "string"
+          },
+          "ipv4": {
+            "type": "string",
+            "format": "ipv4"
+          }
+        }
+      },
+      "description": "Stored rows marked declared while the DNS view has records; empty without a DNS view"
     }
   },
   "field_types": {
@@ -186,6 +220,7 @@
     "hostname": "string",
     "canonical_name": "string",
     "ipv4": "string",
+    "ipv4_source": "string|null",
     "profile": "string",
     "gui_face": "string|null",
     "caduceus_sha": "string",
@@ -201,6 +236,7 @@
     "staves": "array",
     "perspectives": "object",
     "trust": "array",
+    "dns_unresolved": "array",
     "removed": "string"
   },
   "required": [
@@ -208,6 +244,8 @@
   ],
   "optional": [
     "gui_face",
+    "ipv4_source",
+    "dns_unresolved",
     "syzygy_sha",
     "last_seen",
     "perspective",
@@ -230,6 +268,7 @@
       ],
       "optional": [
         "gui_face",
+        "ipv4_source",
         "syzygy_sha",
         "last_seen",
         "perspective"
@@ -245,6 +284,7 @@
       ],
       "optional": [
         "perspectives",
+        "dns_unresolved",
         "trust"
       ]
     },
