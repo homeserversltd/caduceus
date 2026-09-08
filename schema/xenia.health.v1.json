@@ -1,0 +1,55 @@
+{
+  "schema": "xenia.health.v1",
+  "schema_version": "1.0.0",
+  "role": "Public Xenia service health receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/xenia.health.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "xenia.health.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "service": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(\\+([0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*))?$"
+    },
+    "source_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{40}$"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "service": "string",
+    "version": "string",
+    "source_sha": "string|null"
+  },
+  "required": [
+    "schema",
+    "ok",
+    "service"
+  ],
+  "optional": [
+    "version",
+    "source_sha"
+  ],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

@@ -19,6 +19,9 @@
       "schema_version": "1.0.0"
     },
     "appliance.xenia.v1": {"file": "schema/appliance.xenia.v1.json", "schema_version": "1.0.0"},
-    "coronatio.face-surface.v1": {"file": "schema/coronatio.face-surface.v1.json", "schema_version": "1.0.0"}
+    "coronatio.face-surface.v1": {"file": "schema/coronatio.face-surface.v1.json", "schema_version": "1.0.0"},
+    "harmonia.engine.source_resolution.v1": {"file": "schema/harmonia.engine.source_resolution.v1.json", "schema_version": "1.0.0"},
+    "xenia.health.v1": {"file": "schema/xenia.health.v1.json", "schema_version": "1.0.0"},
+    "xenia.events.v1": {"file": "schema/xenia.events.v1.json", "schema_version": "1.0.0"}
   }
 }

@@ -1,0 +1,98 @@
+{
+  "schema": "xenia.events.v1",
+  "schema_version": "1.0.0",
+  "role": "Public Xenia event-stream lease envelope",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/xenia.events.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true,
+    "form_kernel_semantics": "The envelope required kernel applies to every form. Each forms.<name>.required declares that form's additional frozen required kernel; fields required by a form are not optional in that form."
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "xenia.events.v1"
+    },
+    "streamId": {
+      "type": "string"
+    },
+    "leaseSeconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "renewRoute": {
+      "type": "string"
+    },
+    "route": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "renewed",
+        "expired"
+      ]
+    },
+    "nextRenewalBeforeSeconds": {
+      "type": "integer"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "streamId": "string",
+    "leaseSeconds": "integer",
+    "renewRoute": "string",
+    "route": "string",
+    "status": "string",
+    "nextRenewalBeforeSeconds": "integer"
+  },
+  "required": [
+    "schema",
+    "streamId"
+  ],
+  "optional": [
+    "leaseSeconds",
+    "renewRoute",
+    "route",
+    "status",
+    "nextRenewalBeforeSeconds"
+  ],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes.",
+  "forms": {
+    "open": {
+      "required": [
+        "schema",
+        "streamId",
+        "leaseSeconds",
+        "renewRoute"
+      ]
+    },
+    "renewal": {
+      "required": [
+        "schema",
+        "streamId",
+        "route",
+        "leaseSeconds",
+        "status",
+        "nextRenewalBeforeSeconds"
+      ]
+    },
+    "expired": {
+      "required": [
+        "schema",
+        "streamId",
+        "status"
+      ],
+      "fields": {
+        "status": {
+          "type": "string",
+          "const": "expired"
+        }
+      }
+    }
+  }
+}

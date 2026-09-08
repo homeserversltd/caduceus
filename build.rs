@@ -212,6 +212,9 @@ fn main() {
         "harmonia.update-set.v1",
         "appliance.xenia.v1",
         "coronatio.face-surface.v1",
+        "harmonia.engine.source_resolution.v1",
+        "xenia.health.v1",
+        "xenia.events.v1",
     ]
     .map(|id| PathBuf::from(format!("schema/{id}.json")));
     let mut embedded = String::from("const EMBEDDED_SEATS: &[(&str, &str)] = &[\n");

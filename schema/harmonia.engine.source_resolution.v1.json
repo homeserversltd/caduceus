@@ -1,0 +1,197 @@
+{
+  "schema": "harmonia.engine.source_resolution.v1",
+  "schema_version": "1.0.0",
+  "role": "Public Harmonia source-resolution receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/harmonia.engine.source_resolution.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "harmonia.engine.source_resolution.v1"
+    },
+    "source_policy": {
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "mutation": {
+      "type": "boolean"
+    },
+    "network_access": {
+      "type": "boolean"
+    },
+    "certificate_path": {
+      "type": "string"
+    },
+    "certificate_schema": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "component": {
+      "type": "string"
+    },
+    "owning_module": {
+      "type": "string"
+    },
+    "step_id": {
+      "type": "string"
+    },
+    "requested_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "blessed_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ordered_candidate_identities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "credential_selectors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blocker": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "resolution": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "fields": {
+        "schema": {
+          "type": "string"
+        },
+        "source_policy": {
+          "type": "string"
+        },
+        "component": {
+          "type": "string"
+        },
+        "requested_ref": {
+          "type": "string"
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "fields": {
+              "kind": {
+                "type": "string"
+              },
+              "locator": {
+                "type": "string"
+              },
+              "credential_selector": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "freshness_authority": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "authority": {
+      "type": "string",
+      "enum": [
+        "certificate",
+        "xenia-entry"
+      ]
+    },
+    "authority_ref": {
+      "type": "string"
+    },
+    "resolved_revision": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "digest": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "source_policy": "string",
+    "ok": "boolean",
+    "mutation": "boolean",
+    "network_access": "boolean",
+    "certificate_path": "string",
+    "certificate_schema": "string|null",
+    "component": "string",
+    "owning_module": "string",
+    "step_id": "string",
+    "requested_ref": "string|null",
+    "blessed_ref": "string|null",
+    "ordered_candidate_identities": "array",
+    "credential_selectors": "array",
+    "blocker": "string|null",
+    "resolution": "object|null",
+    "authority": "string",
+    "authority_ref": "string",
+    "resolved_revision": "string|null",
+    "digest": "string|null"
+  },
+  "required": [
+    "schema",
+    "ok",
+    "component",
+    "owning_module",
+    "step_id",
+    "authority"
+  ],
+  "optional": [
+    "source_policy",
+    "mutation",
+    "network_access",
+    "certificate_path",
+    "certificate_schema",
+    "requested_ref",
+    "blessed_ref",
+    "ordered_candidate_identities",
+    "credential_selectors",
+    "blocker",
+    "resolution",
+    "authority_ref",
+    "resolved_revision",
+    "digest"
+  ],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}
