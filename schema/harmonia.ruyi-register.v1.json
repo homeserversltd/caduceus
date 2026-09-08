@@ -49,6 +49,22 @@
         "string",
         "null"
       ]
+    },
+    "held_back_by": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "event": {
+      "type": "string",
+      "enum": [
+        "new-artifact",
+        "staff-start"
+      ]
+    },
+    "staff_start_wait_ms": {
+      "type": "integer"
     }
   },
   "field_types": {
@@ -57,7 +73,10 @@
     "self": "RuyiRow|null",
     "roster_count": "integer",
     "roster": "array<RuyiRow>",
-    "first_missing_signal": "string|null"
+    "first_missing_signal": "string|null",
+    "held_back_by": "array<string>",
+    "event": "string",
+    "staff_start_wait_ms": "integer"
   },
   "required": [
     "schema",
@@ -67,6 +86,10 @@
     "roster",
     "first_missing_signal"
   ],
-  "optional": [],
+  "optional": [
+    "held_back_by",
+    "event",
+    "staff_start_wait_ms"
+  ],
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }

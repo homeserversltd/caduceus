@@ -1,0 +1,65 @@
+{
+  "schema": "harmonia.interactables.ruyi_bump.receipt.v1",
+  "schema_version": "1.0.0",
+  "role": "Harmonia Ruyi bump interactable receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/harmonia.interactables.ruyi_bump.receipt.v1.json",
+    "grant": "Operator-elected public seat for the Harmonia Ruyi bump receipt"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "harmonia.interactables.ruyi_bump.receipt.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "id": {
+      "type": "string"
+    },
+    "mac": {
+      "type": "string"
+    },
+    "at": {
+      "type": "integer"
+    },
+    "hostname": {
+      "type": "string"
+    },
+    "seat_reply": {
+      "type": "object"
+    },
+    "first_missing_signal": {
+      "type": "string"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "id": "string",
+    "mac": "string",
+    "at": "integer",
+    "hostname": "string",
+    "seat_reply": "object",
+    "first_missing_signal": "string"
+  },
+  "required": [
+    "schema",
+    "ok",
+    "id",
+    "mac",
+    "at"
+  ],
+  "optional": [
+    "hostname",
+    "seat_reply",
+    "first_missing_signal"
+  ],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

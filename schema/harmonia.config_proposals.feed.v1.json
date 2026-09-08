@@ -1,0 +1,353 @@
+{
+  "schema": "harmonia.config_proposals.feed.v1",
+  "schema_version": "1.0.0",
+  "role": "Harmonia configuration proposals feed and interactable receipts",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/harmonia.config_proposals.feed.v1.json",
+    "grant": "Operator-elected public seat for the Harmonia configuration proposals feed"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true,
+    "accepted_legacy_schema_ids": [
+      "harmonia.interactables.feed.v1"
+    ]
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "harmonia.config_proposals.feed.v1"
+    },
+    "interactables": {
+      "type": "array",
+      "items": {
+        "type_ref": "Item"
+      }
+    },
+    "receipts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "interactables": "array<Item>",
+    "receipts": "array<object>"
+  },
+  "required": [
+    "schema",
+    "interactables",
+    "receipts"
+  ],
+  "optional": [],
+  "types": {
+    "Item": {
+      "fields": {
+        "id": {
+          "type": "string"
+        },
+        "module_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "hard-stamp",
+            "ruyi-bump",
+            "dns-record"
+          ]
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "refreshed_at": {
+          "type": "string"
+        },
+        "has_run": {
+          "type": "boolean"
+        },
+        "script": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "target_path": {
+          "type": "string"
+        },
+        "reference_source_path": {
+          "type": "string"
+        },
+        "drift": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "type_ref": "Drift"
+        },
+        "available_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mode": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "owner": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "group": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_sha": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_sha": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commits_behind": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "live_sha": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reference_sha": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recognition_score": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "show_only_if": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "completion_check": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence": {
+          "one_of": [
+            {
+              "type_ref": "RuyiBumpEvidence"
+            },
+            {
+              "type_ref": "DnsRecordEvidence"
+            }
+          ],
+          "nullable": true
+        }
+      },
+      "required": [
+        "id",
+        "module_id",
+        "name",
+        "kind",
+        "created_at",
+        "refreshed_at",
+        "has_run",
+        "script"
+      ],
+      "optional": [
+        "description",
+        "target_path",
+        "reference_source_path",
+        "drift",
+        "available_at",
+        "mode",
+        "owner",
+        "group",
+        "source_sha",
+        "target_sha",
+        "commits_behind",
+        "live_sha",
+        "reference_sha",
+        "recognition_score",
+        "show_only_if",
+        "completion_check",
+        "evidence"
+      ]
+    },
+    "Drift": {
+      "fields": {
+        "content": {
+          "type": "boolean"
+        },
+        "mode": {
+          "type": "boolean"
+        },
+        "ownership": {
+          "type": "boolean"
+        }
+      },
+      "optional": [
+        "content",
+        "mode",
+        "ownership"
+      ]
+    },
+    "SeatTriplet": {
+      "fields": {
+        "caduceus": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sbin": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "face": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "optional": [
+        "caduceus",
+        "sbin",
+        "face"
+      ]
+    },
+    "TermTriplet": {
+      "fields": {
+        "caduceus": {
+          "type": "string",
+          "enum": [
+            "same",
+            "older",
+            "unknown"
+          ]
+        },
+        "sbin": {
+          "type": "string",
+          "enum": [
+            "same",
+            "older",
+            "unknown"
+          ]
+        },
+        "face": {
+          "type": "string",
+          "enum": [
+            "same",
+            "older",
+            "unknown"
+          ]
+        }
+      },
+      "optional": [
+        "caduceus",
+        "sbin",
+        "face"
+      ]
+    },
+    "RuyiBumpEvidence": {
+      "fields": {
+        "mac": {
+          "type": "string"
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "canonical_name": {
+          "type": "string"
+        },
+        "wears": {
+          "type_ref": "SeatTriplet"
+        },
+        "newest": {
+          "type_ref": "SeatTriplet"
+        },
+        "terms": {
+          "type_ref": "TermTriplet"
+        },
+        "last_checked_in_at": {
+          "type": "integer"
+        },
+        "last_event_age_s": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "mac",
+        "hostname",
+        "canonical_name",
+        "wears",
+        "newest",
+        "terms",
+        "last_checked_in_at",
+        "last_event_age_s"
+      ]
+    },
+    "DnsRecordEvidence": {
+      "fields": {
+        "mac": {
+          "type": "string"
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "canonical_name": {
+          "type": "string"
+        },
+        "ipv4": {
+          "type": "string"
+        },
+        "record": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mac",
+        "hostname",
+        "canonical_name",
+        "ipv4",
+        "record"
+      ]
+    }
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

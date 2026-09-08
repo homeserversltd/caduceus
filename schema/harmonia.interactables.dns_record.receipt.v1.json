@@ -1,0 +1,80 @@
+{
+  "schema": "harmonia.interactables.dns_record.receipt.v1",
+  "schema_version": "1.0.0",
+  "role": "Harmonia DNS record interactable receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/harmonia.interactables.dns_record.receipt.v1.json",
+    "grant": "Operator-elected public seat for the Harmonia DNS record receipt"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "harmonia.interactables.dns_record.receipt.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "id": {
+      "type": "string"
+    },
+    "hostname": {
+      "type": "string"
+    },
+    "record": {
+      "type": "string"
+    },
+    "at": {
+      "type": "integer"
+    },
+    "target": {
+      "type": "string"
+    },
+    "backup_path": {
+      "type": "string"
+    },
+    "checkconf": {
+      "type": "object"
+    },
+    "reload": {
+      "type": "object"
+    },
+    "first_missing_signal": {
+      "type": "string"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "id": "string",
+    "hostname": "string",
+    "record": "string",
+    "at": "integer",
+    "target": "string",
+    "backup_path": "string",
+    "checkconf": "object",
+    "reload": "object",
+    "first_missing_signal": "string"
+  },
+  "required": [
+    "schema",
+    "ok",
+    "id",
+    "hostname",
+    "record",
+    "at"
+  ],
+  "optional": [
+    "target",
+    "backup_path",
+    "checkconf",
+    "reload",
+    "first_missing_signal"
+  ],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}
