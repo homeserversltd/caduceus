@@ -53,17 +53,96 @@ fn open_db() -> Result<Connection, String> {
     c.execute_batch(
         "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY; PRAGMA journal_size_limit=8388608; CREATE TABLE IF NOT EXISTS raw_samples (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS minute_samples (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS self_benchmark (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL); CREATE INDEX IF NOT EXISTS raw_ts ON raw_samples(ts); CREATE INDEX IF NOT EXISTS minute_bucket ON minute_samples(bucket); CREATE INDEX IF NOT EXISTS self_benchmark_bucket ON self_benchmark(bucket); CREATE TABLE IF NOT EXISTS ruyi (mac TEXT PRIMARY KEY, row TEXT NOT NULL, last_seen INTEGER NOT NULL);",
     ).map_err(|e| e.to_string())?;
+    c.execute_batch("CREATE TABLE IF NOT EXISTS ruyi_perspective (mac TEXT PRIMARY KEY, json TEXT NOT NULL, received_at INTEGER NOT NULL);")
+        .map_err(|e| e.to_string())?;
     Ok(c)
 }
 
 pub fn ruyi_upsert(mac: &str, row_json: &str, last_seen: i64) -> Result<(), String> {
-    let c = open_db()?;
-    c.execute(
+    ruyi_put(mac, row_json, last_seen, None)
+}
+
+pub fn ruyi_put(
+    mac: &str,
+    row_json: &str,
+    received_at: i64,
+    perspective: Option<&str>,
+) -> Result<(), String> {
+    let mut c = open_db()?;
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
         "INSERT INTO ruyi(mac,row,last_seen) VALUES(?1,?2,?3) ON CONFLICT(mac) DO UPDATE SET row=excluded.row,last_seen=excluded.last_seen",
-        params![mac, row_json, last_seen],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+        params![mac, row_json, received_at],
+    ).map_err(|e| e.to_string())?;
+    match perspective {
+        Some(json) => {
+            tx.execute(
+            "INSERT INTO ruyi_perspective(mac,json,received_at) VALUES(?1,?2,?3) ON CONFLICT(mac) DO UPDATE SET json=excluded.json,received_at=excluded.received_at",
+            params![mac, json, received_at],
+        ).map_err(|e| e.to_string())?;
+        }
+        None => {
+            tx.execute("DELETE FROM ruyi_perspective WHERE mac=?1", [mac])
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())
+}
+
+pub struct RuyiSnapshot {
+    pub rows: Vec<(String, String, i64)>,
+    pub perspectives: Vec<(String, String, i64)>,
+}
+
+/// Both halves of a GET observe the same SQLite snapshot, even during PUT/DELETE.
+pub fn ruyi_snapshot() -> Result<RuyiSnapshot, String> {
+    let mut c = open_db()?;
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    let read = |sql: &str| -> Result<Vec<(String, String, i64)>, String> {
+        let mut statement = tx.prepare(sql).map_err(|e| e.to_string())?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .map_err(|e| e.to_string())?;
+        rows.map(|row| row.map_err(|e| e.to_string())).collect()
+    };
+    let rows = read("SELECT mac,row,last_seen FROM ruyi ORDER BY mac")?;
+    let perspectives = read("SELECT mac,json,received_at FROM ruyi_perspective ORDER BY mac")?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(RuyiSnapshot { rows, perspectives })
+}
+
+pub fn ruyi_row(mac: &str) -> Result<Option<String>, String> {
+    open_db()?
+        .query_row("SELECT row FROM ruyi WHERE mac=?1", [mac], |row| row.get(0))
+        .optional()
+        .map_err(|e| e.to_string())
+}
+
+/// Remove only the registered row and its author's perspective, never peer evidence.
+pub fn ruyi_delete(mac: &str) -> Result<Option<String>, String> {
+    let mut c = open_db()?;
+    let tx = c
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|e| e.to_string())?;
+    let row: Option<String> = tx
+        .query_row("SELECT row FROM ruyi WHERE mac=?1", [mac], |row| row.get(0))
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let value: Value = serde_json::from_str(&row).map_err(|e| e.to_string())?;
+    let hostname = value
+        .get("hostname")
+        .and_then(Value::as_str)
+        .ok_or("caduceus-ruyi-row-invalid")?
+        .to_owned();
+    tx.execute("DELETE FROM ruyi WHERE mac=?1", [mac])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM ruyi_perspective WHERE mac=?1", [mac])
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(Some(hostname))
 }
 
 fn ruyi_list_result() -> Result<Vec<(String, String, i64)>, String> {

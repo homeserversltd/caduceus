@@ -1,0 +1,261 @@
+{
+  "schema": "caduceus.ruyi.v1",
+  "schema_version": "1.0.0",
+  "role": "Public Ruyi row, roster and removal envelope",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.ruyi.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true,
+    "form_kernel_semantics": "The envelope required kernel applies to every form. Each forms.<name>.required declares that form's additional frozen required kernel; fields required by a form are not optional in that form."
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.ruyi.v1"
+    },
+    "mac": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$"
+    },
+    "hostname": {
+      "type": "string",
+      "description": "Self-declared lowercase hostname, 1 through 63 bytes"
+    },
+    "canonical_name": {
+      "type": "string",
+      "description": "hostname followed by .home.arpa"
+    },
+    "ipv4": {
+      "type": "string",
+      "format": "ipv4"
+    },
+    "profile": {
+      "type": "string"
+    },
+    "gui_face": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "Hyprland",
+        "Arcadia",
+        "Coronatio",
+        null
+      ]
+    },
+    "caduceus_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "env_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "harmonia_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "syzygy_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "last_seen": {
+      "type": "integer",
+      "description": "Unix acceptance time written by the seat"
+    },
+    "last_update": {
+      "type": "object",
+      "fields": {
+        "run_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "converged": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "run_id",
+        "converged"
+      ]
+    },
+    "perspective": {
+      "schema_ref": "harmonia.ruyi-perspective.v1",
+      "nullable": true
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "service": {
+      "type": "string",
+      "const": "caduceus"
+    },
+    "seat": {
+      "type": "object",
+      "fields": {
+        "mac": {
+          "type": "string"
+        },
+        "hostname": {
+          "type": "string"
+        }
+      }
+    },
+    "staves": {
+      "type": "array",
+      "items": {
+        "schema_ref": "caduceus.ruyi.v1",
+        "form": "row"
+      }
+    },
+    "perspectives": {
+      "type": "object",
+      "values": {
+        "schema_ref": "harmonia.ruyi-perspective.v1"
+      }
+    },
+    "trust": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "fields": {
+          "mac": {
+            "type": "string"
+          },
+          "syzygy_sha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "beam_pair": {
+            "type": "object",
+            "fields": {
+              "caduceus_sha": {
+                "type": "string"
+              },
+              "env_sha": {
+                "type": "string"
+              }
+            }
+          },
+          "witnesses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Distinct sorted registered MACs attesting the target"
+          },
+          "agree": {
+            "type": "integer"
+          },
+          "of": {
+            "type": "integer"
+          },
+          "first_seen": {
+            "type": "integer",
+            "description": "Earliest retained agreeing event for this target"
+          },
+          "last_seen": {
+            "type": "integer",
+            "description": "Latest retained agreeing event for this target"
+          },
+          "last_event": {
+            "type": "integer",
+            "description": "Latest retained event concerning this target, including divergence"
+          }
+        }
+      }
+    },
+    "removed": {
+      "type": "string"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "mac": "string",
+    "hostname": "string",
+    "canonical_name": "string",
+    "ipv4": "string",
+    "profile": "string",
+    "gui_face": "string|null",
+    "caduceus_sha": "string",
+    "env_sha": "string",
+    "harmonia_sha": "string",
+    "syzygy_sha": "string|null",
+    "last_seen": "integer",
+    "last_update": "object",
+    "perspective": "object|null",
+    "ok": "boolean",
+    "service": "string",
+    "seat": "object",
+    "staves": "array",
+    "perspectives": "object",
+    "trust": "array",
+    "removed": "string"
+  },
+  "required": [
+    "schema"
+  ],
+  "optional": [
+    "gui_face",
+    "syzygy_sha",
+    "last_seen",
+    "perspective",
+    "perspectives",
+    "trust"
+  ],
+  "forms": {
+    "row": {
+      "required": [
+        "schema",
+        "mac",
+        "hostname",
+        "canonical_name",
+        "ipv4",
+        "profile",
+        "caduceus_sha",
+        "env_sha",
+        "harmonia_sha",
+        "last_update"
+      ],
+      "optional": [
+        "gui_face",
+        "syzygy_sha",
+        "last_seen",
+        "perspective"
+      ]
+    },
+    "roster": {
+      "required": [
+        "schema",
+        "ok",
+        "service",
+        "seat",
+        "staves"
+      ],
+      "optional": [
+        "perspectives",
+        "trust"
+      ]
+    },
+    "removed": {
+      "required": [
+        "schema",
+        "ok",
+        "removed"
+      ],
+      "optional": []
+    }
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

@@ -9,6 +9,10 @@
     ]
   },
   "seats": {
+    "caduceus.beam.v1": {"file": "schema/caduceus.beam.v1.json", "schema_version": "1.0.0"},
+    "caduceus.ruyi.v1": {"file": "schema/caduceus.ruyi.v1.json", "schema_version": "1.0.0"},
+    "harmonia.ruyi-perspective.v1": {"file": "schema/harmonia.ruyi-perspective.v1.json", "schema_version": "1.0.0"},
+    "harmonia.ruyi-register.v1": {"file": "schema/harmonia.ruyi-register.v1.json", "schema_version": "1.0.0"},
     "estate.release-flag.v1": {
       "file": "schema/estate.release-flag.v1.json",
       "schema_version": "1.0.0"

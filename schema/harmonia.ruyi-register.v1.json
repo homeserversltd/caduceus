@@ -1,0 +1,72 @@
+{
+  "schema": "harmonia.ruyi-register.v1",
+  "schema_version": "1.0.0",
+  "role": "Harmonia Ruyi registration observation",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/harmonia.ruyi-register.v1.json",
+    "grant": "Operator-elected public seat for the Harmonia Ruyi register"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "harmonia.ruyi-register.v1"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "pre-declaration",
+        "registered",
+        "gateway-unreachable",
+        "self-is-gateway",
+        "refused"
+      ]
+    },
+    "self": {
+      "schema_ref": "caduceus.ruyi.v1",
+      "form": "row",
+      "nullable": true,
+      "description": "Null in pre-declaration"
+    },
+    "roster_count": {
+      "type": "integer",
+      "description": "Number of roster rows"
+    },
+    "roster": {
+      "type": "array",
+      "items": {
+        "schema_ref": "caduceus.ruyi.v1",
+        "form": "row"
+      }
+    },
+    "first_missing_signal": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "state": "string",
+    "self": "RuyiRow|null",
+    "roster_count": "integer",
+    "roster": "array<RuyiRow>",
+    "first_missing_signal": "string|null"
+  },
+  "required": [
+    "schema",
+    "state",
+    "self",
+    "roster_count",
+    "roster",
+    "first_missing_signal"
+  ],
+  "optional": [],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

@@ -166,6 +166,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", birth_certificate.display());
     println!("cargo:rerun-if-env-changed=CADUCEUS_SBIN_PATH");
     println!("cargo:rerun-if-changed=schema.json");
+    println!("cargo:rerun-if-changed=routes");
 
     let source = fs::read_to_string("schema.json").expect("protocol seat must be readable");
     let seat: serde_json::Value =
@@ -198,6 +199,35 @@ fn main() {
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR must be set");
     fs::write(Path::new(&out_dir).join("protocol_seat.rs"), generated)
         .expect("generated protocol metadata must be writable");
+
+    // Public seats have one source each. Preserve their exact bytes in the binary.
+    println!("cargo:rerun-if-changed=schema");
+    // Only the four contracted public faces are exposed; the existing release index
+    // and release-flag seat keep their own reader and are not API declarations.
+    let seats = [
+        "caduceus.beam.v1",
+        "caduceus.ruyi.v1",
+        "harmonia.ruyi-perspective.v1",
+        "harmonia.ruyi-register.v1",
+    ]
+    .map(|id| PathBuf::from(format!("schema/{id}.json")));
+    let mut embedded = String::from("const EMBEDDED_SEATS: &[(&str, &str)] = &[\n");
+    for path in seats {
+        println!("cargo:rerun-if-changed={}", path.display());
+        let bytes = fs::read_to_string(&path).expect("public seat readable");
+        let id = path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .expect("schema id filename");
+        embedded.push_str(&format!(
+            "({}, {}),\n",
+            rust_string(id),
+            rust_string(&bytes)
+        ));
+    }
+    embedded.push_str("];\n");
+    fs::write(Path::new(&out_dir).join("public_schema_seats.rs"), embedded)
+        .expect("embedded public seats writable");
 
     if let Ok(build_sha) = env::var("CADUCEUS_BUILD_SHA") {
         assert!(
@@ -303,6 +333,9 @@ fn main() {
     }
     if !selected.iter().any(|route| route == "ruyi") {
         selected.push("ruyi".to_owned());
+    }
+    if !selected.iter().any(|route| route == "schema") {
+        selected.push("schema".to_owned());
     }
     selected.sort();
     selected.dedup();

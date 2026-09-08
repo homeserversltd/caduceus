@@ -1,0 +1,168 @@
+{
+  "schema": "harmonia.ruyi-perspective.v1",
+  "schema_version": "1.0.0",
+  "role": "A registered body's raw perspective of the Ruyi staff",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/harmonia.ruyi-perspective.v1.json",
+    "grant": "Operator-elected public seat for the Harmonia Ruyi perspective"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Self-only with schema is lawful; absent optional observations mean no evidence",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "harmonia.ruyi-perspective.v1"
+    },
+    "self": {
+      "schema_ref": "caduceus.ruyi.v1",
+      "form": "row"
+    },
+    "seen": {
+      "type": "object",
+      "values": {
+        "type_ref": "PeerEntry"
+      }
+    },
+    "their_view_of_me": {
+      "type": "object",
+      "values": {
+        "type_ref": "Reflection"
+      }
+    },
+    "written_at": {
+      "type": "integer",
+      "description": "Unix event timestamp"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "self": "RuyiRow",
+    "seen": "map<mac,PeerEntry>",
+    "their_view_of_me": "map<mac,Reflection>",
+    "written_at": "integer"
+  },
+  "required": [
+    "schema",
+    "self"
+  ],
+  "optional": [
+    "seen",
+    "their_view_of_me",
+    "written_at"
+  ],
+  "types": {
+    "BeamPair": {
+      "fields": {
+        "caduceus_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "env_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "PeerEntry": {
+      "fields": {
+        "mac": {
+          "type": "string"
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "canonical_name": {
+          "type": "string"
+        },
+        "beam_pair": {
+          "type_ref": "BeamPair"
+        },
+        "syzygy_sha": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "lineage": {
+          "type": "array",
+          "items": {
+            "type_ref": "Sighting"
+          }
+        },
+        "last_checked_in_at": {
+          "type": "integer"
+        },
+        "seen_via": {
+          "type": "string",
+          "enum": [
+            "gateway-roster",
+            "direct"
+          ]
+        }
+      }
+    },
+    "Sighting": {
+      "fields": {
+        "syzygy_sha": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "release_flags": {
+          "type": "object",
+          "fields": {
+            "caduceus": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "sbin": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "gui": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9a-f]{40}$"
+            }
+          }
+        },
+        "seen_at": {
+          "type": "integer"
+        }
+      }
+    },
+    "Reflection": {
+      "fields": {
+        "syzygy_sha": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "beam_pair": {
+          "type_ref": "BeamPair"
+        },
+        "at": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

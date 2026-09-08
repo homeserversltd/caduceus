@@ -1,0 +1,74 @@
+{
+  "schema": "caduceus.beam.v1",
+  "schema_version": "1.0.0",
+  "role": "Public compiled BeamPair and locally registered syzygy",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.beam.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.beam.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "service": {
+      "type": "string",
+      "const": "caduceus"
+    },
+    "profile": {
+      "type": "string"
+    },
+    "caduceus_sha": {
+      "type": "string",
+      "description": "Compiled 40-hex release identity, or unset for an unlabelled build"
+    },
+    "env_sha": {
+      "type": "string",
+      "description": "Compiled 64-hex toolchain identity, or unset for an unlabelled build"
+    },
+    "gui_face": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "syzygy_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Stored local-MAC Ruyi row syzygy, null when absent"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "service": "string",
+    "profile": "string",
+    "caduceus_sha": "string",
+    "env_sha": "string",
+    "gui_face": "string|null",
+    "syzygy_sha": "string|null"
+  },
+  "required": [
+    "schema",
+    "ok",
+    "service",
+    "profile",
+    "caduceus_sha",
+    "env_sha"
+  ],
+  "optional": [
+    "gui_face",
+    "syzygy_sha"
+  ],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

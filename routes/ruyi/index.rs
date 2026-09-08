@@ -1,7 +1,9 @@
 use axum::extract::Path;
 use axum::{http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 use std::{
     fs,
     net::Ipv4Addr,
@@ -9,19 +11,17 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const ROW_SCHEMA: &str = "caduceus.ruyi.v1";
+use crate::routes::leaf_schema::row_schema;
 const TEXT_MAX: usize = 64;
 const MAX_PROJECTION_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 struct RuyiLastUpdate {
     run_id: String,
     converged: bool,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 struct RuyiRow {
     schema: String,
     mac: String,
@@ -52,6 +52,8 @@ struct RuyiListBody {
     service: &'static str,
     seat: RuyiSeat,
     staves: Vec<RuyiRow>,
+    perspectives: BTreeMap<String, Value>,
+    trust: Vec<Value>,
 }
 
 fn error(
@@ -103,7 +105,7 @@ fn valid_bounded_text(value: &str) -> bool {
 }
 
 fn valid_row(row: &RuyiRow, path_mac: &str) -> bool {
-    row.schema == ROW_SCHEMA
+    row.schema == row_schema()
         && path_mac == row.mac
         && valid_mac(path_mac)
         && valid_hostname(&row.hostname)
@@ -132,24 +134,26 @@ fn server_now() -> u64 {
 }
 
 fn local_hostname() -> String {
-    fs::read_to_string("/etc/hostname")
+    fs::read_to_string(crate::shared::config::path("etc/hostname"))
         .ok()
         .map(|hostname| hostname.trim().to_owned())
         .filter(|hostname| !hostname.is_empty())
         .unwrap_or_else(|| "unknown".to_owned())
 }
 
-fn local_mac() -> Option<String> {
-    let route = fs::read_to_string("/proc/net/route").ok()?;
+pub(crate) fn local_mac() -> Option<String> {
+    let route = fs::read_to_string(crate::shared::config::path("proc/net/route")).ok()?;
     let iface = route.lines().skip(1).find_map(|line| {
         let mut fields = line.split_whitespace();
         let iface = fields.next()?;
         let destination = fields.next()?;
         (destination == "00000000").then(|| iface.to_owned())
     })?;
-    fs::read_to_string(format!("/sys/class/net/{iface}/address"))
-        .ok()
-        .map(|mac| mac.trim().to_owned())
+    fs::read_to_string(crate::shared::config::path(&format!(
+        "sys/class/net/{iface}/address"
+    )))
+    .ok()
+    .map(|mac| mac.trim().to_owned())
 }
 
 fn bounded_read(path: &FsPath) -> Option<String> {
@@ -241,11 +245,37 @@ fn unbound_ipv4_for_hostname(
 
 async fn put(
     Path(path_mac): Path<String>,
-    Json(value): Json<Value>,
+    payload: Result<Json<Value>, axum::extract::rejection::JsonRejection>,
 ) -> Result<(StatusCode, Json<RuyiRow>), (StatusCode, Json<crate::gate::ApiErrorBody>)> {
+    let Json(value) =
+        payload.map_err(|_| error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"))?;
+    if !crate::routes::leaf_schema::accepts_form(row_schema(), "row", &value) {
+        return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"));
+    }
     if value.get("mac").and_then(Value::as_str) != Some(path_mac.as_str()) {
         return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-mac-mismatch"));
     }
+    let perspective = value.get("perspective").filter(|value| !value.is_null());
+    if let Some(perspective) = perspective {
+        if !crate::routes::leaf_schema::accepts("harmonia.ruyi-perspective.v1", perspective) {
+            return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"));
+        }
+        if perspective["self"].get("mac").and_then(Value::as_str) != Some(path_mac.as_str()) {
+            return Err(error(
+                StatusCode::BAD_REQUEST,
+                "caduceus-ruyi-perspective-mac-mismatch",
+            ));
+        }
+        if !crate::routes::leaf_schema::accepts_form(row_schema(), "row", &perspective["self"]) {
+            return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"));
+        }
+        let own_row: RuyiRow = serde_json::from_value(perspective["self"].clone())
+            .map_err(|_| error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"))?;
+        if !valid_row(&own_row, &path_mac) {
+            return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"));
+        }
+    }
+    let perspective_json = perspective.map(Value::to_string);
     let mut row: RuyiRow = serde_json::from_value(value)
         .map_err(|_| error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"))?;
     if !valid_row(&row, &path_mac) {
@@ -269,7 +299,13 @@ async fn put(
             "caduceus-ruyi-store-failed",
         )
     })?;
-    crate::stats::ruyi_upsert(&row.mac, &row_json, row.last_seen as i64).map_err(|_| {
+    crate::stats::ruyi_put(
+        &row.mac,
+        &row_json,
+        row.last_seen as i64,
+        perspective_json.as_deref(),
+    )
+    .map_err(|_| {
         error(
             StatusCode::SERVICE_UNAVAILABLE,
             "caduceus-ruyi-store-failed",
@@ -279,18 +315,21 @@ async fn put(
 }
 
 async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
-    let stored = crate::stats::ruyi_list().map_err(|_| {
+    let stored = crate::stats::ruyi_snapshot().map_err(|_| {
         error(
             StatusCode::SERVICE_UNAVAILABLE,
             "caduceus-ruyi-store-failed",
         )
     })?;
-    let mut staves = Vec::with_capacity(stored.len());
-    for (_, row_json, last_seen) in stored {
-        let mut value: Value = serde_json::from_str(&row_json)
+    let mut staves = Vec::with_capacity(stored.rows.len());
+    for (_, row_json, last_seen) in stored.rows {
+        let value: Value = serde_json::from_str(&row_json)
             .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-row-invalid"))?;
-        if let Some(object) = value.as_object_mut() {
-            object.remove("spine");
+        if !crate::routes::leaf_schema::accepts_form(row_schema(), "row", &value) {
+            return Err(error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "caduceus-ruyi-row-invalid",
+            ));
         }
         let mut row: RuyiRow = serde_json::from_value(value)
             .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-row-invalid"))?;
@@ -298,8 +337,21 @@ async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::Api
             .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-row-invalid"))?;
         staves.push(row);
     }
+    let mut perspectives = BTreeMap::new();
+    let mut received = BTreeMap::new();
+    for (mac, bytes, received_at) in stored.perspectives {
+        let value = serde_json::from_str(&bytes)
+            .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-row-invalid"))?;
+        received.insert(
+            mac.clone(),
+            u64::try_from(received_at)
+                .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-row-invalid"))?,
+        );
+        perspectives.insert(mac, value);
+    }
+    let trust = derive_trust(&staves, &perspectives, &received);
     Ok(Json(RuyiListBody {
-        schema: ROW_SCHEMA,
+        schema: row_schema(),
         ok: true,
         service: "caduceus",
         seat: RuyiSeat {
@@ -307,11 +359,143 @@ async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::Api
             hostname: local_hostname(),
         },
         staves,
+        perspectives,
+        trust,
     }))
+}
+
+fn agrees(target: &RuyiRow, evidence: &Value) -> bool {
+    match target.syzygy_sha.as_deref() {
+        Some(sha) => evidence.get("syzygy_sha").and_then(Value::as_str) == Some(sha),
+        None => evidence.get("beam_pair").is_some_and(|pair| {
+            pair.get("caduceus_sha").and_then(Value::as_str) == Some(target.caduceus_sha.as_str())
+                && pair.get("env_sha").and_then(Value::as_str) == Some(target.env_sha.as_str())
+        }),
+    }
+}
+
+/// Trust is a projection of the registered roster, never a second stored roster.
+/// A body's own row attests itself; seen[target] supplies its peer attestations.
+fn derive_trust(
+    staves: &[RuyiRow],
+    perspectives: &BTreeMap<String, Value>,
+    received: &BTreeMap<String, u64>,
+) -> Vec<Value> {
+    staves
+        .iter()
+        .map(|target| {
+            let mut witnesses = BTreeSet::from([target.mac.clone()]);
+            let mut first_seen = target.last_seen;
+            let mut last_seen = target.last_seen;
+            let mut last_event = target.last_seen;
+            for witness in staves {
+                let Some(perspective) = perspectives.get(&witness.mac) else {
+                    continue;
+                };
+                let fallback = perspective
+                    .get("written_at")
+                    .and_then(Value::as_u64)
+                    .or_else(|| received.get(&witness.mac).copied())
+                    .unwrap_or(witness.last_seen);
+                let Some(peer) = perspective
+                    .get("seen")
+                    .and_then(|seen| seen.get(&target.mac))
+                else {
+                    continue;
+                };
+                // Malformed optional observations remain raw but cannot become attestations.
+                if peer.get("mac").and_then(Value::as_str) != Some(target.mac.as_str()) {
+                    continue;
+                }
+                let at = peer
+                    .get("last_checked_in_at")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(fallback);
+                last_event = last_event.max(at);
+                if agrees(target, peer) {
+                    witnesses.insert(witness.mac.clone());
+                    first_seen = first_seen.min(at);
+                    last_seen = last_seen.max(at);
+                }
+                if let Some(lineage) = peer.get("lineage").and_then(Value::as_array) {
+                    for event in lineage {
+                        let Some(at) = event.get("seen_at").and_then(Value::as_u64) else {
+                            continue;
+                        };
+                        last_event = last_event.max(at);
+                        // A historical sighting has no env_sha; it cannot prove a BeamPair.
+                        if target.syzygy_sha.as_deref().is_some_and(|sha| {
+                            event.get("syzygy_sha").and_then(Value::as_str) == Some(sha)
+                        }) {
+                            first_seen = first_seen.min(at);
+                            last_seen = last_seen.max(at);
+                        }
+                    }
+                }
+            }
+            json!({"mac":target.mac,"syzygy_sha":target.syzygy_sha,
+            "beam_pair":{"caduceus_sha":target.caduceus_sha,"env_sha":target.env_sha},
+            "agree":witnesses.len(),"of":staves.len(),"witnesses":witnesses,
+            "first_seen":first_seen,"last_seen":last_seen,"last_event":last_event})
+        })
+        .collect()
+}
+
+pub(crate) fn local_syzygy() -> Result<Option<String>, String> {
+    let Some(mac) = local_mac() else {
+        return Ok(None);
+    };
+    let Some(row) = crate::stats::ruyi_row(&mac)? else {
+        return Ok(None);
+    };
+    let row: RuyiRow =
+        serde_json::from_str(&row).map_err(|_| "caduceus-ruyi-row-invalid".to_owned())?;
+    Ok(row.syzygy_sha)
+}
+
+async fn remove(
+    Path(mac): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
+    if !valid_mac(&mac) {
+        return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"));
+    }
+    // The native log records actual removals only; an absent row writes no line.
+    let log_path = crate::shared::config::path("var/log/appliance/appliance.log");
+    let hostname = crate::stats::ruyi_delete(&mac)
+        .map_err(|_| {
+            error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "caduceus-ruyi-store-failed",
+            )
+        })?
+        .ok_or_else(|| error(StatusCode::NOT_FOUND, "caduceus-ruyi-row-absent"))?;
+    let append = || -> std::io::Result<()> {
+        if let Some(parent) = log_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut log = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)?;
+        writeln!(
+            log,
+            "ruyi removed mac={} hostname={}",
+            mac,
+            serde_json::to_string(&hostname).unwrap()
+        )
+    };
+    // A log failure is reported as partial failure, never as a successful deletion receipt.
+    append().map_err(|_| {
+        error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "caduceus-ruyi-removed-log-failed",
+        )
+    })?;
+    Ok(Json(json!({"schema":row_schema(),"ok":true,"removed":mac})))
 }
 
 pub fn register(router: axum::Router) -> axum::Router {
     router
-        .route("/api/v1/ruyi/:mac", axum::routing::put(put))
+        .route("/api/v1/ruyi/:mac", axum::routing::put(put).delete(remove))
         .route("/api/v1/ruyi", axum::routing::get(list))
 }
