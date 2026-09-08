@@ -232,6 +232,25 @@ fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
     let payload = serde_json::from_str::<Value>(stdout.trim())
         .unwrap_or_else(|_| Value::String(stdout.clone()));
     let ok = o.status.success();
+    #[cfg(leaf_storage_disk_census)]
+    let disk_action = (band == "storage/disk"
+        || band.starts_with("storage/disk/")
+        || band == "storage/disk-doors"
+        || band.starts_with("storage/disk-doors/"))
+        && band != "storage/disk/census"
+        && !band.starts_with("storage/disk/census/");
+    // Receipt success controls refresh only, never the generic snake response.
+    #[cfg(leaf_storage_disk_census)]
+    if disk_action
+        && ok
+        && payload.is_object()
+        && payload.get("ok").and_then(Value::as_bool) != Some(false)
+        && payload.get("converged").and_then(Value::as_bool) != Some(false)
+    {
+        // Invalidate before the success can reach a caller. Refresh failure cannot
+        // turn this completed action into failure; the census stays unavailable.
+        crate::stats::disk_census::request_refresh();
+    }
     let refusal = if ok {
         Value::Null
     } else {

@@ -19,6 +19,10 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(leaf_storage_disk_census)]
+#[path = "disk_census.rs"]
+pub(crate) mod disk_census;
+
 const RAW_RETENTION_SECONDS: i64 = 3600;
 const MINUTE_RETENTION_SECONDS: i64 = 604_800;
 const RAW_HISTORY_DEFAULT_LIMIT: usize = 3600;
@@ -1566,6 +1570,8 @@ pub fn start() {
         }
         Err(error) => collector_error(&state, error),
     }
+    #[cfg(leaf_storage_disk_census)]
+    disk_census::start();
 }
 
 fn state() -> Result<Arc<RwLock<StatsState>>, String> {

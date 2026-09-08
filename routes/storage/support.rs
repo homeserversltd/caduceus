@@ -2,13 +2,17 @@ use crate::gate::{
     api_error, api_error_signal, document_attendance_admits, gated_json, missing_signal,
     ApiErrorBody,
 };
-use crate::routes::{disk, drive_test};
+#[cfg(leaf_storage_disk_census)]
+use crate::routes::disk;
+#[cfg(leaf_storage_disk_test)]
+use crate::routes::drive_test;
 use crate::storage_categories;
 use axum::{
     extract::Json,
     http::{HeaderMap, StatusCode},
 };
 use serde_json::Value;
+#[cfg(leaf_storage_disk_census)]
 pub(crate) async fn disk_census_route(
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -37,6 +41,7 @@ pub(crate) async fn disk_census_route(
     })
 }
 
+#[cfg(leaf_storage_disk_test)]
 pub(crate) async fn hard_drive_test_progress_route(
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("disk test progress", drive_test::progress_json).await

@@ -541,6 +541,15 @@ pub fn execute_registered_actuator(actuator_id: &str, metadata: Value) -> Result
             .unwrap_or("caduceus-staff-refused")
             .to_string());
     }
+    #[cfg(leaf_storage_disk_census)]
+    if actuator_id == "disk-doors"
+        && receipt.is_object()
+        && receipt.get("converged").and_then(Value::as_bool) != Some(false)
+    {
+        // The child has completed successfully. Invalidate before returning its
+        // receipt without changing the registered actuator's response semantics.
+        crate::stats::disk_census::request_refresh();
+    }
     Ok(
         json!({"schema":"caduceus.staff.named_actuator.v1","ok":true,"accepted":true,"actuatorId":actuator_id,"receiptFamily":actuator.get("receiptFamily"),"receipt":receipt,"mutationPerformed":receipt.get("mutationPerformed").and_then(Value::as_bool).unwrap_or(true),"firstMissingSignal":"none"}),
     )

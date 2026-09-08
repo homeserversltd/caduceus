@@ -4,6 +4,7 @@
 // mounts, formats, unlocks, or otherwise changes a block device.
 
 use serde_json::{json, Map, Value};
+use std::collections::BTreeMap;
 use std::process::Command;
 
 const NAS_FILESYSTEMS: &[&str] = &["ext4", "xfs"];
@@ -28,6 +29,11 @@ const SYSTEM_CRITICAL_MOUNTS: &[&str] = &[
 const HIDDEN_MOUNTS: &[&str] = &["/vault"];
 
 pub fn census_json() -> Result<Value, String> {
+    crate::stats::disk_census::current()
+}
+
+/// Collector/explicit CLI observation, never called by the HTTP read path.
+pub(crate) fn collect_json() -> Result<Value, String> {
     let output = Command::new("lsblk")
         .args([
             "--json",
@@ -50,12 +56,13 @@ pub fn census_json() -> Result<Value, String> {
         .and_then(Value::as_array)
         .ok_or_else(|| "caduceus-disk-census-blockdevices-missing".to_string())?;
 
+    let space = space_usage();
     let mut census = Vec::new();
     for device in devices {
         if excluded_parent(device) {
             continue;
         }
-        collect_candidates(device, device, &mut census);
+        collect_candidates(device, device, &space, &mut census);
     }
     Ok(json!({
         "schema": "caduceus.disk.census.v1",
@@ -67,7 +74,7 @@ pub fn census_json() -> Result<Value, String> {
 }
 
 pub fn show() -> i32 {
-    match census_json() {
+    match collect_json() {
         Ok(value) => {
             println!("{value}");
             0
@@ -111,7 +118,12 @@ fn descendants(entry: &Value) -> Box<dyn Iterator<Item = &Value> + '_> {
     )
 }
 
-fn collect_candidates(parent: &Value, entry: &Value, census: &mut Vec<Value>) {
+fn collect_candidates(
+    parent: &Value,
+    entry: &Value,
+    space: &BTreeMap<String, Value>,
+    census: &mut Vec<Value>,
+) {
     if mountpoints(entry)
         .iter()
         .any(|mount| HIDDEN_MOUNTS.contains(&mount.as_str()))
@@ -121,17 +133,22 @@ fn collect_candidates(parent: &Value, entry: &Value, census: &mut Vec<Value>) {
     let fstype = string(entry, "fstype").unwrap_or_default();
     let is_luks = fstype.eq_ignore_ascii_case("crypto_luks");
     if NAS_FILESYSTEMS.contains(&fstype) || is_luks {
-        census.push(receipt(parent, entry, is_luks));
+        census.push(receipt(parent, entry, is_luks, space));
         return;
     }
     if let Some(children) = entry.get("children").and_then(Value::as_array) {
         for child in children {
-            collect_candidates(parent, child, census);
+            collect_candidates(parent, child, space, census);
         }
     }
 }
 
-fn receipt(parent: &Value, entry: &Value, locked_luks: bool) -> Value {
+fn receipt(
+    parent: &Value,
+    entry: &Value,
+    locked_luks: bool,
+    space: &BTreeMap<String, Value>,
+) -> Value {
     let mountpoint = mountpoints(entry).into_iter().next();
     let mapper = if string(entry, "type") == Some("crypt") {
         string(entry, "name").map(str::to_string)
@@ -162,36 +179,56 @@ fn receipt(parent: &Value, entry: &Value, locked_luks: bool) -> Value {
     value.insert("fstype".to_string(), json!(string(entry, "fstype")));
     value.insert("encryption".to_string(), encryption);
     value.insert("mountpoint".to_string(), json!(mountpoint));
-    value.insert("space".to_string(), space_usage(mountpoint.as_deref()));
+    value.insert(
+        "space".to_string(),
+        mountpoint
+            .as_ref()
+            .and_then(|mount| space.get(mount))
+            .cloned()
+            .unwrap_or(Value::Null),
+    );
     Value::Object(value)
 }
 
-fn space_usage(mountpoint: Option<&str>) -> Value {
-    let Some(mountpoint) = mountpoint else {
-        return Value::Null;
-    };
+fn space_usage() -> BTreeMap<String, Value> {
+    let mut usage = BTreeMap::new();
     let output = match Command::new("df")
-        .args(["-B1", "--output=size,used,avail", mountpoint])
+        .env("LC_ALL", "C")
+        .args(["-B1", "--all", "--output=size,used,avail,target"])
         .output()
     {
         Ok(output) if output.status.success() => output,
-        _ => return Value::Null,
+        _ => return usage,
     };
-    let fields: Vec<u64> = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .nth(1)
-        .into_iter()
-        .flat_map(str::split_whitespace)
-        .filter_map(|field| field.parse().ok())
-        .collect();
-    match fields.as_slice() {
-        [size, used, available] => json!({
-            "sizeBytes": size,
-            "usedBytes": used,
-            "availableBytes": available
-        }),
-        _ => Value::Null,
+    for line in String::from_utf8_lossy(&output.stdout).lines().skip(1) {
+        let mut rest = line;
+        let mut numbers = Vec::with_capacity(3);
+        for _ in 0..3 {
+            let Some((field, remaining)) = rest.trim_start().split_once(char::is_whitespace) else {
+                break;
+            };
+            let Ok(number) = field.parse::<u64>() else {
+                break;
+            };
+            numbers.push(number);
+            rest = remaining;
+        }
+        // Only numeric columns are split. The target remainder retains embedded spaces.
+        let mount = rest.trim_start();
+        if let [size, used, available] = numbers.as_slice() {
+            if !mount.is_empty() {
+                usage.insert(
+                    mount.to_owned(),
+                    json!({
+                        "sizeBytes": size,
+                        "usedBytes": used,
+                        "availableBytes": available
+                    }),
+                );
+            }
+        }
     }
+    usage
 }
 
 fn mountpoints(entry: &Value) -> Vec<String> {
@@ -225,7 +262,8 @@ pub fn mutation_target_admitted(target: &str) -> Result<(), String> {
                     .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
         })
         .ok_or_else(|| "caduceus-disk-device-invalid".to_string())?;
-    let census = census_json()?;
+    // Custody must observe the device now, not admit against the UI's held snapshot.
+    let census = collect_json()?;
     let admitted = census
         .get("devices")
         .and_then(Value::as_array)
