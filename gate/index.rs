@@ -255,7 +255,7 @@ async fn health_route() -> Json<LivenessBody> {
 async fn doors_route() -> Result<Response, (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("doors read") {
         Ok(true) => {
-            let body = serde_json::json!({"schema":"caduceus.doors.readback.v1","ok":true,"profile":env::var("CADUCEUS_PROFILE").unwrap_or_else(|_|"unknown".into()),"routes":crate::routes::SELECTED_DISCOVERY});
+            let body = serde_json::json!({"schema":"caduceus.doors.readback.v1","ok":true,"profile":crate::routes::profile_routes::ACTIVE_PROFILE,"routes":crate::routes::SELECTED_DISCOVERY});
             Ok((
                 [(CONTENT_TYPE, "application/json")],
                 Body::from(body.to_string()),
