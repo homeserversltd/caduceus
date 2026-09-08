@@ -1,0 +1,100 @@
+{
+  "schema": "coronatio.face-surface.v1",
+  "schema_version": "1.0.0",
+  "role": "Public Coronatio face surface for the direct xenia-kit lineage band. Direct provider edges are face -> kit -> xenos, outside the beam; a xenos names only its direct xenia-kit lineage band. The kit is maud Rust emitting the exact crown UX/UI markup, with no CSS or JavaScript. The showcase is the executable specification. A disappeared primitive or author-face variable is a major change; an addition is minor; unchanged is patch.",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/coronatio.face-surface.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "coronatio.face-surface.v1"
+    },
+    "face": {
+      "type": "string",
+      "const": "Coronatio"
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Crown source commit, exactly 40 lowercase hexadecimal characters."
+    },
+    "primitives": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Sorted primitive names sourced from the crown UX index; the schema embeds no primitive list."
+    },
+    "author_face": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Sorted author-face variable names sourced from author-face.json; the schema embeds no copy of that file."
+    },
+    "showcase": {
+      "type": "object",
+      "values": {
+        "type": "object",
+        "fields": {
+          "path": {
+            "type": "string",
+            "description": "Specimen path relative to the crown root."
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Specimen SHA-256, exactly 64 lowercase hexadecimal characters."
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "server-rendered",
+              "browser-constructed"
+            ],
+            "default": "server-rendered",
+            "description": "Optional; absent selects the server-rendered primitive behavior."
+          },
+          "constructor": {
+            "type": "string",
+            "description": "Optional crown repo-relative constructor path, relative to the crown root; present only when origin is browser-constructed, and absent otherwise."
+          }
+        },
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "optional": [
+          "origin",
+          "constructor"
+        ]
+      },
+      "description": "Map keyed by primitive, pointing to the executable showcase specification in crown source rather than embedding source contents."
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "face": "string",
+    "source_sha": "string",
+    "primitives": "array",
+    "author_face": "array",
+    "showcase": "object"
+  },
+  "required": [
+    "schema",
+    "face",
+    "source_sha",
+    "primitives",
+    "author_face",
+    "showcase"
+  ],
+  "optional": [],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

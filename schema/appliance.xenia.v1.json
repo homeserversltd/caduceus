@@ -1,0 +1,437 @@
+{
+  "schema": "appliance.xenia.v1",
+  "schema_version": "1.0.0",
+  "role": "Public Xenia manifest, entry and register envelope. Direct provider edges are face -> kit -> xenos, outside the beam; a xenos names only its direct xenia-kit lineage band. The kit is maud Rust emitting the exact crown UX/UI markup, with no CSS or JavaScript. The showcase is the executable specification. A disappeared primitive or author-face variable is a major change; an addition is minor; unchanged is patch.",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/appliance.xenia.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true,
+    "form_kernel_semantics": "The envelope required kernel applies to every form. Each forms.<name>.required declares that form's additional frozen required kernel; fields required by a form are not optional in that form."
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "appliance.xenia.v1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 64,
+      "description": "One lowercase slug used unchanged as the manifest id, register key and proxy route id."
+    },
+    "display": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(\\+[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
+      "description": "Strict semantic version: major.minor.patch, optional prerelease and build metadata; no leading zeros in numeric core or numeric prerelease identifiers."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "iframe",
+        "cartridge-process",
+        "cartridge-static"
+      ]
+    },
+    "client_class": {
+      "type": "string",
+      "enum": [
+        "fragment",
+        "iframe"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "fields": {
+        "release_repo": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "owner/repo on a forge serving releases."
+        },
+        "candidates": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "fields": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "git",
+                  "release",
+                  "url"
+                ]
+              },
+              "url": {
+                "type": "string"
+              },
+              "credential_selector": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "ref": {
+          "type": "string",
+          "description": "Tag, branch or release tag."
+        }
+      },
+      "description": "Exactly one of release_repo and candidates is present and non-null. Only release_repo plus ref is admissible at validation for manifest and entry forms. Candidates remain declared for the deferred source road; enforcement is deferred to C1. A source declaration is not executed by the door."
+    },
+    "install": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "fields": {
+        "bin": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Process binary path under /var/lib/xenia/<id>/."
+        },
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The track-rendered <id>.service; never supplied as a manifest unit."
+        },
+        "static_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Static directory relative to /var/lib/coronatio/tabs/<id>/."
+        },
+        "owner": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Service account for the xenos."
+        }
+      }
+    },
+    "transport": {
+      "type": "object",
+      "fields": {
+        "declared": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Declared transport endpoint; null means discover."
+        }
+      },
+      "description": "Declared null means discover."
+    },
+    "proxy_route": {
+      "type": "string",
+      "pattern": "^/api/tabs/[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Must match exactly ^/api/tabs/<id>$, substituting the same id field value unchanged; no separate normalization."
+    },
+    "fragment_path": {
+      "type": "string",
+      "default": "/fragment"
+    },
+    "health": {
+      "type": "object",
+      "fields": {
+        "route": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Health route on the transport."
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Null for xenoi today; the command road is not authorized."
+        }
+      }
+    },
+    "fault_recovery": {
+      "type": "object",
+      "fields": {
+        "on_timeout": {
+          "type": "string",
+          "const": "recovery-pane"
+        },
+        "on_crash": {
+          "type": "string",
+          "const": "recovery-pane"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 5000
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Requested Caduceus capability ids."
+    },
+    "requires_kit": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Direct xenia-kit release-lineage band; the band law owns its syntax. No transitive face band."
+    },
+    "content_inventory_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 of the sorted content inventory, exactly 64 lowercase hexadecimal characters."
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 100
+    },
+    "granted": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Engine-owned admission result: capability ids granted by the admit door, a subset of capabilities."
+    },
+    "installed": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "fields": {
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_sha": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "Exactly 40 lowercase hexadecimal characters."
+        },
+        "kit_band": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Direct xenia-kit release-lineage band the artifact was built against."
+        },
+        "proved_at": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "health": {
+          "type": "string",
+          "enum": [
+            "healthy",
+            "degraded",
+            "unknown"
+          ]
+        }
+      },
+      "description": "Observation written only by the Caduceus door through POST /api/v1/xenia/<id>/observe; status is pure GET."
+    },
+    "discovered": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "fields": {
+        "endpoint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content_kind": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "html",
+            "api",
+            "stream",
+            "static",
+            null
+          ]
+        },
+        "rung": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "declared",
+            "listening",
+            "probe",
+            "static",
+            "none",
+            null
+          ]
+        },
+        "at": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "description": "Transport observation written only by the Caduceus door through POST /api/v1/xenia/<id>/observe; never promoted to a declaration."
+    },
+    "xenoi": {
+      "type": "object",
+      "values": {
+        "schema_ref": "appliance.xenia.v1",
+        "form": "entry"
+      },
+      "description": "Register map keyed by the unchanged id of each entry form; keys obey the id slug pattern and maximum length."
+    },
+    "written_at": {
+      "type": "integer",
+      "description": "Unix seconds when the door wrote the register."
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "id": "string",
+    "display": "string",
+    "version": "string",
+    "kind": "string",
+    "client_class": "string",
+    "source": "object",
+    "install": "object|null",
+    "transport": "object",
+    "proxy_route": "string",
+    "fragment_path": "string",
+    "health": "object",
+    "fault_recovery": "object",
+    "capabilities": "array",
+    "requires_kit": "string|null",
+    "content_inventory_digest": "string",
+    "enabled": "boolean",
+    "priority": "integer",
+    "granted": "array",
+    "installed": "object|null",
+    "discovered": "object|null",
+    "xenoi": "object",
+    "written_at": "integer"
+  },
+  "required": [
+    "schema"
+  ],
+  "optional": [
+    "install",
+    "fragment_path",
+    "requires_kit",
+    "installed",
+    "discovered"
+  ],
+  "forms": {
+    "manifest": {
+      "required": [
+        "schema",
+        "id",
+        "display",
+        "version",
+        "kind",
+        "client_class",
+        "source",
+        "transport",
+        "proxy_route",
+        "health",
+        "fault_recovery",
+        "capabilities",
+        "content_inventory_digest"
+      ],
+      "optional": [
+        "install",
+        "fragment_path",
+        "requires_kit"
+      ],
+      "forbidden": [
+        "granted",
+        "installed",
+        "discovered",
+        "xenoi",
+        "written_at"
+      ]
+    },
+    "entry": {
+      "required": [
+        "schema",
+        "id",
+        "display",
+        "version",
+        "kind",
+        "client_class",
+        "source",
+        "transport",
+        "proxy_route",
+        "health",
+        "fault_recovery",
+        "capabilities",
+        "content_inventory_digest",
+        "enabled",
+        "priority",
+        "granted"
+      ],
+      "optional": [
+        "install",
+        "fragment_path",
+        "requires_kit",
+        "installed",
+        "discovered"
+      ],
+      "forbidden": [
+        "xenoi",
+        "written_at"
+      ]
+    },
+    "register": {
+      "required": [
+        "schema",
+        "xenoi",
+        "written_at"
+      ],
+      "optional": []
+    }
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}
