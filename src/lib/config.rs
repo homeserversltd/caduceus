@@ -89,12 +89,6 @@ struct Resolved {
     fs_path: PathBuf,
 }
 
-fn state() -> Option<Value> {
-    fs::read_to_string(paths::path("var/lib/caduceus/state.json"))
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-}
-
 fn normalize(value: &str) -> Option<String> {
     let value = value.to_ascii_lowercase();
     ["homeserver", "homeconsole", "tv", "probe"]
@@ -104,27 +98,18 @@ fn normalize(value: &str) -> Option<String> {
 }
 
 fn resolve() -> Result<Resolved, String> {
-    let state = state();
-    let profile_file = paths::read_public_profile_value().ok();
-    let profile = state
+    let profile_file: Option<Value> =
+        fs::read_to_string(paths::path("/etc/appliance/profile.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok());
+    let profile = profile_file
         .as_ref()
-        .and_then(|value| value.pointer("/services/household_config/profile"))
+        .and_then(|value| value.get("profile"))
         .and_then(Value::as_str)
-        .or_else(|| {
-            state
-                .as_ref()
-                .and_then(|value| value.pointer("/services/profile"))
-                .and_then(Value::as_str)
-        })
         .and_then(normalize)
-        .or_else(|| {
-            profile_file
-                .as_ref()
-                .and_then(|value| value.get("profile").or_else(|| value.get("mode")))
-                .and_then(Value::as_str)
-                .and_then(normalize)
-        })
-        .ok_or_else(|| "caduceus-household-config-profile-unknown".to_string())?;
+        .ok_or_else(|| {
+            "caduceus-household-config-profile-unknown: /etc/appliance/profile.json".to_string()
+        })?;
     let device_path = "/etc/appliance/config.json".to_string();
     Ok(Resolved {
         profile,

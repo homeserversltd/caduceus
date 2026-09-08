@@ -295,6 +295,11 @@ fn server_config(port: u16, socket: &Path) -> PathBuf {
     fs::create_dir_all(root.join("etc/caduceus")).unwrap();
     fs::write(root.join("etc/caduceus/profile.yaml"), "profile: probe\n").unwrap();
     fs::write(
+        root.join("etc/appliance/profile.json"),
+        serde_json::json!({"profile": "probe"}).to_string(),
+    )
+    .unwrap();
+    fs::write(
         root.join("etc/appliance/config.json"),
         serde_json::json!({"caduceus": {"bind": format!("127.0.0.1:{port}")}}).to_string(),
     )
