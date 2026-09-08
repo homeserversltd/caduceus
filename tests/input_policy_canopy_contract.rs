@@ -29,7 +29,7 @@ fn tv_lits_input_route_with_exact_set_command() {
         .lines()
         .any(|line| line.trim() == "- settings input mutate"));
 
-    let console = fs::read_to_string("profiles/console/index.yaml").unwrap();
+    let console = fs::read_to_string("profiles/homeconsole/index.yaml").unwrap();
     assert!(console
         .lines()
         .any(|line| line.trim() == "- settings/input"));

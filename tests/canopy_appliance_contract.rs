@@ -29,7 +29,7 @@ fn appliance_leaves_are_discoverable_and_have_admittance_seats() {
 
 #[test]
 fn appliance_profile_lits_canonical_canopy() {
-    let profile = fs::read_to_string("profiles/console/index.yaml").unwrap();
+    let profile = fs::read_to_string("profiles/homeconsole/index.yaml").unwrap();
     for namespace in LEAVES {
         assert!(profile
             .lines()
@@ -86,13 +86,13 @@ fn appliance_canopy_debt_signals_are_non_placeholder_unique_and_namespace_mapped
 
 #[test]
 fn build_profile_resolution_uses_explicit_profile_then_birth_certificate() {
-    let console = Path::new("tests/fixtures/console");
+    let console = Path::new("tests/fixtures/homeconsole");
     let tv = Path::new("tests/fixtures/tv");
     let missing = Path::new("tests/fixtures/missing");
 
     assert_eq!(
         build_profile::resolve_build_profile(None, console),
-        "console"
+        "homeconsole"
     );
     assert_eq!(build_profile::resolve_build_profile(None, tv), "probe");
     assert_eq!(build_profile::resolve_build_profile(None, missing), "probe");

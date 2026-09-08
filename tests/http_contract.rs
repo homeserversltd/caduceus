@@ -230,7 +230,7 @@ async fn locked_profile_rejects_disallowed_identity_route() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn console_update_status_route_is_profile_allowed() {
-    let _guard = use_fixture("tests/fixtures/console");
+    let _guard = use_fixture("tests/fixtures/homeconsole");
     let app = serve::router();
     let response = app
         .oneshot(
@@ -249,7 +249,7 @@ async fn console_update_status_route_is_profile_allowed() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn console_legacy_sbin_list_route_is_profile_allowed() {
-    let _guard = use_fixture("tests/fixtures/console");
+    let _guard = use_fixture("tests/fixtures/homeconsole");
     let app = serve::router();
     let response = app
         .oneshot(
@@ -273,7 +273,7 @@ async fn console_legacy_sbin_list_route_is_profile_allowed() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn console_legacy_sbin_show_returns_whole_body() {
-    let _guard = use_fixture("tests/fixtures/console");
+    let _guard = use_fixture("tests/fixtures/homeconsole");
     let app = serve::router();
     let response = app
         .oneshot(
@@ -310,7 +310,7 @@ async fn locked_profile_rejects_legacy_sbin_list() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn console_update_service_status_reads_profile_timer() {
-    let _guard = use_fixture("tests/fixtures/console");
+    let _guard = use_fixture("tests/fixtures/homeconsole");
     let app = serve::router();
     let response = app
         .oneshot(
@@ -370,7 +370,7 @@ async fn console_gui_update_route_is_profile_allowed() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn console_local_ai_runtime_status_reads_route() {
-    let _guard = use_fixture("tests/fixtures/console");
+    let _guard = use_fixture("tests/fixtures/homeconsole");
     let app = serve::router();
     let response = app
         .oneshot(
@@ -405,7 +405,7 @@ async fn locked_profile_rejects_console_update_now() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn console_network_status_route_is_profile_allowed() {
-    let _guard = use_fixture("tests/fixtures/console");
+    let _guard = use_fixture("tests/fixtures/homeconsole");
     let app = serve::router();
     let response = app
         .oneshot(
@@ -1094,7 +1094,7 @@ impl HarmoniaFailureFixture {
         let lock = FIXTURE_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let root = cert_temp_root(tag, "console");
+        let root = cert_temp_root(tag, "homeconsole");
         let bin_dir = root.join("bin");
         fs::create_dir_all(&bin_dir).unwrap();
         let sudo = bin_dir.join("sudo");

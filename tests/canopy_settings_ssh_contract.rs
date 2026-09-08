@@ -26,7 +26,7 @@ fn settings_ssh_leaves_are_discoverable_and_have_admittance_seats() {
 
 #[test]
 fn settings_ssh_profile_lits_canonical_canopy() {
-    let profile = fs::read_to_string("profiles/console/index.yaml").unwrap();
+    let profile = fs::read_to_string("profiles/homeconsole/index.yaml").unwrap();
     for namespace in LEAVES {
         assert!(profile
             .lines()

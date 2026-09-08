@@ -1,6 +1,6 @@
 {
   "schema": "household.config.v1",
-  "profile": "console",
+  "profile": "homeconsole",
   "display": {
     "theme": "dark",
     "sleepMinutes": 20

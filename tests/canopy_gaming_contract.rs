@@ -27,7 +27,7 @@ fn gaming_leaves_are_discoverable_and_have_admittance_seats() {
 
 #[test]
 fn gaming_profile_lits_canonical_routes_and_required_aliases() {
-    let profile = fs::read_to_string("profiles/console/index.yaml").unwrap();
+    let profile = fs::read_to_string("profiles/homeconsole/index.yaml").unwrap();
     for namespace in LEAVES {
         assert!(profile
             .lines()

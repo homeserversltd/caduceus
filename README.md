@@ -49,7 +49,10 @@ caduceus cert trust-install <bundle> [--platform linux] [--dry-run]
 
 ## HTTP (LAN-open, profile-gated)
 
-Default bind: `CADUCEUS_BIND=0.0.0.0:8787`
+The listener reads the `caduceus.bind` string from `/etc/appliance/config.json`.
+Declare an IP address and port (for example, `{"caduceus":{"bind":"127.0.0.1:8787"}}`).
+There is no default bind or environment override. Missing or invalid declarations
+stop `caduceus serve` with `caduceus-bind-undeclared` and exit status 1.
 
 Core:
 
@@ -81,9 +84,17 @@ Caduceus profiles are authored as YAML: `etc/caduceus/profile.yaml` on device
 roots and `profiles/<name>/index.yaml` in this repository. The `commands` list
 is the authority for which CLI and HTTP routes each appliance may call.
 
+The shipped appliance profile names are `homeserver`, `homeconsole`, `tv`, and
+`probe`. The HomeConsole profile lives at `profiles/homeconsole/index.yaml`;
+`CADUCEUS_PROFILE=homeconsole` builds its `caduceus-homeconsole-x86_64` Release
+asset. Appliance profile names do not rename verb namespaces such as
+`console/restart`.
+
 Local profile roots default to `/etc/caduceus` and `/var/lib/caduceus`. For
 tests and development, set `CADUCEUS_ROOT` to a fixture root containing
-`etc/caduceus` and `var/lib/caduceus`.
+`etc/caduceus`, `etc/appliance/config.json`, and `var/lib/caduceus`. Serving also
+requires an isolated `CADUCEUS_STAFF_SOCKET`; `CADUCEUS_ROOT` does not isolate
+external commands, including the maintenance journal vacuum.
 
 ## Staff actuators (Python engines)
 

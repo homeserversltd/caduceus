@@ -235,7 +235,7 @@ steps:
         }
 
         build_profile homeserver
-        build_profile console
+        build_profile homeconsole
         build_profile tv
         build_profile probe
 

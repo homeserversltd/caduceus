@@ -240,6 +240,7 @@ impl Drop for ChildFixture {
         }
         let _ = fs::remove_file(&self.socket);
         if let Some(parent) = self.socket.parent() {
+            let _ = fs::remove_dir_all(parent.join("root"));
             let _ = fs::remove_dir(parent);
         }
     }
@@ -288,11 +289,25 @@ fn raw_http(
     stream.read_to_string(&mut response).unwrap();
     response
 }
+fn server_config(port: u16, socket: &Path) -> PathBuf {
+    let root = socket.parent().unwrap().join("root");
+    fs::create_dir_all(root.join("etc/appliance")).unwrap();
+    fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+    fs::write(root.join("etc/caduceus/profile.yaml"), "profile: probe\n").unwrap();
+    fs::write(
+        root.join("etc/appliance/config.json"),
+        serde_json::json!({"caduceus": {"bind": format!("127.0.0.1:{port}")}}).to_string(),
+    )
+    .unwrap();
+    root
+}
+
 fn start_server(port: u16, socket: &Path) -> ChildFixture {
     let _ = fs::remove_file(socket);
+    let root = server_config(port, socket);
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_caduceus"))
         .arg("serve")
-        .env("CADUCEUS_BIND", format!("127.0.0.1:{port}"))
+        .env("CADUCEUS_ROOT", root)
         .env("CADUCEUS_STAFF_SOCKET", socket)
         .env("CADUCEUS_STAFF_GROUP", unsafe { getegid() }.to_string())
         .stdout(std::process::Stdio::null())
@@ -398,9 +413,10 @@ fn regular_uds_collision_prevents_tcp_only_start() {
     let socket = socket_path("startup-collision");
     let _ = fs::remove_file(&socket);
     fs::write(&socket, b"collision").unwrap();
+    let root = server_config(port, &socket);
     let status = std::process::Command::new(env!("CARGO_BIN_EXE_caduceus"))
         .arg("serve")
-        .env("CADUCEUS_BIND", format!("127.0.0.1:{port}"))
+        .env("CADUCEUS_ROOT", &root)
         .env("CADUCEUS_STAFF_SOCKET", &socket)
         .env("CADUCEUS_STAFF_GROUP", unsafe { getegid() }.to_string())
         .status()
@@ -408,5 +424,6 @@ fn regular_uds_collision_prevents_tcp_only_start() {
     assert!(!status.success());
     assert!(socket.exists());
     assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_err());
+    let _ = fs::remove_dir_all(root);
     let _ = fs::remove_file(socket);
 }

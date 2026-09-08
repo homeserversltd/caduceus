@@ -3,6 +3,7 @@ use chrono::Utc;
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::io::Write;
+use std::net::SocketAddr;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::path::PathBuf;
@@ -96,9 +97,9 @@ fn state() -> Option<Value> {
 
 fn normalize(value: &str) -> Option<String> {
     let value = value.to_ascii_lowercase();
-    ["homeserver", "console", "tv", "probe"]
+    ["homeserver", "homeconsole", "tv", "probe"]
         .iter()
-        .find(|profile| value == **profile || value.contains(*profile))
+        .find(|profile| value == **profile)
         .map(|profile| (*profile).to_string())
 }
 
@@ -171,6 +172,17 @@ pub fn show_json() -> Result<Value, String> {
         "path": resolved.device_path,
         "document": document,
     }))
+}
+
+pub fn declared_bind() -> Result<SocketAddr, String> {
+    let value =
+        get_json("caduceus.bind").map_err(|error| format!("caduceus-bind-undeclared: {error}"))?;
+    value["value"]
+        .as_str()
+        .and_then(|bind| bind.parse::<SocketAddr>().ok())
+        .ok_or_else(|| {
+            "caduceus-bind-undeclared: caduceus.bind must be a socket address string".to_string()
+        })
 }
 
 pub fn get_json(path: &str) -> Result<Value, String> {

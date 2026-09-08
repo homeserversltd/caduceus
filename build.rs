@@ -29,7 +29,7 @@ pub(crate) fn resolve_build_profile(explicit: Option<&str>, root: &Path) -> Stri
         });
     match profile.as_deref() {
         Some("homeserver") => "homeserver".to_owned(),
-        Some("console") => "console".to_owned(),
+        Some("homeconsole") => "homeconsole".to_owned(),
         Some("tv") => "tv".to_owned(),
         _ => "probe".to_owned(),
     }
@@ -258,7 +258,7 @@ fn main() {
     let profiles = [
         "homeserver",
         "tv",
-        "console",
+        "homeconsole",
         "bench",
         "everything-lit",
         "probe",
@@ -275,7 +275,7 @@ fn main() {
         println!("cargo:rerun-if-changed={path}");
         let yaml = if profile == "everything-lit" || profile == "bench" {
             let mut routes = Vec::<String>::new();
-            for name in ["homeserver", "tv", "console", "bench"] {
+            for name in ["homeserver", "tv", "homeconsole", "bench"] {
                 let text = fs::read_to_string(format!("profiles/{name}/index.yaml"))
                     .expect("profile index readable");
                 let value: serde_yaml::Value =
@@ -324,7 +324,7 @@ fn main() {
                 .join(",")
         ));
     }
-    generated.push_str("pub fn routes_for(profile: &str) -> Option<&'static [&'static str]> { match profile { \"homeserver\" => Some(HOMESERVER_ROUTES), \"tv\" => Some(TV_ROUTES), \"console\" => Some(CONSOLE_ROUTES), \"bench\" => Some(BENCH_ROUTES), \"everything-lit\" => Some(EVERYTHING_LIT_ROUTES), \"probe\" => Some(PROBE_ROUTES), _ => None } }\n");
+    generated.push_str("pub fn routes_for(profile: &str) -> Option<&'static [&'static str]> { match profile { \"homeserver\" => Some(HOMESERVER_ROUTES), \"tv\" => Some(TV_ROUTES), \"homeconsole\" => Some(HOMECONSOLE_ROUTES), \"bench\" => Some(BENCH_ROUTES), \"everything-lit\" => Some(EVERYTHING_LIT_ROUTES), \"probe\" => Some(PROBE_ROUTES), _ => None } }\n");
     generated.push_str("pub fn compiled_route_leaves(profile: &str) -> Option<&'static [&'static str]> { routes_for(profile) }\n");
     // Emit the selected leaf module set and canonical registrations. The routes module
     // includes only this generated set, so an unlit leaf is never compiled.

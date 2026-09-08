@@ -16,7 +16,7 @@ API = "https://git.home.arpa/api/v1"
 OWNER = "HOMESERVERSLTD"
 REPO = "caduceus"
 SCHEMA = "caduceus.forgejo-release-publish.v2"
-PROFILES = ("homeserver", "console", "tv", "probe")
+PROFILES = ("homeserver", "homeconsole", "tv", "probe")
 LEGACY_ASSETS = frozenset({REPO + "-x86_64", REPO + "-x86_64.sha256"})
 
 

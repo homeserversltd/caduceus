@@ -31,7 +31,7 @@ impl Guard {
     fn new(root: PathBuf, nm: &Path) -> Self {
         let root0 = env::var_os("CADUCEUS_ROOT");
         let nm0 = env::var_os("CADUCEUS_NMCLI");
-        env::set_var("CADUCEUS_ROOT", "tests/fixtures/console");
+        env::set_var("CADUCEUS_ROOT", "tests/fixtures/homeconsole");
         env::set_var("CADUCEUS_NMCLI", nm);
         Self { root, root0, nm0 }
     }
@@ -302,7 +302,7 @@ exit 0
     assert_eq!(b["first_missing_signal"], "caduceus-command-not-allowed");
     assert!(!b.to_string().contains("secret"));
     assert!(!log.exists());
-    env::set_var("CADUCEUS_ROOT", "tests/fixtures/console");
+    env::set_var("CADUCEUS_ROOT", "tests/fixtures/homeconsole");
     let r = app
         .clone()
         .oneshot(req(

@@ -147,7 +147,7 @@ fn tv_pjlink_known_product_catalog_is_jsonl_backed() {
 #[test]
 fn console_sync_route_dry_run_is_public_safe() {
     let out = Command::new(bin())
-        .env("CADUCEUS_ROOT", "tests/fixtures/console")
+        .env("CADUCEUS_ROOT", "tests/fixtures/homeconsole")
         .args(["sync", "now", "--dry-run"])
         .output()
         .unwrap();
@@ -161,7 +161,7 @@ fn console_sync_route_dry_run_is_public_safe() {
 #[test]
 fn console_sync_status_reads_route() {
     let out = Command::new(bin())
-        .env("CADUCEUS_ROOT", "tests/fixtures/console")
+        .env("CADUCEUS_ROOT", "tests/fixtures/homeconsole")
         .args(["sync", "status"])
         .output()
         .unwrap();
@@ -184,7 +184,7 @@ fn legacy_sbin_list_includes_conversion_metadata() {
 #[test]
 fn network_status_cli_reads_typed_fixture() {
     let out = Command::new(bin())
-        .env("CADUCEUS_ROOT", "tests/fixtures/console")
+        .env("CADUCEUS_ROOT", "tests/fixtures/homeconsole")
         .args(["network", "status"])
         .output()
         .unwrap();
@@ -362,7 +362,7 @@ fn config_temp_root(tag: &str) -> std::path::PathBuf {
 fn config_path_show_get_resolve_each_profile() {
     for (profile, device_path) in [
         ("tv", "/etc/appliance/config.json"),
-        ("console", "/etc/appliance/config.json"),
+        ("homeconsole", "/etc/appliance/config.json"),
         ("homeserver", "/etc/appliance/config.json"),
     ] {
         let fixture = format!("tests/fixtures/{profile}");

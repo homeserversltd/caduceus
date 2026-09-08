@@ -1,6 +1,6 @@
 schema: caduceus.profile.v1
-profile: console
-mode: console
+profile: homeconsole
+mode: homeconsole
 harmonia_profile: /etc/harmonia/profiles/homeconsole/index.json
 commands:
 - update modules list

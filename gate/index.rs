@@ -639,11 +639,10 @@ pub async fn run_async() -> i32 {
         eprintln!("caduceus-doors-audit-failed: {e}");
         return 1;
     }
-    let bind = env::var("CADUCEUS_BIND").unwrap_or_else(|_| "0.0.0.0:8787".into());
-    let addr: SocketAddr = match bind.parse() {
+    let addr = match crate::shared::config::declared_bind() {
         Ok(value) => value,
         Err(error) => {
-            eprintln!("caduceus-bind-invalid: {error}");
+            eprintln!("{error}");
             return 1;
         }
     };

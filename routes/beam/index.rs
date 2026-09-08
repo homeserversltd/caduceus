@@ -33,7 +33,7 @@ pub(crate) async fn route() -> Result<Json<BeamBody>, (StatusCode, Json<crate::g
     let profile = std::env::var("CADUCEUS_PROFILE").unwrap_or_else(|_| "unknown".to_owned());
     let gui_face = match profile.as_str() {
         "homeserver" => Some("Coronatio"),
-        "homeconsole" | "console" => Some("Arcadia"),
+        "homeconsole" => Some("Arcadia"),
         "tv" => Some("Hyprland"),
         _ => None,
     };
