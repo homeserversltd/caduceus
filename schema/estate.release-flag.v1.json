@@ -8,14 +8,18 @@
     "producer": "ci/release-flag.py",
     "consumers": [
       "Caduceus release readers",
-      "ci/release-flag.py"
+      "ci/release-flag.py",
+      "appliance-band-alignment-law",
+      "workflow-coronatio-xenia-kit-mirror-twin-law"
     ],
     "source_docs": [
       "harmonia-component-release-identity-law",
-      "harmonia-beam-syzygy-law"
+      "harmonia-beam-syzygy-law",
+      "appliance-band-alignment-law",
+      "workflow-coronatio-xenia-kit-mirror-twin-law"
     ]
   },
-  "description": "The immutable release.flag asset for a producing component. The five-field kernel also admits interpreted components; env_sha and sha256 are optional producer-declared evidence.",
+  "description": "The immutable release.flag asset for a producing component. The five-field kernel also admits interpreted components; env_sha and sha256 are optional producer-declared evidence, and optional lineage records the declared surface and its semantic-version movement.",
   "fields": {
     "schema": {
       "type": "string",
@@ -42,6 +46,56 @@
       "type": "string",
       "pattern": "^[0-9a-f]{64}$",
       "description": "64-hex digest whose input the producing component declares in its own release documentation; for caduceus, the compact JSON of the per-profile digest map in publisher PROFILES order; for a single-binary component, that binary."
+    },
+    "lineage": {
+      "type": "object",
+      "fields": {
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+          "description": "Strict major.minor.patch lineage version; the first release begins at 0.0.1."
+        },
+        "surface_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "Declared surface names in sorted ascending order with no duplicates."
+        },
+        "surface_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of surface_names joined with LF and terminated by exactly one trailing LF."
+        },
+        "derived_from": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "Previous release.flag source_sha; null for the first flag."
+        },
+        "bump": {
+          "type": "string",
+          "enum": [
+            "major",
+            "minor",
+            "patch",
+            "initial"
+          ],
+          "description": "initial for the first flag; disappearance or rename is major, additions-only is minor, and an unchanged surface is patch."
+        }
+      },
+      "required": [],
+      "optional": [
+        "version",
+        "surface_names",
+        "surface_sha256",
+        "derived_from",
+        "bump"
+      ],
+      "description": "Optional declared-surface lineage; every nested field is optional for additive compatibility."
     }
   },
   "field_types": {
@@ -51,7 +105,8 @@
     "env_sha": "string",
     "sha256": "string",
     "flagged_at": "string",
-    "pipeline_url": "string"
+    "pipeline_url": "string",
+    "lineage": "object"
   },
   "required": [
     "schema",
@@ -62,7 +117,8 @@
   ],
   "optional": [
     "env_sha",
-    "sha256"
+    "sha256",
+    "lineage"
   ],
   "evolution": {
     "law": "additive-only",
