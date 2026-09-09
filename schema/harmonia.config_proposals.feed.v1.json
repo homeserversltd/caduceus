@@ -85,6 +85,13 @@
         "reference_source_path": {
           "type": "string"
         },
+        "diff": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Unified-diff text; null or absent selects primitive behavior"
+        },
         "drift": {
           "type": [
             "object",
@@ -190,6 +197,7 @@
         "description",
         "target_path",
         "reference_source_path",
+        "diff",
         "drift",
         "available_at",
         "mode",
