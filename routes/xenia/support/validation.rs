@@ -207,11 +207,20 @@ fn inside(path: &str, root: &str) -> bool {
 
 fn install(manifest: &Value, id: &str) -> Result<()> {
     let install = &manifest["install"];
+    let kind = manifest["kind"].as_str().unwrap_or("");
     if install.is_null() {
-        return Ok(());
+        return if kind == "cartridge-process" {
+            Err(Refusal::new(
+                "G",
+                "manifest.install.owner",
+                "owner-absent",
+                "Declare an existing non-root passwd account in manifest.install.owner.",
+            ))
+        } else {
+            Ok(())
+        };
     }
     seat::field(XENIA, "install", install, "G", "manifest.install")?;
-    let kind = manifest["kind"].as_str().unwrap_or("");
     if kind == "iframe" {
         let empty = install.as_object().is_some_and(|object| {
             ["bin", "unit", "static_dir", "owner"]
@@ -254,6 +263,17 @@ fn install(manifest: &Value, id: &str) -> Result<()> {
                 "static-seat-outside-guest",
             ));
         }
+    }
+    if kind == "cartridge-process" {
+        let owner = install["owner"].as_str().ok_or_else(|| {
+            Refusal::new(
+                "G",
+                "manifest.install.owner",
+                "owner-absent",
+                "Declare an existing non-root passwd account in manifest.install.owner.",
+            )
+        })?;
+        store::owner_ids(owner)?;
     }
     Ok(())
 }

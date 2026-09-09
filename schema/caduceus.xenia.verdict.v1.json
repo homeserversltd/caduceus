@@ -97,6 +97,24 @@
         }
       }
     },
+    "seat": {
+      "type": "object",
+      "required": [
+        "path",
+        "created"
+      ],
+      "fields": {
+        "path": {
+          "type": "string"
+        },
+        "created": {
+          "type": "boolean"
+        }
+      }
+    },
+    "seat_retained": {
+      "type": "boolean"
+    },
     "changed": {
       "type": "boolean"
     },
@@ -131,6 +149,8 @@
     "suggestion": "string",
     "entry": "appliance.xenia.v1:entry",
     "tabs": "object",
+    "seat": "object",
+    "seat_retained": "boolean",
     "changed": "boolean",
     "observed": "object",
     "attempt": "object",
@@ -146,6 +166,8 @@
     "suggestion",
     "entry",
     "tabs",
+    "seat",
+    "seat_retained",
     "changed",
     "observed",
     "attempt",

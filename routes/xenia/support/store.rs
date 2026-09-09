@@ -1,11 +1,198 @@
 use super::{observation, seat, Refusal, Result, XENIA};
 use crate::shared::config;
 use serde_json::{json, Value};
+use std::ffi::CString;
 use std::fs;
 use std::io::ErrorKind;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 
 pub const CONFIG: &str = "/etc/appliance/config.json";
 pub const REGISTER: &str = "/etc/appliance/xenia.json";
+
+fn owner_refusal(message: &str, suggestion: String) -> Refusal {
+    Refusal::new("G", "manifest.install.owner", message, &suggestion)
+}
+
+pub fn owner_ids(owner: &str) -> Result<(libc::uid_t, libc::gid_t)> {
+    if owner == "root" {
+        return Err(owner_refusal(
+            "owner-root-forbidden",
+            "Choose an existing non-root passwd account for manifest.install.owner.".into(),
+        ));
+    }
+    let name = CString::new(owner).map_err(|_| {
+        owner_refusal(
+            "owner-absent",
+            format!("Create the passwd account '{owner}' before admission."),
+        )
+    })?;
+    let suggested = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
+    let mut buffer = vec![
+        0u8;
+        if suggested > 0 {
+            suggested as usize
+        } else {
+            16_384
+        }
+    ];
+    let mut record = std::mem::MaybeUninit::<libc::passwd>::uninit();
+    let mut found = std::ptr::null_mut();
+    let status = unsafe {
+        libc::getpwnam_r(
+            name.as_ptr(),
+            record.as_mut_ptr(),
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            &mut found,
+        )
+    };
+    if status != 0 {
+        return Err(observation(
+            "G",
+            "manifest.install.owner",
+            format!(
+                "passwd-lookup-failed: {}",
+                std::io::Error::from_raw_os_error(status)
+            ),
+        ));
+    }
+    if found.is_null() {
+        return Err(owner_refusal(
+            "owner-absent",
+            format!("Create the passwd account '{owner}' before admission."),
+        ));
+    }
+    let record = unsafe { record.assume_init() };
+    if record.pw_uid == 0 {
+        return Err(owner_refusal(
+            "owner-root-forbidden",
+            format!("Choose a non-root passwd account instead of '{owner}'."),
+        ));
+    }
+    Ok((record.pw_uid, record.pw_gid))
+}
+
+struct Seat {
+    value: Value,
+    changed: bool,
+    attempt: &'static str,
+}
+
+fn chown(path: &std::path::Path, uid: libc::uid_t, gid: libc::gid_t) -> Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let path_bytes = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+        observation(
+            "transaction",
+            &path.display().to_string(),
+            "seat-path-invalid",
+        )
+    })?;
+    if unsafe { libc::chown(path_bytes.as_ptr(), uid, gid) } != 0 {
+        return Err(observation(
+            "transaction",
+            &path.display().to_string(),
+            std::io::Error::last_os_error().to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_process_seat(proposed: &Value, id: &str) -> Result<Option<Seat>> {
+    if proposed["kind"].as_str() != Some("cartridge-process") {
+        return Ok(None);
+    }
+    let owner = proposed["install"]["owner"].as_str().ok_or_else(|| {
+        owner_refusal(
+            "owner-absent",
+            "Declare an existing non-root passwd account in manifest.install.owner.".into(),
+        )
+    })?;
+    let (uid, gid) = owner_ids(owner)?;
+    let root = config::path("/var/lib/xenia");
+    match fs::symlink_metadata(&root) {
+        Ok(metadata) if metadata.file_type().is_dir() => metadata,
+        Ok(_) => {
+            return Err(Refusal::new(
+                "transaction",
+                "/var/lib/xenia",
+                "seat-root-absent",
+                "Create the real directory /var/lib/xenia before admitting process guests.",
+            ))
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return Err(Refusal::new(
+                "transaction",
+                "/var/lib/xenia",
+                "seat-root-absent",
+                "Create the real directory /var/lib/xenia before admitting process guests.",
+            ))
+        }
+        Err(error) => {
+            return Err(observation(
+                "transaction",
+                "/var/lib/xenia",
+                error.to_string(),
+            ))
+        }
+    };
+
+    let device_path = format!("/var/lib/xenia/{id}");
+    let path = config::path(&device_path);
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.file_type().is_dir() => Some(metadata),
+        Ok(_) => {
+            return Err(Refusal::new(
+                "transaction",
+                &device_path,
+                "seat-not-a-directory",
+                "Replace the named seat with a real directory before admission.",
+            ))
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => None,
+        Err(error) => return Err(observation("transaction", &device_path, error.to_string())),
+    };
+
+    let (created, changed, attempt) = if let Some(metadata) = metadata {
+        let owner_changed = metadata.uid() != uid || metadata.gid() != gid;
+        let mode_changed = metadata.mode() & 0o7777 != 0o750;
+        if owner_changed {
+            chown(&path, uid, gid)?;
+        }
+        if mode_changed {
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o750))
+                .map_err(|error| observation("transaction", &device_path, error.to_string()))?;
+        }
+        (
+            false,
+            owner_changed || mode_changed,
+            if owner_changed || mode_changed {
+                "corrected"
+            } else {
+                "unchanged"
+            },
+        )
+    } else {
+        let mut builder = fs::DirBuilder::new();
+        builder.mode(0o750);
+        builder
+            .create(&path)
+            .map_err(|error| observation("transaction", &device_path, error.to_string()))?;
+        let prepared = fs::set_permissions(&path, fs::Permissions::from_mode(0o750))
+            .map_err(|error| observation("transaction", &device_path, error.to_string()))
+            .and_then(|_| chown(&path, uid, gid));
+        if let Err(error) = prepared {
+            let _ = fs::remove_dir(&path);
+            return Err(error);
+        }
+        (true, true, "created")
+    };
+    Ok(Some(Seat {
+        value: json!({"path": device_path, "created": created}),
+        changed,
+        attempt,
+    }))
+}
 
 #[derive(Clone)]
 pub struct House {
@@ -115,6 +302,7 @@ pub fn admit(before: &House, proposed: &Value, row: &Value) -> Result<Value> {
     };
     let entry_changed = prior.is_none();
     let row_changed = current.config["tabs"].get(id) != Some(row);
+    let seat = ensure_process_seat(proposed, id)?;
     if entry_changed {
         current.register["xenoi"]
             .as_object_mut()
@@ -132,11 +320,14 @@ pub fn admit(before: &House, proposed: &Value, row: &Value) -> Result<Value> {
             .insert(id.into(), row.clone());
         write(CONFIG, &current.config)?;
     }
-    Ok(
-        json!({"entry": entry, "tabs": row, "changed": entry_changed || row_changed,
+    let mut result = json!({"entry": entry, "tabs": row, "changed": entry_changed || row_changed || seat.as_ref().is_some_and(|seat| seat.changed),
         "attempt": {"entry": if entry_changed {"renamed"} else {"unchanged"}, "row": if row_changed {"renamed"} else {"unchanged"}},
-        "final": {"entry_present": true, "row_present": true, "converged": true}}),
-    )
+        "final": {"entry_present": true, "row_present": true, "converged": true}});
+    if let Some(seat) = seat {
+        result["seat"] = seat.value;
+        result["attempt"]["seat"] = json!(seat.attempt);
+    }
+    Ok(result)
 }
 
 pub fn observe(id: &str, field: &str, snapshot: &Value) -> Result<Value> {
@@ -189,7 +380,7 @@ pub fn remove(id: &str) -> Result<Value> {
     let Some(entry) = current.register["xenoi"].get(id).cloned() else {
         // A native row is never removed on the strength of its id alone.
         return Ok(
-            json!({"changed": false, "final": {"entry_present": false, "native_row_preserved": true, "converged": true}}),
+            json!({"changed": false, "seat_retained": true, "final": {"entry_present": false, "native_row_preserved": true, "converged": true}}),
         );
     };
     let row_changed = current.config["tabs"]
@@ -207,7 +398,9 @@ pub fn remove(id: &str) -> Result<Value> {
         .remove(id);
     current.register["written_at"] = json!(chrono::Utc::now().timestamp());
     write(REGISTER, &current.register)?;
-    Ok(json!({"entry": entry, "changed": true,
+    Ok(
+        json!({"entry": entry, "changed": true, "seat_retained": true,
         "attempt": {"row": if row_changed {"removed"} else {"already-absent"}, "entry": "removed"},
-        "final": {"entry_present": false, "row_present": false, "converged": true}}))
+        "final": {"entry_present": false, "row_present": false, "converged": true}}),
+    )
 }
