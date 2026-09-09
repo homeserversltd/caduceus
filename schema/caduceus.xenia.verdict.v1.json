@@ -120,6 +120,39 @@
       "type": "object"
     }
   },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "verdict": "string",
+    "id": "string|null",
+    "check": "string",
+    "field": "string",
+    "message": "string",
+    "suggestion": "string",
+    "entry": "appliance.xenia.v1:entry",
+    "tabs": "object",
+    "changed": "boolean",
+    "observed": "object",
+    "attempt": "object",
+    "final": "object",
+    "xenoi": "map<id,appliance.xenia.v1:entry>",
+    "runtime": "object"
+  },
+  "optional": [
+    "id",
+    "check",
+    "field",
+    "message",
+    "suggestion",
+    "entry",
+    "tabs",
+    "changed",
+    "observed",
+    "attempt",
+    "final",
+    "xenoi",
+    "runtime"
+  ],
   "admission_policy": {
     "forbidden_instructions": [
       "dependencies",

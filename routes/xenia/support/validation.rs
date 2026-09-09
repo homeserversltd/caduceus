@@ -213,8 +213,17 @@ fn install(manifest: &Value, id: &str) -> Result<()> {
     seat::field(XENIA, "install", install, "G", "manifest.install")?;
     let kind = manifest["kind"].as_str().unwrap_or("");
     if kind == "iframe" {
-        return Ok(());
-    } // C3 owns the lawful iframe shape.
+        let empty = install.as_object().is_some_and(|object| {
+            ["bin", "unit", "static_dir", "owner"]
+                .iter()
+                .all(|key| object.get(*key).is_none_or(Value::is_null))
+        });
+        return if empty {
+            Ok(())
+        } else {
+            Err(refuse("G", "install", "iframe-install-forbidden"))
+        };
+    }
     let process = format!("/var/lib/xenia/{id}/");
     let static_root = format!("/var/lib/coronatio/tabs/{id}/");
     if let Some(bin) = install["bin"].as_str() {

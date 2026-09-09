@@ -15,6 +15,15 @@ pub use leaf_portals_admit as admit_portal;
 #[cfg(any(leaf_cartridges_admit, leaf_cartridges_list, leaf_cartridges_remove))]
 #[path = "cartridges/support/cartridges_shared.rs"]
 pub mod cartridges_shared;
+#[cfg(any(
+    leaf_xenia_validate,
+    leaf_xenia_admit,
+    leaf_xenia_remove,
+    leaf_xenia_status,
+    leaf_xenia_status__colon_id
+))]
+#[path = "xenia/support/index.rs"]
+pub mod xenia_support;
 #[cfg(leaf_exousia_change_pin)]
 pub use leaf_exousia_change_pin as change_pin;
 #[cfg(leaf_network_device_claim)]

@@ -87,12 +87,7 @@ pub fn startup() -> std::result::Result<(), String> {
         .get_or_init(|| {
             let mut patterns = BTreeMap::new();
             let mut errors = Vec::new();
-            for id in [
-                super::XENIA,
-                super::VERDICT,
-                "estate.release-flag.v1",
-                "coronatio.face-surface.v1",
-            ] {
+            for id in [super::XENIA, super::VERDICT, "estate.release-flag.v1"] {
                 match crate::routes::leaf_schema::declaration(id) {
                     Some(seat) => collect(seat, &mut patterns),
                     None => errors.push(format!("xenia-schema-desync: startup seat {id} absent")),

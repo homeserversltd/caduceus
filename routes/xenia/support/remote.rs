@@ -225,13 +225,17 @@ pub fn local(port: u16, path: &str, check: &str) -> Result<Vec<u8>> {
 }
 
 pub fn crown_port() -> Result<u16> {
-    match std::env::var("CORONATIO_PORT") {
-        Ok(value) => value
-            .parse()
-            .map_err(|_| observation("A", "CORONATIO_PORT", "crown-port-invalid")),
-        Err(std::env::VarError::NotPresent) => Ok(8090),
-        Err(error) => Err(observation("A", "CORONATIO_PORT", error.to_string())),
-    }
+    crate::shared::config::get_json("coronatio.bind")
+        .ok()
+        .and_then(|value| {
+            value
+                .get("value")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .and_then(|bind| bind.parse::<SocketAddr>().ok())
+        .map(|bind| bind.port())
+        .ok_or_else(|| observation("A", "coronatio.bind", "crown-bind-undeclared"))
 }
 
 pub fn crown(path: &str, check: &str) -> Result<Value> {
