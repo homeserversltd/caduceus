@@ -120,6 +120,71 @@ pub async fn admit(body: Body) -> Reply {
     mutation_or_validation(body, true).await
 }
 
+pub async fn observe(Path(id): Path<String>, body: Body) -> Reply {
+    let parsed = input(body);
+    let worker_id = id.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<Value> {
+        seat::startup().map_err(|e| observation("schema", "startup", e))?;
+        seat::field(XENIA, "id", &json!(worker_id), "C", "id")?;
+        let body = parsed?;
+        let object = body.as_object().ok_or_else(|| {
+            Refusal::new(
+                "schema",
+                "body",
+                "observation-body-not-object",
+                "Send exactly one installed or discovered snapshot.",
+            )
+        })?;
+        let entry = seat::declaration(XENIA)?["forms"]["entry"]
+            .as_object()
+            .ok_or_else(|| observation("schema", "forms.entry", "entry-form-seat-desync"))?;
+        for key in object.keys() {
+            let declared = ["required", "optional"].iter().try_fold(false, |found, list| {
+                let fields = entry
+                    .get(*list)
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| {
+                        observation(
+                            "schema",
+                            &format!("forms.entry.{list}"),
+                            "entry-form-seat-desync",
+                        )
+                    })?;
+                Ok::<_, Refusal>(
+                    found || fields.iter().any(|field| field.as_str() == Some(key.as_str())),
+                )
+            })?;
+            if declared && key != "installed" && key != "discovered" {
+                return Err(Refusal::new(
+                    "schema",
+                    &format!("body.{key}"),
+                    "forgery-of-declaration",
+                    "Send only one engine-owned installed or discovered snapshot.",
+                ));
+            }
+        }
+        let installed = object.contains_key("installed");
+        let discovered = object.contains_key("discovered");
+        if object.len() != 1 || installed == discovered {
+            return Err(Refusal::new(
+                "schema",
+                "body",
+                "observation-body-must-contain-exactly-one-snapshot",
+                "Send exactly one installed or discovered snapshot and no declared entry fields.",
+            ));
+        }
+        let field = if installed { "installed" } else { "discovered" };
+        let snapshot = object
+            .get(field)
+            .ok_or_else(|| observation("observe", field, "snapshot-absent"))?;
+        seat::field(XENIA, field, snapshot, "observe", field)?;
+        store::observe(&worker_id, field, snapshot)
+    })
+    .await
+    .unwrap_or_else(|error| Err(observation("transaction", "worker", error.to_string())));
+    finish(&id, "observe", result_value(result, "admissible"))
+}
+
 pub async fn remove(body: Body) -> Reply {
     let body = input(body);
     let id = body

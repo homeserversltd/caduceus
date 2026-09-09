@@ -73,6 +73,7 @@ harmonia_routes:
 routes:
 - xenia/validate
 - xenia/admit
+- xenia/:id/observe
 - xenia/remove
 - xenia/status
 - xenia/status/:id

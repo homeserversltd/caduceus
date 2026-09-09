@@ -139,6 +139,48 @@ pub fn admit(before: &House, proposed: &Value, row: &Value) -> Result<Value> {
     )
 }
 
+pub fn observe(id: &str, field: &str, snapshot: &Value) -> Result<Value> {
+    let _lock =
+        config::transaction_lock().map_err(|e| observation("transaction", "config.lock", e))?;
+    let mut current = read()?;
+    if current.register["xenoi"].get(id).is_none() {
+        return Err(Refusal::new(
+            "C",
+            "id",
+            "entry-absent",
+            "Admit the guest before writing an observation.",
+        ));
+    }
+    let row = current.config["tabs"].get(id).cloned().ok_or_else(|| {
+        observation(
+            "transaction",
+            &format!("config.tabs.{id}"),
+            "tabs-row-absent",
+        )
+    })?;
+    let entry = current.register["xenoi"]
+        .as_object_mut()
+        .and_then(|xenoi| xenoi.get_mut(id))
+        .ok_or_else(|| observation("transaction", "register.xenoi", "register-map-invalid"))?;
+    let previous = entry.get(field).cloned();
+    entry
+        .as_object_mut()
+        .ok_or_else(|| observation("transaction", "entry", "entry-object-invalid"))?
+        .insert(field.into(), snapshot.clone());
+    seat::form(XENIA, Some("entry"), entry, "observe", "entry")?;
+    let entry = entry.clone();
+    let written_at = chrono::Utc::now().timestamp();
+    current.register["written_at"] = json!(written_at);
+    write(REGISTER, &current.register)?;
+    Ok(json!({
+        "entry": entry,
+        "tabs": row,
+        "changed": previous.as_ref() != Some(snapshot),
+        "attempt": {"snapshot": "replaced", "written_at": "moved"},
+        "final": {"entry_present": true, "snapshot": field, "written_at": written_at, "converged": true}
+    }))
+}
+
 pub fn remove(id: &str) -> Result<Value> {
     seat::field(XENIA, "id", &json!(id), "C", "id")?;
     let _lock =
