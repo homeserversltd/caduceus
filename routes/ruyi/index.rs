@@ -3,17 +3,26 @@ use axum::{http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Write;
+use std::io::{Error, ErrorKind, Write};
 use std::{
     fs,
     net::Ipv4Addr,
     path::Path as FsPath,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+    task::JoinSet,
+    time::{timeout, Duration},
+};
 
 use crate::routes::leaf_schema::row_schema;
 const TEXT_MAX: usize = 64;
 const MAX_PROJECTION_BYTES: u64 = 1024 * 1024;
+const CADUCEUS_DEFAULT_PORT: u16 = 8787;
+const RUYI_PEER_TIMEOUT: Duration = Duration::from_millis(500);
+const MAX_PEER_RESPONSE_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Deserialize, Serialize)]
 struct RuyiLastUpdate {
@@ -245,6 +254,70 @@ fn unbound_ipv4_for_hostname(
     })
 }
 
+async fn fetch_peer_beam(host: &str) -> std::io::Result<Vec<u8>> {
+    let mut stream = TcpStream::connect((host, CADUCEUS_DEFAULT_PORT)).await?;
+    stream.set_nodelay(true)?;
+    let request = format!(
+        "GET /api/v1/beam HTTP/1.1\r\nHost: {host}\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes()).await?;
+    let mut response = Vec::new();
+    let mut buffer = [0u8; 4096];
+    loop {
+        let count = stream.read(&mut buffer).await?;
+        if count == 0 {
+            break;
+        }
+        response.extend_from_slice(&buffer[..count]);
+        if response.len() > MAX_PEER_RESPONSE_BYTES {
+            return Err(Error::new(ErrorKind::InvalidData, "ruyi peer response too large"));
+        }
+    }
+    Ok(response)
+}
+
+fn valid_peer_beam(response: &[u8]) -> bool {
+    let Some(body_start) = response.windows(4).position(|window| window == b"\r\n\r\n")
+    else {
+        return false;
+    };
+    let Ok(headers) = std::str::from_utf8(&response[..body_start]) else {
+        return false;
+    };
+    let Some(status) = headers
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+    else {
+        return false;
+    };
+    if status != "200" {
+        return false;
+    }
+    let Ok(value) = serde_json::from_slice::<Value>(&response[body_start + 4..]) else {
+        return false;
+    };
+    crate::routes::leaf_schema::accepts("caduceus.beam.v1", &value)
+        && value.get("ok").and_then(Value::as_bool) == Some(true)
+        && value.get("service").and_then(Value::as_str) == Some("caduceus")
+}
+
+async fn probe_peer(row: RuyiRow) -> Option<String> {
+    let host = if row.ipv4.parse::<Ipv4Addr>().is_ok() {
+        row.ipv4.as_str()
+    } else {
+        row.canonical_name.as_str()
+    };
+    let answered = timeout(RUYI_PEER_TIMEOUT, async {
+        let response = fetch_peer_beam(host).await?;
+        Ok::<_, std::io::Error>(valid_peer_beam(&response))
+    })
+    .await
+    .ok()?
+    .ok()?;
+    answered.then_some(row.mac)
+}
+
 async fn put(
     Path(path_mac): Path<String>,
     payload: Result<Json<Value>, axum::extract::rejection::JsonRejection>,
@@ -349,6 +422,31 @@ async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::Api
         );
         perspectives.insert(mac, value);
     }
+
+    let self_mac = local_mac();
+    let mut probes = JoinSet::new();
+    for row in staves
+        .iter()
+        .filter(|row| self_mac.as_deref() != Some(row.mac.as_str()))
+        .cloned()
+    {
+        probes.spawn(probe_peer(row));
+    }
+    let mut answered = BTreeSet::new();
+    if let Some(mac) = self_mac.as_ref() {
+        if staves.iter().any(|row| &row.mac == mac) {
+            answered.insert(mac.clone());
+        }
+    }
+    while let Some(result) = probes.join_next().await {
+        if let Ok(Some(mac)) = result {
+            answered.insert(mac);
+        }
+    }
+    staves.retain(|row| answered.contains(&row.mac));
+    perspectives.retain(|mac, _| answered.contains(mac));
+    received.retain(|mac, _| answered.contains(mac));
+
     let trust = derive_trust(&staves, &perspectives, &received);
     let dns_unresolved = if unbound_dns_view(&crate::shared::config::path("etc/unbound")).is_some() {
         staves
@@ -367,7 +465,7 @@ async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::Api
         ok: true,
         service: "caduceus",
         seat: RuyiSeat {
-            mac: local_mac().unwrap_or_else(|| "unknown".to_owned()),
+            mac: self_mac.unwrap_or_else(|| "unknown".to_owned()),
             hostname: local_hostname(),
         },
         staves,
