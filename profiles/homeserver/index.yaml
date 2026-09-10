@@ -30,6 +30,11 @@ commands:
 - network dhcp health
 - doors read
 - cartridges mutate
+- caduceus.network.firewall.read
+- caduceus.network.firewall.put
+- caduceus.network.firewall.delete
+- time resolve
+- time state
 - xenia mutate
 - network dhcp reservations
 - network dhcp reload
