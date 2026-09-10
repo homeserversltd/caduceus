@@ -211,6 +211,7 @@ fn main() {
         "harmonia.config_proposals.feed.v1",
         "harmonia.interactables.ruyi_bump.receipt.v1",
         "harmonia.interactables.dns_record.receipt.v1",
+        "harmonia.interactables.ruyi_perspective_seed.receipt.v1",
         "estate.release-flag.v1",
         "harmonia.update-set.v1",
         "appliance.xenia.v1",

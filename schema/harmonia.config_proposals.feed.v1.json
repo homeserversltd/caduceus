@@ -61,7 +61,8 @@
           "enum": [
             "hard-stamp",
             "ruyi-bump",
-            "dns-record"
+            "dns-record",
+            "ruyi-perspective-seed"
           ]
         },
         "created_at": {
@@ -178,6 +179,9 @@
             },
             {
               "type_ref": "DnsRecordEvidence"
+            },
+            {
+              "type_ref": "RuyiPerspectiveSeedEvidence"
             }
           ],
           "nullable": true
@@ -354,6 +358,36 @@
         "canonical_name",
         "ipv4",
         "record"
+      ]
+    },
+    "RuyiPerspectiveSeedEvidence": {
+      "fields": {
+        "mac": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hostname": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "perspective_path": {
+          "type": "string",
+          "const": "/etc/appliance/ruyi.json"
+        },
+        "perspective_file_exists": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "mac",
+        "hostname",
+        "perspective_path",
+        "perspective_file_exists"
       ]
     }
   },
