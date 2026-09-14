@@ -7,13 +7,12 @@ import importlib.util
 import json
 import os
 import re
-import ssl
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.error import HTTPError, URLError
+from urllib.error import URLError
 from urllib.parse import quote
-from urllib.request import HTTPSHandler, Request, build_opener, install_opener, urlopen
+from urllib.request import build_opener, install_opener, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -160,32 +159,62 @@ def package_url(commit, name):
 
 
 def install_house_ca():
-    """Install the existing house CA in memory without a local receipt/file."""
+    """Install the existing house CA for every later urllib HTTPS request."""
     try:
         with urlopen("http://192.168.123.1:7100/v1/trust/ca-bundle") as response:
-            bundle = response.read().decode("utf-8")
-        context = ssl.create_default_context()
-        context.load_verify_locations(cadata=bundle)
-        install_opener(build_opener(HTTPSHandler(context=context)))
-    except (OSError, UnicodeDecodeError, ssl.SSLError) as exc:
+            bundle = response.read()
+        if not bundle:
+            raise FlagError("house-ca-bootstrap-empty")
+        ca_path = Path("/tmp/house-ca.pem")
+        ca_path.write_bytes(bundle)
+        os.environ["SSL_CERT_FILE"] = str(ca_path)
+        install_opener(build_opener())
+    except OSError as exc:
         raise FlagError("house-ca-bootstrap-" + type(exc).__name__) from exc
 
 
 def package_get(commit, name, token):
-    headers = {
-        "Accept": "application/octet-stream",
-        "Authorization": "token " + token,
-    }
     try:
-        with urlopen(
-            Request(package_url(commit, name), headers=headers, method="GET"),
-            timeout=60,
-        ) as response:
-            return response.status, response.read()
-    except HTTPError as exc:
-        return exc.code, exc.read()
-    except (OSError, URLError, TimeoutError) as exc:
-        raise FlagError("generic-package-transport-" + type(exc).__name__) from exc
+        return PUBLISHER.download(package_url(commit, name), token)
+    except PUBLISHER.ReleaseError as exc:
+        message = str(exc)
+        prefix = "forgejo-transport-"
+        if message.startswith(prefix):
+            message = "generic-package-transport-" + message[len(prefix):]
+        raise FlagError(message) from exc
+
+
+def error_with_transport_reason(exc, token):
+    """Append the deepest transport reason without exposing credential data."""
+    current = exc
+    deepest = exc
+    reason = None
+    transport = False
+    seen = set()
+    while isinstance(current, BaseException) and id(current) not in seen:
+        seen.add(id(current))
+        deepest = current
+        message = str(current)
+        if isinstance(current, (URLError, TimeoutError)) or message.startswith(
+            ("generic-package-transport-", "forgejo-transport-")
+        ):
+            transport = True
+        if isinstance(current, URLError):
+            reason = current.reason
+        current = current.__cause__ or current.__context__
+
+    error = str(exc)
+    if token:
+        error = error.replace(token, "[REDACTED]")
+    if not transport:
+        return error
+
+    reason = deepest if reason is None else reason
+    reason_text = str(reason)
+    if token:
+        reason_text = reason_text.replace(token, "[REDACTED]")
+    reason_text = " ".join(reason_text.split()) or "<empty>"
+    return error + "; reason=" + type(reason).__name__ + ": " + reason_text
 
 
 def fetch_manifest(commit, token):
@@ -431,7 +460,7 @@ def run(args, schema):
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="GET-only verification and flag preview")
-    parser.add_argument("--house-ca", action="store_true", help="GET and install the house CA in memory")
+    parser.add_argument("--house-ca", action="store_true", help="GET the house CA bundle and write it for SSL_CERT_FILE trust")
     parser.add_argument("--commit-sha", help="deterministic replacement for CI_COMMIT_SHA")
     parser.add_argument("--pipeline-url", help="deterministic replacement for CI_PIPELINE_URL")
     parser.add_argument("--flagged-at", help="deterministic replacement for the flag timestamp")
@@ -450,7 +479,9 @@ def main(argv=None):
     except (FlagError, PUBLISHER.ReleaseError, OSError, ValueError) as exc:
         result = {
             "status": "error",
-            "error": str(exc),
+            "error": error_with_transport_reason(
+                exc, os.environ.get("FORGEJO_TOKEN", "")
+            ),
         }
         code = 1
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
