@@ -3,6 +3,7 @@ use axum::extract::{rejection::JsonRejection, Path};
 use axum::http::StatusCode;
 use axum::Json;
 use serde_json::{json, Map, Value};
+use std::time::Duration;
 
 type Reply = (StatusCode, Json<Value>);
 type Body = std::result::Result<Json<Value>, JsonRejection>;
@@ -50,6 +51,8 @@ fn result_value(result: Result<Value>, verb: &str) -> Value {
 fn finish(id: &str, door: &str, mut value: Value) -> Reply {
     let form = if value["ok"] == true && value["verdict"] == "admissible" {
         Some("admissible")
+    } else if value["ok"] == true && value["verdict"] == "ran" {
+        Some("ran")
     } else if value["ok"] == false {
         Some("refusal")
     } else {
@@ -139,21 +142,23 @@ pub async fn observe(Path(id): Path<String>, body: Body) -> Reply {
             .as_object()
             .ok_or_else(|| observation("schema", "forms.entry", "entry-form-seat-desync"))?;
         for key in object.keys() {
-            let declared = ["required", "optional"].iter().try_fold(false, |found, list| {
-                let fields = entry
-                    .get(*list)
-                    .and_then(Value::as_array)
-                    .ok_or_else(|| {
+            let declared = ["required", "optional"]
+                .iter()
+                .try_fold(false, |found, list| {
+                    let fields = entry.get(*list).and_then(Value::as_array).ok_or_else(|| {
                         observation(
                             "schema",
                             &format!("forms.entry.{list}"),
                             "entry-form-seat-desync",
                         )
                     })?;
-                Ok::<_, Refusal>(
-                    found || fields.iter().any(|field| field.as_str() == Some(key.as_str())),
-                )
-            })?;
+                    Ok::<_, Refusal>(
+                        found
+                            || fields
+                                .iter()
+                                .any(|field| field.as_str() == Some(key.as_str())),
+                    )
+                })?;
             if declared && key != "installed" && key != "discovered" {
                 return Err(Refusal::new(
                     "schema",
@@ -183,6 +188,112 @@ pub async fn observe(Path(id): Path<String>, body: Body) -> Reply {
     .await
     .unwrap_or_else(|error| Err(observation("transaction", "worker", error.to_string())));
     finish(&id, "observe", result_value(result, "admissible"))
+}
+
+pub async fn run(Path(id): Path<String>, body: Body) -> Reply {
+    let parsed = input(body);
+    let worker_id = id.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<Value> {
+        seat::startup().map_err(|e| observation("schema", "startup", e))?;
+        let body = parsed?;
+        let object = body.as_object().ok_or_else(|| {
+            Refusal::new(
+                "run",
+                "body",
+                "run-body-not-object",
+                "Send an object containing band and envelope.",
+            )
+        })?;
+        let requested_band = object.get("band").and_then(Value::as_str).ok_or_else(|| {
+            Refusal::new(
+                "run",
+                "band",
+                "xenos-band-unlisted",
+                "Send a band listed by the admitted clone's staff index.",
+            )
+        })?;
+        let band = crate::gate::snake::safe_band_path(requested_band).map_err(|_| {
+            Refusal::new(
+                "run",
+                "band",
+                "xenos-band-unlisted",
+                "Send a band listed by the admitted clone's staff index.",
+            )
+        })?;
+        let envelope = object
+            .get("envelope")
+            .ok_or_else(|| {
+                Refusal::new(
+                    "run",
+                    "envelope",
+                    "run-envelope-required",
+                    "Send the caduceus staff envelope for the selected band.",
+                )
+            })?
+            .clone();
+        let house = store::snapshot()?;
+        if house.register["xenoi"].get(&worker_id).is_none() {
+            return Err(Refusal::new(
+                "run",
+                "id",
+                "xenos-not-admitted",
+                "Admit the xenos before invoking a guest band.",
+            ));
+        }
+        let root = crate::shared::config::path(&format!("/var/lib/xenia/{worker_id}/staff"));
+        let entries = crate::gate::snake::index_entries(&root).map_err(|_| {
+            Refusal::new(
+                "run",
+                "band",
+                "xenos-band-unlisted",
+                "Declare the requested band in the clone's staff index.",
+            )
+        })?;
+        if !entries
+            .iter()
+            .any(|entry| entry.get("bandPath").and_then(Value::as_str) == Some(band.as_str()))
+        {
+            return Err(Refusal::new(
+                "run",
+                "band",
+                "xenos-band-unlisted",
+                "Declare the requested band in the clone's staff index.",
+            ));
+        }
+        let argv = vec![
+            "/usr/local/sbin/agathodaimon/caduceus-xenos-run".to_string(),
+            worker_id,
+            "band".to_string(),
+            band,
+        ];
+        let mut value = crate::gate::snake::run_launcher(&argv, &envelope, Duration::from_secs(30))
+            .map_err(|error| {
+                let message = match error.as_str() {
+                    "xenos-run-timeout" => "xenos-run-timeout",
+                    "xenos-launcher-absent" => "xenos-launcher-absent",
+                    _ => "xenos-launcher-refused",
+                };
+                Refusal::new(
+                    "run",
+                    "launcher",
+                    message,
+                    "Restore the fixed xenos launcher and repeat the run door.",
+                )
+            })?;
+        if value["ok"] != true {
+            return Err(Refusal::new(
+                "run",
+                "launcher",
+                "xenos-launcher-refused",
+                "Restore the launcher band and repeat the run door.",
+            ));
+        }
+        value["receipt"] = value["receiptPayload"].clone();
+        Ok(value)
+    })
+    .await
+    .unwrap_or_else(|error| Err(observation("transaction", "worker", error.to_string())));
+    finish(&id, "run", result_value(result, "ran"))
 }
 
 pub async fn remove(body: Body) -> Reply {

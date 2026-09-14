@@ -19,6 +19,7 @@ pub mod cartridges_shared;
     leaf_xenia_validate,
     leaf_xenia_admit,
     leaf_xenia__colon_id_observe,
+    leaf_xenia__colon_id_run,
     leaf_xenia_remove,
     leaf_xenia_status,
     leaf_xenia_status__colon_id

@@ -78,6 +78,29 @@ POST /api/v1/cert/portal-admit
 Additional routes (legacy sbin, sync, update, PJLink, staff, …) follow the
 same pattern: profile-gated, JSON receipts, no client credentials on the wire.
 
+### Xenia run door
+
+| Method | Door | Body | Success |
+|---|---|---|---|
+| POST | `/api/v1/xenia/<id>/run` | `{ "band": "<band>", "envelope": { ... } }` | stamped staff receipt, `verdict: ran`, and one Hyalos line |
+
+The clone source and consumed grant refuse with these exact signals, one per line:
+
+- `clone-repo-required`
+- `clone-ref-required`
+- `clone-digest-not-applicable`
+- `permissions-grantee-refused`
+- `permissions-path-outside-seat`
+- `permissions-wildcard-refused`
+- `permissions-visudo-refused`
+- `visudo-absent`
+- `permissions-file-writable`
+- `permissions-file-symlink`
+- `xenos-not-admitted`
+- `xenos-band-unlisted`
+- `xenos-run-timeout`
+- `xenos-launcher-absent`
+
 ## Profiles and roots
 
 Caduceus profiles are authored as YAML: `etc/caduceus/profile.yaml` on device

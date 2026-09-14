@@ -51,6 +51,19 @@
     "source": {
       "type": "object",
       "fields": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "clone",
+            "release"
+          ],
+          "description": "Clone selects the in-place xenos seat; absent or release preserves the release road."
+        },
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "description": "Forgejo owner/repo for the clone road; the appliance's reachable Forgejo host is fixed by the body."
+        },
         "release_repo": {
           "type": [
             "string",
@@ -91,7 +104,7 @@
           "description": "Tag, branch or release tag."
         }
       },
-      "description": "Exactly one of release_repo and candidates is present and non-null. Only release_repo plus ref is admissible at validation for manifest and entry forms. Candidates remain declared for the deferred source road; enforcement is deferred to C1. A source declaration is not executed by the door."
+      "description": "The clone form is kind=clone with repo=owner/repo and ref; it uses the body's reachable Forgejo host and is never executed by this door. Otherwise exactly one of release_repo and candidates is present and non-null. Only release_repo plus ref is admissible on the release road; candidates remain declared for the deferred source road."
     },
     "install": {
       "type": [
@@ -205,7 +218,7 @@
     "content_inventory_digest": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$",
-      "description": "SHA-256 of the sorted content inventory, exactly 64 lowercase hexadecimal characters."
+      "description": "Release road SHA-256 of the sorted content inventory, exactly 64 lowercase hexadecimal characters. Clone road requires the exact sixty-four-zero placeholder because this door does not compute a clone tree digest; the checked-out sha is the identity of record."
     },
     "enabled": {
       "type": "boolean",

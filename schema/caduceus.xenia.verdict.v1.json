@@ -31,6 +31,7 @@
         "admitted",
         "removed",
         "status",
+        "ran",
         "refused"
       ]
     },
@@ -136,6 +137,12 @@
     },
     "runtime": {
       "type": "object"
+    },
+    "receipt": {
+      "type": "object"
+    },
+    "envelope": {
+      "type": "object"
     }
   },
   "field_types": {
@@ -156,7 +163,9 @@
     "attempt": "object",
     "final": "object",
     "xenoi": "map<id,appliance.xenia.v1:entry>",
-    "runtime": "object"
+    "runtime": "object",
+    "receipt": "object",
+    "envelope": "object"
   },
   "optional": [
     "id",
@@ -173,7 +182,9 @@
     "attempt",
     "final",
     "xenoi",
-    "runtime"
+    "runtime",
+    "receipt",
+    "envelope"
   ],
   "admission_policy": {
     "forbidden_instructions": [
@@ -233,6 +244,11 @@
       "required": [
         "entry",
         "tabs"
+      ]
+    },
+    "ran": {
+      "required": [
+        "receipt"
       ]
     }
   },

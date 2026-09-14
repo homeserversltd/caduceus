@@ -1,7 +1,13 @@
 use super::{observation, observe, remote, seat, store, Refusal, Result, VERDICT, XENIA};
 use crate::shared::policy;
 use serde_json::{json, Value};
+use std::fs;
+use std::io::Read;
+use std::net::ToSocketAddrs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 pub struct Candidate {
     pub house: store::House,
@@ -117,7 +123,7 @@ fn declaration_equal(existing: &Value, entry: &Value) -> Result<bool> {
     Ok(existing == entry)
 }
 
-fn source(manifest: &Value) -> Result<()> {
+fn source(manifest: &Value) -> Result<bool> {
     let source = &manifest["source"];
     seat::field(XENIA, "source", source, "E", "manifest.source")?;
     if source
@@ -136,6 +142,45 @@ fn source(manifest: &Value) -> Result<()> {
         "E",
         "manifest.source",
     )?;
+    if source["kind"].as_str() == Some("clone") {
+        let repo = source["repo"]
+            .as_str()
+            .ok_or_else(|| refuse("E", "manifest.source.repo", "clone-repo-required"))?;
+        let parts: Vec<_> = repo.split('/').collect();
+        if parts.len() != 2
+            || parts.iter().any(|p| {
+                p.is_empty()
+                    || *p == "."
+                    || *p == ".."
+                    || !p
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+            })
+        {
+            return Err(refuse("E", "manifest.source.repo", "clone-repo-required"));
+        }
+        let reference = source["ref"]
+            .as_str()
+            .ok_or_else(|| refuse("E", "manifest.source.ref", "clone-ref-required"))?;
+        if reference.is_empty() || reference.chars().any(char::is_whitespace) {
+            return Err(refuse("E", "manifest.source.ref", "clone-ref-required"));
+        }
+        // Clone repos use the body's one reachable Forgejo host. This is a
+        // bounded DNS observation only: validation never fetches or runs git.
+        if ("git.home.arpa", 443)
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut addresses| addresses.next())
+            .is_none()
+        {
+            return Err(observation(
+                "E",
+                "manifest.source.repo",
+                "clone-host-unreachable",
+            ));
+        }
+        return Ok(true);
+    }
     let repo = source["release_repo"]
         .as_str()
         .ok_or_else(|| refuse("E", "manifest.source.release_repo", "release-road-required"))?;
@@ -159,7 +204,7 @@ fn source(manifest: &Value) -> Result<()> {
     if !source["ref"].as_str().is_some_and(|s| !s.is_empty()) || source.get("url").is_some() {
         return Err(refuse("E", "manifest.source.ref", "release-ref-required"));
     }
-    Ok(())
+    Ok(false)
 }
 
 fn inventory_claims(value: &Value, path: &str) -> Result<()> {
@@ -203,6 +248,156 @@ fn inside(path: &str, root: &str) -> bool {
         && !path
             .components()
             .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
+}
+
+fn check_permissions(id: &str) -> Result<()> {
+    let seat_root = format!("/var/lib/xenia/{id}");
+    let path = crate::shared::config::path(&format!("{seat_root}/permissions/xenia"));
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => {
+            return Err(refuse(
+                "F",
+                &format!("{seat_root}/permissions/xenia"),
+                "permissions-visudo-refused",
+            ));
+        }
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(refuse(
+            "F",
+            &format!("{seat_root}/permissions/xenia"),
+            "permissions-file-symlink",
+        ));
+    }
+    #[cfg(unix)]
+    if metadata.permissions().mode() & 0o022 != 0 {
+        return Err(refuse(
+            "F",
+            &format!("{seat_root}/permissions/xenia"),
+            "permissions-file-writable",
+        ));
+    }
+    let contents = fs::read_to_string(&path).map_err(|_| {
+        refuse(
+            "F",
+            &format!("{seat_root}/permissions/xenia"),
+            "permissions-visudo-refused",
+        )
+    })?;
+    for line in contents.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line.split_whitespace().next() != Some("caduceus") {
+            return Err(refuse(
+                "F",
+                &format!("{seat_root}/permissions/xenia"),
+                "permissions-grantee-refused",
+            ));
+        }
+        if line.contains('*') {
+            return Err(refuse(
+                "F",
+                &format!("{seat_root}/permissions/xenia"),
+                "permissions-wildcard-refused",
+            ));
+        }
+        let Some(commands) = line.split_once("NOPASSWD:").map(|(_, value)| value.trim()) else {
+            return Err(refuse(
+                "F",
+                &format!("{seat_root}/permissions/xenia"),
+                "permissions-grantee-refused",
+            ));
+        };
+        if commands.is_empty() {
+            return Err(refuse(
+                "F",
+                &format!("{seat_root}/permissions/xenia"),
+                "permissions-grantee-refused",
+            ));
+        }
+        for command in commands.split(',') {
+            let command = command.split_whitespace().next().unwrap_or("");
+            if command == "ALL" {
+                return Err(refuse(
+                    "F",
+                    &format!("{seat_root}/permissions/xenia"),
+                    "permissions-wildcard-refused",
+                ));
+            }
+            if !inside(command, &format!("{seat_root}/")) {
+                return Err(refuse(
+                    "F",
+                    &format!("{seat_root}/permissions/xenia"),
+                    "permissions-path-outside-seat",
+                ));
+            }
+        }
+    }
+    let visudo = ["/usr/sbin/visudo", "/usr/bin/visudo"]
+        .iter()
+        .find(|candidate| Path::new(candidate).is_file())
+        .ok_or_else(|| {
+            refuse(
+                "F",
+                &format!("{seat_root}/permissions/xenia"),
+                "visudo-absent",
+            )
+        })?;
+    let mut child = Command::new(visudo)
+        .args(["-c", "-f"])
+        .arg(&path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| {
+            refuse(
+                "F",
+                &format!("{seat_root}/permissions/xenia"),
+                "permissions-visudo-refused",
+            )
+        })?;
+    let reader = child.stdout.take().ok_or_else(|| {
+        refuse(
+            "F",
+            &format!("{seat_root}/permissions/xenia"),
+            "permissions-visudo-refused",
+        )
+    })?;
+    let reader = std::thread::spawn(move || {
+        let mut output = Vec::new();
+        reader.take(65_537).read_to_end(&mut output).map(|_| output)
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let output = reader.join().ok().and_then(std::result::Result::ok);
+    if status.is_none()
+        || output.as_ref().is_none_or(|output| output.len() > 65_536)
+        || !status.is_some_and(|status| status.success())
+    {
+        return Err(refuse(
+            "F",
+            &format!("{seat_root}/permissions/xenia"),
+            "permissions-visudo-refused",
+        ));
+    }
+    Ok(())
 }
 
 fn install(manifest: &Value, id: &str) -> Result<()> {
@@ -558,8 +753,8 @@ pub fn validate(body: &Value) -> Result<Candidate> {
             return Err(refuse("D", "id", "native-or-shipped-id-collision"));
         }
     }
-    // E and F: never clone, execute an instruction or fetch a binary.
-    source(manifest)?;
+    // E and F: the clone road declares a repository; it never executes git.
+    let clone = source(manifest)?;
     forbidden(
         manifest,
         policy_keys("forbidden_instructions")?,
@@ -573,6 +768,17 @@ pub fn validate(body: &Value) -> Result<Candidate> {
             "manifest-unit-forbidden",
         ));
     }
+    let clone_digest_placeholder = "0".repeat(64);
+    if clone
+        && manifest["content_inventory_digest"].as_str()
+            != Some(clone_digest_placeholder.as_str())
+    {
+        return Err(refuse(
+            "F",
+            "manifest.content_inventory_digest",
+            "clone-digest-not-applicable",
+        ));
+    }
     seat::field(
         XENIA,
         "content_inventory_digest",
@@ -584,7 +790,14 @@ pub fn validate(body: &Value) -> Result<Candidate> {
     if let Some(inventory) = manifest.get("inventory") {
         inventory_claims(inventory, "manifest.inventory")?;
     }
-    let release = remote::release(manifest)?;
+    if clone {
+        check_permissions(id)?;
+    }
+    let release = if clone {
+        json!({"road": "clone", "host": "git.home.arpa", "release": null})
+    } else {
+        remote::release(manifest)?
+    };
     // G, H, I and J, in that order.
     install(manifest, id)?;
     seat::field(

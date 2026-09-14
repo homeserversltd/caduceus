@@ -105,6 +105,7 @@ routes:
 - xenia/validate
 - xenia/admit
 - xenia/:id/observe
+- xenia/:id/run
 - xenia/remove
 - xenia/status
 - xenia/status/:id

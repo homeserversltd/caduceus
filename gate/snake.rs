@@ -1,9 +1,10 @@
 use serde_json::{json, Value};
 use std::{
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    time::{Duration, Instant},
 };
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 fn shelf_root() -> PathBuf {
@@ -14,7 +15,7 @@ fn cli_path() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| shelf_root().join("cli.py"))
 }
-fn safe_band_path(value: &str) -> Result<String, String> {
+pub fn safe_band_path(value: &str) -> Result<String, String> {
     let value = value.trim_matches('/');
     if value.is_empty()
         || value.split('/').any(|p| {
@@ -31,7 +32,7 @@ fn safe_band_path(value: &str) -> Result<String, String> {
     Ok(value.into())
 }
 /// Walk only children named by the authoritative recursive index chain.
-fn index_entries(root: &Path) -> Result<Vec<Value>, String> {
+pub fn index_entries(root: &Path) -> Result<Vec<Value>, String> {
     let root_path = root.join("index.json");
     let text = fs::read_to_string(&root_path)
         .map_err(|_| "caduceus-agathodaimon-index-missing".to_string())?;
@@ -168,34 +169,16 @@ pub fn status(band: Option<&str>) -> Value {
     }
     body
 }
-fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
+fn execute_command(
+    band: &str,
+    outer_envelope: &Value,
+    mut command: Command,
+    timeout: Duration,
+    face_path: Value,
+    timeout_error: &str,
+    spawn_error: &str,
+) -> Result<Value, String> {
     let outer = crate::protocol::Envelope::parse(outer_envelope.clone())?;
-    let override_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some();
-    let cli = cli_path();
-    if !cli.is_file() {
-        return Err("caduceus-agathodaimon-cli-missing".into());
-    }
-    let e = if override_cli {
-        json!({"bandPath": band, "facePath": cli})
-    } else {
-        let es = index_entries(&shelf_root())?;
-        es.iter()
-            .find(|v| {
-                v.get("bandPath").and_then(Value::as_str) == Some(band)
-                    && profile_allows(v, active_profile())
-            })
-            .cloned()
-            .ok_or_else(|| "caduceus-snake-band-not-profile-lit".to_string())?
-    };
-    let mut command = if override_cli {
-        let mut command = Command::new(&cli);
-        command.args(band.split('/'));
-        command
-    } else {
-        let mut command = Command::new("/usr/bin/python3");
-        command.arg(&cli).arg(band);
-        command
-    };
     let raw = serde_json::to_string(outer.raw())
         .map_err(|_| "caduceus-snake-envelope-invalid".to_string())?;
     let mut child = command
@@ -203,35 +186,75 @@ fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|_| "caduceus-agathodaimon-cli-unavailable".to_string())?;
-    let mut stdin = match child.stdin.take() {
-        Some(stdin) => stdin,
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("caduceus-agathodaimon-cli-stdin-unavailable".to_string());
+        .map_err(|_| spawn_error.to_string())?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "caduceus-agathodaimon-cli-stdin-unavailable".to_string())?;
+    let writer = std::thread::spawn(move || stdin.write_all(raw.as_bytes()));
+    // Keep stdin writing and both output readers off the waiter thread so a
+    // guest that blocks or fills a pipe remains subject to the deadline.
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "caduceus-agathodaimon-cli-stdout-unavailable".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "caduceus-agathodaimon-cli-stderr-unavailable".to_string())?;
+    let stdout_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout
+            .take((MAX_OUTPUT_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map(|_| bytes)
+    });
+    let stderr_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stderr
+            .take((MAX_OUTPUT_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map(|_| bytes)
+    });
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
         }
     };
-    if stdin.write_all(raw.as_bytes()).is_err() {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err("caduceus-agathodaimon-cli-stdin-write-failed".to_string());
+    let stdin_ok = writer.join().ok().is_some_and(|result| result.is_ok());
+    let stdout = stdout_reader.join().ok().and_then(std::result::Result::ok);
+    let stderr = stderr_reader.join().ok().and_then(std::result::Result::ok);
+    if status.is_none() {
+        return Err(timeout_error.to_string());
     }
-    drop(stdin);
-    let o = child
-        .wait_with_output()
-        .map_err(|_| "caduceus-agathodaimon-cli-unavailable".to_string())?;
-    if o.stdout.len() > MAX_OUTPUT_BYTES {
+    if !stdin_ok {
+        return Err("caduceus-agathodaimon-cli-stdin-write-failed".into());
+    }
+    let stdout =
+        stdout.ok_or_else(|| "caduceus-agathodaimon-cli-stdout-read-failed".to_string())?;
+    let stderr =
+        stderr.ok_or_else(|| "caduceus-agathodaimon-cli-stderr-read-failed".to_string())?;
+    if stdout.len() > MAX_OUTPUT_BYTES {
         return Err("caduceus-agathodaimon-output-too-large".into());
     }
-    let stdout = String::from_utf8_lossy(&o.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&o.stderr)
+    let stdout = String::from_utf8_lossy(&stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&stderr)
         .chars()
         .take(MAX_OUTPUT_BYTES)
         .collect::<String>();
+    let status = status.expect("checked above");
     let payload = serde_json::from_str::<Value>(stdout.trim())
         .unwrap_or_else(|_| Value::String(stdout.clone()));
-    let ok = o.status.success();
+    let ok = status.success();
     #[cfg(leaf_storage_disk_census)]
     let disk_action = (band == "storage/disk"
         || band.starts_with("storage/disk/")
@@ -254,7 +277,7 @@ fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
     let refusal = if ok {
         Value::Null
     } else {
-        json!({"exitCode":o.status.code(),"signal":o.status.code().is_none(),"payload":payload.clone()})
+        json!({"exitCode":status.code(),"signal":status.code().is_none(),"payload":payload.clone()})
     };
     let first_missing = if ok {
         "none"
@@ -283,7 +306,7 @@ fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
         "ok":ok,
         "profile":active_profile(),
         "bandPath":band,
-        "facePath":e.get("facePath"),
+        "facePath":face_path,
         "receiptPayload":payload,
         "rawChildStdout":stdout,
         "rawChildStderr":stderr,
@@ -292,6 +315,62 @@ fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
         "refusal":refusal,
         "firstMissingSignal":first_missing
     }))
+}
+
+fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
+    let override_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some();
+    let cli = cli_path();
+    if !cli.is_file() {
+        return Err("caduceus-agathodaimon-cli-missing".into());
+    }
+    let e = if override_cli {
+        json!({"bandPath": band, "facePath": cli})
+    } else {
+        let es = index_entries(&shelf_root())?;
+        es.iter()
+            .find(|v| {
+                v.get("bandPath").and_then(Value::as_str) == Some(band)
+                    && profile_allows(v, active_profile())
+            })
+            .cloned()
+            .ok_or_else(|| "caduceus-snake-band-not-profile-lit".to_string())?
+    };
+    let mut command = if override_cli {
+        let mut command = Command::new(&cli);
+        command.args(band.split('/'));
+        command
+    } else {
+        let mut command = Command::new("/usr/bin/python3");
+        command.arg(&cli).arg(band);
+        command
+    };
+    execute_command(
+        band,
+        outer_envelope,
+        command,
+        Duration::from_secs(30),
+        e.get("facePath").cloned().unwrap_or(Value::Null),
+        "caduceus-agathodaimon-timeout",
+        "caduceus-agathodaimon-cli-unavailable",
+    )
+}
+
+pub fn run_launcher(argv: &[String], envelope: &Value, timeout: Duration) -> Result<Value, String> {
+    const LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-xenos-run";
+    if argv.first().map(String::as_str) != Some(LAUNCHER) || !Path::new(LAUNCHER).is_file() {
+        return Err("xenos-launcher-absent".into());
+    }
+    let mut command = Command::new(LAUNCHER);
+    command.args(&argv[1..]);
+    execute_command(
+        argv.get(3).map(String::as_str).unwrap_or("xenia/run"),
+        envelope,
+        command,
+        timeout,
+        Value::Null,
+        "xenos-run-timeout",
+        "xenos-launcher-absent",
+    )
 }
 pub fn run(band: &str, envelope: &Value) -> Result<Value, String> {
     let band = safe_band_path(band)?;
