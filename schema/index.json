@@ -10,7 +10,7 @@
   },
   "seats": {
     "caduceus.beam.v1": {"file": "schema/caduceus.beam.v1.json", "schema_version": "1.0.0"},
-    "caduceus.ruyi.v1": {"file": "schema/caduceus.ruyi.v1.json", "schema_version": "1.0.0"},
+    "caduceus.ruyi.v1": {"file": "schema/caduceus.ruyi.v1.json", "schema_version": "1.0.1"},
     "harmonia.ruyi-perspective.v1": {"file": "schema/harmonia.ruyi-perspective.v1.json", "schema_version": "1.0.0"},
     "harmonia.ruyi-register.v1": {"file": "schema/harmonia.ruyi-register.v1.json", "schema_version": "1.0.0"},
     "harmonia.config_proposals.feed.v1": {"file": "schema/harmonia.config_proposals.feed.v1.json", "schema_version": "1.0.0"},

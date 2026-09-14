@@ -7,5 +7,6 @@ pub mod hyalos;
 pub mod pjlink;
 pub mod policy;
 pub mod receipts;
+pub mod seat_identity;
 pub mod settings;
 pub mod systemd;

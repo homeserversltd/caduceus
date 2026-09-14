@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.ruyi.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.0.1",
   "role": "Public Ruyi row, roster and removal envelope",
   "authority": {
     "owner": "caduceus",
@@ -27,7 +27,7 @@
     },
     "canonical_name": {
       "type": "string",
-      "description": "hostname followed by .home.arpa"
+      "description": "home maps to the home.arpa apex; every other hostname maps to <hostname>.home.arpa"
     },
     "ipv4": {
       "type": "string",
@@ -125,6 +125,22 @@
         },
         "hostname": {
           "type": "string"
+        },
+        "ipv4": {
+          "type": "string",
+          "format": "ipv4"
+        },
+        "ipv4_source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "dns",
+            "bind-lan-fallback",
+            null
+          ],
+          "description": "Address selected from the DNS answer or declared LAN bind fallback"
         }
       }
     },

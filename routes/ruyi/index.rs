@@ -55,6 +55,9 @@ struct RuyiRow {
 struct RuyiSeat {
     mac: String,
     hostname: String,
+    ipv4: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ipv4_source: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -122,7 +125,8 @@ fn valid_row(row: &RuyiRow, path_mac: &str) -> bool {
         && path_mac == row.mac
         && valid_mac(path_mac)
         && valid_hostname(&row.hostname)
-        && row.canonical_name == format!("{}.home.arpa", row.hostname)
+        && crate::shared::seat_identity::resolver_target(&row.hostname).as_deref()
+            == Some(row.canonical_name.as_str())
         && row.ipv4.parse::<Ipv4Addr>().is_ok()
         && row.caduceus_port.map_or(true, |port| port != 0)
         && valid_hostname(&row.profile)
@@ -147,27 +151,16 @@ fn server_now() -> u64 {
         .as_secs()
 }
 
-fn local_hostname() -> String {
-    fs::read_to_string(crate::shared::config::path("etc/hostname"))
+fn current_identity() -> crate::shared::seat_identity::SeatIdentity {
+    let hostname = crate::shared::seat_identity::local_hostname();
+    let dns_ipv4 = crate::shared::seat_identity::resolve_home_arpa_ipv4(&hostname);
+    let bind_ipv4 = crate::shared::config::declared_bind()
         .ok()
-        .map(|hostname| hostname.trim().to_owned())
-        .filter(|hostname| !hostname.is_empty())
-        .unwrap_or_else(|| "unknown".to_owned())
-}
-
-pub(crate) fn local_mac() -> Option<String> {
-    let route = fs::read_to_string(crate::shared::config::path("proc/net/route")).ok()?;
-    let iface = route.lines().skip(1).find_map(|line| {
-        let mut fields = line.split_whitespace();
-        let iface = fields.next()?;
-        let destination = fields.next()?;
-        (destination == "00000000").then(|| iface.to_owned())
-    })?;
-    fs::read_to_string(crate::shared::config::path(&format!(
-        "sys/class/net/{iface}/address"
-    )))
-    .ok()
-    .map(|mac| mac.trim().to_owned())
+        .and_then(|bind| match bind.ip() {
+            std::net::IpAddr::V4(ipv4) => Some(ipv4),
+            std::net::IpAddr::V6(_) => None,
+        });
+    crate::shared::seat_identity::current(dns_ipv4, bind_ipv4)
 }
 
 fn bounded_read(path: &FsPath) -> Option<String> {
@@ -180,8 +173,16 @@ fn bounded_read(path: &FsPath) -> Option<String> {
 
 fn canonical_dns_name(value: &str) -> Option<(String, String)> {
     let name = value.trim().trim_end_matches('.').to_ascii_lowercase();
-    let hostname = name.strip_suffix(".home.arpa")?;
-    valid_hostname(hostname).then(|| (format!("{hostname}.home.arpa"), hostname.to_owned()))
+    let hostname = if name == "home.arpa" {
+        "home"
+    } else {
+        let hostname = name.strip_suffix(".home.arpa")?;
+        (hostname != "home").then_some(hostname)?
+    };
+    valid_hostname(hostname).then(|| {
+        crate::shared::seat_identity::resolver_target(hostname)
+            .map(|canonical_name| (canonical_name, hostname.to_owned()))
+    })?
 }
 
 fn local_data_record(line: &str) -> Option<(String, String, Ipv4Addr)> {
@@ -251,7 +252,7 @@ fn unbound_ipv4_for_hostname(
     records: &[(String, String, Ipv4Addr)],
     hostname: &str,
 ) -> Option<Ipv4Addr> {
-    let canonical_name = format!("{hostname}.home.arpa");
+    let canonical_name = crate::shared::seat_identity::resolver_target(hostname)?;
     records.iter().find_map(|(name, dns_hostname, ipv4)| {
         (name == &canonical_name && dns_hostname == hostname).then_some(*ipv4)
     })
@@ -273,15 +274,17 @@ async fn fetch_peer_beam(host: &str) -> std::io::Result<Vec<u8>> {
         }
         response.extend_from_slice(&buffer[..count]);
         if response.len() > MAX_PEER_RESPONSE_BYTES {
-            return Err(Error::new(ErrorKind::InvalidData, "ruyi peer response too large"));
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "ruyi peer response too large",
+            ));
         }
     }
     Ok(response)
 }
 
 fn valid_peer_beam(response: &[u8]) -> bool {
-    let Some(body_start) = response.windows(4).position(|window| window == b"\r\n\r\n")
-    else {
+    let Some(body_start) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
         return false;
     };
     let Ok(headers) = std::str::from_utf8(&response[..body_start]) else {
@@ -359,7 +362,8 @@ async fn put(
     if !valid_row(&row, &path_mac) {
         return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"));
     }
-    let canonical_name = format!("{}.home.arpa", row.hostname);
+    let canonical_name = crate::shared::seat_identity::resolver_target(&row.hostname)
+        .ok_or_else(|| error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"))?;
     row.ipv4_source = Some("declared".to_owned());
     if let Some(dns_ipv4) = unbound_dns_view(&crate::shared::config::path("etc/unbound"))
         .and_then(|records| unbound_ipv4_for_hostname(&records, &row.hostname))
@@ -426,7 +430,8 @@ async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::Api
         perspectives.insert(mac, value);
     }
 
-    let self_mac = local_mac();
+    let identity = current_identity();
+    let self_mac = identity.mac.clone();
     let mut probes = JoinSet::new();
     for row in staves
         .iter()
@@ -451,7 +456,8 @@ async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::Api
     received.retain(|mac, _| answered.contains(mac));
 
     let trust = derive_trust(&staves, &perspectives, &received);
-    let dns_unresolved = if unbound_dns_view(&crate::shared::config::path("etc/unbound")).is_some() {
+    let dns_unresolved = if unbound_dns_view(&crate::shared::config::path("etc/unbound")).is_some()
+    {
         staves
             .iter()
             .filter(|row| row.ipv4_source.as_deref() == Some("declared"))
@@ -468,8 +474,13 @@ async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::Api
         ok: true,
         service: "caduceus",
         seat: RuyiSeat {
-            mac: self_mac.unwrap_or_else(|| "unknown".to_owned()),
-            hostname: local_hostname(),
+            mac: identity.mac.unwrap_or_else(|| "unknown".to_owned()),
+            hostname: crate::shared::seat_identity::local_hostname(),
+            ipv4: identity
+                .ipv4
+                .map(|ipv4| ipv4.to_string())
+                .unwrap_or_else(|| "unknown".to_owned()),
+            ipv4_source: identity.ipv4_source.map(str::to_owned),
         },
         staves,
         perspectives,
@@ -556,7 +567,7 @@ fn derive_trust(
 }
 
 pub(crate) fn local_syzygy() -> Result<Option<String>, String> {
-    let Some(mac) = local_mac() else {
+    let Some(mac) = current_identity().mac else {
         return Ok(None);
     };
     let Some(row) = crate::stats::ruyi_row(&mac)? else {

@@ -34,6 +34,21 @@ impl Fixture {
                 .as_nanos()
         ));
         fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(root.join("etc/appliance")).unwrap();
+        fs::write(
+            root.join("etc/appliance/profile.json"),
+            r#"{"profile":"homeserver"}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("etc/appliance/config.json"),
+            r#"{"caduceus":{"bind":"127.0.0.1:8787"}}"#,
+        )
+        .unwrap();
+        fs::write(root.join("etc/hostname"), "fixture-host\n").unwrap();
+        let lo = root.join("sys/class/net/lo");
+        fs::create_dir_all(&lo).unwrap();
+        fs::write(lo.join("address"), "aa:bb:cc:dd:ee:ff\n").unwrap();
         let unbound_root = root.join("etc/unbound");
         let dns_dir = unbound_root.join("unbound.conf.d");
         fs::create_dir_all(&dns_dir).unwrap();
@@ -149,6 +164,7 @@ const ROW_KEYS: &[&str] = &[
     "hostname",
     "canonical_name",
     "ipv4",
+    "ipv4_source",
     "profile",
     "gui_face",
     "caduceus_sha",
@@ -193,10 +209,24 @@ async fn ruyi_exact_shapes_timestamp_and_local_put() {
 
     let (status, listed) = list().await;
     assert_eq!(status, StatusCode::OK);
-    assert_keys(&listed, &["schema", "ok", "service", "seat", "staves"]);
-    assert_keys(&listed["seat"], &["mac", "hostname"]);
+    assert_keys(
+        &listed,
+        &[
+            "schema",
+            "ok",
+            "service",
+            "seat",
+            "staves",
+            "perspectives",
+            "trust",
+            "dns_unresolved",
+        ],
+    );
+    assert_keys(&listed["seat"], &["mac", "hostname", "ipv4", "ipv4_source"]);
     assert!(listed["seat"]["mac"].is_string());
     assert!(listed["seat"]["hostname"].is_string());
+    assert!(listed["seat"]["ipv4"].is_string());
+    assert_eq!(listed["seat"]["ipv4_source"], "bind-lan-fallback");
     assert_eq!(listed["staves"].as_array().unwrap().len(), 1);
     assert_keys(&listed["staves"][0], ROW_KEYS);
     assert!(!listed["staves"][0]
@@ -283,21 +313,55 @@ async fn ruyi_accepts_foreign_and_rejects_invalid_contract_values() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn ruyi_home_hostname_accepts_apex_and_rejects_nested_canonical_name() {
+    let _lock = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let fixture = Fixture::new();
+    let mac = "aa:bb:cc:dd:ee:ff";
+    fs::write(
+        fixture.root.join("etc/unbound/unbound.conf"),
+        "server:\n  local-data: \"fixture-host.home.arpa. IN A 192.0.2.44\"\n  local-data: \"home.arpa. IN A 192.0.2.46\"\n",
+    )
+    .unwrap();
+
+    let mut apex = row(mac);
+    apex["hostname"] = json!("home");
+    apex["canonical_name"] = json!("home.arpa");
+    let (status, written) = put(mac, apex).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(written["canonical_name"], "home.arpa");
+    assert_eq!(written["ipv4"], "192.0.2.46");
+    assert_eq!(written["ipv4_source"], "dns");
+
+    let mut nested = row(mac);
+    nested["hostname"] = json!("home");
+    nested["canonical_name"] = json!("home.home.arpa");
+    assert_invalid(mac, nested).await;
+
+    let mut ordinary = row(mac);
+    ordinary["hostname"] = json!("arch-tv");
+    ordinary["canonical_name"] = json!("arch-tv.home.arpa");
+    let (status, written) = put(mac, ordinary).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(written["canonical_name"], "arch-tv.home.arpa");
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn ruyi_caduceus_port_round_trips_and_absence_is_omitted() {
     let _lock = ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let fixture = Fixture::new();
     let mac = "aa:bb:cc:dd:ee:ff";
-    let iface = "fixture0";
-    let net_dir = fixture.root.join("sys/class/net").join(iface);
-    fs::create_dir_all(fixture.root.join("proc/net")).unwrap();
-    fs::create_dir_all(&net_dir).unwrap();
     fs::write(
-        fixture.root.join("proc/net/route"),
-        "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\nfixture0\t00000000\t00000000\t0003\t0\t0\t100\t00000000\t0\t0\t0\n",
+        fixture.root.join("etc/unbound/unbound.conf"),
+        "server:\n  local-data: \"fixture-host.home.arpa. IN A 127.0.0.1\"\n",
     )
     .unwrap();
+    fs::write(fixture.root.join("etc/hostname"), "fixture-host\n").unwrap();
+    let net_dir = fixture.root.join("sys/class/net/lo");
+    fs::create_dir_all(&net_dir).unwrap();
     fs::write(net_dir.join("address"), format!("{mac}\n")).unwrap();
 
     let mut submitted = row(mac);
@@ -349,19 +413,23 @@ async fn ruyi_mac_upsert_order_and_old_timestamp_survive_later_write() {
     assert_eq!(put(first, update).await.0, StatusCode::OK);
     let mut old = row(old_mac);
     old["spine"] = json!("legacy-persisted-only");
+    let (status, projected) = put(old_mac, old.clone()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!projected.as_object().unwrap().contains_key("spine"));
     stats::ruyi_upsert(old_mac, &old.to_string(), 7).unwrap();
     assert_eq!(put(second, row(second)).await.0, StatusCode::OK);
 
-    let (status, listed) = list().await;
-    assert_eq!(status, StatusCode::OK);
-    let staves = listed["staves"].as_array().unwrap();
-    assert_eq!(staves.len(), 3);
-    assert_eq!(staves[0]["mac"], first);
-    assert_eq!(staves[0]["hostname"], "updated-host");
-    assert_eq!(staves[1]["mac"], second);
-    let preserved = staves.iter().find(|value| value["mac"] == old_mac).unwrap();
-    assert_eq!(preserved["last_seen"], 7);
-    assert!(!preserved.as_object().unwrap().contains_key("spine"));
+    let snapshot = stats::ruyi_snapshot().unwrap();
+    assert_eq!(snapshot.rows.len(), 3);
+    assert_eq!(snapshot.rows[0].0, first);
+    let first_row: Value = serde_json::from_str(&snapshot.rows[0].1).unwrap();
+    assert_eq!(first_row["hostname"], "updated-host");
+    assert_eq!(snapshot.rows[1].0, second);
+    assert_eq!(snapshot.rows[2].0, old_mac);
+    assert_eq!(snapshot.rows[2].2, 7);
+    let preserved: Value =
+        serde_json::from_str(&stats::ruyi_row(old_mac).unwrap().unwrap()).unwrap();
+    assert_eq!(preserved["spine"], "legacy-persisted-only");
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -383,13 +451,13 @@ async fn ruyi_dns_replaces_claimed_ipv4_and_preserves_submitted_identity() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn ruyi_missing_dns_refuses_put_without_overwriting_stored_row() {
+async fn ruyi_missing_dns_accepts_declared_ipv4_and_marks_unresolved() {
     let _lock = ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let _fixture = Fixture::new();
     let mac = "aa:bb:cc:dd:ee:ff";
-    let (status, original) = put(mac, row(mac)).await;
+    let (status, _) = put(mac, row(mac)).await;
     assert_eq!(status, StatusCode::OK);
 
     let mut attempted = row(mac);
@@ -397,15 +465,12 @@ async fn ruyi_missing_dns_refuses_put_without_overwriting_stored_row() {
     attempted["canonical_name"] = json!("missing-host.home.arpa");
     attempted["ipv4"] = json!("192.0.2.99");
     let (status, value) = put(mac, attempted).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(
-        value["firstMissingSignal"],
-        "caduceus-ruyi-dns-record-missing"
-    );
-
-    let (status, listed) = list().await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(listed["staves"].as_array().unwrap(), &[original]);
+    assert_eq!(value["ipv4"], "192.0.2.99");
+    assert_eq!(value["ipv4_source"], "declared");
+    let stored: Value = serde_json::from_str(&stats::ruyi_row(mac).unwrap().unwrap()).unwrap();
+    assert_eq!(stored["hostname"], "missing-host");
+    assert_eq!(stored["ipv4_source"], "declared");
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -463,11 +528,12 @@ async fn ruyi_no_dns_view_non_seat_put_succeeds_and_persists_claimed_ipv4() {
     assert_eq!(stored["hostname"], "fixture-host");
     assert_eq!(stored["canonical_name"], "fixture-host.home.arpa");
     assert_eq!(stored["ipv4"], "192.0.2.99");
+    assert_eq!(stored["ipv4_source"], "declared");
     assert_eq!(stored["last_update"]["run_id"], "run-2");
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn ruyi_seat_dns_view_refuses_submitted_hostname_without_a_record() {
+async fn ruyi_seat_dns_view_accepts_submitted_hostname_without_a_record() {
     let _lock = ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -478,11 +544,12 @@ async fn ruyi_seat_dns_view_refuses_submitted_hostname_without_a_record() {
     attempted["canonical_name"] = json!("missing-host.home.arpa");
     attempted["ipv4"] = json!("192.0.2.99");
     let (status, value) = put(mac, attempted).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(
-        value["firstMissingSignal"],
-        "caduceus-ruyi-dns-record-missing"
-    );
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(value["ipv4"], "192.0.2.99");
+    assert_eq!(value["ipv4_source"], "declared");
+    let stored: Value = serde_json::from_str(&stats::ruyi_row(mac).unwrap().unwrap()).unwrap();
+    assert_eq!(stored["hostname"], "missing-host");
+    assert_eq!(stored["ipv4_source"], "declared");
 }
 
 #[tokio::test(flavor = "current_thread")]
