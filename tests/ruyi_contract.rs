@@ -206,16 +206,18 @@ async fn ruyi_exact_shapes_timestamp_and_local_put() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn ruyi_rejects_unknown_and_invalid_contract_values() {
+async fn ruyi_accepts_foreign_and_rejects_invalid_contract_values() {
     let _lock = ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let _fixture = Fixture::new();
     let mac = "aa:bb:cc:dd:ee:ff";
 
-    let mut unknown = row(mac);
-    unknown["spine"] = json!("legacy");
-    assert_invalid(mac, unknown).await;
+    let mut foreign = row(mac);
+    foreign["zzz"] = json!(1);
+    let (status, accepted) = put(mac, foreign).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!accepted.as_object().unwrap().contains_key("zzz"));
     let mut invalid = row(mac);
     invalid["schema"] = json!("wrong");
     assert_invalid(mac, invalid).await;
@@ -278,6 +280,50 @@ async fn ruyi_rejects_unknown_and_invalid_contract_values() {
     let (status, value) = put(mac, mismatch).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(value["firstMissingSignal"], "caduceus-ruyi-mac-mismatch");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn ruyi_caduceus_port_round_trips_and_absence_is_omitted() {
+    let _lock = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let fixture = Fixture::new();
+    let mac = "aa:bb:cc:dd:ee:ff";
+    let iface = "fixture0";
+    let net_dir = fixture.root.join("sys/class/net").join(iface);
+    fs::create_dir_all(fixture.root.join("proc/net")).unwrap();
+    fs::create_dir_all(&net_dir).unwrap();
+    fs::write(
+        fixture.root.join("proc/net/route"),
+        "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\nfixture0\t00000000\t00000000\t0003\t0\t0\t100\t00000000\t0\t0\t0\n",
+    )
+    .unwrap();
+    fs::write(net_dir.join("address"), format!("{mac}\n")).unwrap();
+
+    let mut submitted = row(mac);
+    submitted["caduceus_port"] = json!(8787);
+    let (status, written) = put(mac, submitted).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(written["caduceus_port"], 8787);
+
+    let (status, listed) = list().await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(listed["staves"][0]["caduceus_port"], 8787);
+
+    let (status, absent) = put(mac, row(mac)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!absent.as_object().unwrap().contains_key("caduceus_port"));
+
+    let (status, listed) = list().await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!listed["staves"][0]
+        .as_object()
+        .unwrap()
+        .contains_key("caduceus_port"));
+
+    let mut invalid = row(mac);
+    invalid["caduceus_port"] = json!(0);
+    assert_invalid(mac, invalid).await;
 }
 
 #[tokio::test(flavor = "current_thread")]

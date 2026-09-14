@@ -33,6 +33,12 @@
       "type": "string",
       "format": "ipv4"
     },
+    "caduceus_port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "TCP port on the row ipv4 where this body Caduceus serves public LAN doors"
+    },
     "ipv4_source": {
       "type": [
         "string",
@@ -220,6 +226,7 @@
     "hostname": "string",
     "canonical_name": "string",
     "ipv4": "string",
+    "caduceus_port": "integer",
     "ipv4_source": "string|null",
     "profile": "string",
     "gui_face": "string|null",
@@ -269,6 +276,7 @@
       "optional": [
         "gui_face",
         "ipv4_source",
+        "caduceus_port",
         "syzygy_sha",
         "last_seen",
         "perspective"

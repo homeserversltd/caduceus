@@ -37,6 +37,8 @@ struct RuyiRow {
     hostname: String,
     canonical_name: String,
     ipv4: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    caduceus_port: Option<u16>,
     ipv4_source: Option<String>,
     profile: String,
     gui_face: Option<String>,
@@ -122,6 +124,7 @@ fn valid_row(row: &RuyiRow, path_mac: &str) -> bool {
         && valid_hostname(&row.hostname)
         && row.canonical_name == format!("{}.home.arpa", row.hostname)
         && row.ipv4.parse::<Ipv4Addr>().is_ok()
+        && row.caduceus_port.map_or(true, |port| port != 0)
         && valid_hostname(&row.profile)
         && matches!(
             row.gui_face.as_deref(),
