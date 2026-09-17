@@ -82,7 +82,7 @@ fn failure_from_value(
     let signal = if noun == "cert" && verb == "house-ca" {
         "caduceus-house-ca-refused"
     } else {
-        "caduceus-pin-not-yet-provisioned"
+        "caduceus-agathodaimon-cli-response-not-object"
     };
     json!({
         "ok": false,
@@ -128,7 +128,7 @@ fn run_command(
                 "spawn",
                 None,
                 &err.to_string(),
-                "caduceus-pin-not-yet-provisioned",
+                "caduceus-agathodaimon-cli-unavailable",
             )
         })?;
     if write_input {
@@ -139,7 +139,7 @@ fn run_command(
                 "stdin",
                 None,
                 &err.to_string(),
-                "caduceus-pin-not-yet-provisioned",
+                "caduceus-agathodaimon-cli-input-serialization-failed",
             )
         })?;
         let mut stdin = child.stdin.take().ok_or_else(|| {
@@ -149,7 +149,7 @@ fn run_command(
                 "stdin",
                 None,
                 "",
-                "caduceus-pin-not-yet-provisioned",
+                "caduceus-agathodaimon-cli-stdin-unavailable",
             )
         })?;
         if let Err(err) = stdin.write_all(&payload) {
@@ -159,7 +159,7 @@ fn run_command(
                 "stdin",
                 None,
                 &err.to_string(),
-                "caduceus-pin-not-yet-provisioned",
+                "caduceus-agathodaimon-cli-stdin-write-failed",
             ));
         }
         drop(stdin);
@@ -171,7 +171,7 @@ fn run_command(
             "exit",
             None,
             &err.to_string(),
-            "caduceus-pin-not-yet-provisioned",
+            "caduceus-agathodaimon-cli-wait-failed",
         )
     })?;
     let exit = output.status.code();
@@ -194,7 +194,7 @@ fn run_command(
                 "exit",
                 exit,
                 &stderr,
-                "caduceus-pin-not-yet-provisioned",
+                "caduceus-agathodaimon-cli-nonzero-output-invalid-json",
             )
         } else {
             failure(
@@ -203,7 +203,7 @@ fn run_command(
                 "parse",
                 exit,
                 &stderr,
-                "caduceus-pin-not-yet-provisioned",
+                "caduceus-agathodaimon-cli-output-invalid-json",
             )
         }
     })?;
