@@ -80,10 +80,14 @@ pub(crate) fn roster_allows(method: &str, path: &str) -> Result<bool, String> {
     Ok(routes.iter().any(|route| {
         *route == path
             || *route == key
-            || (*route == "appliance/service/:service/restart"
-                && (path.starts_with("/api/v1/service/")
-                    || path.starts_with("/api/v1/appliance/service/"))
-                && path.ends_with("/restart"))
+            || (route
+                .strip_prefix("appliance/service/:service/")
+                .is_some_and(|action| {
+                    matches!(action, "status" | "start" | "stop" | "restart" | "enable" | "disable")
+                        && (path.starts_with("/api/v1/service/")
+                            || path.starts_with("/api/v1/appliance/service/"))
+                        && path.ends_with(&format!("/{action}"))
+                }))
     }))
 }
 
@@ -218,20 +222,6 @@ pub(crate) fn access_attendance_admits(
 ) -> Result<(), (StatusCode, Json<ApiErrorBody>)> {
     vault_attendance_admits(headers)
 }
-pub(crate) async fn local_access_route(request: Request<Body>, next: middleware::Next) -> Response {
-    if request
-        .extensions()
-        .get::<ConnectInfo<ConnectionInfo>>()
-        .is_some_and(|ConnectInfo(peer)| match peer {
-            ConnectionInfo::Tcp(addr) => !addr.ip().is_loopback(),
-            ConnectionInfo::Unix { .. } => false,
-        })
-    {
-        return api_error_signal("local access", "caduceus-local-access-required").into_response();
-    }
-    next.run(request).await
-}
-
 async fn self_telemetry_route(request: Request<Body>, next: middleware::Next) -> Response {
     let path = request.uri().path().to_owned();
     let started = Instant::now();

@@ -837,8 +837,12 @@ fn execute_portal_service(metadata: Value) -> Result<Value, String> {
     crate::routes::control_service::execute_service(metadata)
 }
 
+pub fn execute_registered_service(service: &str, action: &str) -> Result<Value, String> {
+    crate::routes::control_service::execute_registered_service(service, action)
+}
+
 pub fn restart_registered_service(service: &str) -> Result<Value, String> {
-    crate::routes::control_service::restart_registered_service(service)
+    execute_registered_service(service, "restart")
 }
 
 fn execute_portal_service_with(metadata: Value, systemctl: &str) -> Result<Value, String> {
@@ -995,6 +999,11 @@ mod tests {
         let config_dir = root.join("etc/appliance");
         std::fs::create_dir_all(&config_dir).unwrap();
         std::fs::write(config_dir.join("config.json"), r#"{"tabs":{"portals":{"data":{"portals":[{"name":"Jellyfin","services":["jellyfin"]}]}}}}"#).unwrap();
+        std::fs::write(
+            config_dir.join("profile.json"),
+            r#"{"profile":"homeserver"}"#,
+        )
+        .unwrap();
         let state_dir = root.join("var/lib/caduceus");
         std::fs::create_dir_all(&state_dir).unwrap();
         std::fs::write(

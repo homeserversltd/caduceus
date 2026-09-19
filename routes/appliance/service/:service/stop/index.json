@@ -1,0 +1,1 @@
+{"namespace":"appliance/service/:service/stop","admittance":"admitted","flags":{},"serve":[{"rust":"appliance_service_control"}]}

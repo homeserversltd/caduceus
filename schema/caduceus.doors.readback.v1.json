@@ -1,0 +1,46 @@
+{
+  "schema": "caduceus.doors.readback.v1",
+  "schema_version": "1.0.0",
+  "role": "Flat public Caduceus doors discovery readback",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.doors.readback.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Only the declared flat required fields are part of this readback."
+  },
+  "required": [
+    "schema",
+    "ok",
+    "profile",
+    "routes"
+  ],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.doors.readback.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "profile": {
+      "type": "string"
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "profile": "string",
+    "routes": "array<string>"
+  },
+  "optional": [],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

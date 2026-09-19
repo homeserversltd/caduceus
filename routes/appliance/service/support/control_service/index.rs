@@ -8,17 +8,21 @@ pub fn execute_service(metadata: Value) -> Result<Value, String> {
     execute_service_with(metadata, &systemctl)
 }
 
-pub fn restart_registered_service(service: &str) -> Result<Value, String> {
+pub fn execute_registered_service(service: &str, action: &str) -> Result<Value, String> {
     let systemctl =
         std::env::var("CADUCEUS_SYSTEMCTL_BIN").unwrap_or_else(|_| "systemctl".to_string());
     execute_service_with(
         json!({
             "service": service,
-            "action": "restart",
+            "action": action,
             "systemdService": normalize_systemd_service(service),
         }),
         &systemctl,
     )
+}
+
+pub fn restart_registered_service(service: &str) -> Result<Value, String> {
+    execute_registered_service(service, "restart")
 }
 
 pub fn execute_service_with(metadata: Value, systemctl: &str) -> Result<Value, String> {

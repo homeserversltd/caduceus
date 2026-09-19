@@ -285,61 +285,6 @@ pub fn change_pin_json(body: &Value) -> Result<Value, String> {
     Ok(envelope(true, "none"))
 }
 
-pub fn change_pin_access_json(
-    document_id: &str,
-    attendance: &str,
-    body: &Value,
-) -> Result<Value, String> {
-    let object = body
-        .as_object()
-        .filter(|object| object.len() == 2)
-        .ok_or_else(|| "caduceus-access-pin-change-invalid".to_string())?;
-    let current_pin = object
-        .get("current_pin")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty() && value.len() <= 512)
-        .ok_or_else(|| "caduceus-access-pin-current_pin-missing".to_string())?;
-    let new_pin = object
-        .get("new_pin")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty() && value.len() <= 512)
-        .ok_or_else(|| "caduceus-access-pin-new_pin-missing".to_string())?;
-    let now = Instant::now();
-    let mut guard = state()
-        .lock()
-        .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
-    evict_expired(&mut guard.current, now);
-    let Some(current) = guard.current.get(attendance) else {
-        return Ok(envelope(false, "caduceus-attendance-not-current"));
-    };
-    if current.document_id != document_id {
-        return Ok(envelope(false, "caduceus-attendance-not-current"));
-    }
-    let verifier = guard
-        .verifier
-        .clone()
-        .ok_or_else(|| "caduceus-pin-not-yet-provisioned".to_string())?;
-    if !pin_verified(current_pin, &verifier.public_key) {
-        return Ok(envelope(false, "caduceus-attendance-pin-refused"));
-    }
-    let receipt = match crate::shared::agathodaimon::crossing(
-        "exousia",
-        "change",
-        &json!({ "oldPin": current_pin, "newPin": new_pin }),
-    ) {
-        Ok(value) => value,
-        Err(_) => return Ok(envelope(false, "caduceus-attendance-change-failed")),
-    };
-    let Some(rebound) = bound_verifier(&receipt) else {
-        return Ok(envelope(false, "caduceus-attendance-change-failed"));
-    };
-    guard.verifier = Some(rebound);
-    guard.current.retain(|key, _| key == attendance);
-    if let Some(current) = guard.current.get_mut(attendance) {
-        current.last_touch = now;
-    }
-    Ok(envelope(true, "none"))
-}
 
 pub fn reset_default_pin_json(body: &Value) -> Result<Value, String> {
     let new_pin = text(body, "newPin")?;

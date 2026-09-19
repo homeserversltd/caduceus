@@ -65,7 +65,12 @@ routes:
 - appliance/report
 - appliance/name
 - appliance/claim
+- appliance/service/:service/status
+- appliance/service/:service/start
+- appliance/service/:service/stop
 - appliance/service/:service/restart
+- appliance/service/:service/enable
+- appliance/service/:service/disable
 - exousia/open
 - exousia/validate
 - exousia/touch

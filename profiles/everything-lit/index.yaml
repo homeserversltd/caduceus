@@ -17,7 +17,12 @@ routes:
 - appliance/name
 - appliance/report
 - appliance/stats
+- appliance/service/:service/status
+- appliance/service/:service/start
+- appliance/service/:service/stop
 - appliance/service/:service/restart
+- appliance/service/:service/enable
+- appliance/service/:service/disable
 - cartridges/admit
 - cartridges/list
 - cartridges/remove

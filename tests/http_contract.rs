@@ -1,7 +1,6 @@
 use axum::body::{to_bytes, Body};
-use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
-use caduceus::{gate::ConnectionInfo, routes::serve};
+use caduceus::{routes::serve, shared::attendance};
 use std::{
     env,
     ffi::OsString,
@@ -569,59 +568,256 @@ async fn homeserver_retired_admin_action_route_is_not_found() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
+struct PortalServiceFixture {
+    root: PathBuf,
+    previous_env: Vec<(&'static str, Option<OsString>)>,
+    _lock: MutexGuard<'static, ()>,
+}
+
+impl PortalServiceFixture {
+    fn new() -> Self {
+        let lock = FIXTURE_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let root = env::temp_dir().join(format!(
+            "caduceus-http-service-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let caduceus = root.join("etc/caduceus");
+        let appliance = root.join("etc/appliance");
+        fs::create_dir_all(&caduceus).unwrap();
+        fs::create_dir_all(&appliance).unwrap();
+        fs::copy(
+            "profiles/homeserver/index.yaml",
+            caduceus.join("profile.yaml"),
+        )
+        .unwrap();
+        fs::copy(
+            "tests/fixtures/homeserver/etc/appliance/config.json",
+            appliance.join("config.json"),
+        )
+        .unwrap();
+        fs::write(
+            appliance.join("profile.json"),
+            r#"{"profile":"homeserver"}"#,
+        )
+        .unwrap();
+
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let sudo = bin.join("sudo");
+        fs::write(
+            &sudo,
+            "#!/bin/sh\ncase \"$1/$2\" in\nexousia/bind) printf '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}\\n' ;;\nexousia/verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) printf '{\"ok\":true,\"verified\":true}\\n' ;; *) printf '{\"ok\":false,\"verified\":false}\\n' ;; esac ;;\n*) exit 8 ;;\nesac\n",
+        )
+        .unwrap();
+        fs::set_permissions(&sudo, fs::Permissions::from_mode(0o755)).unwrap();
+        let state = root.join("state");
+        fs::write(&state, "active\n").unwrap();
+        let calls = root.join("calls");
+        fs::write(&calls, "").unwrap();
+        let systemctl = root.join("systemctl");
+        fs::write(
+            &systemctl,
+            format!(
+                "#!/bin/sh\nprintf '%s %s\\n' \"$1\" \"$2\" >> {}\nif [ \"$1\" = is-active ]; then\n  if [ \"$(cat {})\" = active ]; then printf 'active\\n'; exit 0; fi\n  printf 'inactive\\n'; exit 3\nfi\ncase \"$1\" in\n  start|restart|enable) printf 'active\\n' > {} ;;\n  stop|disable) printf 'inactive\\n' > {} ;;\n  status) : ;;\n  *) exit 9 ;;\nesac\nexit 0\n",
+                calls.display(),
+                state.display(),
+                state.display(),
+                state.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let names = [
+            "CADUCEUS_ROOT",
+            "CADUCEUS_SYSTEMCTL_BIN",
+            "CADUCEUS_AGATHODAIMON_CLI",
+            "CADUCEUS_DOCUMENT_INCARNATION",
+            "PATH",
+        ];
+        let previous_env = names
+            .iter()
+            .map(|name| (*name, env::var_os(name)))
+            .collect();
+        let old_path = env::var_os("PATH").unwrap_or_default();
+        env::set_var("CADUCEUS_ROOT", &root);
+        env::set_var("CADUCEUS_SYSTEMCTL_BIN", &systemctl);
+        env::set_var("CADUCEUS_AGATHODAIMON_CLI", &sudo);
+        env::set_var("CADUCEUS_DOCUMENT_INCARNATION", "inc-1");
+        env::set_var("PATH", format!("{}:{}", bin.display(), old_path.to_string_lossy()));
+        attendance::reset_for_tests();
+        attendance::bind();
+        Self {
+            root,
+            previous_env,
+            _lock: lock,
+        }
+    }
+
+    fn systemctl_calls(&self) -> String {
+        fs::read_to_string(self.root.join("calls")).unwrap()
+    }
+}
+
+impl Drop for PortalServiceFixture {
+    fn drop(&mut self) {
+        attendance::reset_for_tests();
+        for (name, value) in self.previous_env.drain(..) {
+            match value {
+                Some(value) => env::set_var(name, value),
+                None => env::remove_var(name),
+            }
+        }
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+fn service_request(uri: &str, attendance: Option<&str>) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("content-type", "application/json");
+    if let Some(attendance) = attendance {
+        builder = builder.header("x-caduceus-attendance", attendance);
+    }
+    builder.body(Body::from(r#"{}"#)).unwrap()
+}
+
 #[tokio::test(flavor = "current_thread")]
-async fn registered_service_restart_is_profile_allowed_for_loopback_and_remote_peers() {
-    let _guard = use_fixture("tests/fixtures/homeserver");
-    let root = std::env::temp_dir().join(format!("caduceus-http-systemctl-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
-    let systemctl = root.join("systemctl");
-    std::fs::write(
-        &systemctl,
-        "#!/bin/sh\n[ \"$1\" = is-active ] && echo active\nexit 0\n",
-    )
-    .unwrap();
-    let mut permissions = std::fs::metadata(&systemctl).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-    std::fs::set_permissions(&systemctl, permissions).unwrap();
-    std::env::set_var("CADUCEUS_SYSTEMCTL_BIN", &systemctl);
-    let body = r#"{}"#;
+async fn registered_service_actions_require_static_attendance_and_read_systemctl_state() {
+    let fixture = PortalServiceFixture::new();
+    let actions = [
+        ("status", true),
+        ("start", true),
+        ("stop", false),
+        ("enable", true),
+        ("disable", false),
+        ("restart", true),
+    ];
 
-    let mut request = Request::builder()
-        .method("POST")
-        .uri("/api/v1/service/jellyfin/restart")
-        .header("content-type", "application/json")
-        .body(Body::from(body))
-        .unwrap();
-    request
-        .extensions_mut()
-        .insert(ConnectInfo(ConnectionInfo::Tcp(
-            "127.0.0.1:43210".parse::<std::net::SocketAddr>().unwrap(),
-        )));
-    let response = serve::router().oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(
-        body_json(response).await["systemdService"],
-        "jellyfin.service"
-    );
+    for (action, _) in actions.iter().copied() {
+        for prefix in ["/api/v1/appliance/service/", "/api/v1/service/"] {
+            let uri = format!("{prefix}jellyfin/{action}");
+            let response = serve::router()
+                .oneshot(service_request(&uri, None))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert_eq!(
+                body_json(response).await["firstMissingSignal"],
+                "caduceus-attendance-not-current"
+            );
+        }
+    }
+    assert!(fixture.systemctl_calls().is_empty());
 
-    let mut request = Request::builder()
-        .method("POST")
-        .uri("/api/v1/service/jellyfin/restart")
-        .header("content-type", "application/json")
-        .body(Body::from(body))
+    for (index, (action, expected_active)) in actions.iter().copied().enumerate() {
+        let static_target = format!("/api/v1/appliance/service/{{service}}/{action}");
+        let static_attendance = attendance::open_json(&serde_json::json!({
+            "documentId": static_target,
+            "documentIncarnation": "inc-1",
+            "pin": "2468"
+        }))
+        .unwrap()["attendance"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let concrete_attendance = attendance::open_json(&serde_json::json!({
+            "documentId": format!("/api/v1/appliance/service/jellyfin/{action}"),
+            "documentIncarnation": "inc-1",
+            "pin": "2468"
+        }))
+        .unwrap()["attendance"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let wrong_action = if action == "status" { "start" } else { "status" };
+        let wrong_attendance = attendance::open_json(&serde_json::json!({
+            "documentId": format!("/api/v1/appliance/service/{{service}}/{wrong_action}"),
+            "documentIncarnation": "inc-1",
+            "pin": "2468"
+        }))
+        .unwrap()["attendance"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        for token in [&concrete_attendance, &wrong_attendance] {
+            let uri = format!("/api/v1/appliance/service/jellyfin/{action}");
+            let response = serve::router()
+                .oneshot(service_request(&uri, Some(token)))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert_eq!(
+                body_json(response).await["firstMissingSignal"],
+                "caduceus-attendance-not-current"
+            );
+        }
+        let prefix = if index % 2 == 0 {
+            "/api/v1/appliance/service/"
+        } else {
+            "/api/v1/service/"
+        };
+        let uri = format!("{prefix}jellyfin/{action}");
+        let response = serve::router()
+            .oneshot(service_request(&uri, Some(&static_attendance)))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let receipt = body_json(response).await;
+        assert_eq!(receipt["action"], action);
+        assert_eq!(receipt["service"], "jellyfin");
+        assert_eq!(receipt["systemdService"], "jellyfin.service");
+        assert_eq!(receipt["success"], true);
+        assert_eq!(receipt["active"], expected_active);
+    }
+
+    let schema = serve::router()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/schema/caduceus.doors.readback.v1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
         .unwrap();
-    request
-        .extensions_mut()
-        .insert(ConnectInfo(ConnectionInfo::Tcp(
-            "192.0.2.1:43210".parse::<std::net::SocketAddr>().unwrap(),
-        )));
+    assert_eq!(schema.status(), StatusCode::OK);
+    let schema = body_json(schema).await;
     assert_eq!(
-        serve::router().oneshot(request).await.unwrap().status(),
-        StatusCode::OK
+        schema["required"],
+        serde_json::json!(["schema", "ok", "profile", "routes"])
     );
-    std::env::remove_var("CADUCEUS_SYSTEMCTL_BIN");
-    let _ = std::fs::remove_dir_all(root);
+    assert!(schema.get("seat").is_none());
+    assert_eq!(schema["fields"]["schema"]["const"], "caduceus.doors.readback.v1");
+    assert_eq!(schema["fields"]["ok"]["type"], "boolean");
+    assert_eq!(schema["fields"]["profile"]["type"], "string");
+    assert_eq!(schema["fields"]["routes"]["type"], "array");
+    assert_eq!(schema["fields"]["routes"]["items"]["type"], "string");
+
+    let doors = serve::router()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/doors")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(doors.status(), StatusCode::OK);
+    let doors = body_json(doors).await;
+    assert_eq!(doors["schema"], "caduceus.doors.readback.v1");
+    assert!(doors["ok"].is_boolean());
+    assert!(doors["profile"].is_string());
+    assert!(doors["routes"]
+        .as_array()
+        .is_some_and(|routes| routes.iter().all(serde_json::Value::is_string)));
+    assert!(doors.get("seat").is_none());
 }
 
 #[tokio::test(flavor = "current_thread")]
