@@ -264,33 +264,83 @@ fn agent_target(body: &Value) -> Result<(String, String, String, String), String
 
 pub fn open_request_json(body: &Value) -> Result<Value, String> {
     if body.get("schema").and_then(Value::as_str) == Some("caduceus.staff.v1") {
-        let (document, service, action, pin) = agent_target(body)?;
-        let verifier = verifier()?;
-        current_verifier(&verifier)?;
-        if !pin_verified(&pin, &verifier.public_key)? {
-            return Ok(envelope(false, "caduceus-attendance-pin-wrong"));
+        if body.pointer("/flags/exousia/attendance").is_some() {
+            let parsed = crate::protocol::Envelope::parse(body.clone())?;
+            if parsed.transition() != "exousia.open" {
+                return Err("caduceus-attendance-transition-invalid".to_string());
+            }
+            let parent = body
+                .pointer("/flags/exousia/attendance")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty() && value.len() <= 512)
+                .ok_or_else(|| "caduceus-attendance-attendance-missing".to_string())?;
+            let document_id = body
+                .pointer("/flags/exousia/documentId")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty() && value.len() <= 512)
+                .ok_or_else(|| "caduceus-attendance-documentId-missing".to_string())?;
+            let document_incarnation = body
+                .pointer("/flags/exousia/documentIncarnation")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty() && value.len() <= 512)
+                .ok_or_else(|| "caduceus-attendance-documentIncarnation-missing".to_string())?;
+            let target_document = body
+                .pointer("/target/document")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty() && value.len() <= 512)
+                .ok_or_else(|| "caduceus-attendance-target-document-missing".to_string())?;
+            if !admits(parent, document_id, document_incarnation) {
+                return Ok(envelope(false, "caduceus-attendance-not-current"));
+            }
+            let now = Instant::now();
+            let mut guard = state()
+                .lock()
+                .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+            evict_expired(&mut guard.current, now);
+            let attendance = format!("attendance-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
+            guard.current.insert(
+                attendance.clone(),
+                Attendance {
+                    document_id: target_document.to_string(),
+                    document_incarnation: target_document.to_string(),
+                    created_at: now,
+                    last_touch: now,
+                },
+            );
+            let mut result = envelope(true, "none");
+            result["attendance"] = Value::String(attendance);
+            result["documentId"] = Value::String(target_document.to_string());
+            result["documentIncarnation"] = Value::String(target_document.to_string());
+            Ok(result)
+        } else {
+            let (document, service, action, pin) = agent_target(body)?;
+            let verifier = verifier()?;
+            current_verifier(&verifier)?;
+            if !pin_verified(&pin, &verifier.public_key)? {
+                return Ok(envelope(false, "caduceus-attendance-pin-wrong"));
+            }
+            let now = Instant::now();
+            let mut guard = state()
+                .lock()
+                .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+            evict_expired(&mut guard.current, now);
+            let attendance = format!("attendance-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
+            guard.current.insert(
+                attendance.clone(),
+                Attendance {
+                    document_id: document.clone(),
+                    document_incarnation: document.clone(),
+                    created_at: now,
+                    last_touch: now,
+                },
+            );
+            let mut result = envelope(true, "none");
+            result["attendance"] = Value::String(attendance);
+            result["documentId"] = Value::String(document.clone());
+            result["documentIncarnation"] = Value::String(document);
+            result["target"] = json!({"service": service, "action": action});
+            Ok(result)
         }
-        let now = Instant::now();
-        let mut guard = state()
-            .lock()
-            .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
-        evict_expired(&mut guard.current, now);
-        let attendance = format!("attendance-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
-        guard.current.insert(
-            attendance.clone(),
-            Attendance {
-                document_id: document.clone(),
-                document_incarnation: document.clone(),
-                created_at: now,
-                last_touch: now,
-            },
-        );
-        let mut result = envelope(true, "none");
-        result["attendance"] = Value::String(attendance);
-        result["documentId"] = Value::String(document.clone());
-        result["documentIncarnation"] = Value::String(document);
-        result["target"] = json!({"service": service, "action": action});
-        Ok(result)
     } else {
         open_json(body)
     }

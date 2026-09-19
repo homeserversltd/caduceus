@@ -159,6 +159,12 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
         json(stale).await["firstMissingSignal"],
         "caduceus-signer-stale-derived"
     );
+    let stale_posture = attendance::posture_json().unwrap();
+    assert_eq!(stale_posture["posture"], "STALE_DERIVED");
+    assert_eq!(stale_posture["bound"], false);
+    assert_eq!(stale_posture["storedVerifierPresent"], true);
+    assert_eq!(stale_posture["currentPresent"], true);
+    assert_eq!(stale_posture["epochMatches"], false);
     fs::write(bin.join("rotated"), b"").unwrap();
     let posture = attendance::posture_json().unwrap();
     assert_eq!(posture["posture"], "DERIVED_BOUND");
@@ -180,6 +186,20 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
         json(unbound).await["firstMissingSignal"],
         "caduceus-pin-not-yet-provisioned"
     );
+    let unbound_provisioned = attendance::posture_json().unwrap();
+    assert_eq!(unbound_provisioned["posture"], "UNBOUND_PROVISIONED");
+    assert_eq!(unbound_provisioned["bound"], false);
+    assert_eq!(unbound_provisioned["storedVerifierPresent"], false);
+    assert_eq!(unbound_provisioned["currentPresent"], true);
+    assert_eq!(unbound_provisioned["epochMatches"], false);
+    fs::remove_file(bin.join("rotated")).unwrap();
+    std::env::set_var("CADUCEUS_AGATHODAIMON_CLI", bin.join("unavailable"));
+    let unbound_posture = attendance::posture_json().unwrap();
+    assert_eq!(unbound_posture["posture"], "UNBOUND");
+    assert_eq!(unbound_posture["bound"], false);
+    assert_eq!(unbound_posture["storedVerifierPresent"], false);
+    assert_eq!(unbound_posture["currentPresent"], false);
+    assert_eq!(unbound_posture["epochMatches"], false);
     std::env::set_var("PATH", old_path);
     match old_launcher {
         Some(value) => std::env::set_var("CADUCEUS_AGATHODAIMON_CLI", value),

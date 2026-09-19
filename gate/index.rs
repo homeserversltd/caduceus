@@ -192,10 +192,7 @@ pub(crate) fn attendance_admits(
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .ok_or_else(|| "caduceus-attendance-not-current".to_string())?;
-    if attendance::admits(token, request_document, request_document) {
-        return Ok(());
-    }
-    if request_document == target && attendance::admits_target(token, target) {
+    if request_document == target && attendance::admits(token, target, target) {
         return Ok(());
     }
     Err("caduceus-attendance-not-current".into())

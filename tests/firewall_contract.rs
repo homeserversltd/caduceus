@@ -1,4 +1,4 @@
-use axum::body::Body;
+use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use caduceus::routes::serve;
 use caduceus::routes::whitelist_device as firewall;
@@ -74,6 +74,11 @@ impl Drop for Fixture {
 }
 fn body(enabled: bool) -> String {
     serde_json::json!({"schema":"caduceus.network.firewall.policy.v1","mac":MAC,"mode":"allow-only","sites":["example.com"],"expectedRevision":REVISION,"enabled":enabled,"enforcement":"dns-policy"}).to_string()
+}
+
+async fn json(response: axum::response::Response) -> serde_json::Value {
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    serde_json::from_slice(&bytes).unwrap()
 }
 #[tokio::test(flavor = "current_thread")]
 async fn firewall_routes_are_exactly_gated_and_globally_bounded() {
@@ -174,7 +179,45 @@ async fn firewall_document_attendance_is_static_and_precedes_staff() {
             .unwrap()
             .to_string()
     };
-    let current = open("/api/v1/network/firewall/policies/{mac}");
+    let current_parent = open("/api/v1/network/firewall/policies/{mac}");
+    let current_child = serve::router()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/exousia/open")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "schema": "caduceus.staff.v1",
+                        "intent_id": "firewall-attendance-child",
+                        "transition": "exousia.open",
+                        "target": {"document": "/api/v1/network/firewall/policies/{mac}"},
+                        "flags": {"exousia": {
+                            "attendance": current_parent.clone(),
+                            "documentId": "/api/v1/network/firewall/policies/{mac}",
+                            "documentIncarnation": "inc-1"
+                        }},
+                        "unknown_additive": {"retained": true}
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(current_child.status(), StatusCode::OK);
+    let current_child = json(current_child).await;
+    let current = current_child["attendance"].as_str().unwrap().to_owned();
+    assert!(!current_child.to_string().contains(&current_parent));
+    assert_eq!(
+        current_child["documentId"],
+        "/api/v1/network/firewall/policies/{mac}"
+    );
+    assert_eq!(
+        current_child["documentIncarnation"],
+        "/api/v1/network/firewall/policies/{mac}"
+    );
+    assert_ne!(current, current_parent);
     let concrete = open(&format!("/api/v1/network/firewall/policies/{MAC}"));
     let wrong_static = open("/api/v1/network/firewall/policies/{device}");
     for token in [&concrete, &wrong_static] {

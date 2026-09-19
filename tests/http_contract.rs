@@ -786,6 +786,43 @@ fn service_request(uri: &str, document: Option<&str>, attendance: Option<&str>) 
     builder.body(Body::from(r#"{}"#)).unwrap()
 }
 
+async fn derive_attendance_child(
+    parent: &str,
+    document_id: &str,
+    document_incarnation: &str,
+    target_document: &str,
+) -> serde_json::Value {
+    let response = serve::router()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/exousia/open")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "schema": "caduceus.staff.v1",
+                        "intent_id": "attendance-child",
+                        "transition": "exousia.open",
+                        "target": {"document": target_document},
+                        "flags": {"exousia": {
+                            "attendance": parent,
+                            "documentId": document_id,
+                            "documentIncarnation": document_incarnation
+                        }},
+                        "unknown_additive": {"retained": true}
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let child = body_json(response).await;
+    assert!(!child.to_string().contains(parent));
+    child
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn registered_service_actions_require_static_attendance_and_read_systemctl_state() {
     let fixture = PortalServiceFixture::new();
@@ -816,7 +853,7 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
 
     for (index, (action, expected_active)) in actions.iter().copied().enumerate() {
         let static_target = format!("/api/v1/appliance/service/{{service}}/{action}");
-        let static_attendance = attendance::open_json(&serde_json::json!({
+        let static_parent = attendance::open_json(&serde_json::json!({
             "documentId": static_target,
             "documentIncarnation": "inc-1",
             "pin": "2468"
@@ -825,6 +862,12 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
             .as_str()
             .unwrap()
             .to_owned();
+        let static_child =
+            derive_attendance_child(&static_parent, &static_target, "inc-1", &static_target).await;
+        let static_attendance = static_child["attendance"].as_str().unwrap().to_owned();
+        assert_eq!(static_child["documentId"], static_target);
+        assert_eq!(static_child["documentIncarnation"], static_target);
+        assert_ne!(static_attendance, static_parent);
         let concrete_attendance = attendance::open_json(&serde_json::json!({
             "documentId": format!("/api/v1/appliance/service/jellyfin/{action}"),
             "documentIncarnation": "inc-1",
@@ -907,6 +950,8 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
         .as_str()
         .unwrap()
         .to_owned();
+    let firewall_target = "/api/v1/network/firewall/policies/{mac}";
+    let portal_target = "/api/v1/appliance/service/{service}/restart";
     let firewall_response = serve::router()
         .oneshot(
             Request::builder()
@@ -915,6 +960,47 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
                 .header("content-type", "application/json")
                 .header("x-caduceus-document", browser_document)
                 .header("x-caduceus-attendance", &browser_attendance)
+                .body(Body::from(
+                    serde_json::json!({
+                        "schema": "caduceus.network.firewall.policy.v1",
+                        "mac": "aa:bb:cc:dd:ee:01",
+                        "mode": "allow-only",
+                        "sites": ["example.com"],
+                        "expectedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "enabled": true,
+                        "enforcement": "dns-policy"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(firewall_response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(firewall_response).await["firstMissingSignal"],
+        "caduceus-attendance-not-current"
+    );
+
+    let firewall_child = derive_attendance_child(
+        &browser_attendance,
+        browser_document,
+        browser_document,
+        firewall_target,
+    )
+    .await;
+    let firewall_attendance = firewall_child["attendance"].as_str().unwrap().to_owned();
+    assert_ne!(firewall_attendance, browser_attendance);
+    assert_eq!(firewall_child["documentId"], firewall_target);
+    assert_eq!(firewall_child["documentIncarnation"], firewall_target);
+    let firewall_response = serve::router()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/network/firewall/policies/aa:bb:cc:dd:ee:01")
+                .header("content-type", "application/json")
+                .header("x-caduceus-document", firewall_target)
+                .header("x-caduceus-attendance", &firewall_attendance)
                 .body(Body::from(
                     serde_json::json!({
                         "schema": "caduceus.network.firewall.policy.v1",
@@ -942,11 +1028,79 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
         ))
         .await
         .unwrap();
+    assert_eq!(portal_response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(portal_response).await["firstMissingSignal"],
+        "caduceus-attendance-not-current"
+    );
+
+    let portal_child = derive_attendance_child(
+        &browser_attendance,
+        browser_document,
+        browser_document,
+        portal_target,
+    )
+    .await;
+    let portal_attendance = portal_child["attendance"].as_str().unwrap().to_owned();
+    assert_ne!(portal_attendance, browser_attendance);
+    assert_eq!(portal_child["documentId"], portal_target);
+    assert_eq!(portal_child["documentIncarnation"], portal_target);
+    let portal_response = serve::router()
+        .oneshot(service_request(
+            "/api/v1/appliance/service/jellyfin/restart",
+            Some(portal_target),
+            Some(&portal_attendance),
+        ))
+        .await
+        .unwrap();
     assert_eq!(portal_response.status(), StatusCode::OK);
     let portal_receipt = body_json(portal_response).await;
     assert_eq!(portal_receipt["schema"], "caduceus.staff.portal_service.v1");
     assert_eq!(portal_receipt["success"], true);
     assert_eq!(portal_receipt["active"], true);
+
+    let cross_portal = serve::router()
+        .oneshot(service_request(
+            "/api/v1/appliance/service/jellyfin/restart",
+            Some(portal_target),
+            Some(&firewall_attendance),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(cross_portal.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(cross_portal).await["firstMissingSignal"],
+        "caduceus-attendance-not-current"
+    );
+    let cross_firewall = serve::router()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/network/firewall/policies/aa:bb:cc:dd:ee:01")
+                .header("content-type", "application/json")
+                .header("x-caduceus-document", firewall_target)
+                .header("x-caduceus-attendance", &portal_attendance)
+                .body(Body::from(
+                    serde_json::json!({
+                        "schema": "caduceus.network.firewall.policy.v1",
+                        "mac": "aa:bb:cc:dd:ee:01",
+                        "mode": "allow-only",
+                        "sites": ["example.com"],
+                        "expectedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "enabled": true,
+                        "enforcement": "dns-policy"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(cross_firewall.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(cross_firewall).await["firstMissingSignal"],
+        "caduceus-attendance-not-current"
+    );
 
     for (schema_id, required) in [
         (
