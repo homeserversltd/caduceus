@@ -120,7 +120,7 @@ import shutil
 import sys
 
 envelope = json.load(sys.stdin)
-metadata = envelope["payload"]
+metadata = envelope["metadata"]
 source = metadata["spoolPath"]
 target = metadata["targetPath"]
 os.makedirs(os.path.dirname(target), exist_ok=True)
