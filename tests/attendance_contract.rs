@@ -28,10 +28,12 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
     let bin = root.join("bin");
     fs::create_dir_all(&bin).unwrap();
     let sudo = bin.join("sudo");
-    fs::write(&sudo, "#!/bin/sh\n[ \"$1\" = -n ] || exit 9\ncase \"$2/$3/$4\" in\n/usr/local/sbin/agathodaimon/cli.py/attendance/bind) echo '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}' ;;\n/usr/local/sbin/agathodaimon/cli.py/attendance/verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) echo '{\"ok\":true,\"verified\":true}' ;; *'\"pin\":\"9753\"'*'\"publicKey\":\"fixture-new\"'*) echo '{\"ok\":true,\"verified\":true}' ;; *) echo '{\"ok\":false,\"verified\":false}' ;; esac ;;\n/usr/local/sbin/agathodaimon/cli.py/pin/change) payload=$(cat); case \"$payload\" in *'\"newPin\":\"0000\"'*) echo '{\"ok\":false,\"firstMissingSignal\":\"fixture-staff-failure\"}'; exit 1 ;; *'\"newPin\":\"9753\"'*) case \"$payload\" in *'\"oldPin\":\"2468\"'*) echo '{\"ok\":true,\"publicKey\":\"fixture-new\",\"epoch\":\"2\",\"rotated\":true}' ;; *) exit 7 ;; esac ;; *) exit 7 ;; esac ;;\n*) exit 8;; esac\n").unwrap();
+    fs::write(&sudo, "#!/bin/sh\ncase \"$1/$2\" in\nexousia/bind) cat >/dev/null; if [ -f \"$(dirname \"$0\")/rotated\" ]; then printf '%s\\n' '{\"ok\":true,\"publicKey\":\"fixture-new\",\"epoch\":\"2\"}'; else printf '%s\\n' '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}'; fi ;;\nexousia/verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) printf '%s\\n' '{\"ok\":true,\"verified\":true}' ;; *'\"pin\":\"9753\"'*'\"publicKey\":\"fixture-new\"'*) printf '%s\\n' '{\"ok\":true,\"verified\":true}' ;; *) printf '%s\\n' '{\"ok\":true,\"verified\":false}' ;; esac ;;\nexousia/change) payload=$(cat); case \"$payload\" in *'\"newPin\":\"0000\"'*) printf '%s\\n' '{\"ok\":false,\"firstMissingSignal\":\"fixture-staff-failure\"}'; exit 1 ;; *'\"newPin\":\"9753\"'*'\"oldPin\":\"2468\"'*) touch \"$(dirname \"$0\")/rotated\"; printf '%s\\n' '{\"ok\":true,\"publicKey\":\"fixture-new\",\"epoch\":\"2\",\"rotated\":true}' ;; *) exit 7 ;; esac ;;\n*) exit 8 ;;\nesac\n").unwrap();
     fs::set_permissions(&sudo, fs::Permissions::from_mode(0o700)).unwrap();
     let old_path = std::env::var("PATH").unwrap();
+    let old_launcher = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI");
     std::env::set_var("PATH", format!("{}:{old_path}", bin.display()));
+    std::env::set_var("CADUCEUS_AGATHODAIMON_CLI", &sudo);
     attendance::reset_for_tests();
     attendance::bind();
     let opened = serve::router()
@@ -70,7 +72,7 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
     assert_eq!(wrong.status(), StatusCode::FORBIDDEN);
     assert_eq!(
         json(wrong).await["firstMissingSignal"],
-        "caduceus-attendance-pin-refused"
+        "caduceus-attendance-pin-wrong"
     );
     let missing_new_pin = serve::router().oneshot(request("/api/v1/attendance/change-pin", serde_json::json!({"documentId":"doc-a","documentIncarnation":"inc-1","attendance":presenting,"currentPin":"2468"}))).await.unwrap();
     assert_eq!(missing_new_pin.status(), StatusCode::FORBIDDEN);
@@ -82,7 +84,7 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
     assert_eq!(wrong_current_pin.status(), StatusCode::FORBIDDEN);
     assert_eq!(
         json(wrong_current_pin).await["firstMissingSignal"],
-        "caduceus-attendance-pin-refused"
+        "caduceus-attendance-pin-wrong"
     );
     let failed_change = serve::router().oneshot(request("/api/v1/attendance/change-pin", serde_json::json!({"documentId":"doc-a","documentIncarnation":"inc-1","attendance":presenting,"currentPin":"2468","newPin":"0000"}))).await.unwrap();
     assert_eq!(failed_change.status(), StatusCode::FORBIDDEN);
@@ -114,6 +116,57 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
         .await
         .unwrap();
     assert_eq!(reopened.status(), StatusCode::OK);
+    let agent = serve::router()
+        .oneshot(request(
+            "/api/v1/exousia/open",
+            serde_json::json!({
+                "schema": "caduceus.staff.v1",
+                "intent_id": "agent-exousia-open",
+                "transition": "exousia.open",
+                "target": {
+                    "document": "/api/v1/appliance/service/{service}/restart",
+                    "service": "coronatio",
+                    "action": "restart"
+                },
+                "flags": {"exousia": {"pin": "9753"}},
+                "unknown_additive": {"retained": true}
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(agent.status(), StatusCode::OK);
+    let agent = json(agent).await;
+    assert_eq!(
+        agent["documentId"],
+        "/api/v1/appliance/service/{service}/restart"
+    );
+    assert!(agent.get("pin").is_none());
+    assert!(!agent.to_string().contains("9753"));
+    assert!(attendance::admits_target(
+        agent["attendance"].as_str().unwrap(),
+        "/api/v1/appliance/service/{service}/restart"
+    ));
+    fs::remove_file(bin.join("rotated")).unwrap();
+    let stale = serve::router()
+        .oneshot(request(
+            "/api/v1/attendance/open",
+            serde_json::json!({"documentId":"doc-stale","documentIncarnation":"inc-stale","pin":"9753"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(stale.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        json(stale).await["firstMissingSignal"],
+        "caduceus-signer-stale-derived"
+    );
+    fs::write(bin.join("rotated"), b"").unwrap();
+    let posture = attendance::posture_json().unwrap();
+    assert_eq!(posture["posture"], "DERIVED_BOUND");
+    assert_eq!(posture["bound"], true);
+    assert_eq!(posture["currentPresent"], true);
+    assert_eq!(posture["epochMatches"], true);
+    assert!(posture.get("publicKey").is_none());
+    assert!(posture.get("epoch").is_none());
     attendance::reset_for_tests();
     let unbound = serve::router()
         .oneshot(request(
@@ -128,6 +181,10 @@ async fn attendance_open_crosses_bound_staff_verifier_and_refuses_wrong_or_unpro
         "caduceus-pin-not-yet-provisioned"
     );
     std::env::set_var("PATH", old_path);
+    match old_launcher {
+        Some(value) => std::env::set_var("CADUCEUS_AGATHODAIMON_CLI", value),
+        None => std::env::remove_var("CADUCEUS_AGATHODAIMON_CLI"),
+    }
     let _ = fs::remove_dir_all(root);
 }
 

@@ -42,43 +42,28 @@ async fn dns_http_uses_exact_document_attendance_when_document_is_supplied() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let root = root();
-    let bin = root.join("bin");
-    let args_log = root.join("launcher-args");
     let stdin_log = root.join("launcher-stdin");
     let launcher = root.join("dns-launcher");
     fs::create_dir_all(root.join("etc/caduceus")).unwrap();
-    fs::create_dir_all(&bin).unwrap();
     fs::write(
         root.join("etc/caduceus/profile.yaml"),
         "profile: homeserver\ncommands:\n- network dns status\n- network dns intent\n",
     )
     .unwrap();
-    let sudo = bin.join("sudo");
-    fs::write(
-        &sudo,
-        "#!/bin/sh\n[ \"$1\" = -n ] || exit 9\ncase \"$3\" in\nattendance) case \"$4\" in bind) echo '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}' ;; verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) echo '{\"ok\":true,\"verified\":true}' ;; *) echo '{\"ok\":false,\"verified\":false}' ;; esac ;; esac ;;\nnetwork) echo '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}' ;;\n*) exit 8 ;;\nesac\n",
-    )
-    .unwrap();
-    fs::set_permissions(&sudo, fs::Permissions::from_mode(0o700)).unwrap();
     fs::write(
         &launcher,
         format!(
-            "#!/bin/sh\nprintf '%s' \"$*\" > {}\ncat > {}\nprintf '{{\"schema\":\"caduceus.network.dns.receipt.v2\",\"ok\":true,\"receipt\":\"fixture-actuator-receipt\"}}\\n'\n",
-            args_log.display(),
-            stdin_log.display()
+            "#!/bin/sh\ncase \"$1/$2\" in\nexousia/bind) cat >/dev/null; printf '%s\\n' '{{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}}' ;;\nexousia/verify) cat >/dev/null; printf '%s\\n' '{{\"ok\":true,\"verified\":true}}' ;;\nnetwork/dns) cat > {}; printf '%s\\n' '{{\"schema\":\"caduceus.network.dns.receipt.v2\",\"ok\":true,\"receipt\":\"fixture-actuator-receipt\"}}' ;;\n*) exit 8 ;;\nesac\n",
+            stdin_log.display(),
         ),
     )
     .unwrap();
     fs::set_permissions(&launcher, fs::Permissions::from_mode(0o700)).unwrap();
 
-    let old_path = env::var("PATH").unwrap();
     let old_root = env::var_os("CADUCEUS_ROOT");
-    let old_incarnation = env::var_os("CADUCEUS_DOCUMENT_INCARNATION");
-    let old_launcher = env::var_os("CADUCEUS_DNS_CMD");
-    env::set_var("PATH", format!("{}:{old_path}", bin.display()));
+    let old_launcher = env::var_os("CADUCEUS_AGATHODAIMON_CLI");
     env::set_var("CADUCEUS_ROOT", &root);
-    env::remove_var("CADUCEUS_DOCUMENT_INCARNATION");
-    env::set_var("CADUCEUS_DNS_CMD", &launcher);
+    env::set_var("CADUCEUS_AGATHODAIMON_CLI", &launcher);
     attendance::reset_for_tests();
     attendance::bind();
     let current = attendance::open_json(&serde_json::json!({
@@ -103,7 +88,6 @@ async fn dns_http_uses_exact_document_attendance_when_document_is_supplied() {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        assert!(!args_log.exists());
         assert!(!stdin_log.exists());
     }
     let response = serve::router()
@@ -112,24 +96,32 @@ async fn dns_http_uses_exact_document_attendance_when_document_is_supplied() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
-        fs::read_to_string(&args_log).unwrap(),
-        "intent POST /api/dns/unbound/drop-in --metadata-json {\"action\":\"status\"}"
+        serde_json::from_str::<serde_json::Value>(&fs::read_to_string(&stdin_log).unwrap())
+            .unwrap()["schema"],
+        "caduceus.staff.v1"
     );
-    assert_eq!(fs::read_to_string(&stdin_log).unwrap(), "");
+    let envelope: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&stdin_log).unwrap()).unwrap();
+    assert_eq!(envelope["transition"], "network/dns");
+    assert_eq!(
+        envelope["payload"]["args"],
+        serde_json::json!([
+            "intent",
+            "POST",
+            "/api/dns/unbound/drop-in",
+            "--metadata-json",
+            "{\"action\":\"status\"}"
+        ])
+    );
 
     attendance::reset_for_tests();
     match old_root {
         Some(value) => env::set_var("CADUCEUS_ROOT", value),
         None => env::remove_var("CADUCEUS_ROOT"),
     }
-    match old_incarnation {
-        Some(value) => env::set_var("CADUCEUS_DOCUMENT_INCARNATION", value),
-        None => env::remove_var("CADUCEUS_DOCUMENT_INCARNATION"),
-    }
     match old_launcher {
-        Some(value) => env::set_var("CADUCEUS_DNS_CMD", value),
-        None => env::remove_var("CADUCEUS_DNS_CMD"),
+        Some(value) => env::set_var("CADUCEUS_AGATHODAIMON_CLI", value),
+        None => env::remove_var("CADUCEUS_AGATHODAIMON_CLI"),
     }
-    env::set_var("PATH", old_path);
     let _ = fs::remove_dir_all(root);
 }

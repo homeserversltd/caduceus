@@ -5,6 +5,7 @@ commands:
 - update modules list
 - update modules toggle
 - appliance stats read
+- exousia posture read
 routes:
 - xenia/validate
 - xenia/admit
@@ -15,6 +16,7 @@ routes:
 - exousia/change-pin
 - exousia/invalidate
 - exousia/open
+- exousia/posture
 - exousia/touch
 - exousia/validate
 - appliance/claim

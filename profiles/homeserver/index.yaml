@@ -59,6 +59,7 @@ commands:
 - staff status
 - staff actuators
 - staff intent
+- exousia posture read
 - cert status
 - cert refresh-root
 - cert ensure-root
@@ -113,6 +114,7 @@ routes:
 - exousia/change-pin
 - exousia/invalidate
 - exousia/open
+- exousia/posture
 - exousia/touch
 - exousia/validate
 - appliance/claim

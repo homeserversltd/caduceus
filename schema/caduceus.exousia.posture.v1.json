@@ -1,0 +1,58 @@
+{
+  "schema": "caduceus.exousia.posture.v1",
+  "schema_version": "1.0.0",
+  "role": "Caduceus Exousia signer binding posture readback",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.exousia.posture.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Only the declared flat required fields are part of this posture readback."
+  },
+  "required": [
+    "schema",
+    "ok",
+    "posture",
+    "bound",
+    "storedVerifierPresent",
+    "currentPresent",
+    "epochMatches"
+  ],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.exousia.posture.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "posture": {
+      "type": "string"
+    },
+    "bound": {
+      "type": "boolean"
+    },
+    "storedVerifierPresent": {
+      "type": "boolean"
+    },
+    "currentPresent": {
+      "type": "boolean"
+    },
+    "epochMatches": {
+      "type": "boolean"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "posture": "string",
+    "bound": "boolean",
+    "storedVerifierPresent": "boolean",
+    "currentPresent": "boolean",
+    "epochMatches": "boolean"
+  },
+  "optional": [],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

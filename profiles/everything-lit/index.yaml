@@ -1,6 +1,8 @@
 schema: caduceus.profile.v1
 profile: everything-lit
 mode: everything-lit
+commands:
+- exousia posture read
 routes:
 - xenia/validate
 - xenia/admit
@@ -11,6 +13,7 @@ routes:
 - exousia/change-pin
 - exousia/invalidate
 - exousia/open
+- exousia/posture
 - exousia/touch
 - exousia/validate
 - appliance/claim

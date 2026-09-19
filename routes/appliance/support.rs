@@ -26,6 +26,9 @@ async fn registered_service_action_route(
     attendance_admits(
         document_target,
         headers
+            .get("x-caduceus-document")
+            .and_then(|value| value.to_str().ok()),
+        headers
             .get("x-caduceus-attendance")
             .and_then(|value| value.to_str().ok()),
     )

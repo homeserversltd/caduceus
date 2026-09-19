@@ -7,6 +7,14 @@ use std::time::{Duration, Instant};
 
 const PIN_MODE_PATH: &str = "var/lib/caduceus/access-pin-mode.json";
 const ATTENDANCE_INACTIVITY_LIMIT: Duration = Duration::from_secs(15 * 60);
+const AGENT_SERVICE_DOCUMENT_TARGETS: &[(&str, &str)] = &[
+    ("status", "/api/v1/appliance/service/{service}/status"),
+    ("start", "/api/v1/appliance/service/{service}/start"),
+    ("stop", "/api/v1/appliance/service/{service}/stop"),
+    ("restart", "/api/v1/appliance/service/{service}/restart"),
+    ("enable", "/api/v1/appliance/service/{service}/enable"),
+    ("disable", "/api/v1/appliance/service/{service}/disable"),
+];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Attendance {
@@ -153,15 +161,31 @@ fn verifier() -> Result<BoundVerifier, String> {
         .ok_or_else(|| "caduceus-pin-not-yet-provisioned".to_string())
 }
 
-fn pin_verified(pin: &str, public_key: &str) -> bool {
-    crate::shared::agathodaimon::crossing(
+fn fresh_verifier() -> Result<BoundVerifier, String> {
+    let value = crate::shared::agathodaimon::crossing("exousia", "bind", &json!({}))
+        .map_err(|_| "caduceus-signer-current-bind-unavailable".to_string())?;
+    bound_verifier(&value).ok_or_else(|| "caduceus-signer-current-bind-unavailable".to_string())
+}
+
+fn current_verifier(stored: &BoundVerifier) -> Result<(), String> {
+    let current = fresh_verifier()?;
+    if current.public_key != stored.public_key || current.epoch != stored.epoch {
+        return Err("caduceus-signer-stale-derived".to_string());
+    }
+    Ok(())
+}
+
+fn pin_verified(pin: &str, public_key: &str) -> Result<bool, String> {
+    let value = crate::shared::agathodaimon::crossing(
         "exousia",
         "verify",
         &json!({ "pin": pin, "publicKey": public_key }),
     )
-    .ok()
-    .and_then(|value| value.get("verified").and_then(Value::as_bool))
-        == Some(true)
+    .map_err(|_| "caduceus-signer-verification-unavailable".to_string())?;
+    value
+        .get("verified")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "caduceus-signer-verification-unavailable".to_string())
 }
 
 pub fn open_json(body: &Value) -> Result<Value, String> {
@@ -169,8 +193,9 @@ pub fn open_json(body: &Value) -> Result<Value, String> {
     let document_incarnation = text(body, "documentIncarnation")?;
     let pin = text(body, "pin")?;
     let verifier = verifier()?;
-    if !pin_verified(&pin, &verifier.public_key) {
-        return Ok(envelope(false, "caduceus-attendance-pin-refused"));
+    current_verifier(&verifier)?;
+    if !pin_verified(&pin, &verifier.public_key)? {
+        return Ok(envelope(false, "caduceus-attendance-pin-wrong"));
     }
     let now = Instant::now();
     let mut guard = state()
@@ -192,6 +217,83 @@ pub fn open_json(body: &Value) -> Result<Value, String> {
     result["documentId"] = Value::String(document_id);
     result["documentIncarnation"] = Value::String(document_incarnation);
     Ok(result)
+}
+
+fn agent_target(body: &Value) -> Result<(String, String, String, String), String> {
+    let envelope = crate::protocol::Envelope::parse(body.clone())?;
+    if envelope.transition() != "exousia.open" {
+        return Err("caduceus-attendance-transition-invalid".to_string());
+    }
+    let target = body
+        .get("target")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "caduceus-attendance-target-missing".to_string())?;
+    let document = target
+        .get("document")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-attendance-target-document-missing".to_string())?;
+    let service = target
+        .get("service")
+        .and_then(Value::as_str)
+        .filter(|value| crate::routes::control_service::safe_service_name(value))
+        .ok_or_else(|| "caduceus-attendance-target-service-invalid".to_string())?;
+    let action = target
+        .get("action")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-attendance-target-action-missing".to_string())?;
+    let canonical = AGENT_SERVICE_DOCUMENT_TARGETS
+        .iter()
+        .find(|(candidate, _)| *candidate == action)
+        .map(|(_, document)| *document)
+        .ok_or_else(|| "caduceus-attendance-target-action-invalid".to_string())?;
+    if document != canonical {
+        return Err("caduceus-attendance-target-document-invalid".to_string());
+    }
+    let pin = body
+        .pointer("/flags/exousia/pin")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty() && value.len() <= 512)
+        .ok_or_else(|| "caduceus-attendance-pin-missing".to_string())?;
+    Ok((
+        document.to_string(),
+        service.to_string(),
+        action.to_string(),
+        pin.to_string(),
+    ))
+}
+
+pub fn open_request_json(body: &Value) -> Result<Value, String> {
+    if body.get("schema").and_then(Value::as_str) == Some("caduceus.staff.v1") {
+        let (document, service, action, pin) = agent_target(body)?;
+        let verifier = verifier()?;
+        current_verifier(&verifier)?;
+        if !pin_verified(&pin, &verifier.public_key)? {
+            return Ok(envelope(false, "caduceus-attendance-pin-wrong"));
+        }
+        let now = Instant::now();
+        let mut guard = state()
+            .lock()
+            .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+        evict_expired(&mut guard.current, now);
+        let attendance = format!("attendance-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
+        guard.current.insert(
+            attendance.clone(),
+            Attendance {
+                document_id: document.clone(),
+                document_incarnation: document.clone(),
+                created_at: now,
+                last_touch: now,
+            },
+        );
+        let mut result = envelope(true, "none");
+        result["attendance"] = Value::String(attendance);
+        result["documentId"] = Value::String(document.clone());
+        result["documentIncarnation"] = Value::String(document);
+        result["target"] = json!({"service": service, "action": action});
+        Ok(result)
+    } else {
+        open_json(body)
+    }
 }
 
 pub fn validate_json(body: &Value) -> Result<Value, String> {
@@ -262,8 +364,9 @@ pub fn change_pin_json(body: &Value) -> Result<Value, String> {
         .verifier
         .clone()
         .ok_or_else(|| "caduceus-pin-not-yet-provisioned".to_string())?;
-    if !pin_verified(&current_pin, &verifier.public_key) {
-        return Ok(envelope(false, "caduceus-attendance-pin-refused"));
+    current_verifier(&verifier)?;
+    if !pin_verified(&current_pin, &verifier.public_key)? {
+        return Ok(envelope(false, "caduceus-attendance-pin-wrong"));
     }
     let receipt = match crate::shared::agathodaimon::crossing(
         "exousia",
@@ -284,7 +387,6 @@ pub fn change_pin_json(body: &Value) -> Result<Value, String> {
     }
     Ok(envelope(true, "none"))
 }
-
 
 pub fn reset_default_pin_json(body: &Value) -> Result<Value, String> {
     let new_pin = text(body, "newPin")?;
@@ -344,6 +446,47 @@ pub fn admits_target(attendance: &str, document_id: &str) -> bool {
             .get(attendance)
             .is_some_and(|current| current.document_id == document_id)
     })
+}
+
+pub fn posture_json() -> Result<Value, String> {
+    let stored = state()
+        .lock()
+        .map_err(|_| "caduceus-attendance-unavailable".to_string())?
+        .verifier
+        .clone();
+    let current = fresh_verifier().ok();
+    let stored_present = stored.is_some();
+    let current_present = current.is_some();
+    let epoch_matches = stored
+        .as_ref()
+        .zip(current.as_ref())
+        .is_some_and(|(stored, current)| stored.epoch == current.epoch);
+    let bound = stored
+        .as_ref()
+        .zip(current.as_ref())
+        .is_some_and(|(stored, current)| {
+            stored.public_key == current.public_key && stored.epoch == current.epoch
+        });
+    let posture = if bound {
+        "DERIVED_BOUND"
+    } else if stored_present || current_present {
+        if stored_present && current_present {
+            "STALE_DERIVED"
+        } else {
+            "UNBOUND_PROVISIONED"
+        }
+    } else {
+        "UNBOUND"
+    };
+    Ok(json!({
+        "schema": "caduceus.exousia.posture.v1",
+        "ok": true,
+        "posture": posture,
+        "bound": bound,
+        "storedVerifierPresent": stored_present,
+        "currentPresent": current_present,
+        "epochMatches": epoch_matches,
+    }))
 }
 
 pub fn reset_for_tests() {

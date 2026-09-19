@@ -1,0 +1,64 @@
+{
+  "schema": "coronatio.exousia.agent.posture.v1",
+  "schema_version": "1.0.0",
+  "role": "Coronatio Exousia agent signer posture projection",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/coronatio.exousia.agent.posture.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Absent optional fields select null primitive behavior; only the named posture kernel is required."
+  },
+  "required": [
+    "schema",
+    "ok",
+    "firstMissingSignal"
+  ],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "coronatio.exousia.agent.posture.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "firstMissingSignal": {
+      "type": "string"
+    },
+    "posture": {
+      "type": "string"
+    },
+    "bound": {
+      "type": "boolean"
+    },
+    "storedVerifierPresent": {
+      "type": "boolean"
+    },
+    "currentPresent": {
+      "type": "boolean"
+    },
+    "epochMatches": {
+      "type": "boolean"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "firstMissingSignal": "string",
+    "posture": "string",
+    "bound": "boolean",
+    "storedVerifierPresent": "boolean",
+    "currentPresent": "boolean",
+    "epochMatches": "boolean"
+  },
+  "optional": [
+    "posture",
+    "bound",
+    "storedVerifierPresent",
+    "currentPresent",
+    "epochMatches"
+  ],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

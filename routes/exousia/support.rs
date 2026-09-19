@@ -13,6 +13,10 @@ use axum::{
 };
 use serde_json::Value;
 
+pub(crate) async fn posture_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    gated_json("exousia posture read", attendance::posture_json).await
+}
+
 pub(crate) async fn pin_mode_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     Ok(Json(crate::shared::attendance::pin_mode_json()))
 }
@@ -123,7 +127,7 @@ pub(crate) async fn attendance_route(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     let result = match uri.path() {
-        "/api/v1/exousia/open" | "/api/v1/attendance/open" => attendance::open_json(&body),
+        "/api/v1/exousia/open" | "/api/v1/attendance/open" => attendance::open_request_json(&body),
         "/api/v1/exousia/validate" | "/api/v1/attendance/validate" => {
             attendance::validate_json(&body)
         }

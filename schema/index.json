@@ -29,6 +29,9 @@
     "coronatio.face-surface.v1": {"file": "schema/coronatio.face-surface.v1.json", "schema_version": "1.0.0"},
     "harmonia.engine.source_resolution.v1": {"file": "schema/harmonia.engine.source_resolution.v1.json", "schema_version": "1.0.0"},
     "xenia.health.v1": {"file": "schema/xenia.health.v1.json", "schema_version": "1.0.0"},
-    "xenia.events.v1": {"file": "schema/xenia.events.v1.json", "schema_version": "1.0.0"}
+    "xenia.events.v1": {"file": "schema/xenia.events.v1.json", "schema_version": "1.0.0"},
+    "caduceus.exousia.posture.v1": {"file": "schema/caduceus.exousia.posture.v1.json", "schema_version": "1.0.0"},
+    "coronatio.exousia.agent.service.v1": {"file": "schema/coronatio.exousia.agent.service.v1.json", "schema_version": "1.0.0"},
+    "coronatio.exousia.agent.posture.v1": {"file": "schema/coronatio.exousia.agent.posture.v1.json", "schema_version": "1.0.0"}
   }
 }

@@ -2,7 +2,8 @@
 use serde_json::Value;
 
 pub fn invoke(intent: Value) -> Result<Value, Value> {
-    crate::gate::snake::crossing_path("network/firewall", &intent).map_err(|e| serde_json::json!({"error":e}))
+    crate::gate::snake::crossing_path("network/firewall", &intent)
+        .map_err(|e| serde_json::json!({"error":e}))
 }
 pub fn command_json(intent: Value) -> Result<Value, Value> {
     match invoke(intent) {
@@ -23,12 +24,15 @@ pub fn command_json(intent: Value) -> Result<Value, Value> {
     }
 }
 
-
-use axum::{extract::{Json, Path}, http::StatusCode, Router};
-use serde::Deserialize;
 use crate::gate::ApiErrorBody;
 use crate::routes::firewall;
 use crate::shared::policy;
+use axum::{
+    extract::{Json, Path},
+    http::StatusCode,
+    Router,
+};
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -225,6 +229,9 @@ async fn firewall_put_route(
     attendance_admits(
         FIREWALL_DOCUMENT_TARGET,
         headers
+            .get("x-caduceus-document")
+            .and_then(|value| value.to_str().ok()),
+        headers
             .get("x-caduceus-attendance")
             .and_then(|value| value.to_str().ok()),
     )
@@ -275,6 +282,9 @@ async fn firewall_delete_route(
     }
     attendance_admits(
         FIREWALL_DOCUMENT_TARGET,
+        headers
+            .get("x-caduceus-document")
+            .and_then(|value| value.to_str().ok()),
         headers
             .get("x-caduceus-attendance")
             .and_then(|value| value.to_str().ok()),

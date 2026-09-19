@@ -1,0 +1,64 @@
+{
+  "schema": "coronatio.exousia.agent.service.v1",
+  "schema_version": "1.0.0",
+  "role": "Coronatio Exousia agent portal-service action receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/coronatio.exousia.agent.service.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Absent optional fields select null primitive behavior; only the named receipt kernel is required."
+  },
+  "required": [
+    "schema",
+    "ok",
+    "success",
+    "active",
+    "firstMissingSignal"
+  ],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "coronatio.exousia.agent.service.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "success": {
+      "type": "boolean"
+    },
+    "active": {
+      "type": "boolean"
+    },
+    "firstMissingSignal": {
+      "type": "string"
+    },
+    "service": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string"
+    },
+    "receipt": {
+      "type": "object"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "success": "boolean",
+    "active": "boolean",
+    "firstMissingSignal": "string",
+    "service": "string",
+    "action": "string",
+    "receipt": "object"
+  },
+  "optional": [
+    "service",
+    "action",
+    "receipt"
+  ],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

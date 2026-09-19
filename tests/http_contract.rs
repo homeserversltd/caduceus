@@ -705,7 +705,7 @@ impl PortalServiceFixture {
         let sudo = bin.join("sudo");
         fs::write(
             &sudo,
-            "#!/bin/sh\ncase \"$1/$2\" in\nexousia/bind) printf '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}\\n' ;;\nexousia/verify) payload=$(cat); case \"$payload\" in *'\"pin\":\"2468\"'*'\"publicKey\":\"fixture-public\"'*) printf '{\"ok\":true,\"verified\":true}\\n' ;; *) printf '{\"ok\":false,\"verified\":false}\\n' ;; esac ;;\n*) exit 8 ;;\nesac\n",
+            "#!/bin/sh\ncase \"$1/$2\" in\nexousia/bind) cat >/dev/null; printf '{\"ok\":true,\"publicKey\":\"fixture-public\",\"epoch\":\"1\"}\\n' ;;\nexousia/verify) cat >/dev/null; printf '{\"ok\":true,\"verified\":true}\\n' ;;\nnetwork/firewall) cat >/dev/null; printf '{\"ok\":true}\\n' ;;\n*) exit 8 ;;\nesac\n",
         )
         .unwrap();
         fs::set_permissions(&sudo, fs::Permissions::from_mode(0o755)).unwrap();
@@ -731,7 +731,6 @@ impl PortalServiceFixture {
             "CADUCEUS_ROOT",
             "CADUCEUS_SYSTEMCTL_BIN",
             "CADUCEUS_AGATHODAIMON_CLI",
-            "CADUCEUS_DOCUMENT_INCARNATION",
             "PATH",
         ];
         let previous_env = names
@@ -742,8 +741,10 @@ impl PortalServiceFixture {
         env::set_var("CADUCEUS_ROOT", &root);
         env::set_var("CADUCEUS_SYSTEMCTL_BIN", &systemctl);
         env::set_var("CADUCEUS_AGATHODAIMON_CLI", &sudo);
-        env::set_var("CADUCEUS_DOCUMENT_INCARNATION", "inc-1");
-        env::set_var("PATH", format!("{}:{}", bin.display(), old_path.to_string_lossy()));
+        env::set_var(
+            "PATH",
+            format!("{}:{}", bin.display(), old_path.to_string_lossy()),
+        );
         attendance::reset_for_tests();
         attendance::bind();
         Self {
@@ -771,11 +772,14 @@ impl Drop for PortalServiceFixture {
     }
 }
 
-fn service_request(uri: &str, attendance: Option<&str>) -> Request<Body> {
+fn service_request(uri: &str, document: Option<&str>, attendance: Option<&str>) -> Request<Body> {
     let mut builder = Request::builder()
         .method("POST")
         .uri(uri)
         .header("content-type", "application/json");
+    if let Some(document) = document {
+        builder = builder.header("x-caduceus-document", document);
+    }
     if let Some(attendance) = attendance {
         builder = builder.header("x-caduceus-attendance", attendance);
     }
@@ -798,7 +802,7 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
         for prefix in ["/api/v1/appliance/service/", "/api/v1/service/"] {
             let uri = format!("{prefix}jellyfin/{action}");
             let response = serve::router()
-                .oneshot(service_request(&uri, None))
+                .oneshot(service_request(&uri, None, None))
                 .await
                 .unwrap();
             assert_eq!(response.status(), StatusCode::FORBIDDEN);
@@ -830,7 +834,11 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
             .as_str()
             .unwrap()
             .to_owned();
-        let wrong_action = if action == "status" { "start" } else { "status" };
+        let wrong_action = if action == "status" {
+            "start"
+        } else {
+            "status"
+        };
         let wrong_attendance = attendance::open_json(&serde_json::json!({
             "documentId": format!("/api/v1/appliance/service/{{service}}/{wrong_action}"),
             "documentIncarnation": "inc-1",
@@ -843,7 +851,7 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
         for token in [&concrete_attendance, &wrong_attendance] {
             let uri = format!("/api/v1/appliance/service/jellyfin/{action}");
             let response = serve::router()
-                .oneshot(service_request(&uri, Some(token)))
+                .oneshot(service_request(&uri, Some(token), Some(token)))
                 .await
                 .unwrap();
             assert_eq!(response.status(), StatusCode::FORBIDDEN);
@@ -859,7 +867,11 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
         };
         let uri = format!("{prefix}jellyfin/{action}");
         let response = serve::router()
-            .oneshot(service_request(&uri, Some(&static_attendance)))
+            .oneshot(service_request(
+                &uri,
+                Some(&static_target),
+                Some(&static_attendance),
+            ))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -870,6 +882,136 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
         assert_eq!(receipt["success"], true);
         assert_eq!(receipt["active"], expected_active);
     }
+
+    let browser_document = "550e8400-e29b-41d4-a716-446655440000";
+    let opened = serve::router()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/attendance/open")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "documentId": browser_document,
+                        "documentIncarnation": browser_document,
+                        "pin": "2468"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(opened.status(), StatusCode::OK);
+    let browser_attendance = body_json(opened).await["attendance"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let firewall_response = serve::router()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/network/firewall/policies/aa:bb:cc:dd:ee:01")
+                .header("content-type", "application/json")
+                .header("x-caduceus-document", browser_document)
+                .header("x-caduceus-attendance", &browser_attendance)
+                .body(Body::from(
+                    serde_json::json!({
+                        "schema": "caduceus.network.firewall.policy.v1",
+                        "mac": "aa:bb:cc:dd:ee:01",
+                        "mode": "allow-only",
+                        "sites": ["example.com"],
+                        "expectedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "enabled": true,
+                        "enforcement": "dns-policy"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(firewall_response.status(), StatusCode::OK);
+    assert_eq!(body_json(firewall_response).await["ok"], true);
+
+    let portal_response = serve::router()
+        .oneshot(service_request(
+            "/api/v1/appliance/service/jellyfin/restart",
+            Some(browser_document),
+            Some(&browser_attendance),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(portal_response.status(), StatusCode::OK);
+    let portal_receipt = body_json(portal_response).await;
+    assert_eq!(portal_receipt["schema"], "caduceus.staff.portal_service.v1");
+    assert_eq!(portal_receipt["success"], true);
+    assert_eq!(portal_receipt["active"], true);
+
+    for (schema_id, required) in [
+        (
+            "caduceus.exousia.posture.v1",
+            serde_json::json!([
+                "schema",
+                "ok",
+                "posture",
+                "bound",
+                "storedVerifierPresent",
+                "currentPresent",
+                "epochMatches"
+            ]),
+        ),
+        (
+            "coronatio.exousia.agent.service.v1",
+            serde_json::json!(["schema", "ok", "success", "active", "firstMissingSignal"]),
+        ),
+        (
+            "coronatio.exousia.agent.posture.v1",
+            serde_json::json!(["schema", "ok", "firstMissingSignal"]),
+        ),
+    ] {
+        let response = serve::router()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/schema/{schema_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let declaration = body_json(response).await;
+        assert_eq!(declaration["schema"], schema_id);
+        assert_eq!(declaration["required"], required);
+    }
+
+    let posture_response = serve::router()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/exousia/posture")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(posture_response.status(), StatusCode::OK);
+    let posture = body_json(posture_response).await;
+    assert_eq!(posture["schema"], "caduceus.exousia.posture.v1");
+    assert_eq!(posture["ok"], true);
+    for field in [
+        "bound",
+        "storedVerifierPresent",
+        "currentPresent",
+        "epochMatches",
+    ] {
+        assert!(
+            posture[field].is_boolean(),
+            "{field} must be redacted boolean posture"
+        );
+    }
+    assert!(posture.get("publicKey").is_none());
+    assert!(posture.get("epoch").is_none());
+    assert!(posture.get("pin").is_none());
 
     let schema = serve::router()
         .oneshot(
@@ -887,7 +1029,10 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
         serde_json::json!(["schema", "ok", "profile", "routes"])
     );
     assert!(schema.get("seat").is_none());
-    assert_eq!(schema["fields"]["schema"]["const"], "caduceus.doors.readback.v1");
+    assert_eq!(
+        schema["fields"]["schema"]["const"],
+        "caduceus.doors.readback.v1"
+    );
     assert_eq!(schema["fields"]["ok"]["type"], "boolean");
     assert_eq!(schema["fields"]["profile"]["type"], "string");
     assert_eq!(schema["fields"]["routes"]["type"], "array");
@@ -2107,7 +2252,10 @@ async fn update_module_http_preserves_child_receipts_and_uses_transition_argv() 
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     let refusal = body_json(response).await;
     assert_eq!(refusal["ok"], false);
-    assert_eq!(refusal["first_missing_signal"], "module-is-pinned-syzygy-member-install-caduceus");
+    assert_eq!(
+        refusal["first_missing_signal"],
+        "module-is-pinned-syzygy-member-install-caduceus"
+    );
     assert_eq!(
         refusal["harmoniaReceipt"]["firstMissingSignal"],
         "module-is-pinned-syzygy-member-install-caduceus"

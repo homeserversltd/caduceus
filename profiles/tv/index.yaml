@@ -33,6 +33,7 @@ commands:
 - settings datetime read
 - settings datetime mutate
 - staff intent
+- exousia posture read
 - cert trust-install
 - cert status
 - config path
@@ -80,6 +81,7 @@ routes:
 - exousia/change-pin
 - exousia/invalidate
 - exousia/open
+- exousia/posture
 - exousia/touch
 - exousia/validate
 - appliance/claim

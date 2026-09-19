@@ -222,6 +222,9 @@ fn main() {
         "xenia.health.v1",
         "xenia.events.v1",
         "caduceus.xenia.verdict.v1",
+        "caduceus.exousia.posture.v1",
+        "coronatio.exousia.agent.service.v1",
+        "coronatio.exousia.agent.posture.v1",
     ]
     .map(|id| PathBuf::from(format!("schema/{id}.json")));
     let mut embedded = String::from("const EMBEDDED_SEATS: &[(&str, &str)] = &[\n");

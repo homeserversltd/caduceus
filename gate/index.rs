@@ -83,9 +83,11 @@ pub(crate) fn roster_allows(method: &str, path: &str) -> Result<bool, String> {
             || (route
                 .strip_prefix("appliance/service/:service/")
                 .is_some_and(|action| {
-                    matches!(action, "status" | "start" | "stop" | "restart" | "enable" | "disable")
-                        && (path.starts_with("/api/v1/service/")
-                            || path.starts_with("/api/v1/appliance/service/"))
+                    matches!(
+                        action,
+                        "status" | "start" | "stop" | "restart" | "enable" | "disable"
+                    ) && (path.starts_with("/api/v1/service/")
+                        || path.starts_with("/api/v1/appliance/service/"))
                         && path.ends_with(&format!("/{action}"))
                 }))
     }))
@@ -178,17 +180,25 @@ pub(crate) async fn gated_mutation(
         Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
     }
 }
-pub(crate) fn attendance_admits(target: &str, token: Option<&str>) -> Result<(), String> {
+pub(crate) fn attendance_admits(
+    target: &str,
+    request_document: Option<&str>,
+    token: Option<&str>,
+) -> Result<(), String> {
     let token = token
         .filter(|v| !v.trim().is_empty())
         .ok_or_else(|| "caduceus-attendance-not-current".to_string())?;
-    let incarnation = env::var("CADUCEUS_DOCUMENT_INCARNATION")
-        .map_err(|_| "caduceus-document-incarnation-missing".to_string())?;
-    if attendance::admits(token, target, &incarnation) {
-        Ok(())
-    } else {
-        Err("caduceus-attendance-not-current".into())
+    let request_document = request_document
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "caduceus-attendance-not-current".to_string())?;
+    if attendance::admits(token, request_document, request_document) {
+        return Ok(());
     }
+    if request_document == target && attendance::admits_target(token, target) {
+        return Ok(());
+    }
+    Err("caduceus-attendance-not-current".into())
 }
 pub(crate) fn document_attendance_admits(
     document: &str,
