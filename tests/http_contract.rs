@@ -1196,6 +1196,43 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
     assert_ne!(portal_attendance, portal_attendance_parent);
     assert_eq!(portal_child["documentId"], portal_target);
     assert_eq!(portal_child["documentIncarnation"], portal_target);
+
+    let file_ingress_targets = [
+        "/api/v1/file/ingress/start",
+        "/api/v1/file/ingress/{upload_id}/chunk/{index}",
+        "/api/v1/file/ingress/{upload_id}/complete",
+        "/api/v1/file/ingress/{upload_id}",
+    ];
+    let file_ingress_document = "550e8400-e29b-41d4-a716-446655440002";
+    let file_ingress_parent = open_trusted_browser_attendance(file_ingress_document).await;
+    for target in file_ingress_targets {
+        let file_ingress_child = derive_attendance_child(
+            &file_ingress_parent,
+            file_ingress_document,
+            file_ingress_document,
+            target,
+        )
+        .await;
+        let file_ingress_attendance = file_ingress_child["attendance"].as_str().unwrap();
+        assert_ne!(file_ingress_attendance, file_ingress_parent);
+        assert_eq!(file_ingress_child["ok"], true);
+        assert_eq!(file_ingress_child["documentId"], target);
+        assert_eq!(file_ingress_child["documentIncarnation"], target);
+    }
+    let file_ingress_cross_scope = derive_attendance_child_response(
+        &file_ingress_parent,
+        file_ingress_document,
+        file_ingress_document,
+        portal_target,
+        true,
+    )
+    .await;
+    assert_eq!(file_ingress_cross_scope.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(file_ingress_cross_scope).await["firstMissingSignal"],
+        "caduceus-attendance-derivation-scope-mismatch"
+    );
+
     let portal_response = serve::router()
         .oneshot(service_request(
             "/api/v1/appliance/service/jellyfin/restart",

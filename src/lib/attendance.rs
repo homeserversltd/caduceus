@@ -16,6 +16,12 @@ const AGENT_SERVICE_DOCUMENT_TARGETS: &[(&str, &str)] = &[
     ("enable", "/api/v1/appliance/service/{service}/enable"),
     ("disable", "/api/v1/appliance/service/{service}/disable"),
 ];
+const FILE_INGRESS_DOCUMENT_TARGETS: &[&str] = &[
+    "/api/v1/file/ingress/start",
+    "/api/v1/file/ingress/{upload_id}/chunk/{index}",
+    "/api/v1/file/ingress/{upload_id}/complete",
+    "/api/v1/file/ingress/{upload_id}",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AttendanceOrigin {
@@ -30,6 +36,7 @@ enum AttendanceOrigin {
 enum DerivationScope {
     Firewall,
     PortalService,
+    FileIngress,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -294,6 +301,11 @@ fn derivation_scope(document: &str) -> Option<DerivationScope> {
         .any(|(_, candidate)| *candidate == document)
     {
         Some(DerivationScope::PortalService)
+    } else if FILE_INGRESS_DOCUMENT_TARGETS
+        .iter()
+        .any(|candidate| *candidate == document)
+    {
+        Some(DerivationScope::FileIngress)
     } else {
         None
     }
