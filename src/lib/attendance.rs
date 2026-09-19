@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 const PIN_MODE_PATH: &str = "var/lib/caduceus/access-pin-mode.json";
 const ATTENDANCE_INACTIVITY_LIMIT: Duration = Duration::from_secs(15 * 60);
+const FIREWALL_DOCUMENT_TARGET: &str = "/api/v1/network/firewall/policies/{mac}";
 const AGENT_SERVICE_DOCUMENT_TARGETS: &[(&str, &str)] = &[
     ("status", "/api/v1/appliance/service/{service}/status"),
     ("start", "/api/v1/appliance/service/{service}/start"),
@@ -16,10 +17,27 @@ const AGENT_SERVICE_DOCUMENT_TARGETS: &[(&str, &str)] = &[
     ("disable", "/api/v1/appliance/service/{service}/disable"),
 ];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AttendanceOrigin {
+    BrowserUnix,
+    BrowserUntrusted,
+    DirectPin,
+    AgentPin,
+    DerivedChild,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DerivationScope {
+    Firewall,
+    PortalService,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Attendance {
     document_id: String,
     document_incarnation: String,
+    origin: AttendanceOrigin,
+    derivation_scope: Option<DerivationScope>,
     created_at: Instant,
     last_touch: Instant,
 }
@@ -188,7 +206,7 @@ fn pin_verified(pin: &str, public_key: &str) -> Result<bool, String> {
         .ok_or_else(|| "caduceus-signer-verification-unavailable".to_string())
 }
 
-pub fn open_json(body: &Value) -> Result<Value, String> {
+fn open_verified_json(body: &Value, origin: AttendanceOrigin) -> Result<Value, String> {
     let document_id = text(body, "documentId")?;
     let document_incarnation = text(body, "documentIncarnation")?;
     let pin = text(body, "pin")?;
@@ -208,6 +226,8 @@ pub fn open_json(body: &Value) -> Result<Value, String> {
         Attendance {
             document_id: document_id.clone(),
             document_incarnation: document_incarnation.clone(),
+            origin,
+            derivation_scope: None,
             created_at: now,
             last_touch: now,
         },
@@ -217,6 +237,10 @@ pub fn open_json(body: &Value) -> Result<Value, String> {
     result["documentId"] = Value::String(document_id);
     result["documentIncarnation"] = Value::String(document_incarnation);
     Ok(result)
+}
+
+pub fn open_json(body: &Value) -> Result<Value, String> {
+    open_verified_json(body, AttendanceOrigin::DirectPin)
 }
 
 fn agent_target(body: &Value) -> Result<(String, String, String, String), String> {
@@ -262,7 +286,72 @@ fn agent_target(body: &Value) -> Result<(String, String, String, String), String
     ))
 }
 
-pub fn open_request_json(body: &Value) -> Result<Value, String> {
+fn derivation_scope(document: &str) -> Option<DerivationScope> {
+    if document == FIREWALL_DOCUMENT_TARGET {
+        Some(DerivationScope::Firewall)
+    } else if AGENT_SERVICE_DOCUMENT_TARGETS
+        .iter()
+        .any(|(_, candidate)| *candidate == document)
+    {
+        Some(DerivationScope::PortalService)
+    } else {
+        None
+    }
+}
+
+fn derive_browser_child_json(
+    parent: &str,
+    document_id: &str,
+    document_incarnation: &str,
+    target_document: &str,
+) -> Result<Value, String> {
+    let Some(scope) = derivation_scope(target_document) else {
+        return Ok(envelope(false, "caduceus-attendance-target-not-derivable"));
+    };
+    let now = Instant::now();
+    let mut guard = state()
+        .lock()
+        .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
+    evict_expired(&mut guard.current, now);
+    let Some(parent_attendance) = guard.current.get_mut(parent) else {
+        return Ok(envelope(false, "caduceus-attendance-not-current"));
+    };
+    if parent_attendance.origin != AttendanceOrigin::BrowserUnix
+        || parent_attendance.document_id != document_id
+        || parent_attendance.document_incarnation != document_incarnation
+    {
+        return Ok(envelope(false, "caduceus-attendance-not-current"));
+    }
+    if let Some(bound_scope) = parent_attendance.derivation_scope {
+        if bound_scope != scope {
+            return Ok(envelope(
+                false,
+                "caduceus-attendance-derivation-scope-mismatch",
+            ));
+        }
+    } else {
+        parent_attendance.derivation_scope = Some(scope);
+    }
+    let attendance = format!("attendance-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
+    guard.current.insert(
+        attendance.clone(),
+        Attendance {
+            document_id: target_document.to_string(),
+            document_incarnation: target_document.to_string(),
+            origin: AttendanceOrigin::DerivedChild,
+            derivation_scope: None,
+            created_at: now,
+            last_touch: now,
+        },
+    );
+    let mut result = envelope(true, "none");
+    result["attendance"] = Value::String(attendance);
+    result["documentId"] = Value::String(target_document.to_string());
+    result["documentIncarnation"] = Value::String(target_document.to_string());
+    Ok(result)
+}
+
+pub fn open_request_json(body: &Value, trusted_unix_carrier: bool) -> Result<Value, String> {
     if body.get("schema").and_then(Value::as_str) == Some("caduceus.staff.v1") {
         if body.pointer("/flags/exousia/attendance").is_some() {
             let parsed = crate::protocol::Envelope::parse(body.clone())?;
@@ -289,29 +378,10 @@ pub fn open_request_json(body: &Value) -> Result<Value, String> {
                 .and_then(Value::as_str)
                 .filter(|value| !value.is_empty() && value.len() <= 512)
                 .ok_or_else(|| "caduceus-attendance-target-document-missing".to_string())?;
-            if !admits(parent, document_id, document_incarnation) {
-                return Ok(envelope(false, "caduceus-attendance-not-current"));
+            if !trusted_unix_carrier {
+                return Ok(envelope(false, "caduceus-attendance-derivation-untrusted"));
             }
-            let now = Instant::now();
-            let mut guard = state()
-                .lock()
-                .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
-            evict_expired(&mut guard.current, now);
-            let attendance = format!("attendance-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
-            guard.current.insert(
-                attendance.clone(),
-                Attendance {
-                    document_id: target_document.to_string(),
-                    document_incarnation: target_document.to_string(),
-                    created_at: now,
-                    last_touch: now,
-                },
-            );
-            let mut result = envelope(true, "none");
-            result["attendance"] = Value::String(attendance);
-            result["documentId"] = Value::String(target_document.to_string());
-            result["documentIncarnation"] = Value::String(target_document.to_string());
-            Ok(result)
+            derive_browser_child_json(parent, document_id, document_incarnation, target_document)
         } else {
             let (document, service, action, pin) = agent_target(body)?;
             let verifier = verifier()?;
@@ -330,6 +400,8 @@ pub fn open_request_json(body: &Value) -> Result<Value, String> {
                 Attendance {
                     document_id: document.clone(),
                     document_incarnation: document.clone(),
+                    origin: AttendanceOrigin::AgentPin,
+                    derivation_scope: None,
                     created_at: now,
                     last_touch: now,
                 },
@@ -342,7 +414,14 @@ pub fn open_request_json(body: &Value) -> Result<Value, String> {
             Ok(result)
         }
     } else {
-        open_json(body)
+        open_verified_json(
+            body,
+            if trusted_unix_carrier {
+                AttendanceOrigin::BrowserUnix
+            } else {
+                AttendanceOrigin::BrowserUntrusted
+            },
+        )
     }
 }
 

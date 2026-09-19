@@ -126,8 +126,15 @@ pub(crate) async fn attendance_route(
     OriginalUri(uri): OriginalUri,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    // Only gate-populated transport metadata can authorize browser-child derivation.
+    let trusted_unix_carrier = matches!(
+        connect_info.as_ref(),
+        Some(ConnectInfo(ConnectionInfo::Unix { .. }))
+    );
     let result = match uri.path() {
-        "/api/v1/exousia/open" | "/api/v1/attendance/open" => attendance::open_request_json(&body),
+        "/api/v1/exousia/open" | "/api/v1/attendance/open" => {
+            attendance::open_request_json(&body, trusted_unix_carrier)
+        }
         "/api/v1/exousia/validate" | "/api/v1/attendance/validate" => {
             attendance::validate_json(&body)
         }
@@ -159,7 +166,7 @@ pub(crate) async fn attendance_route(
             "firstMissingSignal": signal,
             "documentId": body.get("documentId").and_then(Value::as_str),
             "attendanceId": attendance_id,
-            "peer": connect_info.map(|ConnectInfo(peer)| peer.to_string()).unwrap_or_else(|| "unknown".to_string()), // UDS credentials are audit/readback only, never admission
+            "peer": connect_info.map(|ConnectInfo(peer)| peer.to_string()).unwrap_or_else(|| "unknown".to_string()),
         })
     );
     let _ = hyalos::reflect_json(serde_json::json!({

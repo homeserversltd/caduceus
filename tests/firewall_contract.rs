@@ -171,7 +171,7 @@ async fn firewall_document_attendance_is_static_and_precedes_staff() {
     let open = |document: &str| {
         attendance::open_json(&serde_json::json!({
             "documentId": document,
-            "documentIncarnation": "inc-1",
+            "documentIncarnation": document,
             "pin": "2468"
         }))
         .unwrap()["attendance"]
@@ -180,7 +180,7 @@ async fn firewall_document_attendance_is_static_and_precedes_staff() {
             .to_string()
     };
     let current_parent = open("/api/v1/network/firewall/policies/{mac}");
-    let current_child = serve::router()
+    let refused = serve::router()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -205,19 +205,12 @@ async fn firewall_document_attendance_is_static_and_precedes_staff() {
         )
         .await
         .unwrap();
-    assert_eq!(current_child.status(), StatusCode::OK);
-    let current_child = json(current_child).await;
-    let current = current_child["attendance"].as_str().unwrap().to_owned();
-    assert!(!current_child.to_string().contains(&current_parent));
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
     assert_eq!(
-        current_child["documentId"],
-        "/api/v1/network/firewall/policies/{mac}"
+        json(refused).await["firstMissingSignal"],
+        "caduceus-attendance-derivation-untrusted"
     );
-    assert_eq!(
-        current_child["documentIncarnation"],
-        "/api/v1/network/firewall/policies/{mac}"
-    );
-    assert_ne!(current, current_parent);
+    let current = current_parent.clone();
     let concrete = open(&format!("/api/v1/network/firewall/policies/{MAC}"));
     let wrong_static = open("/api/v1/network/firewall/policies/{device}");
     for token in [&concrete, &wrong_static] {

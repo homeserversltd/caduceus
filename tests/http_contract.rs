@@ -1,6 +1,7 @@
 use axum::body::{to_bytes, Body};
+use axum::extract::connect_info::ConnectInfo;
 use axum::http::{Request, StatusCode};
-use caduceus::{routes::serve, shared::attendance};
+use caduceus::{gate::ConnectionInfo, routes::serve, shared::attendance};
 use std::{
     env,
     ffi::OsString,
@@ -786,12 +787,66 @@ fn service_request(uri: &str, document: Option<&str>, attendance: Option<&str>) 
     builder.body(Body::from(r#"{}"#)).unwrap()
 }
 
+async fn derive_attendance_child_response(
+    parent: &str,
+    document_id: &str,
+    document_incarnation: &str,
+    target_document: &str,
+    trusted_unix_carrier: bool,
+) -> axum::response::Response {
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/exousia/open")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::json!({
+                "schema": "caduceus.staff.v1",
+                "intent_id": "attendance-child",
+                "transition": "exousia.open",
+                "target": {"document": target_document},
+                "flags": {"exousia": {
+                    "attendance": parent,
+                    "documentId": document_id,
+                    "documentIncarnation": document_incarnation
+                }},
+                "unknown_additive": {"retained": true}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    if trusted_unix_carrier {
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(ConnectionInfo::Unix {
+                uid: 1,
+                gid: 1,
+                pid: 1,
+            }));
+    }
+    serve::router().oneshot(request).await.unwrap()
+}
+
 async fn derive_attendance_child(
     parent: &str,
     document_id: &str,
     document_incarnation: &str,
     target_document: &str,
 ) -> serde_json::Value {
+    let response = derive_attendance_child_response(
+        parent,
+        document_id,
+        document_incarnation,
+        target_document,
+        true,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let child = body_json(response).await;
+    assert!(!child.to_string().contains(parent));
+    child
+}
+
+async fn open_agent_attendance(target_document: &str, action: &str) -> serde_json::Value {
     let response = serve::router()
         .oneshot(
             Request::builder()
@@ -801,14 +856,14 @@ async fn derive_attendance_child(
                 .body(Body::from(
                     serde_json::json!({
                         "schema": "caduceus.staff.v1",
-                        "intent_id": "attendance-child",
+                        "intent_id": "agent-exousia-open",
                         "transition": "exousia.open",
-                        "target": {"document": target_document},
-                        "flags": {"exousia": {
-                            "attendance": parent,
-                            "documentId": document_id,
-                            "documentIncarnation": document_incarnation
-                        }},
+                        "target": {
+                            "document": target_document,
+                            "service": "coronatio",
+                            "action": action
+                        },
+                        "flags": {"exousia": {"pin": "2468"}},
                         "unknown_additive": {"retained": true}
                     })
                     .to_string(),
@@ -818,9 +873,36 @@ async fn derive_attendance_child(
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let child = body_json(response).await;
-    assert!(!child.to_string().contains(parent));
-    child
+    body_json(response).await
+}
+
+async fn open_trusted_browser_attendance(document: &str) -> String {
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/attendance/open")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::json!({
+                "documentId": document,
+                "documentIncarnation": document,
+                "pin": "2468"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(ConnectionInfo::Unix {
+            uid: 1,
+            gid: 1,
+            pid: 1,
+        }));
+    let response = serve::router().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    body_json(response).await["attendance"]
+        .as_str()
+        .unwrap()
+        .to_owned()
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -862,8 +944,20 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
             .as_str()
             .unwrap()
             .to_owned();
-        let static_child =
-            derive_attendance_child(&static_parent, &static_target, "inc-1", &static_target).await;
+        let direct_refused = derive_attendance_child_response(
+            &static_parent,
+            &static_target,
+            "inc-1",
+            &static_target,
+            true,
+        )
+        .await;
+        assert_eq!(direct_refused.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            body_json(direct_refused).await["firstMissingSignal"],
+            "caduceus-attendance-not-current"
+        );
+        let static_child = open_agent_attendance(&static_target, action).await;
         let static_attendance = static_child["attendance"].as_str().unwrap().to_owned();
         assert_eq!(static_child["documentId"], static_target);
         assert_eq!(static_child["documentIncarnation"], static_target);
@@ -926,8 +1020,8 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
         assert_eq!(receipt["active"], expected_active);
     }
 
-    let browser_document = "550e8400-e29b-41d4-a716-446655440000";
-    let opened = serve::router()
+    let tcp_document = "tcp-browser-document";
+    let tcp_opened = serve::router()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -935,8 +1029,8 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({
-                        "documentId": browser_document,
-                        "documentIncarnation": browser_document,
+                        "documentId": tcp_document,
+                        "documentIncarnation": tcp_document,
                         "pin": "2468"
                     })
                     .to_string(),
@@ -945,11 +1039,27 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
         )
         .await
         .unwrap();
-    assert_eq!(opened.status(), StatusCode::OK);
-    let browser_attendance = body_json(opened).await["attendance"]
+    assert_eq!(tcp_opened.status(), StatusCode::OK);
+    let tcp_attendance = body_json(tcp_opened).await["attendance"]
         .as_str()
         .unwrap()
         .to_owned();
+    let tcp_refused = derive_attendance_child_response(
+        &tcp_attendance,
+        tcp_document,
+        tcp_document,
+        "/api/v1/network/firewall/policies/{mac}",
+        false,
+    )
+    .await;
+    assert_eq!(tcp_refused.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(tcp_refused).await["firstMissingSignal"],
+        "caduceus-attendance-derivation-untrusted"
+    );
+
+    let browser_document = "550e8400-e29b-41d4-a716-446655440000";
+    let browser_attendance = open_trusted_browser_attendance(browser_document).await;
     let firewall_target = "/api/v1/network/firewall/policies/{mac}";
     let portal_target = "/api/v1/appliance/service/{service}/restart";
     let firewall_response = serve::router()
@@ -993,6 +1103,45 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
     assert_ne!(firewall_attendance, browser_attendance);
     assert_eq!(firewall_child["documentId"], firewall_target);
     assert_eq!(firewall_child["documentIncarnation"], firewall_target);
+    let nested_child = derive_attendance_child_response(
+        &firewall_attendance,
+        firewall_target,
+        firewall_target,
+        portal_target,
+        true,
+    )
+    .await;
+    assert_eq!(nested_child.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(nested_child).await["firstMissingSignal"],
+        "caduceus-attendance-not-current"
+    );
+    let cross_scope_child = derive_attendance_child_response(
+        &browser_attendance,
+        browser_document,
+        browser_document,
+        portal_target,
+        true,
+    )
+    .await;
+    assert_eq!(cross_scope_child.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(cross_scope_child).await["firstMissingSignal"],
+        "caduceus-attendance-derivation-scope-mismatch"
+    );
+    let unrelated_child = derive_attendance_child_response(
+        &browser_attendance,
+        browser_document,
+        browser_document,
+        "/api/v1/unprotected/target",
+        true,
+    )
+    .await;
+    assert_eq!(unrelated_child.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(unrelated_child).await["firstMissingSignal"],
+        "caduceus-attendance-target-not-derivable"
+    );
     let firewall_response = serve::router()
         .oneshot(
             Request::builder()
@@ -1034,15 +1183,17 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
         "caduceus-attendance-not-current"
     );
 
+    let portal_document = "550e8400-e29b-41d4-a716-446655440001";
+    let portal_attendance_parent = open_trusted_browser_attendance(portal_document).await;
     let portal_child = derive_attendance_child(
-        &browser_attendance,
-        browser_document,
-        browser_document,
+        &portal_attendance_parent,
+        portal_document,
+        portal_document,
         portal_target,
     )
     .await;
     let portal_attendance = portal_child["attendance"].as_str().unwrap().to_owned();
-    assert_ne!(portal_attendance, browser_attendance);
+    assert_ne!(portal_attendance, portal_attendance_parent);
     assert_eq!(portal_child["documentId"], portal_target);
     assert_eq!(portal_child["documentIncarnation"], portal_target);
     let portal_response = serve::router()
