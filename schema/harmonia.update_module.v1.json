@@ -1,0 +1,64 @@
+{
+  "schema": "harmonia.update_module.v1",
+  "schema_version": "1.0.0",
+  "role": "Harmonia update-module receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/harmonia.update_module.v1.json",
+    "grant": "Public seat for the Harmonia update-module child receipt"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields mean no additional receipt evidence",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "harmonia.update_module.v1"
+    },
+    "module_id": {
+      "type": "string"
+    },
+    "profile_id": {
+      "type": "string"
+    },
+    "identity": {
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "changed": {
+      "type": "boolean"
+    },
+    "operation_count": {
+      "type": "integer"
+    },
+    "first_missing_signal": {
+      "type": "string"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "module_id": "string",
+    "profile_id": "string",
+    "identity": "string",
+    "ok": "boolean",
+    "changed": "boolean",
+    "operation_count": "integer",
+    "first_missing_signal": "string"
+  },
+  "required": [
+    "schema",
+    "module_id",
+    "profile_id",
+    "identity",
+    "ok",
+    "changed",
+    "operation_count",
+    "first_missing_signal"
+  ],
+  "optional": [],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

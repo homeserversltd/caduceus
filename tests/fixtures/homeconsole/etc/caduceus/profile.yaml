@@ -32,6 +32,7 @@ commands:
 - update status
 - update check
 - update now
+- update module
 - update service status
 - update service toggle
 - gui update now
@@ -115,6 +116,9 @@ harmonia_routes:
     - --apply
     - --receipt-dir
     - /var/lib/harmonia/receipts/local-ai-runtime-latest
+  update_module:
+    bin: /usr/local/bin/harmonia
+    raw_json: true
 operator_aliases:
   sync: caduceus sync now
   sync-no-restart: caduceus sync now --no-restart

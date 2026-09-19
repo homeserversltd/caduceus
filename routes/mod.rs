@@ -147,6 +147,8 @@ pub mod report_sources;
 pub use leaf_network_status as set_time;
 #[cfg(leaf_storage_disk_test)]
 pub use leaf_storage_disk_test as test_drive;
+#[cfg(leaf_update_module)]
+pub use leaf_update_module as update_module;
 #[cfg(leaf_update_now)]
 pub use leaf_update_now as sync_sources;
 #[cfg(leaf_update_status)]

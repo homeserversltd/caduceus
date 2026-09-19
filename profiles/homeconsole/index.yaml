@@ -5,6 +5,7 @@ harmonia_profile: /etc/harmonia/profiles/homeconsole/index.json
 commands:
 - update modules list
 - update modules toggle
+- update module
 - hyalos reflect
 - hyalos append
 - hyalos tail
@@ -99,6 +100,9 @@ harmonia_routes:
     - interactable
     - run
     positional: true
+    raw_json: true
+  update_module:
+    bin: /usr/local/bin/harmonia
     raw_json: true
 routes:
 - xenia/validate
@@ -211,5 +215,6 @@ routes:
 - update/status
 - update/modules
 - update/modules/:id
+- update/module
 - interactables
 - interactables/:id/run

@@ -38,6 +38,8 @@ use crate::routes::local_ai;
     leaf_settings_ssh
 ))]
 use crate::routes::open_settings_pane as gui;
+#[cfg(leaf_update_module)]
+use crate::routes::update_module;
 use crate::routes::{
     dhcp, disk, dns, drive_test, health, help, homeserver_sbin, hyalos, identity, legacy_sbin,
     logs, network, network_identity, network_read, profile, receipts, serve, source_map, staff,
@@ -91,7 +93,7 @@ where
         let raw = serde_json::json!({
             "schema": crate::protocol::SCHEMA_ID,
             "intent_id": format!("cli:{namespace}"),
-            "transition": namespace,
+            "transition": crate::routes::selected_transition(namespace).unwrap_or(namespace),
             "origin_of_intent": "near",
             "payload": { "args": args[prefix_len..].to_vec() }
         });
@@ -593,6 +595,13 @@ where
                 Err(code) => code,
             }
         }
+        #[cfg(leaf_update_module)]
+        [domain, verb, rest @ ..] if domain == "update" && verb == "module" => {
+            match require_policy("update module", rest) {
+                Ok(filtered) => update_module::cli(&filtered),
+                Err(code) => code,
+            }
+        }
         [domain, verb] if domain == "sync" && verb == "status" => sync::status(),
         [domain, verb, rest @ ..] if domain == "sync" && verb == "now" => {
             match require_policy("sync now", rest) {
@@ -909,6 +918,7 @@ fn print_help() {
     println!("  caduceus sync now [--no-restart] [--dry-run]");
     println!("  caduceus update status");
     println!("  caduceus update now [--dry-run]");
+    println!("  caduceus update module <module-id> [--apply]");
     println!("  caduceus update check [--dry-run]");
     println!("  caduceus update service status");
     println!("  caduceus update service toggle <on|off> [--dry-run]");

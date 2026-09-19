@@ -214,6 +214,7 @@ fn main() {
         "harmonia.interactables.ruyi_perspective_seed.receipt.v1",
         "estate.release-flag.v1",
         "harmonia.update-set.v1",
+        "harmonia.update_module.v1",
         "appliance.xenia.v1",
         "coronatio.face-surface.v1",
         "harmonia.engine.source_resolution.v1",
@@ -350,6 +351,7 @@ fn main() {
     }
     selected.sort();
     selected.dedup();
+    let selected_leaf_entries = walk_json_leaves(Path::new("routes"));
     for entry in walk_json_leaves(Path::new("routes")) {
         if let Some(namespace) = entry.get("namespace").and_then(serde_json::Value::as_str) {
             let cfg = module_ident(namespace);
@@ -462,9 +464,28 @@ fn main() {
         ));
     }
     modules.push_str("    _ => None,\n} }\n");
+    modules.push_str(
+        "pub fn selected_transition(namespace: &str) -> Option<&'static str> { match namespace {\n",
+    );
+    for namespace in &selected {
+        let transition = selected_leaf_entries
+            .iter()
+            .find(|entry| {
+                entry.get("namespace").and_then(serde_json::Value::as_str)
+                    == Some(namespace.as_str())
+            })
+            .and_then(|entry| entry.get("transition").and_then(serde_json::Value::as_str));
+        if let Some(transition) = transition {
+            modules.push_str(&format!(
+                "    {} => Some({}),\n",
+                rust_string(namespace),
+                rust_string(transition)
+            ));
+        }
+    }
+    modules.push_str("    _ => None,\n} }\n");
     modules.push_str("pub fn route_for_cli(args: &[String]) -> Option<&'static str> {\n");
-    modules.push_str("    if let Some(namespace) = SELECTED_LEAF_MODULES.iter().find(|namespace| **namespace == args.join(\"/\")) { return Some(*namespace); }\n");
-    modules.push_str("    let mut best = None; let mut best_len = 0usize; let mut ambiguous = false;\n    for namespace in SELECTED_LEAF_MODULES {\n        let components = namespace.split('/').collect::<Vec<_>>();\n        if components.len() <= args.len() && components.iter().zip(args).all(|(component, arg)| *component == arg.as_str()) {\n            if components.len() > best_len { best = Some(*namespace); best_len = components.len(); ambiguous = false; } else if components.len() == best_len { ambiguous = true; }\n        }\n    }\n    if ambiguous { None } else { best }\n}\n");
+    modules.push_str("    let mut best = None; let mut best_len = 0usize; let mut ambiguous = false;\n    for namespace in SELECTED_LEAF_MODULES {\n        let components = namespace.split('/').collect::<Vec<_>>();\n        if components.len() > args.len() { continue; }\n        let transition = selected_transition(namespace);\n        let separator = if transition.is_some() { \".\" } else { \"/\" };\n        let candidate = args[..components.len()].join(separator);\n        let wanted = transition.unwrap_or(namespace);\n        if candidate == wanted {\n            if components.len() > best_len { best = Some(*namespace); best_len = components.len(); ambiguous = false; } else if components.len() == best_len { ambiguous = true; }\n        }\n    }\n    if ambiguous { None } else { best }\n}\n");
     modules.push_str(&format!(
         "pub const SELECTED_DISCOVERY: &[&str] = &[{}];\n",
         selected

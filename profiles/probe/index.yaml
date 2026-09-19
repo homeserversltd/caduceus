@@ -117,5 +117,6 @@ routes:
 - update/status
 - update/modules
 - update/modules/:id
+- update/module
 - update/check
 - update/now

@@ -1483,3 +1483,192 @@ async fn appliance_logs_http_read_and_clear_expose_rotation_fields() {
     assert_eq!(body_json(response).await["file_size"], 0);
     let _ = fs::remove_dir_all(&root);
 }
+
+struct UpdateModuleFixture {
+    root: PathBuf,
+    previous_root: Option<OsString>,
+    prior_path: Option<OsString>,
+    _lock: MutexGuard<'static, ()>,
+}
+
+impl UpdateModuleFixture {
+    fn new() -> Self {
+        let lock = FIXTURE_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let root = env::temp_dir().join(format!(
+            "caduceus-update-module-http-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bin_dir = root.join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let args_log = root.join("sudo-args");
+        let harmonia = root.join("fixture-harmonia");
+        let sudo = bin_dir.join("sudo");
+        let profile_dir = root.join("etc/caduceus");
+        fs::create_dir_all(&profile_dir).unwrap();
+        let profile = fs::read_to_string("tests/fixtures/homeconsole/etc/caduceus/profile.yaml")
+            .unwrap()
+            .replace("/usr/local/bin/harmonia", harmonia.to_str().unwrap());
+        fs::write(profile_dir.join("profile.yaml"), profile).unwrap();
+        fs::write(
+            &harmonia,
+            r##"#!/bin/sh
+module=
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--module" ]; then shift; module="$1"; fi
+  shift
+done
+if [ "$module" = "install-caduceus" ]; then
+  printf '%s' '{"schema":"harmonia.update_module.v1","module_id":"install-caduceus","profile_id":"homeconsole","identity":"fixture","ok":false,"changed":false,"operation_count":0,"first_missing_signal":"module-is-pinned-syzygy-member-install-caduceus","unknown_sentinel":"refusal-preserved"}'
+  exit 42
+fi
+printf '%s' '{"schema":"harmonia.update_module.v1","module_id":"'$module'","profile_id":"homeconsole","identity":"fixture","ok":true,"changed":true,"operation_count":1,"first_missing_signal":"none","unknown_sentinel":"success-preserved"}'
+"##,
+        )
+        .unwrap();
+        fs::write(
+            &sudo,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\n[ \"$1\" = \"-n\" ] || exit 97\nshift\n[ \"$1\" = \"{}\" ] || exit 98\nexec \"$@\"\n",
+                args_log.display(),
+                harmonia.display()
+            ),
+        )
+        .unwrap();
+        for path in [&harmonia, &sudo] {
+            let mut permissions = fs::metadata(path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(path, permissions).unwrap();
+        }
+        let previous_root = env::var_os("CADUCEUS_ROOT");
+        let prior_path = env::var_os("PATH");
+        let path = match &prior_path {
+            Some(value) => format!("{}:{}", bin_dir.display(), value.to_string_lossy()),
+            None => bin_dir.display().to_string(),
+        };
+        env::set_var("CADUCEUS_ROOT", &root);
+        env::set_var("PATH", path);
+        Self {
+            root,
+            previous_root,
+            prior_path,
+            _lock: lock,
+        }
+    }
+
+    fn sudo_args(&self) -> String {
+        fs::read_to_string(self.root.join("sudo-args")).unwrap()
+    }
+
+    fn harmonia_path(&self) -> PathBuf {
+        self.root.join("fixture-harmonia")
+    }
+}
+
+impl Drop for UpdateModuleFixture {
+    fn drop(&mut self) {
+        match &self.previous_root {
+            Some(value) => env::set_var("CADUCEUS_ROOT", value),
+            None => env::remove_var("CADUCEUS_ROOT"),
+        }
+        match &self.prior_path {
+            Some(value) => env::set_var("PATH", value),
+            None => env::remove_var("PATH"),
+        }
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn update_module_http_preserves_child_receipts_and_uses_transition_argv() {
+    let fixture = UpdateModuleFixture::new();
+    let app = serve::router();
+    let success_stdout = r#"{"schema":"harmonia.update_module.v1","module_id":"household-time","profile_id":"homeconsole","identity":"fixture","ok":true,"changed":true,"operation_count":1,"first_missing_signal":"none","unknown_sentinel":"success-preserved"}"#;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/update/module")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"schema":"caduceus.staff.v1","intent_id":"http:update-module-success","transition":"update.module","version":"1","timestamp":"0","origin_of_intent":"near","target":{"module":"household-time"},"flags":{"apply":true},"unknown_envelope":"preserved"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let success = body_json(response).await;
+    assert_eq!(success["ok"], true);
+    assert_eq!(success["transition"], "update.module");
+    assert_eq!(success["version"], "1");
+    assert_eq!(success["timestamp"], "0");
+    assert_eq!(success["unknown_envelope"], "preserved");
+    assert_eq!(success["rawChildStdout"], success_stdout);
+    assert_eq!(
+        success["receiptPayload"]["unknown_sentinel"],
+        "success-preserved"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/update/module")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"schema":"caduceus.staff.v1","intent_id":"http:update-module-refusal","transition":"update.module","version":"1","timestamp":"0","origin_of_intent":"near","target":{"module":"install-caduceus"},"flags":{"apply":false},"unknown_envelope":"also-preserved"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let refusal = body_json(response).await;
+    assert_eq!(refusal["ok"], false);
+    assert_eq!(refusal["first_missing_signal"], "module-is-pinned-syzygy-member-install-caduceus");
+    assert_eq!(
+        refusal["harmoniaReceipt"]["firstMissingSignal"],
+        "module-is-pinned-syzygy-member-install-caduceus"
+    );
+    assert_eq!(refusal["unknown_envelope"], "also-preserved");
+    assert_eq!(
+        refusal["receiptPayload"]["unknown_sentinel"],
+        "refusal-preserved"
+    );
+    assert_eq!(
+        refusal["rawChildStdout"],
+        r#"{"schema":"harmonia.update_module.v1","module_id":"install-caduceus","profile_id":"homeconsole","identity":"fixture","ok":false,"changed":false,"operation_count":0,"first_missing_signal":"module-is-pinned-syzygy-member-install-caduceus","unknown_sentinel":"refusal-preserved"}"#
+    );
+
+    let args = fixture.sudo_args();
+    let command_prefix = format!(
+        "-n {} update-module /etc/harmonia/profiles/homeconsole/index.json --module",
+        fixture.harmonia_path().display()
+    );
+    assert!(args.contains(&format!("{command_prefix} household-time --apply")));
+    assert!(args.contains(&format!("{command_prefix} install-caduceus")));
+    assert!(!args.contains(&format!("{command_prefix} install-caduceus --apply")));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/schema/harmonia.update_module.v1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        body_json(response).await["schema"],
+        "harmonia.update_module.v1"
+    );
+}

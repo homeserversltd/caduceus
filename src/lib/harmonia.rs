@@ -71,19 +71,72 @@ pub fn invoke_body_to_json(route_key: &str, code: i32, body: &str) -> Value {
         };
         fields.insert(key.to_string(), Value::String(value.to_string()));
     }
-    let ok = fields
-        .get("ok")
-        .and_then(Value::as_str)
-        .map(|value| value == "true")
+    let json_fields = serde_json::from_str::<Value>(body.trim()).ok();
+    let typed_string = |key: &str| {
+        json_fields
+            .as_ref()
+            .and_then(|value| value.get(key))
+            .and_then(Value::as_str)
+            .or_else(|| fields.get(key).and_then(Value::as_str))
+    };
+    let ok = json_fields
+        .as_ref()
+        .and_then(|value| value.get("ok"))
+        .and_then(Value::as_bool)
+        .or_else(|| {
+            fields
+                .get("ok")
+                .and_then(Value::as_str)
+                .map(|value| value == "true")
+        })
         .unwrap_or(code == 0);
     json!({
-        "schema": fields.get("schema").and_then(Value::as_str).unwrap_or("caduceus.harmonia.invoke.v1"),
+        "schema": typed_string("schema").unwrap_or("caduceus.harmonia.invoke.v1"),
         "route": route_key,
         "ok": ok,
         "exitCode": code,
         "body": body,
-        "firstMissingSignal": fields.get("first_missing_signal").and_then(Value::as_str).unwrap_or(if ok { "none" } else { "caduceus-harmonia-command-failed" })
+        "firstMissingSignal": typed_string("first_missing_signal").unwrap_or(if ok { "none" } else { "caduceus-harmonia-command-failed" })
     })
+}
+
+fn invoke_argv(route_key: &str, route_value: &Value, argv: &[String]) -> (i32, String) {
+    let (bin, run_args) = argv.split_first().unwrap();
+    let output = privileged_command(bin, run_args).output();
+    match output {
+        Ok(result) => {
+            let ok = result.status.success();
+            if route_value
+                .get("raw_json")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                // Harmonia receipts are authoritative even when the process refuses.
+                // The refusal receipt is emitted on stdout by contract and must not
+                // be replaced with sudo/stderr text.
+                let body = String::from_utf8_lossy(if result.stdout.is_empty() {
+                    &result.stderr
+                } else {
+                    &result.stdout
+                })
+                .into_owned();
+                return (if ok { 0 } else { 1 }, body);
+            }
+            let body = format!(
+                "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute={route_key}\nok={ok}\nexit_code={}\ncommand={}\nfirst_missing_signal={}\n",
+                result.status.code().unwrap_or(-1),
+                bin,
+                if ok { "none" } else { "caduceus-harmonia-command-failed" }
+            );
+            (if ok { 0 } else { 1 }, body)
+        }
+        Err(err) => {
+            let body = format!(
+                "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute={route_key}\nok=false\nfirst_missing_signal=caduceus-harmonia-command-failed:{err}\n"
+            );
+            (1, body)
+        }
+    }
 }
 
 pub fn invoke(route_key: &str, rest: &[String], dry_run: bool) -> (i32, String) {
@@ -111,36 +164,53 @@ pub fn invoke(route_key: &str, rest: &[String], dry_run: bool) -> (i32, String) 
             return (1, body);
         }
     };
-    let (bin, run_args) = argv.split_first().unwrap();
-    let output = privileged_command(bin, run_args).output();
-    match output {
-        Ok(result) => {
-            let ok = result.status.success();
-            if route_value
-                .get("raw_json")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-            {
-                let body =
-                    String::from_utf8_lossy(if ok { &result.stdout } else { &result.stderr })
-                        .into_owned();
-                return (if ok { 0 } else { 1 }, body);
-            }
-            let body = format!(
-                "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute={route_key}\nok={ok}\nexit_code={}\ncommand={}\nfirst_missing_signal={}\n",
-                result.status.code().unwrap_or(-1),
-                bin,
-                if ok { "none" } else { "caduceus-harmonia-command-failed" }
-            );
-            (if ok { 0 } else { 1 }, body)
-        }
+    invoke_argv(route_key, &route_value, &argv)
+}
+
+pub fn invoke_with_args(route_key: &str, args: &[String]) -> (i32, String) {
+    let route_value = match route(route_key) {
+        Ok(value) => value,
         Err(err) => {
             let body = format!(
-                "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute={route_key}\nok=false\nfirst_missing_signal=caduceus-harmonia-command-failed:{err}\n"
+                "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute={route_key}\nok=false\nfirst_missing_signal={err}\n"
             );
-            (1, body)
+            return (1, body);
         }
+    };
+    let bin = route_value
+        .get("bin")
+        .and_then(Value::as_str)
+        .unwrap_or(DEFAULT_HARMONIA_BIN)
+        .to_string();
+    let mut argv = Vec::with_capacity(args.len() + 1);
+    argv.push(bin);
+    argv.extend(args.iter().cloned());
+    invoke_argv(route_key, &route_value, &argv)
+}
+
+pub fn invoke_update_module(module_id: &str, apply: bool) -> (i32, String) {
+    let profile_ref = match load_profile_value()
+        .ok()
+        .and_then(|profile| profile.get("harmonia_profile").and_then(Value::as_str).map(str::to_owned))
+    {
+        Some(profile_ref) => profile_ref,
+        None => {
+            return (
+                1,
+                "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute=update_module\nok=false\nfirst_missing_signal=caduceus-harmonia-profile-missing\n".to_string(),
+            )
+        }
+    };
+    let mut args = vec![
+        "update-module".to_string(),
+        profile_ref,
+        "--module".to_string(),
+        module_id.to_string(),
+    ];
+    if apply {
+        args.push("--apply".to_string());
     }
+    invoke_with_args("update_module", &args)
 }
 
 #[cfg(test)]
