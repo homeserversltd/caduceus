@@ -791,6 +791,56 @@ fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
     )
 }
 
+pub fn execute_spooled_file_ingress(
+    mut metadata: Value,
+    spool_path: &Path,
+    target: &Path,
+    bytes: u64,
+) -> Result<Value, String> {
+    let mode = metadata
+        .get("mode")
+        .and_then(Value::as_u64)
+        .unwrap_or(0o664);
+    let supplied_uid = metadata.get("uid").and_then(Value::as_u64);
+    let supplied_gid = metadata.get("gid").and_then(Value::as_u64);
+    let object = metadata
+        .as_object_mut()
+        .ok_or_else(|| "caduceus-file-ingress-request-invalid".to_string())?;
+    object.remove("payload");
+    object.insert("spoolPath".into(), json!(spool_path));
+    object.insert("path".into(), json!(target));
+    object.insert("targetPath".into(), json!(target));
+    object.insert("mode".into(), json!(mode));
+    if let Some(uid) = supplied_uid {
+        object.insert("uid".into(), json!(uid));
+    }
+    if let Some(gid) = supplied_gid {
+        object.insert("gid".into(), json!(gid));
+    }
+    let staff_result = staff_band_receipt("storage/upload/ingress", metadata);
+    let _ = std::fs::remove_file(spool_path);
+    let staff = staff_result?;
+    let ok = staff.get("ok").and_then(Value::as_bool) == Some(true);
+    let mutation_performed = ok && staff_mutation_performed(&staff);
+    let signal = staff.get("firstMissingSignal").cloned().unwrap_or_else(|| {
+        json!(if ok {
+            "none"
+        } else {
+            "caduceus-agathodaimon-refused"
+        })
+    });
+    let hyalos = if ok {
+        let bytes = usize::try_from(bytes)
+            .map_err(|_| "caduceus-file-ingress-byte-count-invalid".to_string())?;
+        file_ingress_reflection(target, bytes)?
+    } else {
+        Value::Null
+    };
+    Ok(
+        json!({"schema":"caduceus.staff.file_ingress.v1","ok":ok,"accepted":ok,"classification":"file-ingress","mutationPerformed":mutation_performed,"execution":if ok {"staff-snake"} else {"staff-snake-refused"},"path":target,"bytes":bytes,"hyalos":hyalos,"staffReceipt":staff,"firstMissingSignal":signal}),
+    )
+}
+
 fn execute_force_permissions(metadata: Value) -> Result<Value, String> {
     let destination = admitted_destination(&metadata)?;
     if !destination.is_dir() {

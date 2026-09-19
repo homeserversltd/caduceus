@@ -86,6 +86,99 @@ async fn body_json(response: axum::response::Response) -> serde_json::Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
+struct UploadStaffFixture {
+    root: PathBuf,
+    prior_root: Option<OsString>,
+    prior_ingress_root: Option<OsString>,
+    prior_cli: Option<OsString>,
+}
+
+impl UploadStaffFixture {
+    fn new(tag: &str) -> Self {
+        let root = env::temp_dir().join(format!(
+            "caduceus-upload-{tag}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("etc/caduceus")).unwrap();
+        fs::create_dir_all(root.join("nas")).unwrap();
+        fs::copy(
+            "tests/fixtures/homeserver/etc/caduceus/profile.yaml",
+            root.join("etc/caduceus/profile.yaml"),
+        )
+        .unwrap();
+        let cli = root.join("agathodaimon-upload-fixture.py");
+        fs::write(
+            &cli,
+            r#"#!/usr/bin/env python3
+import json
+import os
+import shutil
+import sys
+
+envelope = json.load(sys.stdin)
+metadata = envelope["payload"]
+source = metadata["spoolPath"]
+target = metadata["targetPath"]
+os.makedirs(os.path.dirname(target), exist_ok=True)
+shutil.copyfile(source, target)
+os.chmod(target, int(metadata.get("mode", 0o664)))
+print(json.dumps({
+    "schema": "caduceus.staff.file_ingress.v1",
+    "receiptFamily": "caduceus.staff.file_ingress.v1",
+    "ok": True,
+    "action": "file-ingress",
+    "planned": False,
+    "mutationPerformed": True,
+    "target": target,
+    "spoolPath": source,
+    "size": os.path.getsize(target),
+    "firstMissingSignal": "none",
+}))
+"#,
+        )
+        .unwrap();
+        fs::set_permissions(&cli, fs::Permissions::from_mode(0o755)).unwrap();
+        let prior_root = env::var_os("CADUCEUS_ROOT");
+        let prior_ingress_root = env::var_os("CADUCEUS_FILE_INGRESS_ROOT");
+        let prior_cli = env::var_os("CADUCEUS_AGATHODAIMON_CLI");
+        env::set_var("CADUCEUS_ROOT", &root);
+        env::set_var("CADUCEUS_FILE_INGRESS_ROOT", root.join("nas"));
+        env::set_var("CADUCEUS_AGATHODAIMON_CLI", &cli);
+        Self {
+            root,
+            prior_root,
+            prior_ingress_root,
+            prior_cli,
+        }
+    }
+
+    fn spool_entries(&self) -> usize {
+        fs::read_dir(self.root.join("var/lib/caduceus/spool/file-ingress"))
+            .map(|entries| entries.filter_map(Result::ok).count())
+            .unwrap_or(0)
+    }
+}
+
+impl Drop for UploadStaffFixture {
+    fn drop(&mut self) {
+        for (name, value) in [
+            ("CADUCEUS_ROOT", &self.prior_root),
+            ("CADUCEUS_FILE_INGRESS_ROOT", &self.prior_ingress_root),
+            ("CADUCEUS_AGATHODAIMON_CLI", &self.prior_cli),
+        ] {
+            match value {
+                Some(value) => env::set_var(name, value),
+                None => env::remove_var(name),
+            }
+        }
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn liveness_health_is_always_open() {
     let _guard = use_fixture("tests/fixtures/tv");
@@ -823,23 +916,12 @@ async fn registered_service_actions_require_static_attendance_and_read_systemctl
 #[tokio::test(flavor = "current_thread")]
 async fn homeserver_named_file_ingress_route_executes_upload_bytes() {
     let _guard = use_fixture("tests/fixtures/homeserver");
-    let root = std::env::temp_dir().join(format!("caduceus-http-upload-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join("etc/caduceus")).unwrap();
-    std::fs::copy(
-        "tests/fixtures/homeserver/etc/caduceus/profile.yaml",
-        root.join("etc/caduceus/profile.yaml"),
-    )
-    .unwrap();
-    std::env::set_var("CADUCEUS_ROOT", &root);
-    std::env::set_var("CADUCEUS_FILE_INGRESS_ROOT", &root);
-    let app = serve::router();
-    let response = app
+    let fixture = UploadStaffFixture::new("single-shot");
+    let response = serve::router()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/file/ingress")
-
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"filename":"proof.txt","bytes":5,"destination":"/mnt/nas","payload":[104,101,108,108,111]}"#,
@@ -852,16 +934,212 @@ async fn homeserver_named_file_ingress_route_executes_upload_bytes() {
     let json = body_json(response).await;
     assert_eq!(json["schema"], "caduceus.staff.file_ingress.v1");
     assert_eq!(json["mutationPerformed"], true);
-    assert_eq!(json["execution"], "native-rust-file-ingress");
+    assert_eq!(json["execution"], "staff-snake");
     assert_eq!(json["hyalos"]["event"]["kind"], "upload");
-    assert_eq!(std::fs::read(root.join("proof.txt")).unwrap(), b"hello");
+    assert_eq!(
+        std::fs::read(fixture.root.join("nas/proof.txt")).unwrap(),
+        b"hello"
+    );
     assert!(
-        std::fs::read_to_string(root.join("var/log/appliance/appliance.log"))
+        std::fs::read_to_string(fixture.root.join("var/log/appliance/appliance.log"))
             .unwrap()
             .contains("proof.txt")
     );
-    std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
-    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn homeserver_chunked_file_ingress_streams_large_upload_and_aborts_partial() {
+    let _guard = use_fixture("tests/fixtures/homeserver");
+    let fixture = UploadStaffFixture::new("chunked");
+    let app = serve::router();
+    let chunk_size = 4 * 1024 * 1024;
+    let total_size = chunk_size * 2 + 1024 * 1024 + 321;
+    let payload = (0..total_size)
+        .map(|index| ((index * 31 + 7) % 251) as u8)
+        .collect::<Vec<_>>();
+
+    let start = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/file/ingress/start")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "filename": "chunked-proof.bin",
+                        "total_size": total_size,
+                        "target_dir": "/mnt/nas",
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(start.status(), StatusCode::OK);
+    let start = body_json(start).await;
+    let upload_id = start["upload_id"].as_str().unwrap();
+    uuid::Uuid::parse_str(upload_id).unwrap();
+
+    for index in 0..3 {
+        let from = index * chunk_size;
+        let to = std::cmp::min(from + chunk_size, total_size);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/file/ingress/{upload_id}/chunk/{index}"))
+                    .header("content-type", "application/octet-stream")
+                    .body(Body::from(payload[from..to].to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(body_json(response).await["bytes_received"], to as u64);
+    }
+
+    let complete = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/file/ingress/{upload_id}/complete"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(complete.status(), StatusCode::OK);
+    let complete = body_json(complete).await;
+    assert_eq!(complete["schema"], "caduceus.staff.file_ingress.v1");
+    assert_eq!(complete["bytes"], total_size as u64);
+    assert_eq!(
+        fs::read(fixture.root.join("nas/chunked-proof.bin")).unwrap(),
+        payload
+    );
+    assert_eq!(fixture.spool_entries(), 0);
+
+    let abort_start = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/file/ingress/start")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "filename": "abort-proof.bin",
+                        "total_size": total_size,
+                        "target_dir": "/mnt/nas",
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let abort_id = body_json(abort_start).await["upload_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let first_chunk = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/file/ingress/{abort_id}/chunk/0"))
+                .header("content-type", "application/octet-stream")
+                .body(Body::from(payload[..chunk_size].to_vec()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first_chunk.status(), StatusCode::OK);
+    assert_eq!(fixture.spool_entries(), 1);
+    for _ in 0..2 {
+        let abort = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/v1/file/ingress/{abort_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(abort.status(), StatusCode::OK);
+        assert_eq!(body_json(abort).await["ok"], true);
+    }
+    assert_eq!(fixture.spool_entries(), 0);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn homeserver_chunked_file_ingress_refuses_short_complete() {
+    let _guard = use_fixture("tests/fixtures/homeserver");
+    let _fixture = UploadStaffFixture::new("short");
+    let app = serve::router();
+    let start = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/file/ingress/start")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"filename":"short.bin","total_size":8,"target_dir":"/mnt/nas","chunk_size":4}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let upload_id = body_json(start).await["upload_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let chunk = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/file/ingress/{upload_id}/chunk/0"))
+                .header("content-type", "application/octet-stream")
+                .body(Body::from(vec![1_u8, 2, 3, 4]))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(chunk.status(), StatusCode::OK);
+    let complete = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/file/ingress/{upload_id}/complete"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(complete.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        body_json(complete).await["firstMissingSignal"],
+        "caduceus-file-ingress-size-incomplete"
+    );
+    let abort = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/file/ingress/{upload_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(abort.status(), StatusCode::OK);
 }
 
 #[tokio::test(flavor = "current_thread")]
