@@ -44,6 +44,8 @@ struct RuyiRow {
     gui_face: Option<String>,
     caduceus_sha: String,
     env_sha: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rustc_version: Option<String>,
     harmonia_sha: String,
     syzygy_sha: Option<String>,
     #[serde(default)]

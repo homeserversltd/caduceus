@@ -50,6 +50,47 @@ fn local_build_env_sha() -> Option<String> {
     .then_some(digest)
 }
 
+fn local_rustc_version() -> Option<String> {
+    let output = Command::new("rustc").arg("-Vv").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = std::str::from_utf8(&output.stdout).ok()?;
+    let mut release = None;
+    for line in stdout.lines() {
+        let Some(value) = line.strip_prefix("release:") else {
+            continue;
+        };
+        if release.is_some() {
+            return None;
+        }
+        let value = value.trim();
+        if value.is_empty() || value.chars().any(char::is_whitespace) {
+            return None;
+        }
+        let (core, prerelease) = match value.split_once('-') {
+            Some((core, prerelease)) => (core, Some(prerelease)),
+            None => (value, None),
+        };
+        let core_is_valid = core.split('.').count() == 3
+            && core.split('.').all(|component| {
+                !component.is_empty() && component.bytes().all(|byte| byte.is_ascii_digit())
+            });
+        let prerelease_is_valid = prerelease.map_or(true, |suffix| {
+            !suffix.is_empty()
+                && suffix.split('.').all(|identifier| !identifier.is_empty())
+                && suffix
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.'))
+        });
+        if !core_is_valid || !prerelease_is_valid {
+            return None;
+        }
+        release = Some(value.to_owned());
+    }
+    release
+}
+
 fn caduceus_root() -> PathBuf {
     env::var_os("CADUCEUS_ROOT")
         .map(PathBuf::from)
@@ -318,6 +359,10 @@ fn main() {
             local_build_env_sha().unwrap_or_else(|| "unset".to_owned())
         ),
     }
+    println!(
+        "cargo:rustc-env=CADUCEUS_BUILD_RUSTC_VERSION={}",
+        local_rustc_version().unwrap_or_else(|| "unset".to_owned())
+    );
 
     // C2 compile-time canopy selection: YAML is the profile authority.
     let profiles = [

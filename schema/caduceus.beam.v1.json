@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.beam.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "role": "Public compiled BeamPair and locally registered syzygy",
   "authority": {
     "owner": "caduceus",
@@ -34,6 +34,10 @@
       "type": "string",
       "description": "Compiled 64-hex toolchain identity, or unset for an unlabelled build"
     },
+    "rustc_version": {
+      "type": "string",
+      "description": "Rust compiler release version from rustc -Vv, or unset when unavailable"
+    },
     "gui_face": {
       "type": [
         "string",
@@ -55,6 +59,7 @@
     "profile": "string",
     "caduceus_sha": "string",
     "env_sha": "string",
+    "rustc_version": "string",
     "gui_face": "string|null",
     "syzygy_sha": "string|null"
   },
@@ -68,7 +73,8 @@
   ],
   "optional": [
     "gui_face",
-    "syzygy_sha"
+    "syzygy_sha",
+    "rustc_version"
   ],
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }

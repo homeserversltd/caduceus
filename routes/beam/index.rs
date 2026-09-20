@@ -11,6 +11,7 @@ pub(crate) struct BeamBody {
     profile: String,
     caduceus_sha: &'static str,
     env_sha: &'static str,
+    rustc_version: &'static str,
     gui_face: Option<&'static str>,
     syzygy_sha: Option<String>,
 }
@@ -44,6 +45,7 @@ pub(crate) async fn route() -> Result<Json<BeamBody>, (StatusCode, Json<crate::g
         profile,
         caduceus_sha: CADUCEUS_BUILD_SHA.unwrap_or("unset"),
         env_sha: env!("CADUCEUS_BUILD_ENV_SHA"),
+        rustc_version: option_env!("CADUCEUS_BUILD_RUSTC_VERSION").unwrap_or("unset"),
         gui_face,
         syzygy_sha,
     };

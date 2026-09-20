@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.ruyi.v1",
-  "schema_version": "1.0.1",
+  "schema_version": "1.0.2",
   "role": "Public Ruyi row, roster and removal envelope",
   "authority": {
     "owner": "caduceus",
@@ -73,6 +73,10 @@
     "env_sha": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "rustc_version": {
+      "type": "string",
+      "description": "Rust compiler release version from rustc -Vv, or unset when unavailable"
     },
     "harmonia_sha": {
       "type": "string",
@@ -248,6 +252,7 @@
     "gui_face": "string|null",
     "caduceus_sha": "string",
     "env_sha": "string",
+    "rustc_version": "string",
     "harmonia_sha": "string",
     "syzygy_sha": "string|null",
     "last_seen": "integer",
@@ -273,7 +278,8 @@
     "last_seen",
     "perspective",
     "perspectives",
-    "trust"
+    "trust",
+    "rustc_version"
   ],
   "forms": {
     "row": {
@@ -294,6 +300,7 @@
         "ipv4_source",
         "caduceus_port",
         "syzygy_sha",
+        "rustc_version",
         "last_seen",
         "perspective"
       ]
