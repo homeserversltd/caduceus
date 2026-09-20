@@ -90,11 +90,12 @@ struct Resolved {
 }
 
 fn normalize(value: &str) -> Option<String> {
-    let value = value.to_ascii_lowercase();
-    ["homeserver", "homeconsole", "tv", "probe"]
-        .iter()
-        .find(|profile| value == **profile)
-        .map(|profile| (*profile).to_string())
+    match value.to_ascii_lowercase().as_str() {
+        "homeserver" => Some("homeserver".to_string()),
+        "homeconsole" => Some("homeconsole".to_string()),
+        "tv" => Some("tv".to_string()),
+        _ => Some("probe".to_string()),
+    }
 }
 
 fn resolve() -> Result<Resolved, String> {
