@@ -1,7 +1,54 @@
 use std::{
     env, fs,
+    io::Write,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
 };
+
+fn local_build_env_sha() -> Option<String> {
+    fn command_stdout(program: &str, args: &[&str]) -> Option<Vec<u8>> {
+        let output = Command::new(program).args(args).output().ok()?;
+        if !output.status.success() || std::str::from_utf8(&output.stdout).is_err() {
+            return None;
+        }
+        Some(output.stdout)
+    }
+
+    let mut rustc = command_stdout("rustc", &["-Vv"])?;
+    let mut cargo = command_stdout("cargo", &["-V"])?;
+    while rustc.last() == Some(&b'\n') {
+        rustc.pop();
+    }
+    while cargo.last() == Some(&b'\n') {
+        cargo.pop();
+    }
+
+    let mut input = rustc;
+    input.push(b'\n');
+    input.extend_from_slice(&cargo);
+    input.extend_from_slice(b"\nx86_64-unknown-linux-gnu\n");
+
+    let mut sha256sum = Command::new("sha256sum")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .ok()?;
+    sha256sum.stdin.take()?.write_all(&input).ok()?;
+    let output = sha256sum.wait_with_output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let digest = String::from_utf8(output.stdout)
+        .ok()?
+        .split_whitespace()
+        .next()?
+        .to_owned();
+    (digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| matches!(byte, 48..=57 | 97..=102)))
+    .then_some(digest)
+}
 
 fn caduceus_root() -> PathBuf {
     env::var_os("CADUCEUS_ROOT")
@@ -266,7 +313,10 @@ fn main() {
             );
             println!("cargo:rustc-env=CADUCEUS_BUILD_ENV_SHA={env_sha}");
         }
-        Err(_) => println!("cargo:rustc-env=CADUCEUS_BUILD_ENV_SHA=unset"),
+        Err(_) => println!(
+            "cargo:rustc-env=CADUCEUS_BUILD_ENV_SHA={}",
+            local_build_env_sha().unwrap_or_else(|| "unset".to_owned())
+        ),
     }
 
     // C2 compile-time canopy selection: YAML is the profile authority.
