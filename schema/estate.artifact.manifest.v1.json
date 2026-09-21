@@ -1,0 +1,78 @@
+{
+  "schema": "estate.artifact.manifest.v1",
+  "schema_version": "1.0.0",
+  "role": "Immutable component artifact manifest",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/estate.artifact.manifest.v1.json",
+    "producer": ".woodpecker.yml step build-publish-caduceus-package (caduceus); ci/release_publish.py (harmonia and harmonia-monad)",
+    "consumers": [
+      "Chrysalis source_artifact release_artifact",
+      "Fulcrum service-hydration artifact readers"
+    ],
+    "source_docs": [
+      "fulcrum-schema-root-folder-law",
+      "harmonia-component-release-identity-law"
+    ]
+  },
+  "description": "The immutable manifest.json sidecar for a built component artifact.",
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "estate.artifact.manifest.v1"
+    },
+    "component": {
+      "type": "string"
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "env_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "target": {
+      "type": "string",
+      "const": "x86_64-unknown-linux-gnu"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "built_at": {
+      "type": "string"
+    },
+    "pipeline_url": {
+      "type": "string"
+    }
+  },
+  "field_types": {
+    "schema": "literal:estate.artifact.manifest.v1",
+    "component": "string",
+    "source_sha": "string",
+    "env_sha": "string",
+    "target": "string",
+    "sha256": "string",
+    "built_at": "string",
+    "pipeline_url": "string"
+  },
+  "required": [
+    "schema",
+    "component",
+    "source_sha",
+    "env_sha",
+    "target",
+    "sha256",
+    "built_at",
+    "pipeline_url"
+  ],
+  "optional": [],
+  "evolution": {
+    "law": "All eight fields are frozen required.",
+    "producer_contract": "caduceus/harmonia-family producers emit exactly these eight keys; collision verification refuses any other key set.",
+    "missing_field_semantics": "Missing any frozen required field is refused; no field is optional.",
+    "unknown_fields_preserved": true
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

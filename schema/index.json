@@ -24,6 +24,10 @@
       "file": "schema/estate.release-flag.v1.json",
       "schema_version": "1.0.0"
     },
+    "estate.artifact.manifest.v1": {
+      "file": "schema/estate.artifact.manifest.v1.json",
+      "schema_version": "1.0.0"
+    },
     "caduceus.xenia.verdict.v1": {"file": "schema/caduceus.xenia.verdict.v1.json", "schema_version": "1.0.0"},
     "appliance.xenia.v1": {"file": "schema/appliance.xenia.v1.json", "schema_version": "1.0.0"},
     "coronatio.face-surface.v1": {"file": "schema/coronatio.face-surface.v1.json", "schema_version": "1.0.0"},
