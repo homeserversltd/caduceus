@@ -27,10 +27,11 @@ class ReleaseError(RuntimeError):
 
 
 class ReleaseRetentionError(ReleaseError):
-    def __init__(self, message, deleted, current=None):
+    def __init__(self, message, deleted, current=None, remaining_tag_refs=None):
         super().__init__(message)
         self.deleted = list(deleted)
         self.current = current
+        self.remaining_tag_refs = list(remaining_tag_refs or [])
 
 
 def request(method, path, token, *, body=None, data=None, query=None, binary=False):
@@ -380,8 +381,8 @@ def retention_plan(protected_release_id, token):
     return plan
 
 
-def delete_release_and_tag(release, token, progress):
-    """Delete only the eligible exact sha release and then prove its ref is gone."""
+def delete_release_and_tag(release, token, progress, remaining_tag_refs):
+    """Attempt API cleanup of the eligible release and record any surviving ref."""
     release_id = release["id"]
     tag = release["tag_name"]
     commit = tag[4:]
@@ -412,14 +413,16 @@ def delete_release_and_tag(release, token, progress):
     )
     progress["tag_ref_read_status"] = ref_status
     if ref_status == 200:
-        raise ReleaseError("release-retention-tag-ref-survives:" + tag)
-    if ref_status != 404:
+        progress["tag_ref_survives"] = True
+        remaining_tag_refs.append(tag)
+    elif ref_status != 404:
         raise ReleaseError("release-retention-tag-ref-readback-failed:" + tag)
 
 
 def retain_releases(protected_release_id, token):
     plan, deleted_records = _retention_plan_records(protected_release_id, token)
     deleted = []
+    remaining_tag_refs = []
     current = None
     if deleted_records:
         try:
@@ -434,13 +437,18 @@ def retain_releases(protected_release_id, token):
                     "tag_delete_attempted": False,
                     "tag_delete_status": None,
                     "tag_ref_read_status": None,
+                    "tag_ref_survives": False,
                 }
-                delete_release_and_tag(release, token, current)
+                delete_release_and_tag(release, token, current, remaining_tag_refs)
                 deleted.append({"id": release["id"], "tag": release["tag_name"]})
                 current = None
         except ReleaseError as exc:
-            raise ReleaseRetentionError(str(exc), deleted, current) from exc
-    return plan
+            raise ReleaseRetentionError(
+                str(exc), deleted, current, remaining_tag_refs
+            ) from exc
+    receipt = dict(plan)
+    receipt["remaining_tag_refs"] = remaining_tag_refs
+    return receipt
 
 
 def publish(root, token):

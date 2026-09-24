@@ -536,6 +536,7 @@ def main(argv=None):
                 "deleted": deleted,
                 "deleted_count": len(deleted),
                 "current": getattr(exc, "current", None),
+                "remaining_tag_refs": getattr(exc, "remaining_tag_refs", []),
             }
         code = 1
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
