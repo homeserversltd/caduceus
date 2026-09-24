@@ -253,7 +253,7 @@ def release_base():
 
 
 def read_release(commit, token):
-    encoded = quote(commit, safe="")
+    encoded = quote(PUBLISHER.release_tag(commit), safe="")
     status, release = PUBLISHER.request(
         "GET", release_base() + "/releases/tags/" + encoded, token
     )

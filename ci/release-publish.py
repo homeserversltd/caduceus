@@ -161,6 +161,13 @@ def tag_target(tag):
     return tag.get("sha") or tag.get("id") or tag.get("target")
 
 
+def release_tag(commit):
+    """Return the release tag for a validated full commit SHA."""
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ReleaseError("CI_COMMIT_SHA-missing-or-invalid")
+    return "sha-" + commit
+
+
 def assets_by_name(assets):
     if not isinstance(assets, list):
         raise ReleaseError("release-assets-invalid")
@@ -273,7 +280,7 @@ def verify_release_identity(release, commit, release_name):
     if not isinstance(release, dict) or release.get("id") is None:
         raise ReleaseError("release-read-failed")
     if (
-        release.get("tag_name") != commit
+        release.get("tag_name") != release_tag(commit)
         or release.get("name") != release_name
         or release.get("target_commitish") != commit
     ):
@@ -292,7 +299,8 @@ def publish(root, token):
     cargo_version, expected = read_artifacts(root)
     release_name = f"{REPO} {commit[:8]}"
     base = "/repos/" + quote(OWNER, safe="") + "/" + quote(REPO, safe="")
-    encoded_tag = quote(commit, safe="")
+    tag_name = release_tag(commit)
+    encoded_tag = quote(tag_name, safe="")
 
     status, release = request("GET", base + "/releases/tags/" + encoded_tag, token)
     changed = False
@@ -318,7 +326,7 @@ def publish(root, token):
         elif tag_status == 404:
             tag_status, _ = request(
                 "POST", base + "/tags", token,
-                body={"tag_name": commit, "target": commit},
+                body={"tag_name": tag_name, "target": commit},
             )
             if tag_status not in (200, 201):
                 raise ReleaseError("tag-create-failed")
@@ -332,7 +340,7 @@ def publish(root, token):
         release_status, release = request(
             "POST", base + "/releases", token,
             body={
-                "tag_name": commit,
+                "tag_name": tag_name,
                 "name": release_name,
                 "body": "caduceus release for " + commit,
                 "target_commitish": commit,
@@ -363,7 +371,7 @@ def publish(root, token):
         "schema": SCHEMA,
         "repository": OWNER + "/" + REPO,
         "cargo_version": cargo_version,
-        "tag": commit,
+        "tag": tag_name,
         "name": release_name,
         "target_commitish": commit,
         "assets": list(expected),
