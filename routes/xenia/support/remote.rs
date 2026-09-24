@@ -62,8 +62,44 @@ fn forgejo_token() -> Result<String> {
 
 /// Only release metadata and the two evidence assets enter this HTTPS reader.
 /// curl's own total deadline covers DNS, connect and response transfer. Reading
-/// at most LIMIT+1 also bounds unknown/chunked response sizes in memory.
-fn https(url: &str, token: &str) -> Result<Vec<u8>> {
+/// at most LIMIT+3 bounds the body plus its three-byte HTTP status trailer.
+struct HttpsResponse {
+    status: u16,
+    body: Vec<u8>,
+}
+
+/// Normalize only full commit references; return the lookup tag and the
+/// underlying commit identity without letting the tag become that identity.
+fn commit_reference(reference: &str) -> Option<(String, String)> {
+    let (sha, bare) = match reference.strip_prefix("sha-") {
+        Some(sha)
+            if sha.len() == 40
+                && sha
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
+        {
+            (sha, false)
+        }
+        Some(_) => return None,
+        None
+            if reference.len() == 40
+                && reference
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
+        {
+            (reference, true)
+        }
+        None => return None,
+    };
+    let lookup_tag = if bare {
+        format!("sha-{sha}")
+    } else {
+        reference.to_owned()
+    };
+    Some((lookup_tag, sha.to_owned()))
+}
+
+fn https(url: &str, token: &str) -> Result<HttpsResponse> {
     if !std::path::Path::new("/usr/bin/curl").is_file() {
         return Err(observation("F", "source", "curl-absent"));
     }
@@ -87,6 +123,8 @@ fn https(url: &str, token: &str) -> Result<Vec<u8>> {
             "5",
             "--max-filesize",
             "1048576",
+            "--write-out",
+            "%{http_code}",
             "--cacert",
             "/etc/ssl/certs/ca-certificates.crt",
             "--config",
@@ -113,9 +151,9 @@ fn https(url: &str, token: &str) -> Result<Vec<u8>> {
         .stdout
         .take()
         .ok_or_else(|| observation("F", "source", "curl-pipe-absent"))?
-        .take((LIMIT + 1) as u64)
+        .take((LIMIT + 4) as u64)
         .read_to_end(&mut bytes);
-    if read.is_err() || bytes.len() > LIMIT {
+    if read.is_err() || bytes.len() > LIMIT + 3 {
         let _ = child.kill();
         let _ = child.wait();
         return Err(observation(
@@ -124,13 +162,34 @@ fn https(url: &str, token: &str) -> Result<Vec<u8>> {
             "release-response-size-or-read-failed",
         ));
     }
-    let status = child
+    // Drain the bounded output and reap curl before interpreting its trailer;
+    // malformed or missing status text must not leave the child unreaped.
+    let exit = child
         .wait()
         .map_err(|e| observation("F", "source", e.to_string()))?;
-    if !status.success() {
-        return Err(observation("F", "source", format!("curl-failed: {status}")));
+    if bytes.len() < 3 {
+        return Err(observation("F", "source", "release-http-status-absent"));
     }
-    Ok(bytes)
+    let status_start = bytes.len() - 3;
+    let status = std::str::from_utf8(&bytes[status_start..])
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .ok_or_else(|| observation("F", "source", "release-http-status-absent"))?;
+    bytes.truncate(status_start);
+    if bytes.len() > LIMIT {
+        return Err(observation(
+            "F",
+            "source",
+            "release-response-size-or-read-failed",
+        ));
+    }
+    if !exit.success() && !(exit.code() == Some(22) && status == 404) {
+        return Err(observation("F", "source", format!("curl-failed: {exit}")));
+    }
+    Ok(HttpsResponse {
+        status,
+        body: bytes,
+    })
 }
 
 /// Local HTTP observations never use the release transport or carry credentials.
@@ -278,21 +337,48 @@ pub fn release(manifest: &Value) -> Result<Value> {
     let reference = source["ref"]
         .as_str()
         .ok_or_else(|| observation("F", "source.ref", "release-ref-absent"))?;
-    let mut api = url::Url::parse("https://git.home.arpa/api/v1/repos/")
+    let api = url::Url::parse("https://git.home.arpa/api/v1/repos/")
         .map_err(|e| observation("F", "source", e.to_string()))?;
-    {
-        let mut segments = api
+    let release_url = |tag: &str| -> Result<url::Url> {
+        let mut url = api.clone();
+        let mut segments = url
             .path_segments_mut()
             .map_err(|_| observation("F", "source", "forge-path-invalid"))?;
         segments.pop_if_empty();
         for part in repo.split('/') {
             segments.push(part);
         }
-        segments.extend(["releases", "tags", reference]);
+        segments.extend(["releases", "tags", tag]);
+        drop(segments);
+        Ok(url)
+    };
+    let commit = commit_reference(reference);
+    let lookup_tag = commit
+        .as_ref()
+        .map(|(tag, _)| tag.as_str())
+        .unwrap_or(reference);
+    let mut release_response = https(release_url(lookup_tag)?.as_str(), &token)?;
+    if commit.as_ref().is_some_and(|(_, _)| reference.len() == 40) && release_response.status == 404
+    {
+        release_response = https(release_url(reference)?.as_str(), &token)?;
     }
-    let release: Value = serde_json::from_slice(&https(api.as_str(), &token)?)
+    if release_response.status != 200 {
+        return Err(observation(
+            "F",
+            "release",
+            format!("release-http-status: {}", release_response.status),
+        ));
+    }
+    let release: Value = serde_json::from_slice(&release_response.body)
         .map_err(|e| observation("F", "release", e.to_string()))?;
-    if release["tag_name"].as_str() != Some(reference) {
+    let tag_name = release["tag_name"].as_str();
+    let tag_matches = match commit.as_ref().filter(|_| reference.len() == 40) {
+        Some((tag, sha)) => {
+            tag_name == Some(reference) || tag_name == Some(tag.as_str()) || tag_name == Some(sha)
+        }
+        None => tag_name == Some(reference),
+    };
+    if !tag_matches {
         return Err(observation("F", "release.tag_name", "release-ref-mismatch"));
     }
     let assets = release["assets"]
@@ -321,9 +407,12 @@ pub fn release(manifest: &Value) -> Result<Value> {
         }
         Ok(value.into())
     };
-    let sidecar = https(&asset_url(&sidecar_name)?, &token)?;
-    let sidecar =
-        std::str::from_utf8(&sidecar).map_err(|e| observation("F", "sidecar", e.to_string()))?;
+    let sidecar_response = https(&asset_url(&sidecar_name)?, &token)?;
+    if sidecar_response.status != 200 {
+        return Err(observation("F", "sidecar", "release-evidence-http-failed"));
+    }
+    let sidecar = std::str::from_utf8(&sidecar_response.body)
+        .map_err(|e| observation("F", "sidecar", e.to_string()))?;
     let lines: Vec<_> = sidecar
         .lines()
         .filter(|line| !line.trim().is_empty())
@@ -349,13 +438,29 @@ pub fn release(manifest: &Value) -> Result<Value> {
     {
         return Err(observation("F", "sidecar", "sidecar-asset-mismatch"));
     }
-    let flag: Value = serde_json::from_slice(&https(&asset_url("release.flag")?, &token)?)
+    let flag_response = https(&asset_url("release.flag")?, &token)?;
+    if flag_response.status != 200 {
+        return Err(observation(
+            "F",
+            "release.flag",
+            "release-evidence-http-failed",
+        ));
+    }
+    let flag: Value = serde_json::from_slice(&flag_response.body)
         .map_err(|e| observation("F", "release.flag", e.to_string()))?;
     seat::form("estate.release-flag.v1", None, &flag, "F", "release.flag")?;
-    let revision_matches = flag["source_sha"].as_str() == Some(reference)
-        || release
-            .get("target_commitish")
-            .is_some_and(|target| target == &flag["source_sha"]);
+    let revision_matches = match &commit {
+        Some((_, sha)) => {
+            flag["source_sha"].as_str() == Some(sha.as_str())
+                && release.get("target_commitish").and_then(Value::as_str) == Some(sha.as_str())
+        }
+        None => {
+            flag["source_sha"].as_str() == Some(reference)
+                || release
+                    .get("target_commitish")
+                    .is_some_and(|target| target == &flag["source_sha"])
+        }
+    };
     if flag["component"].as_str() != Some(component) || !revision_matches {
         return Err(observation(
             "F",
