@@ -23,6 +23,8 @@ fn stats_contract_keeps_subprocesses_bounded_and_sample_keys_stable() {
         "self",
         "ts",
         "collectedAt",
+        "cpu",
+        "pressure",
         "load",
         "temperature",
         "fans",

@@ -176,6 +176,92 @@ fn number(s: &str) -> Option<f64> {
 fn read_text(path: &str) -> Option<String> {
     fs::read_to_string(path).ok()
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CpuCounters {
+    total: u64,
+    idle: u64,
+    iowait: u64,
+}
+
+fn parse_cpu_counters(stat: &str) -> Option<CpuCounters> {
+    let line = stat.lines().find(|line| line.starts_with("cpu "))?;
+    let fields = line.split_whitespace().skip(1).collect::<Vec<_>>();
+    if fields.len() < 8 {
+        return None;
+    }
+    let counters = fields
+        .iter()
+        .map(|field| field.parse::<u64>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    // Linux reports guest and guest_nice inside user and nice already; sum
+    // user..steal only to avoid counting either guest counter twice.
+    let total = counters[..8]
+        .iter()
+        .try_fold(0u64, |sum, counter| sum.checked_add(*counter))?;
+    Some(CpuCounters {
+        total,
+        idle: counters[3],
+        iowait: counters[4],
+    })
+}
+
+fn cpu_usage_percent(previous: Option<CpuCounters>, current: Option<CpuCounters>) -> Value {
+    let (Some(previous), Some(current)) = (previous, current) else {
+        return Value::Null;
+    };
+    let (Some(total), Some(idle), Some(iowait)) = (
+        current.total.checked_sub(previous.total),
+        current.idle.checked_sub(previous.idle),
+        current.iowait.checked_sub(previous.iowait),
+    ) else {
+        // A reset or stale counter snapshot is not a meaningful interval.
+        return Value::Null;
+    };
+    if total == 0 {
+        return Value::Null;
+    }
+    // Linux iowait is included in idle. Treating it as idle (not busy) makes
+    // the reported value CPU execution pressure, rather than blocked time.
+    let idle_delta = idle.saturating_add(iowait);
+    let busy = total.saturating_sub(idle_delta.min(total));
+    json!((busy as f64 * 100.0 / total as f64).clamp(0.0, 100.0))
+}
+
+fn parse_io_pressure(contents: &str) -> Option<(f64, f64)> {
+    let mut some = None;
+    let mut full = None;
+    for line in contents.lines() {
+        let mut fields = line.split_whitespace();
+        let kind = fields.next()?;
+        let mut avg10 = None;
+        for field in fields {
+            if let Some(value) = field.strip_prefix("avg10=") {
+                avg10 = value
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|value| value.is_finite() && (0.0..=100.0).contains(value));
+                break;
+            }
+        }
+        match (kind, avg10) {
+            ("some", Some(value)) => some = Some(value),
+            ("full", Some(value)) => full = Some(value),
+            _ => return None,
+        }
+    }
+    Some((some?, full?))
+}
+
+fn io_pressure() -> Value {
+    let Some(contents) = read_text("/proc/pressure/io") else {
+        return json!({"someAvg10":Value::Null,"fullAvg10":Value::Null});
+    };
+    match parse_io_pressure(&contents) {
+        Some((some, full)) => json!({"someAvg10":some,"fullAvg10":full}),
+        None => json!({"someAvg10":Value::Null,"fullAvg10":Value::Null}),
+    }
+}
 fn meminfo() -> Value {
     let mut m = serde_json::Map::new();
     if let Some(t) = read_text("/proc/meminfo") {
@@ -969,8 +1055,17 @@ fn snapshot_with_state(
     tick_millis: u64,
     persist_millis: u64,
     previous_self_ticks: Option<u64>,
-) -> (Value, BTreeMap<u32, u64>, Option<u64>, u64) {
+    previous_cpu: Option<CpuCounters>,
+) -> (
+    Value,
+    BTreeMap<u32, u64>,
+    Option<u64>,
+    u64,
+    Option<CpuCounters>,
+) {
     let ts = now();
+    let cpu_counters = read_text("/proc/stat").and_then(|stat| parse_cpu_counters(&stat));
+    let cpu_usage = cpu_usage_percent(previous_cpu, cpu_counters);
     let net = network();
     let usage = disk_usage();
     let io = disk_io(&usage);
@@ -981,7 +1076,7 @@ fn snapshot_with_state(
         previous_self_ticks,
         elapsed,
     );
-    let mut value = json!({"schema":"caduceus.appliance.stats.sample.v1","ts":ts,"collectedAt":chrono::DateTime::<chrono::Utc>::from_timestamp(ts,0).map(|d|d.to_rfc3339()),"load":load(),"temperature":temperatures(),"fans":fans(),"gpu":gpu(gpu_cache),"memory":meminfo(),"network":{"interfaces":net,"throughput":Value::Null},"tcp":tcp(),"disk":{"io":io,"usage":usage,"throughput":Value::Null},"processes":Value::Null,"self":self_value});
+    let mut value = json!({"schema":"caduceus.appliance.stats.sample.v1","ts":ts,"collectedAt":chrono::DateTime::<chrono::Utc>::from_timestamp(ts,0).map(|d|d.to_rfc3339()),"cpu":{"usagePercent":cpu_usage},"pressure":{"io":io_pressure()},"load":load(),"temperature":temperatures(),"fans":fans(),"gpu":gpu(gpu_cache),"memory":meminfo(),"network":{"interfaces":net,"throughput":Value::Null},"tcp":tcp(),"disk":{"io":io,"usage":usage,"throughput":Value::Null},"processes":Value::Null,"self":self_value});
     if let Some(prev) = previous {
         let dt = (ts - prev.get("ts").and_then(Value::as_i64).unwrap_or(ts)).max(1) as f64;
         let mut throughput = json!({});
@@ -1024,10 +1119,10 @@ fn snapshot_with_state(
     }
     let (processes, ticks) = processes(process_ticks, elapsed);
     value["processes"] = processes;
-    (value, ticks, self_ticks, self_rss)
+    (value, ticks, self_ticks, self_rss, cpu_counters)
 }
 
-const AGGREGATE_SQL: &str = "SELECT COUNT(*), AVG(json_extract(data, '$.load.one')), AVG(json_extract(data, '$.load.five')), AVG(json_extract(data, '$.load.fifteen')), AVG(json_extract(data, '$.temperature.celsius')), AVG(json_extract(data, '$.gpu.utilizationPercent')), AVG(json_extract(data, '$.gpu.temperatureCelsius')), AVG(json_extract(data, '$.memory.usedBytes')), AVG(json_extract(data, '$.memory.usedBytesSwap')), AVG(json_extract(data, '$.network.throughput.rxBytesPerSecond')), AVG(json_extract(data, '$.network.throughput.txBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.readBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.writeBytesPerSecond')), AVG(json_extract(data, '$.self.rssBytes')), MAX(json_extract(data, '$.self.rssBytes')), AVG(json_extract(data, '$.self.tickMillis')), MAX(json_extract(data, '$.self.tickMillis')) FROM raw_samples WHERE ts >= ?1 AND ts < ?2";
+const AGGREGATE_SQL: &str = "SELECT COUNT(*), AVG(json_extract(data, '$.load.one')), AVG(json_extract(data, '$.load.five')), AVG(json_extract(data, '$.load.fifteen')), AVG(json_extract(data, '$.temperature.celsius')), AVG(json_extract(data, '$.gpu.utilizationPercent')), AVG(json_extract(data, '$.gpu.temperatureCelsius')), AVG(json_extract(data, '$.memory.usedBytes')), AVG(json_extract(data, '$.memory.usedBytesSwap')), AVG(json_extract(data, '$.network.throughput.rxBytesPerSecond')), AVG(json_extract(data, '$.network.throughput.txBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.readBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.writeBytesPerSecond')), AVG(json_extract(data, '$.self.rssBytes')), MAX(json_extract(data, '$.self.rssBytes')), AVG(json_extract(data, '$.self.tickMillis')), MAX(json_extract(data, '$.self.tickMillis')), AVG(json_extract(data, '$.cpu.usagePercent')), AVG(json_extract(data, '$.pressure.io.someAvg10')), AVG(json_extract(data, '$.pressure.io.fullAvg10')) FROM raw_samples WHERE ts >= ?1 AND ts < ?2";
 
 fn sql_value(value: Option<f64>) -> Value {
     value.map_or(Value::Null, |value| json!(value))
@@ -1056,6 +1151,9 @@ fn aggregate(c: &Connection, bucket: i64) -> Result<String, String> {
                 row.get::<_, Option<f64>>(14)?,
                 row.get::<_, Option<f64>>(15)?,
                 row.get::<_, Option<f64>>(16)?,
+                row.get::<_, Option<f64>>(17)?,
+                row.get::<_, Option<f64>>(18)?,
+                row.get::<_, Option<f64>>(19)?,
             ))
         })
         .map_err(|error| error.to_string())?;
@@ -1085,6 +1183,9 @@ fn aggregate(c: &Connection, bucket: i64) -> Result<String, String> {
         self_rss_max,
         self_tick,
         self_tick_max,
+        cpu_usage,
+        io_some,
+        io_full,
     ) = row;
     let mut result = json!({
         "schema": "caduceus.appliance.stats.minute.v1",
@@ -1107,6 +1208,9 @@ fn aggregate(c: &Connection, bucket: i64) -> Result<String, String> {
             "selfRssBytesMax": sql_value(self_rss_max),
             "selfTickMillis": sql_value(self_tick),
             "selfTickMillisMax": sql_value(self_tick_max),
+            "cpuUsagePercent": sql_value(cpu_usage),
+            "ioPressureSomeAvg10": sql_value(io_some),
+            "ioPressureFullAvg10": sql_value(io_full),
         },
         "last": Value::Null,
     })
@@ -1394,6 +1498,7 @@ fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
     let mut next = Instant::now() + Duration::from_secs(1);
     let mut previous: Option<Value> = None;
     let mut previous_self_ticks: Option<u64> = None;
+    let mut previous_cpu: Option<CpuCounters> = None;
     let mut previous_persist_millis: Option<u64> = None;
     let mut bucket = now() / 60;
     let mut tick_histogram = [0u64; 8];
@@ -1488,7 +1593,7 @@ fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
         minute_doors.add_assign(&door_snapshot);
         let doors = door_snapshot.as_value();
         let sample_started = Instant::now();
-        let (mut value, ticks, self_ticks, self_rss) = snapshot_with_state(
+        let (mut value, ticks, self_ticks, self_rss, cpu_counters) = snapshot_with_state(
             previous.as_ref(),
             &process_ticks,
             elapsed,
@@ -1497,6 +1602,7 @@ fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
             0,
             previous_persist_millis.unwrap_or(0),
             previous_self_ticks,
+            previous_cpu,
         );
         let sample_millis = sample_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
         value["self"]["tickMillis"] = json!(sample_millis);
@@ -1505,6 +1611,7 @@ fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
         process_ticks = ticks;
         process_sample_at = Some(instant);
         previous_self_ticks = self_ticks;
+        previous_cpu = cpu_counters;
         if bucket_rss_start == 0 {
             bucket_rss_start = self_rss;
         }
@@ -1590,6 +1697,7 @@ pub fn snapshot() -> Value {
         crate::routes::leaf_appliance_stats::door_stats(false),
         0,
         0,
+        None,
         None,
     )
     .0
@@ -1737,7 +1845,7 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
         "[]".to_owned()
     };
     Ok(format!(
-        "{{\"schema\":\"caduceus.appliance.stats.history.v1\",\"retention\":{{\"rawSeconds\":{RAW_RETENTION_SECONDS},\"rawMaxPoints\":{RAW_RETENTION_SECONDS},\"minuteSeconds\":{MINUTE_RETENTION_SECONDS},\"minuteMaxPoints\":{minute_points},\"selfSeconds\":{MINUTE_RETENTION_SECONDS},\"selfMaxPoints\":{minute_points}}},\"consolidation\":{{\"raw\":\"sqlite-backed one-second samples\",\"minute\":{{\"averages\":[\"load.one\",\"load.five\",\"load.fifteen\",\"temperature.celsius\",\"gpu.utilizationPercent\",\"gpu.temperatureCelsius\",\"memory.usedBytes\",\"memory.usedBytesSwap\",\"network.throughput\",\"disk.throughput\",\"self.rssBytes\",\"self.tickMillis\"]}}}},\"window\":{{\"tier\":{},\"since\":{},\"until\":{},\"limit\":{}}},\"tiers\":{{\"raw\":{},\"minute\":{},\"self\":{}}}}}",
+        "{{\"schema\":\"caduceus.appliance.stats.history.v1\",\"retention\":{{\"rawSeconds\":{RAW_RETENTION_SECONDS},\"rawMaxPoints\":{RAW_RETENTION_SECONDS},\"minuteSeconds\":{MINUTE_RETENTION_SECONDS},\"minuteMaxPoints\":{minute_points},\"selfSeconds\":{MINUTE_RETENTION_SECONDS},\"selfMaxPoints\":{minute_points}}},\"consolidation\":{{\"raw\":\"sqlite-backed one-second samples\",\"minute\":{{\"averages\":[\"load.one\",\"load.five\",\"load.fifteen\",\"temperature.celsius\",\"gpu.utilizationPercent\",\"gpu.temperatureCelsius\",\"memory.usedBytes\",\"memory.usedBytesSwap\",\"network.throughput\",\"disk.throughput\",\"self.rssBytes\",\"self.tickMillis\",\"cpu.usagePercent\",\"pressure.io.someAvg10\",\"pressure.io.fullAvg10\"]}}}},\"window\":{{\"tier\":{},\"since\":{},\"until\":{},\"limit\":{}}},\"tiers\":{{\"raw\":{},\"minute\":{},\"self\":{}}}}}",
         serde_json::to_string(tier).unwrap_or_else(|_| "\"both\"".to_owned()),
         since,
         until,
@@ -1750,4 +1858,30 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
 
 pub fn history(query: HistoryQuery) -> Result<String, String> {
     history_with_query(query)
+}
+
+#[cfg(test)]
+mod cpu_pressure_tests {
+    use super::*;
+
+    #[test]
+    fn cpu_delta_excludes_iowait_and_guest_double_counting() {
+        let previous = parse_cpu_counters("cpu 10 2 3 50 5 1 1 1 99 88\n").unwrap();
+        let current = parse_cpu_counters("cpu 20 4 5 60 10 2 2 2 109 98\n").unwrap();
+        assert_eq!(current.total - previous.total, 32);
+        assert_eq!(cpu_usage_percent(None, Some(current)), Value::Null);
+        assert_eq!(cpu_usage_percent(Some(previous), Some(current)), json!(100.0 * 17.0 / 32.0));
+        assert_eq!(cpu_usage_percent(Some(current), Some(previous)), Value::Null);
+    }
+
+    #[test]
+    fn io_pressure_requires_both_well_formed_averages() {
+        let pressure = parse_io_pressure(
+            "some avg10=1.25 avg60=2.00 avg300=3.00 total=4\nfull avg10=0.50 avg60=1.00 avg300=1.50 total=2\n",
+        )
+        .unwrap();
+        assert_eq!(pressure, (1.25, 0.5));
+        assert!(parse_io_pressure("some avg10=1 avg60=2\n").is_none());
+        assert!(parse_io_pressure("some avg10=NaN\nfull avg10=1\n").is_none());
+    }
 }
