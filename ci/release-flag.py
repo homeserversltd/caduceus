@@ -276,6 +276,35 @@ def read_release(commit, token):
     return release_id, assets
 
 
+def read_release_record(commit, token):
+    encoded = quote(PUBLISHER.release_tag(commit), safe="")
+    status, release = PUBLISHER.request(
+        "GET", release_base() + "/releases/tags/" + encoded, token
+    )
+    if status != 200 or not isinstance(release, dict) or release.get("id") is None:
+        raise FlagError("release-GET-failed-HTTP-" + str(status))
+    return release
+
+
+def retention_plan_for_commit(commit, token):
+    if not HEX40.fullmatch(commit):
+        raise FlagError("CI_COMMIT_SHA-missing-or-invalid")
+    release = read_release_record(commit, token)
+    try:
+        PUBLISHER.verify_release_identity(
+            release, commit, "caduceus " + commit[:8]
+        )
+        plan = PUBLISHER.retention_plan(release["id"], token)
+    except PUBLISHER.ReleaseError as exc:
+        raise FlagError(str(exc)) from exc
+    return {
+        "status": "retention-plan",
+        "repository": "HOMESERVERSLTD/caduceus",
+        "protected_release_id": release["id"],
+        "retention": plan,
+    }
+
+
 def get_release_assets(release_id, token):
     status, assets = PUBLISHER.request(
         "GET", release_base() + "/releases/" + str(release_id) + "/assets", token
@@ -448,18 +477,28 @@ def run(args, schema):
         }
 
     result = upload_flag(release_id, body, token, schema, named)
+    retention = None
+    if os.environ.get("CI_COMMIT_BRANCH") == "main":
+        try:
+            retention = PUBLISHER.retain_releases(release_id, token, ROOT)
+        except PUBLISHER.ReleaseRetentionError:
+            # The immutable release.flag has already been read back; retention
+            # failure stays fatal and never attempts to undo that publication.
+            raise
     return {
         "status": result["status"],
         "verified_profiles": list(PROFILES),
         "aggregate_sha256": aggregate,
         "flag": body,
         "comparison": result,
+        "retention": retention,
     }
 
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="GET-only verification and flag preview")
+    parser.add_argument("--retention-plan", action="store_true", help="GET-only release retention plan")
     parser.add_argument("--house-ca", action="store_true", help="GET the house CA bundle and write it for SSL_CERT_FILE trust")
     parser.add_argument("--commit-sha", help="deterministic replacement for CI_COMMIT_SHA")
     parser.add_argument("--pipeline-url", help="deterministic replacement for CI_PIPELINE_URL")
@@ -474,15 +513,30 @@ def main(argv=None):
     try:
         if args.house_ca:
             install_house_ca()
-        result = run(args, schema)
+        if args.retention_plan:
+            token = os.environ.get("FORGEJO_TOKEN", "")
+            if not token:
+                raise FlagError("FORGEJO_TOKEN-missing")
+            commit = args.commit_sha or os.environ.get("CI_COMMIT_SHA", "")
+            result = retention_plan_for_commit(commit, token)
+        else:
+            result = run(args, schema)
         code = 0
     except (FlagError, PUBLISHER.ReleaseError, OSError, ValueError) as exc:
-        result = {
+        result: dict[str, object] = {
             "status": "error",
             "error": error_with_transport_reason(
                 exc, os.environ.get("FORGEJO_TOKEN", "")
             ),
         }
+        if isinstance(exc, PUBLISHER.ReleaseRetentionError):
+            deleted = getattr(exc, "deleted", [])
+            result["retention"] = {
+                "status": "partial",
+                "deleted": deleted,
+                "deleted_count": len(deleted),
+                "current": getattr(exc, "current", None),
+            }
         code = 1
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     return code

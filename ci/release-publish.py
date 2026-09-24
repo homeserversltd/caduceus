@@ -5,8 +5,11 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
+import tempfile
 import tomllib
+from datetime import datetime
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
@@ -18,10 +21,18 @@ REPO = "caduceus"
 SCHEMA = "caduceus.forgejo-release-publish.v2"
 PROFILES = ("homeserver", "homeconsole", "tv", "probe")
 LEGACY_ASSETS = frozenset({REPO + "-x86_64", REPO + "-x86_64.sha256"})
+RELEASE_RETENTION_KEEP = 20
 
 
 class ReleaseError(RuntimeError):
     pass
+
+
+class ReleaseRetentionError(ReleaseError):
+    def __init__(self, message, deleted, current=None):
+        super().__init__(message)
+        self.deleted = list(deleted)
+        self.current = current
 
 
 def request(method, path, token, *, body=None, data=None, query=None, binary=False):
@@ -287,6 +298,212 @@ def verify_release_identity(release, commit, release_name):
         raise ReleaseError("release-identity-mismatch")
 
 
+def _release_created_at(release):
+    value = release.get("created_at")
+    if not isinstance(value, str):
+        return None
+    try:
+        result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if result.tzinfo is None:
+        return None
+    return result
+
+
+def eligible_release(release):
+    """Accept only published sha releases whose target is that exact commit."""
+    if not isinstance(release, dict) or release.get("draft") is not False:
+        return False
+    release_id = release.get("id")
+    tag = release.get("tag_name")
+    target = release.get("target_commitish")
+    if isinstance(release_id, bool) or not isinstance(release_id, int) or release_id < 0:
+        return False
+    if not isinstance(tag, str) or not re.fullmatch(r"sha-([0-9a-f]{40})", tag):
+        return False
+    if target != tag[4:] or _release_created_at(release) is None:
+        return False
+    return True
+
+
+def list_all_releases(token):
+    """Read every release with Forgejo's 50-item page cap and short-page stop."""
+    base = "/repos/" + quote(OWNER, safe="") + "/" + quote(REPO, safe="")
+    page = 1
+    releases = []
+    seen_ids = set()
+    while True:
+        status, batch = request(
+            "GET", base + "/releases", token,
+            query={"limit": 50, "page": page},
+        )
+        if status != 200 or not isinstance(batch, list):
+            raise ReleaseError("release-retention-list-failed")
+        for release in batch:
+            if isinstance(release, dict):
+                release_id = release.get("id")
+                if isinstance(release_id, int) and not isinstance(release_id, bool):
+                    if release_id in seen_ids:
+                        raise ReleaseError("release-retention-page-duplicate")
+                    seen_ids.add(release_id)
+            releases.append(release)
+        if len(batch) < 50:
+            return releases
+        page += 1
+
+
+def _retention_plan_records(protected_release_id, token):
+    """Return the public plan and private release records needed to execute it."""
+    all_releases = list_all_releases(token)
+    eligible = [release for release in all_releases if eligible_release(release)]
+    eligible.sort(key=lambda release: (_release_created_at(release), release["id"]), reverse=True)
+    by_id = {release["id"]: release for release in eligible}
+    protected = by_id.get(protected_release_id)
+    if protected is None:
+        raise ReleaseError("release-retention-protected-release-ineligible")
+    kept_ids = {release["id"] for release in eligible[:RELEASE_RETENTION_KEEP]}
+    kept_ids.add(protected_release_id)
+    kept = [release for release in eligible if release["id"] in kept_ids]
+    deleted = [release for release in eligible if release["id"] not in kept_ids]
+    plan = {
+        "eligible_count": len(eligible),
+        "kept_count": len(kept),
+        "deleted_count": len(deleted),
+        "kept": [{"id": release["id"], "tag": release["tag_name"]} for release in kept],
+        "deleted": [{"id": release["id"], "tag": release["tag_name"]} for release in deleted],
+    }
+    return plan, deleted
+
+
+def retention_plan(protected_release_id, token):
+    """Return a read-only retention plan with no executable/private records."""
+    plan, _ = _retention_plan_records(protected_release_id, token)
+    return plan
+
+
+GIT_REMOTE = "https://git.home.arpa/HOMESERVERSLTD/caduceus.git"
+
+
+def _run_git_with_token(root, token, arguments):
+    if not token:
+        raise ReleaseError("FORGEJO_TOKEN-missing")
+    askpass = (
+        "#!/bin/sh\n"
+        "case \"$1\" in *Username*|*username*) printf '%s\\n' 'oauth2' ;; "
+        "*) printf '%s\\n' \"$FORGEJO_TOKEN\" ;; esac\n"
+    )
+    try:
+        with tempfile.TemporaryDirectory(prefix="release-retention-") as directory:
+            helper = Path(directory) / "askpass"
+            helper.write_text(askpass, encoding="utf-8")
+            helper.chmod(0o700)
+            env = {
+                **os.environ,
+                "GIT_ASKPASS": str(helper),
+                "GIT_TERMINAL_PROMPT": "0",
+                "FORGEJO_TOKEN": token,
+            }
+            return subprocess.run(
+                ["git", *arguments(GIT_REMOTE)], cwd=root,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                timeout=120, check=False, env=env,
+            )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ReleaseError("release-retention-git-command-failed") from exc
+
+
+def _git_preflight(root, token):
+    result = _run_git_with_token(root, token, lambda remote: ["ls-remote", "--refs", remote])
+    if result.returncode != 0:
+        raise ReleaseError("release-retention-git-ref-access-failed")
+
+
+def _git_tag_exists(root, tag, token):
+    result = _run_git_with_token(
+        root, token,
+        lambda remote: ["ls-remote", "--refs", remote, "refs/tags/" + tag],
+    )
+    if result.returncode != 0:
+        raise ReleaseError("release-retention-git-ref-read-failed")
+    return any(line.endswith("\trefs/tags/" + tag) for line in result.stdout.splitlines())
+
+
+def _git_delete_tag(root, tag, token):
+    result = _run_git_with_token(
+        root, token, lambda remote: ["push", remote, "--delete", tag]
+    )
+    if result.returncode != 0 and _git_tag_exists(root, tag, token):
+        raise ReleaseError("release-retention-git-ref-delete-failed")
+
+
+def delete_release_and_tag(release, token, root, progress):
+    """Delete only the eligible exact sha release and then prove its ref is gone."""
+    release_id = release["id"]
+    tag = release["tag_name"]
+    commit = tag[4:]
+    base = "/repos/" + quote(OWNER, safe="") + "/" + quote(REPO, safe="")
+    tag_status, tag_record = request(
+        "GET", base + "/tags/" + quote(tag, safe=""), token
+    )
+    if tag_status != 200 or tag_target(tag_record) != commit:
+        raise ReleaseError("release-retention-tag-target-mismatch")
+    progress["tag_api_present"] = True
+    progress["release_delete_attempted"] = True
+    status, _ = request("DELETE", base + f"/releases/{release_id}", token)
+    if status not in (200, 204):
+        raise ReleaseError("release-retention-release-delete-failed")
+    progress["release_deleted"] = True
+
+    progress["tag_delete_attempted"] = True
+    status, _ = request("DELETE", base + "/tags/" + quote(tag, safe=""), token)
+    progress["tag_delete_status"] = status
+    if status not in (200, 204, 404):
+        raise ReleaseError("release-retention-tag-delete-failed")
+    # Forgejo may return 404 while its Git ref still exists; Git is the authority
+    # for that ref, and its push-delete path is deliberately separate from API DELETE.
+    ref_exists = _git_tag_exists(root, tag, token)
+    progress["git_ref_observed"] = ref_exists
+    if ref_exists:
+        _git_delete_tag(root, tag, token)
+    tag_status, _ = request("GET", base + "/tags/" + quote(tag, safe=""), token)
+    progress["tag_api_absent"] = tag_status == 404
+    if tag_status not in (200, 404) or tag_status == 200:
+        raise ReleaseError("release-retention-tag-readback-failed")
+    ref_exists = _git_tag_exists(root, tag, token)
+    progress["git_ref_absent"] = not ref_exists
+    if ref_exists:
+        raise ReleaseError("release-retention-git-ref-remains")
+
+
+def retain_releases(protected_release_id, token, root):
+    plan, deleted_records = _retention_plan_records(protected_release_id, token)
+    deleted = []
+    current = None
+    if deleted_records:
+        try:
+            _git_preflight(root, token)
+            for release in deleted_records:
+                current = {
+                    "id": release["id"],
+                    "tag": release["tag_name"],
+                    "release_delete_attempted": False,
+                    "release_deleted": False,
+                    "tag_api_present": None,
+                    "tag_delete_attempted": False,
+                    "tag_delete_status": None,
+                    "tag_api_absent": None,
+                    "git_ref_observed": None,
+                    "git_ref_absent": None,
+                }
+                delete_release_and_tag(release, token, root, current)
+                deleted.append({"id": release["id"], "tag": release["tag_name"]})
+                current = None
+        except ReleaseError as exc:
+            raise ReleaseRetentionError(str(exc), deleted, current) from exc
+    return plan
+
+
 def publish(root, token):
     if os.environ.get("CI_REPO") not in (None, OWNER + "/" + REPO):
         raise ReleaseError("CI_REPO-mismatch")
@@ -396,6 +613,13 @@ def main():
             "changed": False,
             "error": str(exc),
         }
+        if isinstance(exc, ReleaseRetentionError):
+            receipt["retention"] = {
+                "status": "partial",
+                "deleted": exc.deleted,
+                "deleted_count": len(exc.deleted),
+                "current": exc.current,
+            }
         code = 1
     print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
     return code
