@@ -480,7 +480,7 @@ def run(args, schema):
     retention = None
     if os.environ.get("CI_COMMIT_BRANCH") == "main":
         try:
-            retention = PUBLISHER.retain_releases(release_id, token, ROOT)
+            retention = PUBLISHER.retain_releases(release_id, token)
         except PUBLISHER.ReleaseRetentionError:
             # The immutable release.flag has already been read back; retention
             # failure stays fatal and never attempts to undo that publication.

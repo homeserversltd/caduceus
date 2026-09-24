@@ -5,9 +5,7 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
-import tempfile
 import tomllib
 from datetime import datetime
 from pathlib import Path
@@ -382,121 +380,62 @@ def retention_plan(protected_release_id, token):
     return plan
 
 
-GIT_REMOTE = "https://git.home.arpa/HOMESERVERSLTD/caduceus.git"
-
-
-def _run_git_with_token(root, token, arguments):
-    if not token:
-        raise ReleaseError("FORGEJO_TOKEN-missing")
-    askpass = (
-        "#!/bin/sh\n"
-        "case \"$1\" in *Username*|*username*) printf '%s\\n' 'oauth2' ;; "
-        "*) printf '%s\\n' \"$FORGEJO_TOKEN\" ;; esac\n"
-    )
-    try:
-        with tempfile.TemporaryDirectory(prefix="release-retention-") as directory:
-            helper = Path(directory) / "askpass"
-            helper.write_text(askpass, encoding="utf-8")
-            helper.chmod(0o700)
-            env = {
-                **os.environ,
-                "GIT_ASKPASS": str(helper),
-                "GIT_TERMINAL_PROMPT": "0",
-                "FORGEJO_TOKEN": token,
-            }
-            return subprocess.run(
-                ["git", *arguments(GIT_REMOTE)], cwd=root,
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-                timeout=120, check=False, env=env,
-            )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ReleaseError("release-retention-git-command-failed") from exc
-
-
-def _git_preflight(root, token):
-    result = _run_git_with_token(root, token, lambda remote: ["ls-remote", "--refs", remote])
-    if result.returncode != 0:
-        raise ReleaseError("release-retention-git-ref-access-failed")
-
-
-def _git_tag_exists(root, tag, token):
-    result = _run_git_with_token(
-        root, token,
-        lambda remote: ["ls-remote", "--refs", remote, "refs/tags/" + tag],
-    )
-    if result.returncode != 0:
-        raise ReleaseError("release-retention-git-ref-read-failed")
-    return any(line.endswith("\trefs/tags/" + tag) for line in result.stdout.splitlines())
-
-
-def _git_delete_tag(root, tag, token):
-    result = _run_git_with_token(
-        root, token, lambda remote: ["push", remote, "--delete", tag]
-    )
-    if result.returncode != 0 and _git_tag_exists(root, tag, token):
-        raise ReleaseError("release-retention-git-ref-delete-failed")
-
-
-def delete_release_and_tag(release, token, root, progress):
+def delete_release_and_tag(release, token, progress):
     """Delete only the eligible exact sha release and then prove its ref is gone."""
     release_id = release["id"]
     tag = release["tag_name"]
     commit = tag[4:]
     base = "/repos/" + quote(OWNER, safe="") + "/" + quote(REPO, safe="")
-    tag_status, tag_record = request(
+    tag_read_status, tag_record = request(
         "GET", base + "/tags/" + quote(tag, safe=""), token
     )
-    if tag_status != 200 or tag_target(tag_record) != commit:
-        raise ReleaseError("release-retention-tag-target-mismatch")
+    progress["tag_precheck_status"] = tag_read_status
+    if tag_read_status != 200 or tag_target(tag_record) != commit:
+        raise ReleaseError("release-retention-tag-target-mismatch:" + tag)
     progress["tag_api_present"] = True
     progress["release_delete_attempted"] = True
     status, _ = request("DELETE", base + f"/releases/{release_id}", token)
+    progress["release_delete_status"] = status
     if status not in (200, 204):
-        raise ReleaseError("release-retention-release-delete-failed")
+        raise ReleaseError("release-retention-release-delete-failed:" + tag)
     progress["release_deleted"] = True
 
     progress["tag_delete_attempted"] = True
-    status, _ = request("DELETE", base + "/tags/" + quote(tag, safe=""), token)
-    progress["tag_delete_status"] = status
-    if status not in (200, 204, 404):
-        raise ReleaseError("release-retention-tag-delete-failed")
-    # Forgejo may return 404 while its Git ref still exists; Git is the authority
-    # for that ref, and its push-delete path is deliberately separate from API DELETE.
-    ref_exists = _git_tag_exists(root, tag, token)
-    progress["git_ref_observed"] = ref_exists
-    if ref_exists:
-        _git_delete_tag(root, tag, token)
-    tag_status, _ = request("GET", base + "/tags/" + quote(tag, safe=""), token)
-    progress["tag_api_absent"] = tag_status == 404
-    if tag_status not in (200, 404) or tag_status == 200:
-        raise ReleaseError("release-retention-tag-readback-failed")
-    ref_exists = _git_tag_exists(root, tag, token)
-    progress["git_ref_absent"] = not ref_exists
-    if ref_exists:
-        raise ReleaseError("release-retention-git-ref-remains")
+    tag_delete_status, _ = request(
+        "DELETE", base + "/tags/" + quote(tag, safe=""), token
+    )
+    progress["tag_delete_status"] = tag_delete_status
+    if tag_delete_status not in (204, 404):
+        raise ReleaseError("release-retention-tag-delete-failed:" + tag)
+    ref_status, _ = request(
+        "GET", base + "/git/refs/tags/" + quote(tag, safe=""), token
+    )
+    progress["tag_ref_read_status"] = ref_status
+    if ref_status == 200:
+        raise ReleaseError("release-retention-tag-ref-survives:" + tag)
+    if ref_status != 404:
+        raise ReleaseError("release-retention-tag-ref-readback-failed:" + tag)
 
 
-def retain_releases(protected_release_id, token, root):
+def retain_releases(protected_release_id, token):
     plan, deleted_records = _retention_plan_records(protected_release_id, token)
     deleted = []
     current = None
     if deleted_records:
         try:
-            _git_preflight(root, token)
             for release in deleted_records:
                 current = {
                     "id": release["id"],
                     "tag": release["tag_name"],
                     "release_delete_attempted": False,
                     "release_deleted": False,
-                    "tag_api_present": None,
+                    "tag_precheck_status": None,
+                    "release_delete_status": None,
                     "tag_delete_attempted": False,
                     "tag_delete_status": None,
-                    "tag_api_absent": None,
-                    "git_ref_observed": None,
-                    "git_ref_absent": None,
+                    "tag_ref_read_status": None,
                 }
-                delete_release_and_tag(release, token, root, current)
+                delete_release_and_tag(release, token, current)
                 deleted.append({"id": release["id"], "tag": release["tag_name"]})
                 current = None
         except ReleaseError as exc:
