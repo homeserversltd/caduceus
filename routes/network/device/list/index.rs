@@ -268,6 +268,12 @@ fn launcher(command: &ReadCommand) -> Result<(String, Vec<String>), String> {
 }
 
 pub fn invoke(command: &ReadCommand) -> Result<Value, String> {
+    if matches!(
+        command.command,
+        "network dhcp leases" | "network dhcp reservations list"
+    ) {
+        return Ok(crate::routes::native_kea_read::response(command.command));
+    }
     let (program, prefix) = launcher(command)?;
     let output = Command::new(program)
         .args(prefix)
@@ -318,8 +324,13 @@ pub fn invoke(command: &ReadCommand) -> Result<Value, String> {
 pub fn command(command: &ReadCommand) -> i32 {
     match invoke(command) {
         Ok(value) => {
+            let ok = value.get("ok").and_then(Value::as_bool).unwrap_or(true);
             println!("{value}");
-            0
+            if ok {
+                0
+            } else {
+                1
+            }
         }
         Err(error) => {
             eprintln!("{error}");
@@ -328,9 +339,8 @@ pub fn command(command: &ReadCommand) -> i32 {
     }
 }
 
-
-use axum::{response::Json, Router};
 use crate::gate::ApiErrorBody;
+use axum::{response::Json, Router};
 
 async fn device_list_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     network_read_route("network device list").await
@@ -338,5 +348,8 @@ async fn device_list_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBo
 
 /// Canonical registration seam; legacy aliases remain hoisted to the same body.
 pub fn register(router: Router) -> Router {
-    router.route("/api/v1/network/device", axum::routing::get(device_list_route))
+    router.route(
+        "/api/v1/network/device",
+        axum::routing::get(device_list_route),
+    )
 }

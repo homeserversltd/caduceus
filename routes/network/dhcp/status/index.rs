@@ -1,11 +1,14 @@
 /// C2 route leaf.
 pub const NAMESPACE: &str = "network/dhcp/status";
 
-
-use axum::{extract::Json, http::{HeaderMap, StatusCode}, Router};
-use serde_json::Value;
 use crate::gate::{api_error, api_error_signal, ApiErrorBody};
 use crate::shared::policy;
+use axum::{
+    extract::Json,
+    http::{HeaderMap, StatusCode},
+    Router,
+};
+use serde_json::Value;
 
 pub(crate) async fn network_read_route(
     command: &'static str,
@@ -35,7 +38,30 @@ async fn dhcp_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBo
 }
 
 async fn dhcp_reservations_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    network_read_route("network dhcp reservations list").await
+    let command = "network dhcp reservations list";
+    match policy::allows_command(command) {
+        Ok(true) => {
+            let value = crate::routes::native_kea_read::response(command);
+            if value["ok"] == true {
+                Ok(Json(value))
+            } else {
+                Err((
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: command.to_string(),
+                        first_missing_signal: value["firstMissingSignal"]
+                            .as_str()
+                            .unwrap_or("caduceus-network-dhcp-read-failed")
+                            .to_string(),
+                    }),
+                ))
+            }
+        }
+        Ok(false) => Err(api_error(command)),
+        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+    }
 }
 
 async fn dhcp_staff_actuator_route(
@@ -45,9 +71,7 @@ async fn dhcp_staff_actuator_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let (method, route) = match uri.path() {
         "/api/v1/network/dhcp" => ("POST", "/api/dhcp"),
-        "/api/v1/network/dhcp/reservations" => {
-            ("POST", "/api/dhcp/reservations")
-        }
+        "/api/v1/network/dhcp/reservations" => ("POST", "/api/dhcp/reservations"),
         "/api/v1/network/dhcp/pool-boundary" => ("POST", "/api/dhcp/pool-boundary"),
         _ => {
             return Err(api_error_signal(
@@ -106,8 +130,7 @@ pub fn register(router: Router) -> Router {
         )
         .route(
             "/api/v1/network/dhcp/reservations",
-            axum::routing::get(dhcp_reservations_read_route)
-                .post(dhcp_staff_actuator_route),
+            axum::routing::get(dhcp_reservations_read_route).post(dhcp_staff_actuator_route),
         )
         .route(
             "/api/v1/network/dhcp/reservations/:reservation_id",

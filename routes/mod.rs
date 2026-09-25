@@ -174,6 +174,9 @@ pub use claim_device_identity as network_identity;
 pub use control_resolver as dns_control;
 #[cfg(leaf_storage_disk_census)]
 pub use inspect_disks as disk;
+#[path = "network/dhcp/native_kea_read.rs"]
+pub mod native_kea_read;
+
 #[cfg(leaf_network_dhcp_status)]
 pub(crate) use leaf_network_dhcp_status::network_read_route;
 #[cfg(leaf_network_device_list)]

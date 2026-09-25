@@ -1,0 +1,6 @@
+schema: caduceus.profile.v1
+profile: homeserver
+mode: homeserver
+commands:
+- network dhcp leases
+- network dhcp reservations list
