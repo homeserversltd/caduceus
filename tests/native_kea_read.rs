@@ -106,8 +106,9 @@ async fn native_kea_http_reads_match_staff_contract_and_refuse_bad_inputs() {
     let fixture = Fixture::new();
     let app = serve::router();
 
-    // Real HTTP GET handlers: the base file wins over .1/.2 for MAC A, while
-    // distinct MAC D proves the .1 rollover is actually loaded.
+    // The base file wins over .1/.2 for MAC A, while distinct MACs B and D
+    // prove base/.1 data survive. Malformed, wrong-width, empty-MAC (including
+    // the declined state=1 row), and invalid-number rows in .2 are skipped.
     let leases_response = app.clone().oneshot(get(LEASES_PATH)).await.unwrap();
     assert_eq!(leases_response.status(), StatusCode::OK);
     let leases = body_json(leases_response).await;
@@ -138,6 +139,51 @@ async fn native_kea_http_reads_match_staff_contract_and_refuse_bad_inputs() {
             "hostname", "ip", "last_activity", "mac", "provenance",
         ]));
         assert_eq!(row["provenance"], "observed");
+    }
+
+    // An unreadable newest rollover file is skipped while readable .1/base
+    // candidates still contribute their records.
+    fs::write(
+        fixture.path("var/lib/kea/kea-leases4.csv.2"),
+        [0xff, 0xfe, 0xfd],
+    )
+    .unwrap();
+    let unreadable_rollover = app.clone().oneshot(get(LEASES_PATH)).await.unwrap();
+    assert_eq!(unreadable_rollover.status(), StatusCode::OK);
+    let unreadable_rollover = body_json(unreadable_rollover).await;
+    assert_eq!(unreadable_rollover["payload"]["result"], json!([
+        {"mac":"aa:bb:cc:dd:ee:01", "ip":"192.0.2.5", "hostname":"new-a", "last_activity":"4102444800", "provenance":"observed"},
+        {"mac":"aa:bb:cc:dd:ee:02", "ip":"192.0.2.3", "hostname":"base-b", "last_activity":"4102444800", "provenance":"observed"},
+        {"mac":"aa:bb:cc:dd:ee:04", "ip":"192.0.2.6", "hostname":"rollover-d", "last_activity":"4102444800", "provenance":"observed"}
+    ]));
+
+    // If every candidate is unreadable, the route reports invalid leases.
+    for suffix in ["", ".1", ".2"] {
+        fs::write(
+            fixture.path(&format!("var/lib/kea/kea-leases4.csv{suffix}")),
+            [0xff, 0xfe, 0xfd],
+        )
+        .unwrap();
+    }
+    let all_unreadable = app.clone().oneshot(get(LEASES_PATH)).await.unwrap();
+    assert_eq!(all_unreadable.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let all_unreadable = body_json(all_unreadable).await;
+    assert_eq!(all_unreadable["schema"], "caduceus.api.error.v1");
+    assert_eq!(all_unreadable["ok"], false);
+    assert_eq!(
+        all_unreadable["firstMissingSignal"],
+        "caduceus-network-dhcp-leases-invalid"
+    );
+    for relative in [
+        "var/lib/kea/kea-leases4.csv",
+        "var/lib/kea/kea-leases4.csv.1",
+        "var/lib/kea/kea-leases4.csv.2",
+    ] {
+        fs::copy(
+            PathBuf::from("tests/fixtures/native-kea-read").join(relative),
+            fixture.path(relative),
+        )
+        .unwrap();
     }
 
     let reservations_response = app.clone().oneshot(get(RESERVATIONS_PATH)).await.unwrap();

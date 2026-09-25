@@ -100,15 +100,31 @@ fn lease_file(dhcp: &Value) -> PathBuf {
 
 fn csv_record(line: &str) -> Option<Vec<String>> {
     let mut fields = Vec::new();
-    let (mut field, mut quoted, mut chars) = (String::new(), false, line.chars().peekable());
+    let (mut field, mut quoted, mut closed_quote, mut chars) =
+        (String::new(), false, false, line.chars().peekable());
     while let Some(ch) = chars.next() {
-        match ch {
-            '"' if quoted && chars.peek() == Some(&'"') => {
-                field.push('"');
-                chars.next();
+        if quoted {
+            match ch {
+                '"' if chars.peek() == Some(&'"') => {
+                    field.push('"');
+                    chars.next();
+                }
+                '"' => {
+                    quoted = false;
+                    closed_quote = true;
+                }
+                _ => field.push(ch),
             }
-            '"' => quoted = !quoted,
-            ',' if !quoted => fields.push(std::mem::take(&mut field)),
+            continue;
+        }
+        match ch {
+            ',' => {
+                fields.push(std::mem::take(&mut field));
+                closed_quote = false;
+            }
+            '"' if field.is_empty() && !closed_quote => quoted = true,
+            _ if closed_quote => return None,
+            '"' => return None,
             _ => field.push(ch),
         }
     }
@@ -146,11 +162,7 @@ pub fn read_leases() -> Result<Vec<LeaseRow>, String> {
         PathBuf::from(format!("{}.1", base.display())),
         base,
     ];
-    let existing: Vec<PathBuf> = candidates
-        .into_iter()
-        .filter(|path| path.exists())
-        .collect();
-    if existing.is_empty() {
+    if candidates.iter().all(|path| !path.exists()) {
         return Err(missing("leases-missing"));
     }
     let now = SystemTime::now()
@@ -158,33 +170,44 @@ pub fn read_leases() -> Result<Vec<LeaseRow>, String> {
         .map_err(|_| missing("clock-invalid"))?
         .as_secs();
     let mut latest: BTreeMap<String, Option<LeaseRow>> = BTreeMap::new();
-    for path in existing {
-        let text = fs::read_to_string(&path).map_err(|_| missing("leases-invalid"))?;
+    let mut readable = false;
+    for path in candidates {
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        readable = true;
         let mut lines = text.lines().filter(|line| !line.trim().is_empty());
-        let header = csv_record(lines.next().ok_or_else(|| missing("leases-invalid"))?)
-            .ok_or_else(|| missing("leases-invalid"))?;
+        let header_line = lines.next().ok_or_else(|| missing("leases-invalid"))?;
+        let header = csv_record(header_line).ok_or_else(|| missing("leases-invalid"))?;
         let required = ["address", "hwaddr", "expire", "hostname", "state"];
         if required.iter().any(|name| column(&header, name).is_none()) {
             return Err(missing("leases-invalid"));
         }
         for line in lines {
-            let fields = csv_record(line).ok_or_else(|| missing("leases-invalid"))?;
+            let Some(fields) = csv_record(line) else {
+                continue;
+            };
             if fields.len() != header.len() {
-                return Err(missing("leases-invalid"));
+                continue;
             }
-            let mac = cell(
+            let Some(mac) = cell(
                 &fields,
                 column(&header, "hwaddr").or_else(|| column(&header, "hw-address")),
             )
-            .and_then(normalized_mac)
-            .ok_or_else(|| missing("leases-invalid"))?;
-            let ip = cell(&fields, column(&header, "address")).unwrap_or("");
-            let expiry = cell(&fields, column(&header, "expire"))
+            .and_then(normalized_mac) else {
+                continue;
+            };
+            let Some(expiry) = cell(&fields, column(&header, "expire"))
                 .and_then(|value| value.parse::<u64>().ok())
-                .ok_or_else(|| missing("leases-invalid"))?;
-            let state = cell(&fields, column(&header, "state"))
-                .and_then(|value| value.parse::<u32>().ok())
-                .ok_or_else(|| missing("leases-invalid"))?;
+            else {
+                continue;
+            };
+            let Some(state) =
+                cell(&fields, column(&header, "state")).and_then(|value| value.parse::<u32>().ok())
+            else {
+                continue;
+            };
+            let ip = cell(&fields, column(&header, "address")).unwrap_or("");
             let row = if state == 0 && expiry > now {
                 Some(LeaseRow {
                     mac: mac.clone(),
@@ -200,6 +223,9 @@ pub fn read_leases() -> Result<Vec<LeaseRow>, String> {
             // Processing rollover files in Kea load order means each later occurrence wins.
             latest.insert(mac, row);
         }
+    }
+    if !readable {
+        return Err(missing("leases-invalid"));
     }
     Ok(latest.into_values().flatten().collect())
 }

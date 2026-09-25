@@ -1,2 +1,8 @@
 address,hwaddr,client_id,valid_lifetime,expire,subnet_id,fqdn_fwd,fqdn_rev,hostname,state,user_context,pool_id
 192.0.2.2,AA-BB-CC-DD-EE-01,,3600,4102444800,1,0,0,old-a,0,,0
+192.0.2.20,, ,3600,4102444800,1,0,0,declined-empty-hwaddr,1,,0
+192.0.2.21,AA-BB-CC-DD-EE-21,,3600,4102444800,1,0,0,"damaged-unmatched-quote,0,,0
+192.0.2.22,AA-BB-CC-DD-EE-22,,3600,4102444800
+192.0.2.23,AA-BB-CC-DD-EE-23,,3600,not-a-number,1,0,0,bad-expire,0,,0
+192.0.2.24,AA-BB-CC-DD-EE-24,,3600,4102444800,1,0,0,bad-state,not-a-number,,0
+192.0.2.25,not-a-hardware-address,,3600,4102444800,1,0,0,bad-hwaddr,0,,0
