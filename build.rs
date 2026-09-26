@@ -405,6 +405,28 @@ fn main() {
             let text = fs::read_to_string(&path).expect("profile index readable");
             let value: serde_yaml::Value =
                 serde_yaml::from_str(&text).expect("profile index valid YAML");
+            if profile == "probe" {
+                let commands = value
+                    .get("commands")
+                    .and_then(serde_yaml::Value::as_sequence)
+                    .expect("probe commands list present")
+                    .iter()
+                    .map(|command| {
+                        command
+                            .as_str()
+                            .expect("every probe command must be a string")
+                            .to_owned()
+                    })
+                    .collect::<Vec<_>>();
+                generated.push_str(&format!(
+                    "pub static PROBE_COMMANDS: &[&str] = &[{}];\n",
+                    commands
+                        .iter()
+                        .map(|command| rust_string(command))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ));
+            }
             value
                 .get("routes")
                 .and_then(serde_yaml::Value::as_sequence)

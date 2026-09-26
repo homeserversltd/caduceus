@@ -119,6 +119,10 @@ fn resolve() -> Result<Resolved, String> {
     })
 }
 
+pub fn resolved_profile() -> Result<String, String> {
+    resolve().map(|resolved| resolved.profile)
+}
+
 fn read_document(resolved: &Resolved) -> Result<Value, String> {
     let text = fs::read_to_string(&resolved.fs_path)
         .map_err(|_| "caduceus-household-config-missing".to_string())?;
