@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.ruyi.v1",
-  "schema_version": "1.0.2",
+  "schema_version": "1.0.3",
   "role": "Public Ruyi row, roster and removal envelope",
   "authority": {
     "owner": "caduceus",
@@ -79,7 +79,10 @@
       "description": "Rust compiler release version from rustc -Vv, or unset when unavailable"
     },
     "harmonia_sha": {
-      "type": "string",
+      "type": [
+        "string",
+        "null"
+      ],
       "pattern": "^[0-9a-f]{40}$"
     },
     "syzygy_sha": {
@@ -94,7 +97,10 @@
       "description": "Unix acceptance time written by the seat"
     },
     "last_update": {
-      "type": "object",
+      "type": [
+        "object",
+        "null"
+      ],
       "fields": {
         "run_id": {
           "type": "string",
@@ -152,7 +158,7 @@
       "type": "array",
       "items": {
         "schema_ref": "caduceus.ruyi.v1",
-        "form": "row"
+        "form": "roster-staff"
       }
     },
     "perspectives": {
@@ -238,6 +244,10 @@
         }
       },
       "description": "Stored rows marked declared while the DNS view has records; empty without a DNS view"
+    },
+    "discovered_via": {
+      "type": "string",
+      "const": "lease-sweep"
     }
   },
   "field_types": {
@@ -253,10 +263,10 @@
     "caduceus_sha": "string",
     "env_sha": "string",
     "rustc_version": "string",
-    "harmonia_sha": "string",
+    "harmonia_sha": "string|null",
     "syzygy_sha": "string|null",
     "last_seen": "integer",
-    "last_update": "object",
+    "last_update": "object|null",
     "perspective": "object|null",
     "ok": "boolean",
     "service": "string",
@@ -265,7 +275,8 @@
     "perspectives": "object",
     "trust": "array",
     "dns_unresolved": "array",
-    "removed": "string"
+    "removed": "string",
+    "discovered_via": "string"
   },
   "required": [
     "schema"
@@ -326,6 +337,51 @@
         "removed"
       ],
       "optional": []
+    },
+    "discovered": {
+      "required": [
+        "schema",
+        "mac",
+        "hostname",
+        "canonical_name",
+        "ipv4",
+        "ipv4_source",
+        "profile",
+        "caduceus_sha",
+        "env_sha",
+        "last_seen",
+        "discovered_via"
+      ],
+      "optional": [
+        "gui_face",
+        "rustc_version",
+        "harmonia_sha",
+        "syzygy_sha",
+        "last_update"
+      ]
+    },
+    "roster-staff": {
+      "required": [
+        "schema",
+        "mac",
+        "hostname",
+        "canonical_name",
+        "ipv4"
+      ],
+      "optional": [
+        "ipv4_source",
+        "caduceus_port",
+        "profile",
+        "gui_face",
+        "caduceus_sha",
+        "env_sha",
+        "rustc_version",
+        "harmonia_sha",
+        "syzygy_sha",
+        "last_seen",
+        "last_update",
+        "discovered_via"
+      ]
     }
   },
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
