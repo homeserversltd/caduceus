@@ -1,6 +1,6 @@
 {
   "schema": "estate.release-flag.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.0.1",
   "role": "Immutable component release verification flag",
   "authority": {
     "owner": "caduceus",
@@ -41,6 +41,10 @@
     "env_sha": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "rustc_version": {
+      "type": "string",
+      "description": "rustc release version that cut this artifact, from rustc -Vv; absent means no evidence"
     },
     "sha256": {
       "type": "string",
@@ -106,6 +110,7 @@
     "sha256": "string",
     "flagged_at": "string",
     "pipeline_url": "string",
+    "rustc_version": "string",
     "lineage": "object"
   },
   "required": [
@@ -118,6 +123,7 @@
   "optional": [
     "env_sha",
     "sha256",
+    "rustc_version",
     "lineage"
   ],
   "evolution": {

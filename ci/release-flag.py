@@ -20,7 +20,7 @@ SCHEMA_PATH = ROOT / "schema" / "estate.release-flag.v1.json"
 SCHEMA_ID = "estate.release-flag.v1"
 # This producer emits these fields; the shared seat alone declares the kernel.
 EMITTED_FIELDS = (
-    "schema", "component", "source_sha", "env_sha", "sha256", "flagged_at", "pipeline_url"
+    "schema", "component", "source_sha", "env_sha", "sha256", "rustc_version", "flagged_at", "pipeline_url"
 )
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
@@ -241,10 +241,14 @@ def fetch_manifest(commit, token):
         raise FlagError("manifest-env-sha-invalid")
     if not isinstance(manifest_sha256, str) or not HEX64.fullmatch(manifest_sha256):
         raise FlagError("manifest-sha256-invalid")
+    rustc_version = manifest.get("rustc_version")
+    if "rustc_version" in manifest and (not isinstance(rustc_version, str) or not rustc_version):
+        raise FlagError("manifest-rustc-version-invalid")
     return {
         "source_sha": source_sha,
         "env_sha": env_sha,
         "sha256": manifest_sha256,
+        "rustc_version": rustc_version,
     }
 
 
@@ -324,7 +328,7 @@ def fetch_release_asset(asset, token):
         raise FlagError(str(exc)) from exc
 
 
-def verify_release_assets(named, token):
+def verify_release_assets(named, token, package_manifest):
     expected = {
         f"caduceus-{profile}-x86_64{suffix}"
         for profile in PROFILES
@@ -334,7 +338,18 @@ def verify_release_assets(named, token):
     if missing:
         raise FlagError("release-assets-missing: " + ", ".join(missing))
 
+    manifest_names = {
+        profile: f"caduceus-{profile}-x86_64.manifest.json"
+        for profile in PROFILES
+    }
+    present_manifests = set(manifest_names.values()).intersection(named)
+    if present_manifests and present_manifests != set(manifest_names.values()):
+        raise FlagError("release-profile-manifests-mixed")
+    if not present_manifests and package_manifest["rustc_version"] is not None:
+        raise FlagError("release-compiler-evidence-mixed")
+
     profile_digest_map = {}
+    profile_versions = []
     for profile in PROFILES:
         binary_name = f"caduceus-{profile}-x86_64"
         sidecar_name = binary_name + ".sha256"
@@ -346,12 +361,47 @@ def verify_release_assets(named, token):
             raise FlagError("release-sidecar-mismatch: " + sidecar_name)
         profile_digest_map[profile] = digest
 
+        if present_manifests:
+            raw_manifest = fetch_release_asset(named[manifest_names[profile]], token)
+            try:
+                profile_manifest = json.loads(raw_manifest, object_pairs_hook=reject_duplicate_keys)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise FlagError("release-profile-manifest-json-invalid: " + profile) from exc
+            if not isinstance(profile_manifest, dict):
+                raise FlagError("release-profile-manifest-not-object: " + profile)
+            if (
+                profile_manifest.get("schema") != "estate.artifact.manifest.v1"
+                or profile_manifest.get("component") != "caduceus"
+                or profile_manifest.get("source_sha") != package_manifest["source_sha"]
+                or profile_manifest.get("env_sha") != package_manifest["env_sha"]
+                or profile_manifest.get("target") != "x86_64-unknown-linux-gnu"
+                or profile_manifest.get("sha256") != digest
+            ):
+                raise FlagError("release-profile-manifest-identity-mismatch: " + profile)
+            version = profile_manifest.get("rustc_version")
+            if "rustc_version" in profile_manifest and (not isinstance(version, str) or not version):
+                raise FlagError("release-profile-manifest-rustc-version-invalid: " + profile)
+            profile_versions.append(version)
+
+    rustc_version = package_manifest["rustc_version"]
+    if present_manifests:
+        has_version = [version is not None for version in profile_versions]
+        if any(has_version) and not all(has_version):
+            raise FlagError("release-compiler-evidence-mixed")
+        if rustc_version is not None and not all(has_version):
+            raise FlagError("release-compiler-evidence-mixed")
+        if rustc_version is None and all(has_version):
+            raise FlagError("release-compiler-evidence-mixed")
+        if all(has_version):
+            if any(version != rustc_version for version in profile_versions):
+                raise FlagError("release-rustc-versions-disagree")
+
     serialized = json.dumps(profile_digest_map, separators=(",", ":")).encode("utf-8")
     aggregate = hashlib.sha256(serialized).hexdigest()
-    return profile_digest_map, serialized, aggregate
+    return profile_digest_map, serialized, aggregate, rustc_version
 
 
-def make_flag(commit, env_sha, aggregate, flagged_at, pipeline_url, schema):
+def make_flag(commit, env_sha, aggregate, flagged_at, pipeline_url, schema, rustc_version=None):
     if not HEX40.fullmatch(commit):
         raise FlagError("CI_COMMIT_SHA-missing-or-invalid")
     if not HEX64.fullmatch(env_sha) or not HEX64.fullmatch(aggregate):
@@ -360,6 +410,8 @@ def make_flag(commit, env_sha, aggregate, flagged_at, pipeline_url, schema):
         raise FlagError("flagged_at-missing")
     if not isinstance(pipeline_url, str) or not pipeline_url:
         raise FlagError("CI_PIPELINE_URL-missing")
+    if rustc_version is not None and (not isinstance(rustc_version, str) or not rustc_version):
+        raise FlagError("release-flag-rustc-version-invalid")
     values = {
         "schema": schema["schema"],
         "component": "caduceus",
@@ -369,6 +421,8 @@ def make_flag(commit, env_sha, aggregate, flagged_at, pipeline_url, schema):
         "flagged_at": flagged_at,
         "pipeline_url": pipeline_url,
     }
+    if rustc_version is not None:
+        values["rustc_version"] = rustc_version
     return {
         field: values[field]
         for field in EMITTED_FIELDS
@@ -439,7 +493,7 @@ def run(args, schema):
 
     manifest = fetch_manifest(commit, token)
     release_id, named = read_release(commit, token)
-    profile_digest_map, serialized, aggregate = verify_release_assets(named, token)
+    profile_digest_map, serialized, aggregate, rustc_version = verify_release_assets(named, token, manifest)
     body = make_flag(
         commit,
         manifest["env_sha"],
@@ -447,6 +501,7 @@ def run(args, schema):
         flagged_at,
         pipeline_url,
         schema,
+        rustc_version,
     )
     validate_flag_record(body, schema)
 

@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.ruyi.v1",
-  "schema_version": "1.0.3",
+  "schema_version": "1.0.4",
   "role": "Public Ruyi row, roster and removal envelope",
   "authority": {
     "owner": "caduceus",
@@ -77,6 +77,14 @@
     "rustc_version": {
       "type": "string",
       "description": "Rust compiler release version from rustc -Vv, or unset when unavailable"
+    },
+    "harmonia_rustc_version": {
+      "type": "string",
+      "description": "rustc release version compiled into the body's Harmonia engine"
+    },
+    "rustc_installed": {
+      "type": "string",
+      "description": "rustc release version on the body's own system PATH; absent when the body carries no toolchain"
     },
     "harmonia_sha": {
       "type": [
@@ -263,6 +271,8 @@
     "caduceus_sha": "string",
     "env_sha": "string",
     "rustc_version": "string",
+    "harmonia_rustc_version": "string",
+    "rustc_installed": "string",
     "harmonia_sha": "string|null",
     "syzygy_sha": "string|null",
     "last_seen": "integer",
@@ -290,7 +300,9 @@
     "perspective",
     "perspectives",
     "trust",
-    "rustc_version"
+    "rustc_version",
+    "harmonia_rustc_version",
+    "rustc_installed"
   ],
   "forms": {
     "row": {
@@ -312,6 +324,8 @@
         "caduceus_port",
         "syzygy_sha",
         "rustc_version",
+        "harmonia_rustc_version",
+        "rustc_installed",
         "last_seen",
         "perspective"
       ]
@@ -376,6 +390,8 @@
         "caduceus_sha",
         "env_sha",
         "rustc_version",
+        "harmonia_rustc_version",
+        "rustc_installed",
         "harmonia_sha",
         "syzygy_sha",
         "last_seen",

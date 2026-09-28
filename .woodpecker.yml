@@ -94,7 +94,7 @@ steps:
         PY
 
   - name: build-publish-caduceus-package
-    image: rust:1-bookworm
+    image: git.home.arpa/homeserversltd/rust-house:house
     when:
       - event: push
         branch: main
@@ -104,7 +104,7 @@ steps:
     commands:
       - |
         set -eu
-        command -v curl >/dev/null || { echo "build-publish-caduceus-package: curl is required in rust:1-bookworm" >&2; exit 1; }
+        command -v curl >/dev/null || { echo "build-publish-caduceus-package: curl is required in git.home.arpa/homeserversltd/rust-house:house" >&2; exit 1; }
 
         FORGEJO_TOKEN="$(printf '%s' "$${FORGEJO_TOKEN:-}" | tr -d '[:space:]')"
         if [ -z "$FORGEJO_TOKEN" ] && [ -r /mnt/keyexchange/FORGEJO_TOKEN ] && [ -s /mnt/keyexchange/FORGEJO_TOKEN ]; then
@@ -123,15 +123,21 @@ steps:
           exit 1
         fi
 
-        env_sha=$(printf '%s\n%s\n%s\n' "$(rustc -Vv)" "$(cargo -V)" x86_64-unknown-linux-gnu | sha256sum | cut -d' ' -f1)
-        CADUCEUS_BUILD_SHA="$CI_COMMIT_SHA" CADUCEUS_BUILD_ENV_SHA="$env_sha" cargo build --release
+        rustc_vv="$(rustc -Vv)"
+        env_sha=$(printf '%s\n%s\n%s\n' "$rustc_vv" "$(cargo -V)" x86_64-unknown-linux-gnu | sha256sum | cut -d' ' -f1)
+        rustc_version="$(printf '%s\n' "$rustc_vv" | sed -n 's/^release: //p')"
+        if [ -z "$rustc_version" ]; then
+          echo "build-publish-caduceus-package: rustc -Vv has no release field" >&2
+          exit 1
+        fi
+        CADUCEUS_BUILD_SHA="$CI_COMMIT_SHA" CADUCEUS_BUILD_ENV_SHA="$env_sha" cargo build --release --locked
         binary=target/release/caduceus
         test -f "$binary"
         binary_sha256="$(sha256sum "$binary" | cut -d " " -f 1)"
         built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-        printf '{\n  "schema": "estate.artifact.manifest.v1",\n  "component": "caduceus",\n  "source_sha": "%s",\n  "env_sha": "%s",\n  "target": "x86_64-unknown-linux-gnu",\n  "sha256": "%s",\n  "built_at": "%s",\n  "pipeline_url": "%s"\n}\n' \
-          "$CI_COMMIT_SHA" "$env_sha" "$binary_sha256" "$built_at" "$CI_PIPELINE_URL" \
+        printf '{\n  "schema": "estate.artifact.manifest.v1",\n  "component": "caduceus",\n  "source_sha": "%s",\n  "env_sha": "%s",\n  "rustc_version": "%s",\n  "target": "x86_64-unknown-linux-gnu",\n  "sha256": "%s",\n  "built_at": "%s",\n  "pipeline_url": "%s"\n}\n' \
+          "$CI_COMMIT_SHA" "$env_sha" "$rustc_version" "$binary_sha256" "$built_at" "$CI_PIPELINE_URL" \
           > manifest.json
 
         package_base="https://git.home.arpa/api/packages/HOMESERVERSLTD/generic/caduceus/$CI_COMMIT_SHA"
@@ -195,7 +201,7 @@ steps:
         upload_file manifest.json manifest.json application/json
 
   - name: build-caduceus-release
-    image: rust:1-bookworm
+    image: git.home.arpa/homeserversltd/rust-house:house
     when:
       - event: push
         branch: main
@@ -203,7 +209,13 @@ steps:
       - |
         set -eu
         mkdir -p .release
-        env_sha=$(printf '%s\n%s\n%s\n' "$(rustc -Vv)" "$(cargo -V)" x86_64-unknown-linux-gnu | sha256sum | cut -d' ' -f1)
+        rustc_vv="$(rustc -Vv)"
+        env_sha=$(printf '%s\n%s\n%s\n' "$rustc_vv" "$(cargo -V)" x86_64-unknown-linux-gnu | sha256sum | cut -d' ' -f1)
+        rustc_version="$(printf '%s\n' "$rustc_vv" | sed -n 's/^release: //p')"
+        if [ -z "$rustc_version" ]; then
+          echo "build-caduceus-release: rustc -Vv has no release field" >&2
+          exit 1
+        fi
 
         build_profile() {
           profile="$1"
@@ -212,7 +224,7 @@ steps:
           mkdir -p ".release/$profile"
 
           CADUCEUS_PROFILE="$profile" CADUCEUS_BUILD_SHA="$CI_COMMIT_SHA" CADUCEUS_BUILD_ENV_SHA="$env_sha" \
-            CARGO_TARGET_DIR="$target_dir" cargo build --release
+            CARGO_TARGET_DIR="$target_dir" cargo build --release --locked
           CADUCEUS_PROFILE="$profile" CARGO_TARGET_DIR="$target_dir" \
             cargo metadata --no-deps --format-version 1 > ".release/$profile/cargo-metadata.json"
 
@@ -232,6 +244,11 @@ steps:
             exit 1
           fi
           cp "$binary" ".release/caduceus-$profile-x86_64"
+          binary_sha256="$(sha256sum "$binary" | cut -d' ' -f1)"
+          built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf '{\n  "schema": "estate.artifact.manifest.v1",\n  "component": "caduceus",\n  "source_sha": "%s",\n  "env_sha": "%s",\n  "rustc_version": "%s",\n  "target": "x86_64-unknown-linux-gnu",\n  "sha256": "%s",\n  "built_at": "%s",\n  "pipeline_url": "%s"\n}\n' \
+            "$CI_COMMIT_SHA" "$env_sha" "$rustc_version" "$binary_sha256" "$built_at" "$CI_PIPELINE_URL" \
+            > ".release/$profile/manifest.json"
         }
 
         build_profile homeserver

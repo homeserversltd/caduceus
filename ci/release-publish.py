@@ -140,6 +140,7 @@ def read_identity(root, profile):
 def read_artifacts(root):
     expected = {}
     versions = set()
+    compiler_versions = set()
     for profile in PROFILES:
         cargo_version, binary_name, artifact = read_identity(root, profile)
         if binary_name != REPO:
@@ -152,6 +153,32 @@ def read_artifacts(root):
             "digest": digest,
             "content": artifact.read_bytes(),
         }
+        manifest_path = root / ".release" / profile / "manifest.json"
+        try:
+            manifest_raw = manifest_path.read_bytes()
+            manifest = json.loads(manifest_raw)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ReleaseError("release-manifest-read-" + type(exc).__name__) from exc
+        if not isinstance(manifest, dict):
+            raise ReleaseError("release-manifest-not-object")
+        if (
+            manifest.get("schema") != "estate.artifact.manifest.v1"
+            or manifest.get("component") != REPO
+            or manifest.get("source_sha") != os.environ.get("CI_COMMIT_SHA")
+            or not isinstance(manifest.get("env_sha"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", manifest["env_sha"])
+            or manifest.get("target") != "x86_64-unknown-linux-gnu"
+            or manifest.get("sha256") != digest
+            or not isinstance(manifest.get("rustc_version"), str)
+            or not manifest["rustc_version"]
+        ):
+            raise ReleaseError("release-manifest-identity-mismatch")
+        compiler_versions.add(manifest["rustc_version"])
+        manifest_name = artifact_name + ".manifest.json"
+        expected[manifest_name] = {
+            "profile": profile,
+            "content": manifest_raw,
+        }
         expected[artifact_name + ".sha256"] = {
             "profile": profile,
             "digest": digest,
@@ -159,6 +186,8 @@ def read_artifacts(root):
         }
     if len(versions) != 1:
         raise ReleaseError("cargo-versions-differ-between-profiles")
+    if len(compiler_versions) != 1:
+        raise ReleaseError("rustc-versions-differ-between-profiles")
     return versions.pop(), expected
 
 
@@ -202,7 +231,7 @@ def fetch_asset(asset, token):
 
 def verify_asset_content(name, asset, wanted, token):
     content = fetch_asset(asset, token)
-    if name.endswith(".sha256"):
+    if name.endswith(".sha256") or name.endswith(".manifest.json"):
         if content != wanted["content"]:
             raise ReleaseError("release-sidecar-mismatch")
     elif content != wanted["content"] or hashlib.sha256(content).hexdigest() != wanted["digest"]:
@@ -539,7 +568,11 @@ def publish(root, token):
         "name": release_name,
         "target_commitish": commit,
         "assets": list(expected),
-        "sha256": {name: expected[name]["digest"] for name in expected if not name.endswith(".sha256")},
+        "sha256": {
+            name: expected[name]["digest"]
+            for name in expected
+            if not name.endswith((".sha256", ".manifest.json"))
+        },
         "status": "published" if changed else "no-op",
         "changed": changed,
     }

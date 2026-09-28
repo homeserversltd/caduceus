@@ -1,6 +1,6 @@
 {
   "schema": "estate.artifact.manifest.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.0.1",
   "role": "Immutable component artifact manifest",
   "authority": {
     "owner": "caduceus",
@@ -32,6 +32,10 @@
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
     },
+    "rustc_version": {
+      "type": "string",
+      "description": "rustc release version that cut this artifact, from rustc -Vv; absent means no evidence"
+    },
     "target": {
       "type": "string",
       "const": "x86_64-unknown-linux-gnu"
@@ -52,6 +56,7 @@
     "component": "string",
     "source_sha": "string",
     "env_sha": "string",
+    "rustc_version": "string",
     "target": "string",
     "sha256": "string",
     "built_at": "string",
@@ -67,11 +72,13 @@
     "built_at",
     "pipeline_url"
   ],
-  "optional": [],
+  "optional": [
+    "rustc_version"
+  ],
   "evolution": {
-    "law": "All eight fields are frozen required.",
-    "producer_contract": "caduceus/harmonia-family producers emit exactly these eight keys; collision verification refuses any other key set.",
-    "missing_field_semantics": "Missing any frozen required field is refused; no field is optional.",
+    "law": "The original eight fields remain frozen required; rustc_version is additive optional compiler evidence.",
+    "producer_contract": "caduceus/harmonia-family producers preserve the original eight-key contract and may add rustc_version; collision verification accepts its absence for older manifests.",
+    "missing_field_semantics": "Missing any frozen required field is refused; absent rustc_version means compiler evidence is unavailable.",
     "unknown_fields_preserved": true
   },
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
