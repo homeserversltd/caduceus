@@ -1,6 +1,6 @@
 {
   "schema": "harmonia.ruyi-perspective.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.0.1",
   "role": "A registered body's raw perspective of the Ruyi staff",
   "authority": {
     "owner": "caduceus",
@@ -36,6 +36,33 @@
     "written_at": {
       "type": "integer",
       "description": "Unix event timestamp"
+    },
+    "why": {
+      "type": "object",
+      "fields": {
+        "computed_at": {"type": "integer"},
+        "held_back_by": {"type": "array", "items": {"type": "string"}},
+        "proposals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "fields": {
+              "id": {"type": "string"},
+              "kind": {"type": "string"},
+              "name": {"type": "string"},
+              "description": {"type": "string"},
+              "evidence": {
+                "type": "object",
+                "description": "Open evidence object; keys and values are unconstrained"
+              },
+              "refreshed_at": {"type": "string"},
+              "silenced": {"type": "boolean"}
+            },
+            "required": ["id", "kind", "name", "description", "evidence", "refreshed_at", "silenced"]
+          }
+        }
+      },
+      "required": ["computed_at", "held_back_by", "proposals"]
     }
   },
   "field_types": {
@@ -43,7 +70,8 @@
     "self": "RuyiRow",
     "seen": "map<mac,PeerEntry>",
     "their_view_of_me": "map<mac,Reflection>",
-    "written_at": "integer"
+    "written_at": "integer",
+    "why": "object|null"
   },
   "required": [
     "schema",
@@ -52,7 +80,8 @@
   "optional": [
     "seen",
     "their_view_of_me",
-    "written_at"
+    "written_at",
+    "why"
   ],
   "types": {
     "BeamPair": {

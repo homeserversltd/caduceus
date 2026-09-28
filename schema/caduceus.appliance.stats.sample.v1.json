@@ -1,0 +1,69 @@
+{
+  "schema": "caduceus.appliance.stats.sample.v1",
+  "schema_version": "1.0.0",
+  "role": "One emitted Caduceus appliance statistics sample",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.appliance.stats.sample.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional metrics remain absent or null as emitted",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.appliance.stats.sample.v1"},
+    "ts": {"type": "integer"},
+    "collectedAt": {"type": ["string", "null"]},
+    "cpu": {"type": "object"},
+    "pressure": {"type": "object"},
+    "load": {"type": ["object", "null"]},
+    "temperature": {"type": ["object", "null"]},
+    "fans": {"type": ["array", "null"]},
+    "gpu": {"type": ["object", "null"]},
+    "memory": {"type": "object"},
+    "network": {"type": "object"},
+    "tcp": {"type": "object"},
+    "disk": {"type": "object"},
+    "processes": {"type": ["array", "object", "null"]},
+    "self": {"type": "object"},
+    "model_lanes": {"type": "array"}
+  },
+  "field_types": {
+    "schema": "string",
+    "ts": "integer",
+    "collectedAt": "string|null",
+    "cpu": "object",
+    "pressure": "object",
+    "load": "object|null",
+    "temperature": "object|null",
+    "fans": "array|null",
+    "gpu": "object|null",
+    "memory": "object",
+    "network": "object",
+    "tcp": "object",
+    "disk": "object",
+    "processes": "array|object|null",
+    "self": "object",
+    "model_lanes": "array"
+  },
+  "required": ["schema"],
+  "optional": [
+    "ts",
+    "collectedAt",
+    "cpu",
+    "pressure",
+    "load",
+    "temperature",
+    "fans",
+    "gpu",
+    "memory",
+    "network",
+    "tcp",
+    "disk",
+    "processes",
+    "self",
+    "model_lanes"
+  ],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

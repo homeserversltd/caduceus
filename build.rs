@@ -294,6 +294,7 @@ fn main() {
     let seats = [
         "caduceus.beam.v1",
         "caduceus.ruyi.v1",
+        "caduceus.appliance.stats.sample.v1",
         "caduceus.doors.readback.v1",
         "harmonia.ruyi-perspective.v1",
         "harmonia.ruyi-register.v1",

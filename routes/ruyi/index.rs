@@ -1,4 +1,3 @@
-use axum::extract::Path;
 use axum::{http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -67,6 +66,10 @@ struct RuyiRow {
     #[serde(default)]
     last_seen: u64,
     last_update: RuyiLastUpdate,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    stats: Option<Option<Value>>,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    stats_signal: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -76,6 +79,10 @@ struct RuyiSeat {
     ipv4: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     ipv4_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stats: Option<Option<Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stats_signal: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -99,6 +106,10 @@ struct DiscoveredRuyiRow {
     last_seen: u64,
     last_update: Option<RuyiLastUpdate>,
     discovered_via: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stats: Option<Option<Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stats_signal: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -366,7 +377,7 @@ fn valid_peer_beam(response: &[u8]) -> bool {
         && value.get("service").and_then(Value::as_str) == Some("caduceus")
 }
 
-async fn probe_peer(row: RuyiRow) -> Option<String> {
+async fn probe_peer(row: RuyiRow, include_stats: bool) -> Option<(String, Option<Value>, Option<String>)> {
     let host = if row.ipv4.parse::<Ipv4Addr>().is_ok() {
         row.ipv4.as_str()
     } else {
@@ -377,7 +388,75 @@ async fn probe_peer(row: RuyiRow) -> Option<String> {
         let response = fetch_peer(host, port, "/api/v1/beam").await?;
         Ok::<_, std::io::Error>(valid_peer_beam(&response))
     }).await.ok()?.ok()?;
-    answered.then_some(row.mac)
+    if !answered {
+        return None;
+    }
+    let (stats, stats_signal) = if include_stats {
+        fetch_peer_stats(host, port).await
+    } else {
+        (None, None)
+    };
+    Some((row.mac, stats, stats_signal))
+}
+
+fn stats_requested(uri: &axum::http::Uri) -> bool {
+    uri.query()
+        .is_some_and(|query| query.split('&').any(|part| part == "stats=1"))
+}
+
+fn response_status(response: &[u8]) -> Option<u16> {
+    let split = response.windows(4).position(|window| window == b"\r\n\r\n")?;
+    let headers = std::str::from_utf8(&response[..split]).ok()?;
+    headers.lines().next()?.split_whitespace().nth(1)?.parse().ok()
+}
+
+async fn fetch_peer_stats(host: &str, port: u16) -> (Option<Value>, Option<String>) {
+    let response = match timeout(
+        RUYI_PEER_TIMEOUT,
+        fetch_peer(host, port, "/api/v1/appliance/stats"),
+    )
+    .await
+    {
+        Err(_) => return (None, Some("timeout".to_owned())),
+        Ok(Err(error)) if error.kind() == ErrorKind::InvalidData => {
+            return (None, Some("too-large".to_owned()))
+        }
+        Ok(Err(error)) if error.kind() == ErrorKind::ConnectionRefused => {
+            return (None, Some("unreachable".to_owned()))
+        }
+        Ok(Err(_)) => return (None, Some("unreachable".to_owned())),
+        Ok(Ok(response)) => response,
+    };
+    match response_status(&response) {
+        Some(200) => {}
+        Some(status) if (100..=599).contains(&status) => {
+            return (None, Some(format!("refused-{status}")))
+        }
+        _ => return (None, Some("malformed".to_owned())),
+    }
+    let Some(body_start) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
+        return (None, Some("malformed".to_owned()));
+    };
+    let Ok(value) = serde_json::from_slice::<Value>(&response[body_start + 4..]) else {
+        return (None, Some("malformed".to_owned()));
+    };
+    if !crate::routes::leaf_schema::accepts("caduceus.appliance.stats.sample.v1", &value) {
+        return (None, Some("malformed".to_owned()));
+    }
+    (Some(value), None)
+}
+
+fn local_stats() -> (Option<Value>, Option<String>) {
+    match crate::stats::current()
+        .ok()
+        .and_then(|sample| serde_json::from_str::<Value>(&sample).ok())
+        .filter(|value| {
+            crate::routes::leaf_schema::accepts("caduceus.appliance.stats.sample.v1", value)
+        })
+    {
+        Some(value) => (Some(value), None),
+        None => (None, Some("unreachable".to_owned())),
+    }
 }
 
 fn normalized_mac(value: &str) -> Option<String> {
@@ -394,6 +473,7 @@ async fn probe_candidate(
     candidate: KeaCandidate,
     dns: Vec<(String, String, Ipv4Addr)>,
     peer_port: u16,
+    include_stats: bool,
 ) -> Option<DiscoveredRuyiRow> {
     let host = candidate.address.to_string();
     let deadline = Instant::now() + RUYI_PEER_TIMEOUT;
@@ -436,7 +516,12 @@ async fn probe_candidate(
     let gui_face = beam.get("gui_face").and_then(Value::as_str).map(str::to_owned);
     let rustc_version = beam.get("rustc_version").and_then(Value::as_str).map(str::to_owned);
     let syzygy_sha = beam.get("syzygy_sha").and_then(Value::as_str).map(str::to_owned);
-    Some(DiscoveredRuyiRow { schema: row_schema().to_owned(), mac: candidate.mac, hostname, canonical_name, ipv4: ipv4.to_string(), ipv4_source: source.to_owned(), profile, gui_face, caduceus_sha, env_sha, rustc_version, harmonia_sha: None, syzygy_sha, last_seen: server_now(), last_update: None, discovered_via: "lease-sweep".to_owned() })
+    let (stats, stats_signal) = if include_stats {
+        fetch_peer_stats(&host, peer_port).await
+    } else {
+        (None, None)
+    };
+    Some(DiscoveredRuyiRow { schema: row_schema().to_owned(), mac: candidate.mac, hostname, canonical_name, ipv4: ipv4.to_string(), ipv4_source: source.to_owned(), profile, gui_face, caduceus_sha, env_sha, rustc_version, harmonia_sha: None, syzygy_sha, last_seen: server_now(), last_update: None, discovered_via: "lease-sweep".to_owned(), stats: include_stats.then_some(stats), stats_signal })
 }
 
 fn response_json_200(response: &[u8]) -> Option<Value> {
@@ -516,7 +601,10 @@ async fn put(
     Ok((StatusCode::OK, Json(row)))
 }
 
-async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
+async fn list(
+    OriginalUri(uri): OriginalUri,
+) -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
+    let include_stats = stats_requested(&uri);
     let stored = crate::stats::ruyi_snapshot().map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-store-failed"))?;
     let mut announced = Vec::with_capacity(stored.rows.len());
     for (_, row_json, last_seen) in stored.rows {
@@ -559,19 +647,33 @@ async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::Api
     let mut staves: Vec<RuyiStaff> = announced.iter().cloned().map(RuyiStaff::Announced).collect();
     let mut probes = JoinSet::new();
     for row in announced.iter().filter(|row| self_mac.as_deref() != Some(row.mac.as_str())).cloned() {
-        probes.spawn(async move { (Some(probe_peer(row).await), None) });
+        probes.spawn(async move { (probe_peer(row, include_stats).await, None) });
     }
     let peer_port = peer_probe_port();
     for candidate in candidates.into_values() {
         let dns = dns.clone();
-        probes.spawn(async move { (None, probe_candidate(candidate, dns, peer_port).await) });
+        probes.spawn(async move { (None, probe_candidate(candidate, dns, peer_port, include_stats).await) });
     }
     let mut answered = BTreeSet::new();
+    let mut peer_stats = BTreeMap::<String, (Option<Value>, Option<String>)>::new();
     if let Some(mac) = self_mac.as_ref() { if announced.iter().any(|row| &row.mac == mac) { answered.insert(mac.clone()); } }
     while let Some(result) = probes.join_next().await {
         if let Ok((stored_result, discovered_result)) = result {
-            if let Some(Some(mac)) = stored_result { answered.insert(mac); }
+            if let Some((mac, stats, stats_signal)) = stored_result {
+                answered.insert(mac.clone());
+                peer_stats.insert(mac, (stats, stats_signal));
+            }
             if let Some(row) = discovered_result { answered.insert(row.mac.clone()); staves.push(RuyiStaff::Discovered(row)); }
+        }
+    }
+    if include_stats {
+        for staff in &mut staves {
+            if let RuyiStaff::Announced(row) = staff {
+                if let Some((stats, stats_signal)) = peer_stats.remove(&row.mac) {
+                    row.stats = Some(stats);
+                    row.stats_signal = stats_signal;
+                }
+            }
         }
     }
     staves.retain(|row| matches!(row, RuyiStaff::Discovered(_)) || answered.contains(row.mac()));
@@ -602,9 +704,11 @@ async fn list() -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::Api
         let value = match staff { RuyiStaff::Announced(row) => (row.mac.as_str(), row.hostname.as_str(), row.canonical_name.as_str(), row.ipv4.as_str(), row.ipv4_source.as_deref()), RuyiStaff::Discovered(row) => (row.mac.as_str(), row.hostname.as_str(), row.canonical_name.as_str(), row.ipv4.as_str(), Some(row.ipv4_source.as_str())) };
         (value.4 == Some("declared")).then(|| json!({"mac":value.0,"hostname":value.1,"canonical_name":value.2,"ipv4":value.3}))
     }).collect() } else { Vec::new() };
+    let (seat_stats, seat_stats_signal) = if include_stats { local_stats() } else { (None, None) };
     Ok(Json(RuyiListBody { schema: row_schema(), ok: true, service: "caduceus", seat: RuyiSeat {
         mac: identity.mac.unwrap_or_else(|| "unknown".to_owned()), hostname: crate::shared::seat_identity::local_hostname(),
         ipv4: identity.ipv4.map(|ipv4| ipv4.to_string()).unwrap_or_else(|| "unknown".to_owned()), ipv4_source: identity.ipv4_source.map(str::to_owned),
+        stats: include_stats.then_some(seat_stats), stats_signal: seat_stats_signal,
     }, staves, perspectives, trust, dns_unresolved }))
 }
 
