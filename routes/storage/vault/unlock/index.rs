@@ -1,5 +1,5 @@
 use crate::shared::config;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -8,8 +8,7 @@ use std::process::Command;
 const STATE: &str = "/var/lib/homeconsole/state.json";
 const APPLIANCE_CONFIG: &str = "/etc/appliance/config.json";
 const CRYPTTAB: &str = "/etc/crypttab";
-const POLICY_NAME: &str = ".keyman-vault-policy.json";
-const POLICY_SCHEMA: &str = "caduceus.vault_policy.v1";
+const POLICY_RECEIPT_SCHEMA: &str = "caduceus.vault.policy-write.v1";
 const GOVERNING_KEYFILE: &str = "/root/key/homeconsole-vault.key";
 
 #[derive(Clone)]
@@ -137,29 +136,24 @@ fn decode_mountinfo(s: &str) -> String {
         .replace("\\012", "\n")
         .replace("\\134", "\\")
 }
-fn policy_path(cfg: &VaultConfig) -> PathBuf {
-    mountpoint_path(cfg).join(POLICY_NAME)
-}
-fn read_policy(cfg: &VaultConfig) -> Result<Map<String, Value>, String> {
-    let text =
-        fs::read_to_string(policy_path(cfg)).map_err(|_| "vault-policy-missing".to_string())?;
-    let value: Value =
-        serde_json::from_str(&text).map_err(|_| "vault-policy-invalid".to_string())?;
-    let object = value
-        .as_object()
-        .ok_or_else(|| "vault-policy-invalid".to_string())?;
-    if object.get("schema").and_then(Value::as_str) != Some(POLICY_SCHEMA)
-        || object.get("mode").and_then(Value::as_str) != Some("separate_luks_vault")
+fn read_policy(cfg: &VaultConfig) -> Result<Value, String> {
+    let payload = json!({"mapper": &cfg.mapper, "op": "read"});
+    let receipt = crate::gate::snake::crossing_path("storage/vault/policy", &payload)
+        .map_err(|_| "vault-policy-missing".to_string())?;
+    if receipt.get("schema").and_then(Value::as_str) != Some(POLICY_RECEIPT_SCHEMA)
+        || receipt.get("op").and_then(Value::as_str) != Some("read")
+        || receipt.get("ok").and_then(Value::as_bool) != Some(true)
     {
         return Err("vault-policy-invalid".into());
     }
-    Ok(object.clone())
+    Ok(receipt)
 }
 fn auto_enabled(cfg: &VaultConfig) -> bool {
     read_policy(cfg)
         .ok()
-        .and_then(|p| {
-            p.get("unlock")
+        .and_then(|receipt| {
+            receipt
+                .get("unlock")
                 .and_then(Value::as_str)
                 .map(|v| v == "crypttab_keyfile")
         })
@@ -458,13 +452,15 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
         log_internal("auto-decrypt", &error);
         return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":auto_enabled(&cfg)});
     }
+    let unlock = if enabled {
+        "crypttab_keyfile"
+    } else {
+        "manual_passphrase"
+    };
     let policy = json!({
         "mapper": &cfg.mapper,
-        "unlock": if enabled {
-            "crypttab_keyfile"
-        } else {
-            "manual_passphrase"
-        },
+        "op": "write",
+        "unlock": unlock,
     });
     let receipt = match crate::gate::snake::crossing_path("storage/vault/policy", &policy) {
         Ok(receipt) => receipt,
@@ -474,7 +470,11 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
             return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":auto_enabled(&cfg)});
         }
     };
-    if receipt.get("ok").and_then(Value::as_bool) != Some(true) {
+    if receipt.get("schema").and_then(Value::as_str) != Some(POLICY_RECEIPT_SCHEMA)
+        || receipt.get("op").and_then(Value::as_str) != Some("write")
+        || receipt.get("unlock").and_then(Value::as_str) != Some(unlock)
+        || receipt.get("ok").and_then(Value::as_bool) != Some(true)
+    {
         let signal = receipt
             .get("firstMissingSignal")
             .and_then(Value::as_str)

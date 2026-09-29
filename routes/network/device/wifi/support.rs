@@ -269,7 +269,7 @@ fn ipv4_payload(
     payload.insert("method".into(), method.into());
     if is_static {
         payload.insert("address".into(), cidr(&text(o, "address", MAX_FIELD)?)?.into());
-        append_static_ipv4_options(&mut payload, o)?;
+        append_static_ipv4_payload_fields(&mut payload, o)?;
     }
     Ok(Plan::Mutation(Value::Object(payload)))
 }
@@ -335,7 +335,7 @@ fn parse_result(a: &str, s: &str) -> Value {
         .collect::<Vec<_>>();
     json!({"action":a,"lineCount":e.len(),"entries":e})
 }
-fn append_static_ipv4_options(
+fn append_static_ipv4_payload_fields(
     payload: &mut serde_json::Map<String, Value>,
     o: &serde_json::Map<String, Value>,
 ) -> Result<(), String> {

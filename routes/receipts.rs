@@ -424,9 +424,6 @@ pub fn intent_json(
     } else {
         "readback"
     });
-    if class == "portal-service" {
-        return execute_portal_service(metadata.unwrap_or_else(|| json!({})));
-    }
     if route.starts_with("/api/dhcp/") || route == "/api/dhcp" {
         return dhcp::intent_json(method, route, metadata.unwrap_or_else(|| json!({})));
     }
@@ -885,20 +882,8 @@ fn execute_force_permissions_with(
     execute_force_permissions(metadata)
 }
 
-fn execute_portal_service(metadata: Value) -> Result<Value, String> {
-    crate::routes::control_service::execute_service(metadata)
-}
-
 pub fn execute_registered_service(service: &str, action: &str) -> Result<Value, String> {
     crate::routes::control_service::execute_registered_service(service, action)
-}
-
-pub fn restart_registered_service(service: &str) -> Result<Value, String> {
-    execute_registered_service(service, "restart")
-}
-
-fn execute_portal_service_with(metadata: Value, systemctl: &str) -> Result<Value, String> {
-    crate::routes::control_service::execute_service_with(metadata, systemctl)
 }
 
 pub fn intent(method: &str, route: &str) -> i32 {
@@ -1031,63 +1016,6 @@ mod tests {
         );
 
         std::env::remove_var("CADUCEUS_FILE_INGRESS_ROOT");
-        std::env::remove_var("CADUCEUS_ROOT");
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn portal_service_classification_executes_systemctl_and_reports_active() {
-        let root =
-            std::env::temp_dir().join(format!("caduceus-systemctl-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-        let profile_dir = root.join("etc/caduceus");
-        std::fs::create_dir_all(&profile_dir).unwrap();
-        std::fs::write(
-            profile_dir.join("profile.yaml"),
-            "schema: caduceus.profile.v1\nprofile: homeserver\n",
-        )
-        .unwrap();
-        let config_dir = root.join("etc/appliance");
-        std::fs::create_dir_all(&config_dir).unwrap();
-        std::fs::write(config_dir.join("config.json"), r#"{"tabs":{"portals":{"data":{"portals":[{"name":"Jellyfin","services":["jellyfin"]}]}}}}"#).unwrap();
-        std::fs::write(
-            config_dir.join("profile.json"),
-            r#"{"profile":"homeserver"}"#,
-        )
-        .unwrap();
-        let state_dir = root.join("var/lib/caduceus");
-        std::fs::create_dir_all(&state_dir).unwrap();
-        std::fs::write(
-            state_dir.join("state.json"),
-            r#"{"services":{"household_config":{"profile":"homeserver"}}}"#,
-        )
-        .unwrap();
-        std::env::set_var("CADUCEUS_ROOT", &root);
-        let systemctl = root.join("systemctl");
-        std::fs::write(&systemctl, "#!/bin/sh\nif [ \"$1\" = is-active ]; then echo active; exit 0; else printf '%s %s\\n' \"$1\" \"$2\"; fi\n").unwrap();
-        let mut permissions = std::fs::metadata(&systemctl).unwrap().permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&systemctl, permissions).unwrap();
-
-        let result = execute_portal_service_with(
-            json!({
-                "service": "jellyfin",
-                "action": "restart",
-                "systemdService": "jellyfin.service"
-            }),
-            systemctl.to_str().unwrap(),
-        )
-        .unwrap();
-        assert_eq!(result["execution"], "systemctl");
-        assert_eq!(result["output"], "restart jellyfin.service");
-        assert_eq!(result["active"], true);
-        assert_eq!(result["mutationPerformed"], true);
-        let refused = execute_portal_service_with(
-            json!({"service":"ssh","action":"restart","systemdService":"ssh.service"}),
-            systemctl.to_str().unwrap(),
-        );
-        assert_eq!(refused.unwrap_err(), "caduceus-portal-service-not-allowed");
         std::env::remove_var("CADUCEUS_ROOT");
         let _ = std::fs::remove_dir_all(root);
     }
