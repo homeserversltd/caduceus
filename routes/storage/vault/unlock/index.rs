@@ -244,9 +244,25 @@ fn uuid_for(device: &str, old: &str) -> String {
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| old.to_string())
 }
-fn crypttab_line(cfg: &VaultConfig, enabled: bool) -> Result<(String, String), String> {
-    let text = fs::read_to_string(root_path(CRYPTTAB))
+fn crypttab_contents() -> Result<String, String> {
+    if std::env::var_os("CADUCEUS_ROOT").is_some() {
+        return fs::read_to_string(root_path(CRYPTTAB))
+            .map_err(|_| "vault-crypttab-unavailable".to_string());
+    }
+    let output = Command::new("/usr/bin/sudo")
+        .args(["-n", "/usr/bin/cat", CRYPTTAB])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
         .map_err(|_| "vault-crypttab-unavailable".to_string())?;
+    if !output.status.success() {
+        return Err("vault-crypttab-unavailable".into());
+    }
+    String::from_utf8(output.stdout).map_err(|_| "vault-crypttab-unavailable".into())
+}
+
+fn crypttab_line(cfg: &VaultConfig, enabled: bool) -> Result<(String, String), String> {
+    let text = crypttab_contents()?;
     let mut existing = None;
     let mut replaced = false;
     let mut lines = Vec::new();

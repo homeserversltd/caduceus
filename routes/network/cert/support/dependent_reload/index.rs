@@ -295,13 +295,30 @@ fn material_applies_to_household(material: &Value) -> bool {
 /// Appends the dependent leg to a certificate transition receipt.
 pub fn after_material_lands(receipt: Value, observed_material: Value) -> Result<Value, String> {
     let dependents = declared_dependents()?;
-    let systemctl =
-        std::env::var("CADUCEUS_SYSTEMCTL_BIN").unwrap_or_else(|_| "systemctl".to_string());
+    let (systemctl, fixture) = if std::env::var_os("CADUCEUS_ROOT").is_some() {
+        (
+            std::env::var("CADUCEUS_SYSTEMCTL_BIN").unwrap_or_else(|_| "/usr/bin/systemctl".into()),
+            true,
+        )
+    } else {
+        ("/usr/bin/systemctl".to_string(), false)
+    };
     after_material_lands_with_runner(receipt, &dependents, observed_material, |dependent| {
-        match Command::new(&systemctl)
-            .args([dependent.action.as_str(), dependent.service.as_str()])
-            .output()
-        {
+        let command = if fixture {
+            Command::new(&systemctl)
+                .args([dependent.action.as_str(), dependent.service.as_str()])
+                .output()
+        } else {
+            Command::new("/usr/bin/sudo")
+                .args([
+                    "-n",
+                    "/usr/bin/systemctl",
+                    dependent.action.as_str(),
+                    dependent.service.as_str(),
+                ])
+                .output()
+        };
+        match command {
             Ok(output) if output.status.success() => CommandResult::Succeeded,
             Ok(output) if absent_output(&output) => CommandResult::Absent,
             Ok(_) | Err(_) => CommandResult::Failed,

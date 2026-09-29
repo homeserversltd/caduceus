@@ -4,7 +4,8 @@ use serde_json::{json, Value};
 use std::ffi::CString;
 use std::fs;
 use std::io::ErrorKind;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+use std::os::unix::fs::MetadataExt;
+use std::process::Command;
 
 pub const CONFIG: &str = "/etc/appliance/config.json";
 pub const REGISTER: &str = "/etc/appliance/xenia.json";
@@ -78,26 +79,6 @@ struct Seat {
     attempt: &'static str,
 }
 
-fn chown(path: &std::path::Path, uid: libc::uid_t, gid: libc::gid_t) -> Result<()> {
-    use std::os::unix::ffi::OsStrExt;
-
-    let path_bytes = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
-        observation(
-            "transaction",
-            &path.display().to_string(),
-            "seat-path-invalid",
-        )
-    })?;
-    if unsafe { libc::chown(path_bytes.as_ptr(), uid, gid) } != 0 {
-        return Err(observation(
-            "transaction",
-            &path.display().to_string(),
-            std::io::Error::last_os_error().to_string(),
-        ));
-    }
-    Ok(())
-}
-
 fn ensure_process_seat(proposed: &Value, id: &str) -> Result<Option<Seat>> {
     if proposed["kind"].as_str() != Some("cartridge-process") {
         return Ok(None);
@@ -111,7 +92,7 @@ fn ensure_process_seat(proposed: &Value, id: &str) -> Result<Option<Seat>> {
     let (uid, gid) = owner_ids(owner)?;
     let root = config::path("/var/lib/xenia");
     match fs::symlink_metadata(&root) {
-        Ok(metadata) if metadata.file_type().is_dir() => metadata,
+        Ok(metadata) if metadata.file_type().is_dir() => {}
         Ok(_) => {
             return Err(Refusal::new(
                 "transaction",
@@ -139,8 +120,8 @@ fn ensure_process_seat(proposed: &Value, id: &str) -> Result<Option<Seat>> {
 
     let device_path = format!("/var/lib/xenia/{id}");
     let path = config::path(&device_path);
-    let metadata = match fs::symlink_metadata(&path) {
-        Ok(metadata) if metadata.file_type().is_dir() => Some(metadata),
+    let existed_before = match fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.file_type().is_dir() => true,
         Ok(_) => {
             return Err(Refusal::new(
                 "transaction",
@@ -149,43 +130,67 @@ fn ensure_process_seat(proposed: &Value, id: &str) -> Result<Option<Seat>> {
                 "Replace the named seat with a real directory before admission.",
             ))
         }
-        Err(error) if error.kind() == ErrorKind::NotFound => None,
+        Err(error) if error.kind() == ErrorKind::NotFound => false,
         Err(error) => return Err(observation("transaction", &device_path, error.to_string())),
     };
-
-    let (created, changed, attempt) = if let Some(metadata) = metadata {
-        let owner_changed = metadata.uid() != uid || metadata.gid() != gid;
-        let mode_changed = metadata.mode() & 0o7777 != 0o750;
-        if owner_changed {
-            chown(&path, uid, gid)?;
+    let output = Command::new("/usr/bin/sudo")
+        .args([
+            "-n",
+            "/usr/local/sbin/agathodaimon/caduceus-xenos-run",
+            "seat",
+            id,
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map_err(|_| observation("transaction", &device_path, "seat-launcher-unavailable"))?;
+    if !output.status.success() {
+        return Err(observation(
+            "transaction",
+            &device_path,
+            "seat-launcher-refused",
+        ));
+    }
+    let receipt: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| observation("transaction", &device_path, "seat-receipt-invalid"))?;
+    if receipt.get("ok").and_then(Value::as_bool) != Some(true)
+        || receipt.get("id").and_then(Value::as_str) != Some(id)
+        || receipt.get("path").and_then(Value::as_str) != Some(device_path.as_str())
+        || receipt.get("owner").and_then(Value::as_str) != Some(owner)
+    {
+        return Err(observation(
+            "transaction",
+            &device_path,
+            "seat-receipt-mismatch",
+        ));
+    }
+    let changed = receipt
+        .get("changed")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| observation("transaction", &device_path, "seat-receipt-invalid"))?;
+    let metadata = fs::symlink_metadata(&path)
+        .map_err(|error| observation("transaction", &device_path, error.to_string()))?;
+    if !metadata.file_type().is_dir()
+        || metadata.uid() != uid
+        || metadata.gid() != gid
+        || metadata.mode() & 0o7777 != 0o750
+    {
+        return Err(observation(
+            "transaction",
+            &device_path,
+            "seat-act-did-not-converge",
+        ));
+    }
+    let created = !existed_before && changed;
+    let attempt = if changed {
+        if created {
+            "created"
+        } else {
+            "corrected"
         }
-        if mode_changed {
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o750))
-                .map_err(|error| observation("transaction", &device_path, error.to_string()))?;
-        }
-        (
-            false,
-            owner_changed || mode_changed,
-            if owner_changed || mode_changed {
-                "corrected"
-            } else {
-                "unchanged"
-            },
-        )
     } else {
-        let mut builder = fs::DirBuilder::new();
-        builder.mode(0o750);
-        builder
-            .create(&path)
-            .map_err(|error| observation("transaction", &device_path, error.to_string()))?;
-        let prepared = fs::set_permissions(&path, fs::Permissions::from_mode(0o750))
-            .map_err(|error| observation("transaction", &device_path, error.to_string()))
-            .and_then(|_| chown(&path, uid, gid));
-        if let Err(error) = prepared {
-            let _ = fs::remove_dir(&path);
-            return Err(error);
-        }
-        (true, true, "created")
+        "unchanged"
     };
     Ok(Some(Seat {
         value: json!({"path": device_path, "created": created}),
@@ -276,6 +281,12 @@ fn write(path: &str, value: &Value) -> Result<()> {
 pub fn admit(before: &House, proposed: &Value, row: &Value) -> Result<Value> {
     let _lock =
         config::transaction_lock().map_err(|e| observation("transaction", "config.lock", e))?;
+    let register_path = config::path(REGISTER);
+    let register_was_present = match fs::symlink_metadata(&register_path) {
+        Ok(_) => true,
+        Err(error) if error.kind() == ErrorKind::NotFound => false,
+        Err(error) => return Err(observation("transaction", REGISTER, error.to_string())),
+    };
     let mut current = read()?;
     if current.config != before.config || current.register != before.register {
         return Err(observation(
@@ -302,7 +313,7 @@ pub fn admit(before: &House, proposed: &Value, row: &Value) -> Result<Value> {
     };
     let entry_changed = prior.is_none();
     let row_changed = current.config["tabs"].get(id) != Some(row);
-    let seat = ensure_process_seat(proposed, id)?;
+    let previous_register = current.register.clone();
     if entry_changed {
         current.register["xenoi"]
             .as_object_mut()
@@ -311,6 +322,30 @@ pub fn admit(before: &House, proposed: &Value, row: &Value) -> Result<Value> {
         current.register["written_at"] = json!(chrono::Utc::now().timestamp());
         write(REGISTER, &current.register)?;
     }
+    let seat = match ensure_process_seat(proposed, id) {
+        Ok(seat) => seat,
+        Err(seat_error) => {
+            if entry_changed {
+                let rollback = if register_was_present {
+                    write(REGISTER, &previous_register)
+                } else {
+                    match fs::remove_file(&register_path) {
+                        Ok(()) => Ok(()),
+                        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+                        Err(error) => Err(observation("transaction", REGISTER, error.to_string())),
+                    }
+                };
+                if let Err(rollback_error) = rollback {
+                    return Err(observation(
+                        "transaction",
+                        REGISTER,
+                        format!("seat-register-rollback-failed: {}", rollback_error.message),
+                    ));
+                }
+            }
+            return Err(seat_error);
+        }
+    };
     // Entry rename precedes row rename. If this fails, the existing entry is
     // deliberately retained; an identical repeat repairs just the missing row.
     if row_changed {

@@ -1,23 +1,34 @@
 use crate::shared::config;
 use serde_json::{json, Value};
 use std::process::Command;
+const SYSTEMCTL: &str = "/usr/bin/systemctl";
+
+fn configured_systemctl() -> (String, bool) {
+    if std::env::var_os("CADUCEUS_ROOT").is_some() {
+        (
+            std::env::var("CADUCEUS_SYSTEMCTL_BIN").unwrap_or_else(|_| SYSTEMCTL.to_string()),
+            true,
+        )
+    } else {
+        (SYSTEMCTL.to_string(), false)
+    }
+}
 
 pub fn execute_service(metadata: Value) -> Result<Value, String> {
-    let systemctl =
-        std::env::var("CADUCEUS_SYSTEMCTL_BIN").unwrap_or_else(|_| "systemctl".to_string());
-    execute_service_with(metadata, &systemctl)
+    let (systemctl, fixture) = configured_systemctl();
+    execute_service_with_mode(metadata, &systemctl, fixture)
 }
 
 pub fn execute_registered_service(service: &str, action: &str) -> Result<Value, String> {
-    let systemctl =
-        std::env::var("CADUCEUS_SYSTEMCTL_BIN").unwrap_or_else(|_| "systemctl".to_string());
-    execute_service_with(
+    let (systemctl, fixture) = configured_systemctl();
+    execute_service_with_mode(
         json!({
             "service": service,
             "action": action,
             "systemdService": normalize_systemd_service(service),
         }),
         &systemctl,
+        fixture,
     )
 }
 
@@ -26,6 +37,34 @@ pub fn restart_registered_service(service: &str) -> Result<Value, String> {
 }
 
 pub fn execute_service_with(metadata: Value, systemctl: &str) -> Result<Value, String> {
+    let fixture = std::env::var_os("CADUCEUS_ROOT").is_some();
+    execute_service_with_mode(
+        metadata,
+        if fixture { systemctl } else { SYSTEMCTL },
+        fixture,
+    )
+}
+
+fn systemctl_output(
+    systemctl: &str,
+    fixture: bool,
+    args: &[&str],
+) -> std::io::Result<std::process::Output> {
+    let mut command = if fixture {
+        Command::new(systemctl)
+    } else {
+        let mut command = Command::new("/usr/bin/sudo");
+        command.args(["-n", SYSTEMCTL]);
+        command
+    };
+    command.args(args).output()
+}
+
+fn execute_service_with_mode(
+    metadata: Value,
+    systemctl: &str,
+    fixture: bool,
+) -> Result<Value, String> {
     let service = metadata
         .get("service")
         .and_then(Value::as_str)
@@ -54,13 +93,9 @@ pub fn execute_service_with(metadata: Value, systemctl: &str) -> Result<Value, S
         return Err("caduceus-portal-service-not-allowed".to_string());
     }
 
-    let output = Command::new(systemctl)
-        .args([action, systemd_service])
-        .output()
+    let output = systemctl_output(systemctl, fixture, &[action, systemd_service])
         .map_err(|err| format!("caduceus-portal-systemctl-exec-failed: {err}"))?;
-    let active_output = Command::new(&systemctl)
-        .args(["is-active", systemd_service])
-        .output()
+    let active_output = systemctl_output(systemctl, fixture, &["is-active", systemd_service])
         .map_err(|err| format!("caduceus-portal-systemctl-active-failed: {err}"))?;
     let command_output = if output.stdout.is_empty() {
         String::from_utf8_lossy(&output.stderr).trim().to_string()

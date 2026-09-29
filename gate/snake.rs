@@ -340,8 +340,8 @@ fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
         command.args(band.split('/'));
         command
     } else {
-        let mut command = Command::new("/usr/bin/python3");
-        command.arg(&cli).arg(band);
+        let mut command = Command::new("/usr/bin/sudo");
+        command.arg("-n").arg(&cli).arg(band);
         command
     };
     execute_command(
@@ -360,8 +360,8 @@ pub fn run_launcher(argv: &[String], envelope: &Value, timeout: Duration) -> Res
     if argv.first().map(String::as_str) != Some(LAUNCHER) || !Path::new(LAUNCHER).is_file() {
         return Err("xenos-launcher-absent".into());
     }
-    let mut command = Command::new(LAUNCHER);
-    command.args(&argv[1..]);
+    let mut command = Command::new("/usr/bin/sudo");
+    command.arg("-n").arg(LAUNCHER).args(&argv[1..]);
     execute_command(
         argv.get(3).map(String::as_str).unwrap_or("xenia/run"),
         envelope,

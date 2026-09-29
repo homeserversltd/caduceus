@@ -90,6 +90,80 @@ pub fn sockets() -> Result<Vec<Listener>> {
     Ok(result)
 }
 
+fn census_listeners(id: &str) -> Result<Vec<Listener>> {
+    let output = Command::new("/usr/bin/sudo")
+        .args([
+            "-n",
+            "/usr/local/sbin/agathodaimon/caduceus-xenos-run",
+            "census",
+            id,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|_| observation("status", "census", "census-launcher-unavailable"))?;
+    if !output.status.success() {
+        return Err(observation("status", "census", "census-launcher-refused"));
+    }
+    let receipt: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| observation("status", "census", "census-receipt-invalid"))?;
+    if receipt.get("ok").and_then(Value::as_bool) != Some(true)
+        || receipt.get("id").and_then(Value::as_str) != Some(id)
+    {
+        return Err(observation("status", "census", "census-receipt-mismatch"));
+    }
+    let entries = receipt
+        .get("listeners")
+        .and_then(Value::as_array)
+        .ok_or_else(|| observation("status", "census", "census-listeners-invalid"))?;
+    entries
+        .iter()
+        .map(|entry| {
+            let inode = entry.get("inode").and_then(Value::as_u64).ok_or_else(|| {
+                observation("status", "census.listeners", "listener-inode-invalid")
+            })?;
+            let endpoint = entry
+                .get("endpoint")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    observation("status", "census.listeners", "listener-endpoint-invalid")
+                })?
+                .to_owned();
+            let loopback = entry
+                .get("loopback")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| {
+                    observation("status", "census.listeners", "listener-loopback-invalid")
+                })?;
+            let port = match entry.get("port") {
+                Some(Value::Null) => None,
+                Some(value) => Some(
+                    value
+                        .as_u64()
+                        .and_then(|port| u16::try_from(port).ok())
+                        .ok_or_else(|| {
+                            observation("status", "census.listeners", "listener-port-invalid")
+                        })?,
+                ),
+                None => {
+                    return Err(observation(
+                        "status",
+                        "census.listeners",
+                        "listener-port-absent",
+                    ));
+                }
+            };
+            Ok(Listener {
+                inode,
+                endpoint,
+                port,
+                loopback,
+            })
+        })
+        .collect()
+}
+
 fn unit_properties(unit: &str) -> Result<BTreeMap<String, String>> {
     let mut child = Command::new("systemctl")
         .args([
@@ -228,32 +302,15 @@ pub fn runtime(entry: &Value) -> Result<Value> {
             "active-unit-cgroup-absent",
         ));
     }
-    let mut inodes = BTreeSet::new();
-    for pid in &pids {
-        let directory = format!("/proc/{pid}/fd");
-        for fd in fs::read_dir(&directory)
-            .map_err(|e| observation("status", &directory, e.to_string()))?
-        {
-            let fd = fd.map_err(|e| observation("status", &directory, e.to_string()))?;
-            let target = fs::read_link(fd.path())
-                .map_err(|e| observation("status", &directory, e.to_string()))?;
-            if let Some(inode) = target
-                .to_str()
-                .and_then(|s| s.strip_prefix("socket:["))
-                .and_then(|s| s.strip_suffix(']'))
-            {
-                inodes.insert(
-                    inode
-                        .parse::<u64>()
-                        .map_err(|e| observation("status", &directory, e.to_string()))?,
-                );
-            }
-        }
-    }
-    let listeners: Vec<_> = sockets()?
+    let observed_listeners = census_listeners(id)?;
+    let inodes = observed_listeners
+        .iter()
+        .map(|listener| listener.inode)
+        .collect::<BTreeSet<_>>();
+    let listeners: Vec<_> = observed_listeners
         .into_iter()
-        .filter(|s| s.loopback && inodes.contains(&s.inode))
-        .map(|s| s.value())
+        .filter(|listener| listener.loopback)
+        .map(|listener| listener.value())
         .collect();
     Ok(
         json!({"state": props.get("ActiveState"), "unit": unit, "properties": props, "pids": pids, "socket_inodes": inodes, "listeners": listeners, "health": "unobserved"}),

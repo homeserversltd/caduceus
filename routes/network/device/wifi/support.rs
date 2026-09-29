@@ -74,7 +74,7 @@ pub async fn execute(
     } else if action == "ipv4" {
         run_ipv4_sequence(&args)
     } else {
-        run_nmcli(&args, password)
+        run_nmcli(&args, password, is_mutation(action))
     };
     let result = outcome.as_ref().ok().map(|(s, _)| parse_result(action, s));
     let success = outcome.is_ok();
@@ -268,9 +268,23 @@ fn build_args(
 fn is_mutation(a: &str) -> bool {
     matches!(a, "radio" | "connect" | "disconnect" | "forget" | "ipv4")
 }
-fn run_nmcli(args: &[String], password: Option<&str>) -> Result<(String, Vec<String>), String> {
-    let exe = env::var("CADUCEUS_NMCLI").unwrap_or_else(|_| "nmcli".into());
-    let mut c = Command::new(exe)
+fn run_nmcli(
+    args: &[String],
+    password: Option<&str>,
+    mutation: bool,
+) -> Result<(String, Vec<String>), String> {
+    let fixture = env::var_os("CADUCEUS_ROOT").is_some();
+    let mut c = if fixture {
+        let exe = env::var("CADUCEUS_NMCLI").unwrap_or_else(|_| "/usr/bin/nmcli".into());
+        Command::new(exe)
+    } else if mutation {
+        let mut command = Command::new("/usr/bin/sudo");
+        command.args(["-n", "/usr/bin/nmcli"]);
+        command
+    } else {
+        Command::new("/usr/bin/nmcli")
+    };
+    let mut child = c
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -278,7 +292,7 @@ fn run_nmcli(args: &[String], password: Option<&str>) -> Result<(String, Vec<Str
         .spawn()
         .map_err(|_| "wifi-nmcli-unavailable".to_string())?;
     if let Some(s) = password {
-        let mut i = c
+        let mut i = child
             .stdin
             .take()
             .ok_or_else(|| "wifi-stdin-unavailable".to_string())?;
@@ -286,9 +300,9 @@ fn run_nmcli(args: &[String], password: Option<&str>) -> Result<(String, Vec<Str
             .map_err(|_| "wifi-stdin-write-failed")?;
         i.write_all(b"\n").map_err(|_| "wifi-stdin-write-failed")?
     } else {
-        drop(c.stdin.take())
+        drop(child.stdin.take())
     }
-    wait_child(&mut c)
+    wait_child(&mut child)
 }
 fn wait_child(c: &mut Child) -> Result<(String, Vec<String>), String> {
     let start = std::time::Instant::now();
@@ -353,7 +367,7 @@ fn run_ipv4_interface_sequence(
     .into_iter()
     .map(String::from)
     .collect::<Vec<_>>();
-    let (active, _) = run_nmcli(&query, None)?;
+    let (active, _) = run_nmcli(&query, None, false)?;
     let uuid = active
         .lines()
         .find_map(|line| {
@@ -367,7 +381,7 @@ fn run_ipv4_interface_sequence(
         })
         .ok_or_else(|| "wifi-interface-active-connection-missing".to_string())?;
     let modify = build_ipv4_modify_args(&uuid, o)?;
-    let (mut out, _) = run_nmcli(&modify, None)?;
+    let (mut out, _) = run_nmcli(&modify, None, true)?;
     for args in [
         vec![
             "connection".into(),
@@ -377,7 +391,7 @@ fn run_ipv4_interface_sequence(
         ],
         vec!["connection".into(), "up".into(), "uuid".into(), uuid],
     ] {
-        let (chunk, _) = run_nmcli(&args, None)?;
+        let (chunk, _) = run_nmcli(&args, None, true)?;
         out.push_str(&chunk);
     }
     Ok((out, Vec::new()))
@@ -455,12 +469,12 @@ fn run_ipv4_sequence(m: &[String]) -> Result<(String, Vec<String>), String> {
         .get(3)
         .ok_or_else(|| "wifi-uuid-required".to_string())?
         .clone();
-    let (mut s, _) = run_nmcli(m, None)?;
+    let (mut s, _) = run_nmcli(m, None, true)?;
     for x in [
         vec!["connection".into(), "down".into(), "uuid".into(), u.clone()],
         vec!["connection".into(), "up".into(), "uuid".into(), u],
     ] {
-        let (o, _) = run_nmcli(&x, None)?;
+        let (o, _) = run_nmcli(&x, None, true)?;
         s.push_str(&o)
     }
     Ok((s, Vec::new()))

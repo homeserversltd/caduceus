@@ -30,6 +30,7 @@ fn active_test() -> &'static Mutex<Option<ActiveTest>> {
 fn tester_argv(device: &str, test_type: &str) -> Vec<String> {
     vec![
         "/usr/bin/sudo".into(),
+        "-n".into(),
         TESTER.into(),
         device.into(),
         test_type.into(),
@@ -132,7 +133,7 @@ pub fn start_json(device: &str, test_type: &str, dry_run: bool) -> Result<Value,
     }
     *active = None;
     let child = Command::new("/usr/bin/sudo")
-        .args([TESTER, &device, test_type])
+        .args(["-n", TESTER, &device, test_type])
         .spawn()
         .map_err(|err| format!("caduceus-hard-drive-test-start-failed:{err}"))?;
     *active = Some(ActiveTest {
@@ -214,9 +215,8 @@ pub fn results_json() -> Result<Value, String> {
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: axum::Router) -> axum::Router {
-    router
-        .route(
-            "/api/v1/storage/disk/test/progress",
-            axum::routing::get(crate::routes::storage_support::hard_drive_test_progress_route),
-        )
+    router.route(
+        "/api/v1/storage/disk/test/progress",
+        axum::routing::get(crate::routes::storage_support::hard_drive_test_progress_route),
+    )
 }

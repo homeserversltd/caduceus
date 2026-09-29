@@ -6,58 +6,41 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-
 const LIMIT: usize = 1024 * 1024;
-const FORGEJO_CREDENTIAL: &str = "/home/owner/.ssh/forgejo-token";
 
-fn token_from_contents(contents: &str) -> Option<String> {
-    contents.lines().find_map(|line| {
-        let value = line.trim();
-        if value.is_empty() {
-            return None;
-        }
-        value
-            .strip_prefix("FORGEJO_TOKEN=")
-            .map(str::trim)
-            .or((!value.contains('=')).then_some(value))
-            .filter(|token| !token.is_empty())
-            .map(str::to_owned)
-    })
-}
-
-fn resolve_path(path: &Path) -> Result<String> {
-    let metadata = std::fs::metadata(path).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            observation("F", "forge.credential", "forge-credential-absent")
-        } else {
-            observation("F", "forge.credential", "forge-credential-unreadable")
-        }
-    })?;
-    if !metadata.is_file() {
-        return Err(observation(
-            "F",
-            "forge.credential",
-            "forge-credential-not-regular-file",
-        ));
+fn forgejo_credentials() -> Result<(String, String)> {
+    let missing = || observation("F", "forge.credential", "forge-credential-unavailable");
+    let output = Command::new("/usr/bin/sudo")
+        .args(["-n", "/usr/local/sbin/caduceus-forgejo-credential"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|_| missing())?;
+    if !output.status.success() {
+        return Err(missing());
     }
-    #[cfg(unix)]
-    if metadata.permissions().mode() & 0o077 != 0 {
-        return Err(observation(
-            "F",
-            "forge.credential",
-            "forge-credential-permissive",
-        ));
+    let text = String::from_utf8(output.stdout).map_err(|_| missing())?;
+    let mut username = None;
+    let mut password = None;
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            return Err(missing());
+        };
+        match key {
+            "username" if username.is_none() && !value.is_empty() => {
+                username = Some(value.to_owned());
+            }
+            "password" if password.is_none() && !value.is_empty() => {
+                password = Some(value.to_owned());
+            }
+            _ => return Err(missing()),
+        }
     }
-    let contents = std::fs::read_to_string(path)
-        .map_err(|_| observation("F", "forge.credential", "forge-credential-unreadable"))?;
-    token_from_contents(&contents)
-        .ok_or_else(|| observation("F", "forge.credential", "forge-credential-invalid"))
-}
-
-fn forgejo_token() -> Result<String> {
-    resolve_path(Path::new(FORGEJO_CREDENTIAL))
+    match (username, password) {
+        (Some(username), Some(password)) => Ok((username, password)),
+        _ => Err(missing()),
+    }
 }
 
 /// Only release metadata and the two evidence assets enter this HTTPS reader.
@@ -81,11 +64,10 @@ fn commit_reference(reference: &str) -> Option<(String, String)> {
             (sha, false)
         }
         Some(_) => return None,
-        None
-            if reference.len() == 40
-                && reference
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
+        None if reference.len() == 40
+            && reference
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
         {
             (reference, true)
         }
@@ -329,7 +311,7 @@ pub fn release(manifest: &Value) -> Result<Value> {
     if !std::path::Path::new("/usr/bin/curl").is_file() {
         return Err(observation("F", "source", "curl-absent"));
     }
-    let token = forgejo_token()?;
+    let (_username, token) = forgejo_credentials()?;
     let source = &manifest["source"];
     let repo = source["release_repo"]
         .as_str()

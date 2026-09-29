@@ -252,7 +252,7 @@ pub fn bundle_export_download_json(platform: &str) -> Result<BundleDownload, Str
 /// requires clients to reinstall the refreshed certificate bundle.
 pub fn legacy_refresh_root_json() -> Result<Value, String> {
     let output = Command::new("/usr/bin/sudo")
-        .args(["/bin/bash", LEGACY_CERT_REFRESH_SCRIPT])
+        .args(["-n", "/bin/bash", LEGACY_CERT_REFRESH_SCRIPT])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

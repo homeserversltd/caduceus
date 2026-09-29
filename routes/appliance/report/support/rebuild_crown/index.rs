@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -46,26 +47,37 @@ fn response(
     b
 }
 fn credential() -> Result<(String, String), String> {
-    let value = crate::shared::agathodaimon::crossing_value(
-        "forgejo",
-        "credential-get",
-        &json!({"repository": REPOSITORY}),
-    )
-    .map_err(|_| "caduceus-forgejo-credential-missing".to_string())?;
-    let user = value
-        .get("username")
-        .and_then(Value::as_str)
-        .or_else(|| value.get("user").and_then(Value::as_str));
-    let token = value
-        .get("password")
-        .and_then(Value::as_str)
-        .or_else(|| value.get("token").and_then(Value::as_str));
-    match (
-        user.filter(|v| !v.is_empty()),
-        token.filter(|v| !v.is_empty()),
-    ) {
-        (Some(u), Some(k)) => Ok((u.to_string(), k.to_string())),
-        _ => Err("caduceus-forgejo-credential-missing".to_string()),
+    let missing = || "caduceus-forgejo-credential-missing".to_string();
+    let output = Command::new("/usr/bin/sudo")
+        .args(["-n", "/usr/local/sbin/caduceus-forgejo-credential"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|_| missing())?;
+    if !output.status.success() {
+        return Err(missing());
+    }
+    let text = String::from_utf8(output.stdout).map_err(|_| missing())?;
+    let mut username = None;
+    let mut password = None;
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            return Err(missing());
+        };
+        match key {
+            "username" if username.is_none() && !value.is_empty() => {
+                username = Some(value.to_owned());
+            }
+            "password" if password.is_none() && !value.is_empty() => {
+                password = Some(value.to_owned());
+            }
+            _ => return Err(missing()),
+        }
+    }
+    match (username, password) {
+        (Some(username), Some(password)) => Ok((username, password)),
+        _ => Err(missing()),
     }
 }
 

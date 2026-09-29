@@ -511,7 +511,9 @@ pub fn execute_registered_actuator(actuator_id: &str, metadata: Value) -> Result
         .ok_or_else(|| "caduceus-staff-launcher-invalid".to_string())?;
     let input = serde_json::to_vec(&json!({"actuator":actuator_id,"metadata":metadata}))
         .map_err(|_| "caduceus-staff-request-invalid".to_string())?;
-    let mut child = Command::new(&launcher)
+    let mut child = Command::new("/usr/bin/sudo")
+        .arg("-n")
+        .arg(&launcher)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
