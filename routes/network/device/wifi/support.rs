@@ -2,7 +2,7 @@ use axum::{http::StatusCode, Json};
 use serde_json::{json, Value};
 use std::{
     env,
-    io::{Read, Write},
+    io::Read,
     net::{IpAddr, Ipv4Addr},
     process::{Child, Command, Stdio},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -23,7 +23,7 @@ pub async fn execute(
     if object.contains_key("action") {
         return refuse("wifi-client-action-forbidden");
     };
-    let args = match build_args(action, object, command) {
+    let plan = match build_plan(action, object, command) {
         Ok(v) => v,
         Err(e) => return refuse(e),
     };
@@ -65,26 +65,44 @@ pub async fn execute(
         Ok(v) => v,
         Err(e) => return refuse(e),
     };
-    let password = object
-        .get("password")
-        .and_then(Value::as_str)
-        .filter(|v| !v.is_empty());
-    let outcome = if action == "ipv4" && command == "network device ipv4" {
-        run_ipv4_interface_sequence(object)
-    } else if action == "ipv4" {
-        run_ipv4_sequence(&args)
-    } else {
-        run_nmcli(&args, password, is_mutation(action))
+    let mutation = matches!(&plan, Plan::Mutation(_));
+    let (success, result, failure) = match plan {
+        Plan::Read(args) => match run_readonly_nmcli(&args) {
+            Ok((stdout, _)) => (true, Some(parse_result(action, &stdout)), None),
+            Err(error) => (false, None, Some(error)),
+        },
+        Plan::Mutation(payload) => {
+            match crate::gate::snake::crossing_path("network/wifi", &payload) {
+                Ok(receipt_payload) => {
+                    let success = receipt_payload
+                        .get("ok")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    let failure = if success {
+                        None
+                    } else {
+                        Some(
+                            receipt_payload
+                                .get("firstMissingSignal")
+                                .and_then(Value::as_str)
+                                .unwrap_or("wifi-band-failed")
+                                .to_string(),
+                        )
+                    };
+                    let result = success.then(|| json!({"action":action,"completed":true}));
+                    (success, result, failure)
+                }
+                Err(error) => (false, None, Some(error)),
+            }
+        }
     };
-    let result = outcome.as_ref().ok().map(|(s, _)| parse_result(action, s));
-    let success = outcome.is_ok();
     if let Some(map) = receipt.as_object_mut() {
         map.insert("route".into(), Value::String(route.into()));
         map.insert("action".into(), Value::String(action.into()));
         map.insert("ok".into(), Value::Bool(success));
         map.insert(
             "mutationPerformed".into(),
-            Value::Bool(is_mutation(action) && success),
+            Value::Bool(mutation && success),
         );
         map.insert("planned".into(), Value::Bool(false));
         if let Some(v) = result {
@@ -93,7 +111,7 @@ pub async fn execute(
         if !success {
             map.insert(
                 "first_missing_signal".into(),
-                Value::String(outcome.err().unwrap_or_else(|| "wifi-nmcli-failed".into())),
+                Value::String(failure.unwrap_or_else(|| "wifi-nmcli-failed".into())),
             );
         }
     }
@@ -141,169 +159,138 @@ fn cidr(v: &str) -> Result<String, String> {
         Ok(format!("{a}/{p}"))
     }
 }
-fn build_args(
-    a: &str,
+enum Plan {
+    Read(Vec<String>),
+    Mutation(Value),
+}
+fn build_plan(
+    action: &str,
     o: &serde_json::Map<String, Value>,
     command: &str,
-) -> Result<Vec<String>, String> {
-    match a {
-        "scan" => Ok(vec![
-            "-t",
-            "-f",
-            "SSID,SECURITY,SIGNAL,DEVICE",
-            "device",
-            "wifi",
-            "list",
-            "--rescan",
-            "yes",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect()),
-        "status" => Ok(vec![
-            "-t",
-            "-f",
-            "NAME,UUID,TYPE,DEVICE",
-            "connection",
-            "show",
-            "--active",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect()),
-        "saved" => Ok(vec!["-t", "-f", "NAME,UUID,TYPE", "connection", "show"]
+) -> Result<Plan, String> {
+    match action {
+        "scan" => Ok(Plan::Read(
+            vec![
+                "-t",
+                "-f",
+                "SSID,SECURITY,SIGNAL,DEVICE",
+                "device",
+                "wifi",
+                "list",
+                "--rescan",
+                "yes",
+            ]
             .into_iter()
             .map(String::from)
-            .collect()),
-        "connect" if command == "network device connect" => Ok(vec![
-            "device".into(),
-            "connect".into(),
-            text(o, "interface", MAX_FIELD)?,
-        ]),
+            .collect(),
+        )),
+        "status" => Ok(Plan::Read(
+            vec![
+                "-t",
+                "-f",
+                "NAME,UUID,TYPE,DEVICE",
+                "connection",
+                "show",
+                "--active",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        )),
+        "saved" => Ok(Plan::Read(
+            vec!["-t", "-f", "NAME,UUID,TYPE", "connection", "show"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        )),
+        "connect" if command == "network device connect" => {
+            Ok(Plan::Mutation(json!({
+                "kind":"connect_device",
+                "interface":text(o, "interface", MAX_FIELD)?
+            })))
+        }
         "connect" => {
-            if let Some(password) = o.get("password") {
-                if !password.is_string() {
-                    return Err("wifi-password-invalid".into());
+            let password = match o.get("password") {
+                Some(value) => {
+                    let password = value
+                        .as_str()
+                        .ok_or_else(|| "wifi-password-invalid".to_string())?;
+                    if password.len() > MAX_FIELD
+                        || password
+                            .bytes()
+                            .any(|byte| matches!(byte, 0 | b'\n' | b'\r'))
+                    {
+                        return Err("wifi-password-invalid".into());
+                    }
+                    Some(password)
                 }
+                None => None,
+            };
+            let ssid = text(o, "ssid", MAX_FIELD)?;
+            let mut payload = json!({"kind":"connect_wifi","ssid":ssid});
+            if let Some(password) = password {
+                payload["password"] = password.into();
             }
-            let mut x = vec![
-                "device".into(),
-                "wifi".into(),
-                "connect".into(),
-                text(o, "ssid", MAX_FIELD)?,
-            ];
-            if o.get("password")
-                .and_then(Value::as_str)
-                .is_some_and(|v| !v.is_empty())
-            {
-                x.insert(0, "--ask".into());
-            }
-            Ok(x)
+            Ok(Plan::Mutation(payload))
         }
-        "radio" => Ok(vec![
-            "radio".into(),
-            "wifi".into(),
-            match o.get("enabled").and_then(Value::as_bool) {
-                Some(true) => "on".into(),
-                Some(false) => "off".into(),
-                None => return Err("wifi-enabled-required".into()),
-            },
-        ]),
-        "disconnect" => Ok(
-            vec!["device", "disconnect", &text(o, "interface", MAX_FIELD)?]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        ),
-        "forget" => Ok(
-            vec!["connection", "delete", "uuid", &text(o, "uuid", MAX_FIELD)?]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        ),
+        "radio" => match o.get("enabled").and_then(Value::as_bool) {
+            Some(enabled) => Ok(Plan::Mutation(json!({"kind":"radio","enabled":enabled}))),
+            None => Err("wifi-enabled-required".into()),
+        },
+        "disconnect" => Ok(Plan::Mutation(json!({
+            "kind":"disconnect",
+            "interface":text(o, "interface", MAX_FIELD)?
+        }))),
+        "forget" => Ok(Plan::Mutation(json!({
+            "kind":"forget",
+            "uuid":text(o, "uuid", MAX_FIELD)?
+        }))),
         "ipv4" if command == "network device ipv4" => {
-            let _ = text(o, "interface", MAX_FIELD)?;
-            let _ = build_ipv4_modify_args("validated", o)?;
-            Ok(Vec::new())
+            ipv4_payload("ipv4_device", "interface", o)
         }
-        "ipv4" => {
-            let u = text(o, "uuid", MAX_FIELD)?;
-            let m = text(o, "method", 16)?;
-            if m != "auto" && m != "static" {
-                return Err("wifi-ipv4-method-invalid".into());
-            }
-            let mut x = vec![
-                "connection".into(),
-                "modify".into(),
-                "uuid".into(),
-                u,
-                "ipv4.method".into(),
-                if m == "static" {
-                    "manual".into()
-                } else {
-                    "auto".into()
-                },
-            ];
-            if m == "static" {
-                x.extend([
-                    "ipv4.addresses".into(),
-                    cidr(&text(o, "address", MAX_FIELD)?)?,
-                ]);
-                append_static_ipv4_options(&mut x, o)?;
-            } else {
-                x.extend([
-                    "ipv4.addresses".into(),
-                    "".into(),
-                    "ipv4.gateway".into(),
-                    "".into(),
-                    "ipv4.dns".into(),
-                    "".into(),
-                ])
-            }
-            Ok(x)
-        }
+        "ipv4" => ipv4_payload("ipv4_wifi", "uuid", o),
         _ => Err("wifi-action-invalid".into()),
     }
 }
-fn is_mutation(a: &str) -> bool {
-    matches!(a, "radio" | "connect" | "disconnect" | "forget" | "ipv4")
+fn ipv4_payload(
+    kind: &str,
+    target_field: &str,
+    o: &serde_json::Map<String, Value>,
+) -> Result<Plan, String> {
+    let target = text(o, target_field, MAX_FIELD)?;
+    let method = text(o, "method", 16)?;
+    if method != "auto" && method != "static" {
+        return Err("wifi-ipv4-method-invalid".into());
+    }
+    let is_static = method == "static";
+    let mut payload = serde_json::Map::new();
+    payload.insert("kind".into(), kind.into());
+    payload.insert(target_field.into(), target.into());
+    payload.insert("method".into(), method.into());
+    if is_static {
+        payload.insert("address".into(), cidr(&text(o, "address", MAX_FIELD)?)?.into());
+        append_static_ipv4_options(&mut payload, o)?;
+    }
+    Ok(Plan::Mutation(Value::Object(payload)))
 }
-fn run_nmcli(
-    args: &[String],
-    password: Option<&str>,
-    mutation: bool,
-) -> Result<(String, Vec<String>), String> {
+
+fn run_readonly_nmcli(args: &[String]) -> Result<(String, Vec<String>), String> {
     let fixture = env::var_os("CADUCEUS_ROOT").is_some();
-    let mut c = if fixture {
-        let exe = env::var("CADUCEUS_NMCLI").unwrap_or_else(|_| "/usr/bin/nmcli".into());
-        Command::new(exe)
-    } else if mutation {
-        let mut command = Command::new("/usr/bin/sudo");
-        command.args(["-n", "/usr/bin/nmcli"]);
-        command
+    let executable = if fixture {
+        env::var("CADUCEUS_NMCLI").unwrap_or_else(|_| "/usr/bin/nmcli".into())
     } else {
-        Command::new("/usr/bin/nmcli")
+        "/usr/bin/nmcli".into()
     };
-    let mut child = c
+    let mut child = Command::new(executable)
         .args(args)
-        .stdin(Stdio::piped())
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .map_err(|_| "wifi-nmcli-unavailable".to_string())?;
-    if let Some(s) = password {
-        let mut i = child
-            .stdin
-            .take()
-            .ok_or_else(|| "wifi-stdin-unavailable".to_string())?;
-        i.write_all(s.as_bytes())
-            .map_err(|_| "wifi-stdin-write-failed")?;
-        i.write_all(b"\n").map_err(|_| "wifi-stdin-write-failed")?
-    } else {
-        drop(child.stdin.take())
-    }
     wait_child(&mut child)
 }
+
 fn wait_child(c: &mut Child) -> Result<(String, Vec<String>), String> {
     let start = std::time::Instant::now();
     loop {
@@ -346,96 +333,10 @@ fn parse_result(a: &str, s: &str) -> Value {
             }
         })
         .collect::<Vec<_>>();
-    if is_mutation(a) {
-        json!({"action":a,"completed":true})
-    } else {
-        json!({"action":a,"lineCount":e.len(),"entries":e})
-    }
-}
-fn run_ipv4_interface_sequence(
-    o: &serde_json::Map<String, Value>,
-) -> Result<(String, Vec<String>), String> {
-    let interface = text(o, "interface", MAX_FIELD)?;
-    let query = vec![
-        "-t",
-        "-f",
-        "NAME,UUID,TYPE,DEVICE",
-        "connection",
-        "show",
-        "--active",
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect::<Vec<_>>();
-    let (active, _) = run_nmcli(&query, None, false)?;
-    let uuid = active
-        .lines()
-        .find_map(|line| {
-            let fields = line.split(':').map(str::trim).collect::<Vec<_>>();
-            let (uuid, device) = if fields.len() >= 4 {
-                (fields.get(1)?, fields.get(3)?)
-            } else {
-                (fields.first()?, fields.get(1)?)
-            };
-            (*device == interface && !uuid.is_empty()).then(|| (*uuid).to_string())
-        })
-        .ok_or_else(|| "wifi-interface-active-connection-missing".to_string())?;
-    let modify = build_ipv4_modify_args(&uuid, o)?;
-    let (mut out, _) = run_nmcli(&modify, None, true)?;
-    for args in [
-        vec![
-            "connection".into(),
-            "down".into(),
-            "uuid".into(),
-            uuid.clone(),
-        ],
-        vec!["connection".into(), "up".into(), "uuid".into(), uuid],
-    ] {
-        let (chunk, _) = run_nmcli(&args, None, true)?;
-        out.push_str(&chunk);
-    }
-    Ok((out, Vec::new()))
-}
-fn build_ipv4_modify_args(
-    key: &str,
-    o: &serde_json::Map<String, Value>,
-) -> Result<Vec<String>, String> {
-    let m = text(o, "method", 16)?;
-    if m != "auto" && m != "static" {
-        return Err("wifi-ipv4-method-invalid".into());
-    }
-    let mut x = vec![
-        "connection".into(),
-        "modify".into(),
-        "uuid".into(),
-        key.into(),
-        "ipv4.method".into(),
-        if m == "static" {
-            "manual".into()
-        } else {
-            "auto".into()
-        },
-    ];
-    if m == "static" {
-        x.extend([
-            "ipv4.addresses".into(),
-            cidr(&text(o, "address", MAX_FIELD)?)?,
-        ]);
-        append_static_ipv4_options(&mut x, o)?;
-    } else {
-        x.extend([
-            "ipv4.addresses".into(),
-            "".into(),
-            "ipv4.gateway".into(),
-            "".into(),
-            "ipv4.dns".into(),
-            "".into(),
-        ]);
-    }
-    Ok(x)
+    json!({"action":a,"lineCount":e.len(),"entries":e})
 }
 fn append_static_ipv4_options(
-    x: &mut Vec<String>,
+    payload: &mut serde_json::Map<String, Value>,
     o: &serde_json::Map<String, Value>,
 ) -> Result<(), String> {
     if let Some(gateway) = o.get("gateway") {
@@ -443,10 +344,10 @@ fn append_static_ipv4_options(
             .as_str()
             .ok_or_else(|| "wifi-gateway-required".to_string())?;
         if !gateway.is_empty() {
-            x.extend([
-                "ipv4.gateway".into(),
-                ip(gateway, "wifi-gateway-invalid")?.to_string(),
-            ]);
+            payload.insert(
+                "gateway".into(),
+                ip(gateway, "wifi-gateway-invalid")?.to_string().into(),
+            );
         }
     }
     if let Some(dns) = o.get("dns").and_then(Value::as_str) {
@@ -458,27 +359,12 @@ fn append_static_ipv4_options(
             {
                 return Err("wifi-dns-invalid".into());
             }
-            x.extend(["ipv4.dns".into(), dns]);
+            payload.insert("dns".into(), dns.into());
         }
     }
     Ok(())
 }
 
-fn run_ipv4_sequence(m: &[String]) -> Result<(String, Vec<String>), String> {
-    let u = m
-        .get(3)
-        .ok_or_else(|| "wifi-uuid-required".to_string())?
-        .clone();
-    let (mut s, _) = run_nmcli(m, None, true)?;
-    for x in [
-        vec!["connection".into(), "down".into(), "uuid".into(), u.clone()],
-        vec!["connection".into(), "up".into(), "uuid".into(), u],
-    ] {
-        let (o, _) = run_nmcli(&x, None, true)?;
-        s.push_str(&o)
-    }
-    Ok((s, Vec::new()))
-}
 fn refuse(s: impl Into<String>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     Err((
         StatusCode::FORBIDDEN,

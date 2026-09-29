@@ -16,7 +16,7 @@ fn configured_systemctl() -> (String, bool) {
 
 pub fn execute_service(metadata: Value) -> Result<Value, String> {
     let (systemctl, fixture) = configured_systemctl();
-    execute_service_with_mode(metadata, &systemctl, fixture)
+    execute_systemctl_service_with_mode(metadata, &systemctl, fixture)
 }
 
 pub fn execute_registered_service(service: &str, action: &str) -> Result<Value, String> {
@@ -38,7 +38,7 @@ pub fn restart_registered_service(service: &str) -> Result<Value, String> {
 
 pub fn execute_service_with(metadata: Value, systemctl: &str) -> Result<Value, String> {
     let fixture = std::env::var_os("CADUCEUS_ROOT").is_some();
-    execute_service_with_mode(
+    execute_systemctl_service_with_mode(
         metadata,
         if fixture { systemctl } else { SYSTEMCTL },
         fixture,
@@ -60,7 +60,7 @@ fn systemctl_output(
     command.args(args).output()
 }
 
-fn execute_service_with_mode(
+fn execute_systemctl_service_with_mode(
     metadata: Value,
     systemctl: &str,
     fixture: bool,
@@ -77,20 +77,29 @@ fn execute_service_with_mode(
         .get("systemdService")
         .and_then(Value::as_str)
         .ok_or_else(|| "caduceus-portal-systemd-service-missing".to_string())?;
+    let normalized = normalize_systemd_service(service);
+    let ssh_reload = action == "reload"
+        && matches!(normalized.as_str(), "ssh.service" | "sshd.service")
+        && systemd_service == normalized;
     if !safe_service_name(service)
         || !safe_service_name(systemd_service)
-        || !matches!(
-            action,
-            "start" | "stop" | "restart" | "enable" | "disable" | "status"
-        )
+        || (!ssh_reload
+            && !matches!(
+                action,
+                "start" | "stop" | "restart" | "enable" | "disable" | "status"
+            ))
     {
         return Err("caduceus-portal-service-intent-invalid".to_string());
     }
 
-    let allowed = portal_service_allowlist()?;
-    let normalized = normalize_systemd_service(service);
-    if systemd_service != normalized || !allowed.iter().any(|item| item == &normalized) {
+    if systemd_service != normalized {
         return Err("caduceus-portal-service-not-allowed".to_string());
+    }
+    if !ssh_reload {
+        let allowed = portal_service_allowlist()?;
+        if !allowed.iter().any(|item| item == &normalized) {
+            return Err("caduceus-portal-service-not-allowed".to_string());
+        }
     }
 
     let output = systemctl_output(systemctl, fixture, &[action, systemd_service])
@@ -122,6 +131,99 @@ fn execute_service_with_mode(
         "firstMissingSignal": if output.status.success() { "none" } else { "portal-systemctl-command-failed" },
         "metadata": metadata
     }))
+}
+
+fn execute_service_with_mode(
+    metadata: Value,
+    _systemctl: &str,
+    _fixture: bool,
+) -> Result<Value, String> {
+    let service = metadata
+        .get("service")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-portal-service-name-missing".to_string())?;
+    let action = metadata
+        .get("action")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-portal-service-action-missing".to_string())?;
+    let systemd_service = metadata
+        .get("systemdService")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-portal-systemd-service-missing".to_string())?;
+    if !safe_service_name(service)
+        || !safe_service_name(systemd_service)
+        || !matches!(
+            action,
+            "start" | "stop" | "restart" | "enable" | "disable" | "status"
+        )
+    {
+        return Err("caduceus-portal-service-intent-invalid".to_string());
+    }
+
+    let allowed = portal_service_allowlist()?;
+    let normalized = normalize_systemd_service(service);
+    if systemd_service != normalized || !allowed.iter().any(|item| item == &normalized) {
+        return Err("caduceus-portal-service-not-allowed".to_string());
+    }
+
+    let payload = json!({"action": action, "service": service});
+    let receipt = match crate::gate::snake::crossing_path("appliance/service", &payload) {
+        Ok(receipt) => receipt,
+        // crossing_path preserves the refusal token but discards the band's
+        // receiptPayload on a nonzero band exit, so output and active are unknown.
+        Err(signal) if is_service_band_refusal(&signal) => json!({
+            "ok": false,
+            "active": null,
+            "output": "",
+            "firstMissingSignal": signal,
+        }),
+        Err(signal) => return Err(signal),
+    };
+    let ok = receipt
+        .get("ok")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "caduceus-portal-service-receipt-invalid".to_string())?;
+    let active = match receipt.get("active") {
+        Some(Value::Bool(_) | Value::Null) => receipt["active"].clone(),
+        _ => return Err("caduceus-portal-service-receipt-invalid".to_string()),
+    };
+    let output = receipt
+        .get("output")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-portal-service-receipt-invalid".to_string())?;
+    let first_missing_signal = receipt
+        .get("firstMissingSignal")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-portal-service-receipt-invalid".to_string())?;
+
+    Ok(json!({
+        "schema": "caduceus.staff.portal_service.v1",
+        "ok": ok,
+        "accepted": true,
+        "classification": "portal-service",
+        "service": service,
+        "action": action,
+        "systemdService": systemd_service,
+        "success": ok,
+        "message": if ok { format!("Service {action} completed for {service}") } else { format!("Service {action} failed for {service}") },
+        "output": output,
+        "active": active,
+        "mutationPerformed": action != "status" && ok,
+        "execution": "systemctl",
+        "firstMissingSignal": first_missing_signal,
+        "metadata": metadata
+    }))
+}
+
+fn is_service_band_refusal(signal: &str) -> bool {
+    matches!(
+        signal,
+        "portal-service-action-invalid"
+            | "portal-service-name-invalid"
+            | "portal-service-not-allowed"
+            | "portal-service-registry-unreadable"
+            | "portal-service-systemctl-failed"
+    )
 }
 
 pub fn normalize_systemd_service(service: &str) -> String {

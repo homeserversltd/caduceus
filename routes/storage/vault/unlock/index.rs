@@ -442,7 +442,7 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
         log_internal("auto-decrypt", "vault-must-be-mounted");
         return json!({"success":false,"message":"The vault must be mounted first.","auto_decrypt_enabled":auto_enabled(&cfg)});
     }
-    let Ok(mut policy) = read_policy(&cfg) else {
+    let Ok(_policy) = read_policy(&cfg) else {
         log_internal("auto-decrypt", "vault-policy-invalid");
         return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":false});
     };
@@ -458,33 +458,28 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
         log_internal("auto-decrypt", &error);
         return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":auto_enabled(&cfg)});
     }
-    policy.insert(
-        "unlock".into(),
-        Value::String(
-            if enabled {
-                "crypttab_keyfile"
-            } else {
-                "manual_passphrase"
-            }
-            .into(),
-        ),
-    );
-    let marker = match serde_json::to_vec_pretty(&Value::Object(policy)) {
-        Ok(mut bytes) => {
-            bytes.push(b'\n');
-            bytes
-        }
+    let policy = json!({
+        "mapper": &cfg.mapper,
+        "unlock": if enabled {
+            "crypttab_keyfile"
+        } else {
+            "manual_passphrase"
+        },
+    });
+    let receipt = match crate::gate::snake::crossing_path("storage/vault/policy", &policy) {
+        Ok(receipt) => receipt,
         Err(error) => {
-            log_internal(
-                "auto-decrypt",
-                &format!("vault-policy-serialize-failed: {error}"),
-            );
+            log_internal("auto-decrypt", &error);
             let _ = sudo_tee(&crypttab_path, old.as_bytes());
             return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":auto_enabled(&cfg)});
         }
     };
-    if let Err(error) = sudo_tee(&logical(&policy_path(&cfg)), &marker) {
-        log_internal("auto-decrypt", &error);
+    if receipt.get("ok").and_then(Value::as_bool) != Some(true) {
+        let signal = receipt
+            .get("firstMissingSignal")
+            .and_then(Value::as_str)
+            .unwrap_or("vault-policy-write-refused");
+        log_internal("auto-decrypt", signal);
         let _ = sudo_tee(&crypttab_path, old.as_bytes());
         return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":auto_enabled(&cfg)});
     }
