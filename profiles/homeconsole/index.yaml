@@ -80,7 +80,7 @@ services:
   ledger: /var/lib/harmonia/receipts/homeconsole-ledger.jsonl
   update:
     timer: harmonia-homeconsole.timer
-    latest_receipt: /var/lib/harmonia/receipts/homeconsole-update-latest/run.json
+    latest_receipt: /var/lib/harmonia/receipts/update-latest/run.json
   sync:
     latest_receipt: /var/lib/harmonia/receipts/homeconsole-sync-latest/run.json
   gui:
@@ -105,6 +105,15 @@ harmonia_routes:
   update_module:
     bin: /usr/local/bin/harmonia
     raw_json: true
+  update_now:
+    bin: /usr/local/bin/harmonia
+    args:
+    - update
+    - --apply
+  update_check:
+    bin: /usr/local/bin/harmonia
+    args:
+    - update
 routes:
 - xenia/validate
 - xenia/admit

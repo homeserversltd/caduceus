@@ -4,6 +4,8 @@ mode: homeserver
 commands:
 - update modules list
 - update modules toggle
+- update now
+- update check
 - hyalos reflect
 - hyalos append
 - hyalos tail
@@ -102,6 +104,15 @@ harmonia_routes:
     - run
     positional: true
     raw_json: true
+  update_now:
+    bin: /usr/local/bin/harmonia
+    args:
+    - update
+    - --apply
+  update_check:
+    bin: /usr/local/bin/harmonia
+    args:
+    - update
 routes:
 - xenia/validate
 - xenia/admit
