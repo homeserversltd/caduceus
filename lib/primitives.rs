@@ -40,7 +40,6 @@ pub static RUST_PRIMITIVES: &[&str] = &[
     "settings_sound_read_mutate",
     "appliance_service_control",
     "python_library_list",
-    "python_library_run",
     "python_library_status",
     "network_device_claim_witness",
     "network_device_claim_public_shape",

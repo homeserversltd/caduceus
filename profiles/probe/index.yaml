@@ -118,7 +118,6 @@ routes:
 - log/clear
 - python/list
 - python/status
-- python/run
 - interactables
 - interactables/:id/run
 - update/status

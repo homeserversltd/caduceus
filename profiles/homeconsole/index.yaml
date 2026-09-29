@@ -189,7 +189,6 @@ routes:
 - portals/mkdir
 - portals/rename
 - python/list
-- python/run
 - python/status
 - settings/appearance
 - settings/child-device
