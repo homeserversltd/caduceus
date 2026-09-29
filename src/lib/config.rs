@@ -1,10 +1,13 @@
 use crate::shared::config as paths;
 use chrono::Utc;
 use serde_json::{json, Map, Value};
+use std::ffi::CString;
 use std::fs;
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::net::SocketAddr;
-use std::os::unix::fs::PermissionsExt;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -78,6 +81,7 @@ pub fn read_file_at(absolute: &str) -> Result<String, String> {
 /// ruling. This is asserted after every write, not delegated to the process
 /// umask or directory defaults.
 const OWNED_FILE_MODE: u32 = 0o660;
+const CONFIG_TARGET_SYMLINK: &str = "caduceus-config-target-symlink";
 
 #[derive(Debug, Clone)]
 struct Resolved {
@@ -232,22 +236,93 @@ fn set_dotted(document: &mut Value, path: &str, value: Value) -> Result<(), Stri
 /// sibling. Callers validate and render before this boundary so a refusal never
 /// changes the prior durable bytes.
 pub fn atomic_write_owned(path: &Path, bytes: &[u8], mode: u32) -> Result<(), String> {
+    ensure_not_symlink_target(path)?;
     let file_name = path
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_else(|| "state.json".to_string());
-    let temporary = path.with_file_name(format!("{file_name}.tmp.{}", std::process::id()));
-    let result = (|| {
-        let mut file = fs::File::create(&temporary)?;
-        fs::set_permissions(&temporary, fs::Permissions::from_mode(mode))?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        fs::rename(&temporary, path)
+    let temporary = path.with_file_name(format!("{file_name}.tmp.{}", uuid::Uuid::new_v4()));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&temporary)
+        .map_err(|error| error.to_string())?;
+    let config_path = paths::path("/etc/appliance/config.json");
+    let is_household_config = path == config_path.as_path();
+    let effective_mode = if is_household_config {
+        OWNED_FILE_MODE
+    } else {
+        mode
+    };
+    let result = (|| -> Result<(), String> {
+        if is_household_config && unsafe { libc::geteuid() } == 0 {
+            let gid = caduceus_group_id()?;
+            if unsafe { libc::fchown(file.as_raw_fd(), 0 as libc::uid_t, gid) } != 0 {
+                return Err(std::io::Error::last_os_error().to_string());
+            }
+        }
+        file.set_permissions(fs::Permissions::from_mode(effective_mode))
+            .map_err(|error| error.to_string())?;
+        file.write_all(bytes).map_err(|error| error.to_string())?;
+        file.sync_all().map_err(|error| error.to_string())?;
+        ensure_not_symlink_target(path)?;
+        fs::rename(&temporary, path).map_err(|error| error.to_string())
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
     }
-    result.map_err(|err| err.to_string())
+    result
+}
+
+fn ensure_not_symlink_target(path: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(CONFIG_TARGET_SYMLINK.to_string()),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn caduceus_group_id() -> Result<libc::gid_t, String> {
+    let name = CString::new("caduceus").expect("static group name contains no NUL");
+    let suggested_size = unsafe { libc::sysconf(libc::_SC_GETGR_R_SIZE_MAX) };
+    let mut buffer_size = if suggested_size > 0 {
+        suggested_size as usize
+    } else {
+        16 * 1024
+    };
+    loop {
+        let mut buffer = vec![0u8; buffer_size];
+        let mut group: libc::group = unsafe { std::mem::zeroed() };
+        let mut result: *mut libc::group = std::ptr::null_mut();
+        let status = unsafe {
+            libc::getgrnam_r(
+                name.as_ptr(),
+                &mut group,
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut result,
+            )
+        };
+        if status == libc::ERANGE {
+            buffer_size = buffer_size
+                .checked_mul(2)
+                .ok_or_else(|| "caduceus-config-group-lookup-failed".to_string())?;
+            continue;
+        }
+        if status != 0 {
+            return Err(format!(
+                "caduceus-config-group-lookup-failed: {}",
+                std::io::Error::from_raw_os_error(status)
+            ));
+        }
+        if result.is_null() {
+            return Err("caduceus-config-group-missing".to_string());
+        }
+        return Ok(group.gr_gid);
+    }
 }
 
 /// Shared with paired Xenia transactions. Acquire before reading either document;
@@ -260,6 +335,7 @@ pub fn transaction_lock() -> Result<std::sync::MutexGuard<'static, ()>, String> 
 fn mutate(op: &str, target: &str, update: Value) -> Result<Value, String> {
     let _guard = transaction_lock()?;
     let resolved = resolve()?;
+    ensure_not_symlink_target(&resolved.fs_path)?;
     if !resolved.fs_path.is_file() {
         return Err("caduceus-household-config-installed-path-missing".to_string());
     }
@@ -303,8 +379,13 @@ fn mutate(op: &str, target: &str, update: Value) -> Result<Value, String> {
     let mut rendered = serde_json::to_vec_pretty(&document)
         .map_err(|_| "caduceus-household-config-render-failed".to_string())?;
     rendered.push(b'\n');
-    atomic_write_owned(&resolved.fs_path, &rendered, OWNED_FILE_MODE)
-        .map_err(|_| "caduceus-household-config-write-failed".to_string())?;
+    atomic_write_owned(&resolved.fs_path, &rendered, OWNED_FILE_MODE).map_err(|error| {
+        if error == CONFIG_TARGET_SYMLINK {
+            error
+        } else {
+            "caduceus-household-config-write-failed".to_string()
+        }
+    })?;
     let receipt = json!({
         "schema": "caduceus.household-config.mutation.v1",
         "ok": true,
