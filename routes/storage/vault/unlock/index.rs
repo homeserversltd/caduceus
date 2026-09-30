@@ -7,7 +7,6 @@ use std::process::Command;
 
 const STATE: &str = "/var/lib/homeconsole/state.json";
 const APPLIANCE_CONFIG: &str = "/etc/appliance/config.json";
-const CRYPTTAB: &str = "/etc/crypttab";
 const POLICY_RECEIPT_SCHEMA: &str = "caduceus.vault.policy-write.v1";
 const GOVERNING_KEYFILE: &str = "/root/key/homeconsole-vault.key";
 
@@ -162,35 +161,6 @@ fn auto_enabled(cfg: &VaultConfig) -> bool {
 fn result(success: bool, message: &str) -> Value {
     json!({"success": success, "message": message})
 }
-fn sudo_tee(path: &str, data: &[u8]) -> Result<(), String> {
-    let mut child = Command::new("/usr/bin/sudo")
-        .args(["-n", "/usr/bin/tee", path])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|_| "vault-privileged-command-unavailable")?;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| "vault-privileged-command-unavailable".to_string())?
-        .write_all(data)
-        .map_err(|error| format!("vault-write-failed: {error}"))?;
-    let output = child
-        .wait_with_output()
-        .map_err(|error| format!("vault-write-wait-failed: {error}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stderr = stderr.trim();
-        if stderr.is_empty() {
-            Err(format!("vault-write-failed: status {}", output.status))
-        } else {
-            Err(format!("vault-write-failed: {stderr}"))
-        }
-    }
-}
 fn run_sudo(args: &[&str], stdin: Option<&[u8]>) -> Result<(), String> {
     let mut child = Command::new("/usr/bin/sudo")
         .args(args)
@@ -226,89 +196,6 @@ fn run_sudo(args: &[&str], stdin: Option<&[u8]>) -> Result<(), String> {
         }
     }
 }
-fn uuid_for(device: &str, old: &str) -> String {
-    let output = Command::new("/usr/bin/sudo")
-        .args(["-n", "/usr/sbin/blkid", "-s", "UUID", "-o", "value", device])
-        .output();
-    output
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| old.to_string())
-}
-fn crypttab_contents() -> Result<String, String> {
-    if std::env::var_os("CADUCEUS_ROOT").is_some() {
-        return fs::read_to_string(root_path(CRYPTTAB))
-            .map_err(|_| "vault-crypttab-unavailable".to_string());
-    }
-    let output = Command::new("/usr/bin/sudo")
-        .args(["-n", "/usr/bin/cat", CRYPTTAB])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .map_err(|_| "vault-crypttab-unavailable".to_string())?;
-    if !output.status.success() {
-        return Err("vault-crypttab-unavailable".into());
-    }
-    String::from_utf8(output.stdout).map_err(|_| "vault-crypttab-unavailable".into())
-}
-
-fn crypttab_line(cfg: &VaultConfig, enabled: bool) -> Result<(String, String), String> {
-    let text = crypttab_contents()?;
-    let mut existing = None;
-    let mut replaced = false;
-    let mut lines = Vec::new();
-    for line in text.lines() {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.first().copied() == Some(cfg.mapper.as_str()) {
-            existing = fields.get(1).copied();
-            if !replaced {
-                let source = uuid_for(&cfg.device, existing.unwrap_or("none"));
-                let key = if enabled {
-                    if cfg.keyfile.is_empty() {
-                        return Err("vault-keyfile-unconfigured".into());
-                    } else {
-                        cfg.keyfile.as_str()
-                    }
-                } else {
-                    "none"
-                };
-                let opts = if enabled {
-                    "luks,nofail"
-                } else {
-                    "luks,noauto,nofail"
-                };
-                lines.push(format!("{} {} {} {}", cfg.mapper, source, key, opts));
-                replaced = true;
-            }
-        } else {
-            lines.push(line.to_string());
-        }
-    }
-    if !replaced {
-        let source = uuid_for(&cfg.device, existing.unwrap_or("none"));
-        let key = if enabled {
-            if cfg.keyfile.is_empty() {
-                return Err("vault-keyfile-unconfigured".into());
-            } else {
-                cfg.keyfile.as_str()
-            }
-        } else {
-            "none"
-        };
-        let opts = if enabled {
-            "luks,nofail"
-        } else {
-            "luks,noauto,nofail"
-        };
-        lines.push(format!("{} {} {} {}", cfg.mapper, source, key, opts));
-    }
-    let new = format!("{}\n", lines.join("\n"));
-    Ok((new, text))
-}
-
 pub fn status_json() -> Value {
     match vault_config() {
         Ok(cfg) => {
@@ -440,33 +327,29 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
         log_internal("auto-decrypt", "vault-policy-invalid");
         return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":false});
     };
-    let (crypttab, old) = match crypttab_line(&cfg, enabled) {
-        Ok(v) => v,
-        Err(error) => {
-            log_internal("auto-decrypt", &error);
-            return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":auto_enabled(&cfg)});
-        }
-    };
-    let crypttab_path = logical(&root_path(CRYPTTAB));
-    if let Err(error) = sudo_tee(&crypttab_path, crypttab.as_bytes()) {
-        log_internal("auto-decrypt", &error);
-        return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":auto_enabled(&cfg)});
-    }
     let unlock = if enabled {
         "crypttab_keyfile"
     } else {
         "manual_passphrase"
     };
-    let policy = json!({
-        "mapper": &cfg.mapper,
-        "op": "write",
-        "unlock": unlock,
-    });
-    let receipt = match crate::gate::snake::crossing_path("storage/vault/policy", &policy) {
+    let payload = if enabled {
+        json!({
+            "mapper": &cfg.mapper,
+            "op": "write",
+            "unlock": "crypttab_keyfile",
+            "keyfile": &cfg.keyfile,
+        })
+    } else {
+        json!({
+            "mapper": &cfg.mapper,
+            "op": "write",
+            "unlock": "manual_passphrase",
+        })
+    };
+    let receipt = match crate::gate::snake::crossing_path("storage/vault/policy", &payload) {
         Ok(receipt) => receipt,
         Err(error) => {
             log_internal("auto-decrypt", &error);
-            let _ = sudo_tee(&crypttab_path, old.as_bytes());
             return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":auto_enabled(&cfg)});
         }
     };
@@ -480,7 +363,6 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
             .and_then(Value::as_str)
             .unwrap_or("vault-policy-write-refused");
         log_internal("auto-decrypt", signal);
-        let _ = sudo_tee(&crypttab_path, old.as_bytes());
         return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":auto_enabled(&cfg)});
     }
     json!({"success":true,"message":"vault-auto-decrypt-updated","auto_decrypt_enabled":enabled})

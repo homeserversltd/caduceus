@@ -59,8 +59,6 @@ pub use leaf_network_dns_status as control_resolver;
 pub mod control_service;
 #[path = "discovery.rs"]
 pub mod discovery;
-#[cfg(leaf_settings_ssh)]
-pub use leaf_settings_ssh as expose_ssh;
 #[path = "appliance/support.rs"]
 pub(crate) mod appliance_support;
 #[cfg(any(leaf_cartridges_admit, leaf_cartridges_list, leaf_cartridges_remove))]
