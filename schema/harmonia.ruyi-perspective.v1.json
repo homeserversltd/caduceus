@@ -1,6 +1,6 @@
 {
   "schema": "harmonia.ruyi-perspective.v1",
-  "schema_version": "1.0.1",
+  "schema_version": "1.0.2",
   "role": "A registered body's raw perspective of the Ruyi staff",
   "authority": {
     "owner": "caduceus",
@@ -155,6 +155,13 @@
               "pattern": "^[0-9a-f]{40}$"
             },
             "sbin": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "keyman": {
               "type": [
                 "string",
                 "null"
