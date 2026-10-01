@@ -1,6 +1,5 @@
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use std::process::Command;
 
 const DECLARATION: &str = include_str!("../../dependents.json");
 
@@ -68,21 +67,24 @@ pub fn dry_form() -> Result<Value, String> {
     Ok(Value::Object(receipt))
 }
 
-fn absent_output(output: &std::process::Output) -> bool {
-    let text = format!(
-        "{} {}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    )
-    .to_ascii_lowercase();
-    [
-        "not found",
-        "could not be found",
-        "no such file",
-        "not-found",
-    ]
-    .iter()
-    .any(|needle| text.contains(needle))
+fn absent_output(receipt: &Value, service: &str) -> bool {
+    let text = receipt
+        .get("output")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let service = service.to_ascii_lowercase();
+    text.lines().any(|line| {
+        line.contains(&service)
+            && [
+                "not found",
+                "could not be found",
+                "no such file",
+                "not-found",
+            ]
+            .iter()
+            .any(|needle| line.contains(needle))
+    })
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -295,33 +297,38 @@ fn material_applies_to_household(material: &Value) -> bool {
 /// Appends the dependent leg to a certificate transition receipt.
 pub fn after_material_lands(receipt: Value, observed_material: Value) -> Result<Value, String> {
     let dependents = declared_dependents()?;
-    let (systemctl, fixture) = if std::env::var_os("CADUCEUS_ROOT").is_some() {
-        (
-            std::env::var("CADUCEUS_SYSTEMCTL_BIN").unwrap_or_else(|_| "/usr/bin/systemctl".into()),
-            true,
-        )
-    } else {
-        ("/usr/bin/systemctl".to_string(), false)
-    };
     after_material_lands_with_runner(receipt, &dependents, observed_material, |dependent| {
-        let command = if fixture {
-            Command::new(&systemctl)
-                .args([dependent.action.as_str(), dependent.service.as_str()])
-                .output()
-        } else {
-            Command::new("/usr/bin/sudo")
-                .args([
-                    "-n",
-                    "/usr/bin/systemctl",
-                    dependent.action.as_str(),
-                    dependent.service.as_str(),
-                ])
-                .output()
-        };
-        match command {
-            Ok(output) if output.status.success() => CommandResult::Succeeded,
-            Ok(output) if absent_output(&output) => CommandResult::Absent,
-            Ok(_) | Err(_) => CommandResult::Failed,
+        let payload = json!({
+            "service": dependent.service,
+            "action": dependent.action,
+        });
+        let envelope = json!({
+            "schema": crate::protocol::SCHEMA_ID,
+            "intent_id": "caduceus-appliance/service",
+            "transition": "appliance/service",
+            "origin_of_intent": "near",
+            "payload": payload,
+        });
+        match crate::gate::snake::run("appliance/service", &envelope) {
+            Ok(receipt) => {
+                let payload = receipt.get("receiptPayload");
+                match payload
+                    .and_then(|payload| payload.get("ok"))
+                    .and_then(Value::as_bool)
+                {
+                    Some(true) if receipt.get("ok").and_then(Value::as_bool) == Some(true) => {
+                        CommandResult::Succeeded
+                    }
+                    Some(false)
+                        if payload
+                            .is_some_and(|payload| absent_output(payload, &dependent.service)) =>
+                    {
+                        CommandResult::Absent
+                    }
+                    _ => CommandResult::Failed,
+                }
+            }
+            Err(_) => CommandResult::Failed,
         }
     })
 }

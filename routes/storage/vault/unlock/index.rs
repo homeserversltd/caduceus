@@ -1,9 +1,7 @@
 use crate::shared::config;
 use serde_json::{json, Value};
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 const STATE: &str = "/var/lib/homeconsole/state.json";
 const APPLIANCE_CONFIG: &str = "/etc/appliance/config.json";
@@ -161,41 +159,6 @@ fn auto_enabled(cfg: &VaultConfig) -> bool {
 fn result(success: bool, message: &str) -> Value {
     json!({"success": success, "message": message})
 }
-fn run_sudo(args: &[&str], stdin: Option<&[u8]>) -> Result<(), String> {
-    let mut child = Command::new("/usr/bin/sudo")
-        .args(args)
-        .stdin(if stdin.is_some() {
-            std::process::Stdio::piped()
-        } else {
-            std::process::Stdio::null()
-        })
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|_| "vault-privileged-command-unavailable")?;
-    if let Some(bytes) = stdin {
-        child
-            .stdin
-            .take()
-            .ok_or_else(|| "vault-privileged-command-unavailable".to_string())?
-            .write_all(bytes)
-            .map_err(|_| "vault-command-failed")?;
-    }
-    let output = child
-        .wait_with_output()
-        .map_err(|error| format!("vault-command-wait-failed: {error}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stderr = stderr.trim();
-        if stderr.is_empty() {
-            Err(format!("vault-command-failed: status {}", output.status))
-        } else {
-            Err(format!("vault-command-failed: {stderr}"))
-        }
-    }
-}
 pub fn status_json() -> Value {
     match vault_config() {
         Ok(cfg) => {
@@ -211,28 +174,22 @@ pub fn status_json() -> Value {
         Err(_) => json!({"mounted": false, "auto_decrypt_enabled": false, "present": false}),
     }
 }
-fn keyman_unavailable(signal: &str) -> Result<bool, String> {
-    log_internal("keyman-open", signal);
-    Ok(false)
-}
-
-fn keyman_open(cfg: &VaultConfig) -> Result<bool, String> {
-    let payload = json!({"device": cfg.device, "mapper": cfg.mapper});
-    let receipt = match crate::gate::snake::crossing_path("storage/vault/open", &payload) {
-        Ok(receipt) => receipt,
-        Err(receipt) => return Err(receipt),
-    };
-    let Some(present) = receipt.get("present").and_then(Value::as_bool) else {
-        return keyman_unavailable("vault-keyman-open-presence-unavailable");
-    };
-    if !present {
-        return Ok(false);
-    }
-    match receipt.get("ok").and_then(Value::as_bool) {
-        Some(false) => Err("vault-keyman-open-refused".to_string()),
-        Some(true) => Ok(true),
-        None => keyman_unavailable("vault-keyman-open-receipt-invalid"),
-    }
+fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<(bool, Option<bool>), String> {
+    let payload = json!({
+        "op": "unlock",
+        "mapper": &cfg.mapper,
+        "device": &cfg.device,
+        "mountpoint": logical(&mountpoint_path(cfg)),
+        "passphrase": passphrase,
+    });
+    let receipt = crate::gate::snake::crossing_path("storage/vault/open", &payload)
+        .map_err(|_| "vault-open-crossing-unavailable".to_string())?;
+    let ok = receipt
+        .get("ok")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "vault-open-receipt-invalid".to_string())?;
+    let present = receipt.get("present").and_then(Value::as_bool);
+    Ok((ok, present))
 }
 
 pub fn unlock_json(password: Option<&str>) -> Value {
@@ -247,62 +204,27 @@ pub fn unlock_json(password: Option<&str>) -> Value {
         log_internal("unlock", "vault-config-invalid");
         return result(false, "Unable to unlock the vault.");
     }
-    if !Path::new("/usr/sbin/cryptsetup").exists() || !Path::new("/usr/bin/mount").exists() {
-        log_internal("unlock", "vault-required-command-unavailable");
+    let passphrase = password.filter(|value| !value.is_empty());
+    let (opened, present) = match open_vault(&cfg, passphrase) {
+        Ok(receipt) => receipt,
+        Err(_) => {
+            log_internal("unlock", "vault-open-crossing-unavailable");
+            return result(false, "Unable to unlock the vault.");
+        }
+    };
+    if !opened {
+        if present == Some(false) && passphrase.is_none() {
+            return result(false, "A vault password is required.");
+        }
+        log_internal("unlock", "vault-open-refused");
         return result(false, "Unable to unlock the vault.");
     }
-    if !mapper_path(&cfg).exists() {
-        match keyman_open(&cfg) {
-            Ok(true) => {}
-            Ok(false) => {
-                let Some(password) = password.filter(|value| !value.is_empty()) else {
-                    return result(false, "A vault password is required.");
-                };
-                if let Err(error) = run_sudo(
-                    &[
-                        "-n",
-                        "/usr/sbin/cryptsetup",
-                        "open",
-                        "--batch-mode",
-                        "--key-file",
-                        "-",
-                        &cfg.device,
-                        &cfg.mapper,
-                    ],
-                    Some(password.as_bytes()),
-                ) {
-                    log_internal("unlock", &error);
-                    return result(false, "Unable to unlock the vault.");
-                }
-            }
-            Err(error) => {
-                log_internal("unlock", &error);
-                return result(false, "Unable to unlock the vault.");
-            }
-        }
+    if present == Some(false) && passphrase.is_none() {
+        return result(false, "A vault password is required.");
     }
     if !mapper_path(&cfg).exists() {
         log_internal("unlock", "vault-unlock-unverified");
         return result(false, "Unable to unlock the vault.");
-    }
-    if !mounted(&cfg) {
-        let mountpoint = logical(&mountpoint_path(&cfg));
-        if let Err(error) = run_sudo(&["-n", "/usr/bin/mkdir", "-p", &mountpoint], None) {
-            log_internal("unlock", &error);
-            return result(false, "Unable to mount the vault.");
-        }
-        if let Err(error) = run_sudo(
-            &[
-                "-n",
-                "/usr/bin/mount",
-                &format!("/dev/mapper/{}", cfg.mapper),
-                &mountpoint,
-            ],
-            None,
-        ) {
-            log_internal("unlock", &error);
-            return result(false, "Unable to mount the vault.");
-        }
     }
     if mounted(&cfg) {
         result(true, "vault-unlocked-and-mounted")

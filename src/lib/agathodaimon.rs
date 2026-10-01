@@ -3,7 +3,6 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 const CLI: &str = "/usr/local/sbin/agathodaimon/cli.py";
-const HOUSE_CA_LAUNCHER: &str = "/usr/local/sbin/caduceus-house-ca";
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 const MAX_STDERR_BYTES: usize = 8 * 1024;
 
@@ -246,11 +245,6 @@ pub(crate) fn crossing_value(noun: &str, verb: &str, input: &Value) -> Result<Va
     let mut command = if override_cli {
         let mut command = Command::new(&cli);
         command.args([noun, verb]);
-        command
-    } else if noun == "cert" && verb == "house-ca" {
-        let mut command = Command::new("/usr/bin/sudo");
-        command.args(["-n", HOUSE_CA_LAUNCHER]);
-        command.args(args(input));
         command
     } else {
         let mut command = Command::new("/usr/bin/sudo");

@@ -7,7 +7,6 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
         OnceLock,
@@ -48,17 +47,19 @@ fn maintenance_tick() -> Result<(), String> {
     let mut errors = Vec::new();
 
     match vacuum_journal() {
-        Ok(freed) if freed > 0 => {
-            if let Err(error) = write_receipt(&json!({
+        Ok(freed) => {
+            let mut receipt = json!({
                 "schema": "caduceus.log-maintenance.v1",
                 "event": "journal-vacuum",
                 "ok": true,
-                "freed_bytes": freed,
-            })) {
+            });
+            if let Some(freed) = freed.filter(|freed| *freed > 0) {
+                receipt["freed_bytes"] = json!(freed);
+            }
+            if let Err(error) = write_receipt(&receipt) {
                 errors.push(format!("journal-vacuum receipt: {error}"));
             }
         }
-        Ok(_) => {}
         Err(error) => errors.push(format!("journal-vacuum: {error}")),
     }
 
@@ -73,29 +74,33 @@ fn maintenance_tick() -> Result<(), String> {
     }
 }
 
-fn vacuum_journal() -> Result<u64, String> {
-    let output = Command::new("/usr/bin/sudo")
-        .args(["-n", "/usr/bin/journalctl", "--vacuum-size=300M"])
-        .env("LC_ALL", "C")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|error| format!("journalctl invocation: {error}"))?;
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-    text.push_str(&String::from_utf8_lossy(&output.stderr));
-    if !output.status.success() {
-        let first_line = String::from_utf8_lossy(&output.stderr)
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .to_string();
-        return Err(if first_line.is_empty() {
-            format!("journalctl exited {}", output.status)
-        } else {
-            format!("journalctl exited {}: {first_line}", output.status)
-        });
+fn vacuum_journal() -> Result<Option<u64>, String> {
+    let receipt = crate::gate::snake::crossing_path("appliance/journal-vacuum", &json!({}))?;
+    match receipt.get("ok").and_then(Value::as_bool) {
+        Some(true) => {}
+        Some(false) => {
+            return Err(receipt
+                .get("firstMissingSignal")
+                .and_then(Value::as_str)
+                .filter(|signal| *signal != "none")
+                .unwrap_or("caduceus-journal-vacuum-refused")
+                .to_string());
+        }
+        None => return Err("caduceus-journal-vacuum-result-unobserved".to_string()),
     }
-    Ok(parse_freed(&text))
+    let freed = receipt
+        .get("freed_bytes")
+        .and_then(Value::as_u64)
+        .or_else(|| receipt.get("freedBytes").and_then(Value::as_u64))
+        .or_else(|| receipt.as_str().map(parse_freed))
+        .or_else(|| {
+            receipt
+                .get("output")
+                .or_else(|| receipt.get("stdout"))
+                .and_then(Value::as_str)
+                .map(parse_freed)
+        });
+    Ok(freed.filter(|freed| *freed > 0))
 }
 
 fn parse_freed(text: &str) -> u64 {

@@ -1,11 +1,9 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-const PIN_MODE_PATH: &str = "var/lib/caduceus/access-pin-mode.json";
 const ATTENDANCE_INACTIVITY_LIMIT: Duration = Duration::from_secs(15 * 60);
 const FIREWALL_DOCUMENT_TARGET: &str = "/api/v1/network/firewall/policies/{mac}";
 const AGENT_SERVICE_DOCUMENT_TARGETS: &[(&str, &str)] = &[
@@ -95,15 +93,10 @@ fn envelope(ok: bool, code: &'static str) -> Value {
     })
 }
 
-fn pin_mode_path() -> std::path::PathBuf {
-    crate::shared::config::path(PIN_MODE_PATH)
-}
-
 pub fn pin_mode_json() -> Value {
-    let pin_required = fs::read_to_string(pin_mode_path())
+    let pin_required = crate::shared::config::get_json("global.admin.pin_required")
         .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .and_then(|value| value.get("pin_required").and_then(Value::as_bool))
+        .and_then(|value| value.get("value").and_then(Value::as_bool))
         .unwrap_or(false);
     json!({
         "schema": "caduceus.access.pin.mode.v1",
@@ -122,19 +115,10 @@ pub fn set_pin_mode_json(body: &Value) -> Result<Value, String> {
         .get("pin_required")
         .and_then(Value::as_bool)
         .ok_or_else(|| "caduceus-access-pin-mode-invalid".to_string())?;
-    let path = pin_mode_path();
-    let parent = path
-        .parent()
-        .ok_or_else(|| "caduceus-access-pin-mode-unavailable".to_string())?;
-    fs::create_dir_all(parent).map_err(|_| "caduceus-access-pin-mode-unavailable".to_string())?;
-    let temporary = parent.join(format!(".access-pin-mode-{}.tmp", std::process::id()));
-    let bytes = serde_json::to_vec(&json!({"pin_required": pin_required}))
-        .map_err(|_| "caduceus-access-pin-mode-unavailable".to_string())?;
-    fs::write(&temporary, bytes).map_err(|_| "caduceus-access-pin-mode-unavailable".to_string())?;
-    if fs::rename(&temporary, &path).is_err() {
-        let _ = fs::remove_file(&temporary);
-        return Err("caduceus-access-pin-mode-unavailable".to_string());
-    }
+    crate::shared::config::patch_json(json!({
+        "global": {"admin": {"pin_required": pin_required}}
+    }))
+    .map_err(|_| "caduceus-access-pin-mode-unavailable".to_string())?;
     Ok(pin_mode_json())
 }
 

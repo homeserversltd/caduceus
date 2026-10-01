@@ -48,13 +48,28 @@ fn response(
 }
 fn credential() -> Result<(String, String), String> {
     let missing = || "caduceus-forgejo-credential-missing".to_string();
-    let output = Command::new("/usr/bin/sudo")
-        .args(["-n", "/usr/local/sbin/caduceus-forgejo-credential"])
-        .stdin(Stdio::null())
+    let mut child = Command::new("/usr/bin/sudo")
+        .args([
+            "-n",
+            "/usr/local/sbin/agathodaimon/cli.py",
+            "storage/backup/forgejo/credential",
+        ])
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .output()
+        .spawn()
         .map_err(|_| missing())?;
+    let Some(mut stdin) = child.stdin.take() else {
+        let _ = child.wait();
+        return Err(missing());
+    };
+    let wrote = stdin.write_all(b"{}");
+    drop(stdin);
+    if wrote.is_err() {
+        let _ = child.wait();
+        return Err(missing());
+    }
+    let output = child.wait_with_output().map_err(|_| missing())?;
     if !output.status.success() {
         return Err(missing());
     }
