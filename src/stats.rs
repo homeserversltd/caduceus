@@ -2300,10 +2300,10 @@ fn history_raw(
 ) -> Result<String, String> {
     let mut rows = Vec::with_capacity(limit.min(HISTORY_LIMIT_MAX) + pending.len());
     let mut statement = c
-        .prepare("SELECT id,ts,data FROM raw_samples WHERE ts >= ?1 AND ts <= ?2 ORDER BY ts DESC,id DESC")
+        .prepare("SELECT id,ts,data FROM raw_samples WHERE ts >= ?1 AND ts <= ?2 ORDER BY ts DESC,id DESC LIMIT ?3")
         .map_err(|error| error.to_string())?;
     let stored = statement
-        .query_map(params![since, until], |row| {
+        .query_map(params![since, until, limit], |row| {
             Ok(RawHistoryRow {
                 ts: row.get(1)?,
                 source: 0,
