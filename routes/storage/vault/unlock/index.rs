@@ -1,6 +1,7 @@
 use crate::shared::config;
 use serde_json::{json, Value};
 use std::fs;
+use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 
 const STATE: &str = "/var/lib/homeconsole/state.json";
@@ -14,6 +15,7 @@ const VAULT_OPEN_KEY_ABSENT_SIGNAL: &str = "agathodaimon-vault-open-key-absent";
 const VAULT_OPEN_UNLOCK_REFUSED_SIGNAL: &str = "agathodaimon-vault-unlock-refused";
 const VAULT_OPEN_MOUNTPOINT_REFUSED_SIGNAL: &str = "agathodaimon-vault-mountpoint-refused";
 const VAULT_OPEN_MOUNT_REFUSED_SIGNAL: &str = "agathodaimon-vault-mount-refused";
+const VAULT_DEVICE_UNRESOLVABLE_SIGNAL: &str = "vault-device-unresolvable";
 
 #[derive(Clone)]
 struct VaultConfig {
@@ -29,6 +31,48 @@ fn root_path(path: &str) -> PathBuf {
 }
 fn logical(path: &Path) -> String {
     path.to_string_lossy().into_owned()
+}
+
+fn valid_partlabel(label: &str) -> bool {
+    !label.is_empty() && label != "." && label != ".." && !label.contains('/')
+}
+
+fn resolve_device(device: &str) -> Result<String, String> {
+    const PARTLABEL_PREFIX: &str = "/dev/disk/by-partlabel/";
+
+    let logical_input = if let Some(label) = device.strip_prefix(PARTLABEL_PREFIX) {
+        if !valid_partlabel(label) {
+            return Err(VAULT_DEVICE_UNRESOLVABLE_SIGNAL.to_string());
+        }
+        device.to_string()
+    } else if device.starts_with("/dev/") {
+        device.to_string()
+    } else if device.starts_with('/') || !valid_partlabel(device) {
+        return Err(VAULT_DEVICE_UNRESOLVABLE_SIGNAL.to_string());
+    } else {
+        format!("{PARTLABEL_PREFIX}{device}")
+    };
+
+    let physical_path = fs::canonicalize(root_path(&logical_input))
+        .map_err(|_| VAULT_DEVICE_UNRESOLVABLE_SIGNAL.to_string())?;
+    let metadata = fs::metadata(&physical_path)
+        .map_err(|_| VAULT_DEVICE_UNRESOLVABLE_SIGNAL.to_string())?;
+    if !metadata.file_type().is_block_device() {
+        return Err(VAULT_DEVICE_UNRESOLVABLE_SIGNAL.to_string());
+    }
+
+    let root = fs::canonicalize(config::root())
+        .map_err(|_| VAULT_DEVICE_UNRESOLVABLE_SIGNAL.to_string())?;
+    let logical_path = match physical_path.strip_prefix(&root) {
+        Ok(relative_path) => Path::new("/").join(relative_path),
+        Err(_) if physical_path.starts_with("/dev") => physical_path,
+        Err(_) => return Err(VAULT_DEVICE_UNRESOLVABLE_SIGNAL.to_string()),
+    };
+    if !logical_path.starts_with("/dev") {
+        return Err(VAULT_DEVICE_UNRESOLVABLE_SIGNAL.to_string());
+    }
+
+    Ok(logical(&logical_path))
 }
 
 fn mapper_path(cfg: &VaultConfig) -> PathBuf {
@@ -299,10 +343,11 @@ pub fn status_json() -> Value {
     }
 }
 fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<(bool, Option<bool>), String> {
+    let device = resolve_device(&cfg.device)?;
     let payload = json!({
         "op": "unlock",
         "mapper": &cfg.mapper,
-        "device": &cfg.device,
+        "device": device,
         "mountpoint": logical(&mountpoint_path(cfg)),
         "passphrase": passphrase,
     });
@@ -343,8 +388,13 @@ pub fn unlock_json(password: Option<&str>) -> Value {
     let passphrase = password.filter(|value| !value.is_empty());
     let (opened, present) = match open_vault(&cfg, passphrase) {
         Ok(receipt) => receipt,
-        Err(_) => {
-            log_internal("unlock", "vault-open-crossing-unavailable");
+        Err(error) => {
+            let signal = if error == VAULT_DEVICE_UNRESOLVABLE_SIGNAL {
+                error.as_str()
+            } else {
+                "vault-open-crossing-unavailable"
+            };
+            log_internal("unlock", signal);
             return result(false, "Unable to unlock the vault.");
         }
     };
