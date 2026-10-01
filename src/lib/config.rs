@@ -232,6 +232,83 @@ fn set_dotted(document: &mut Value, path: &str, value: Value) -> Result<(), Stri
     Ok(())
 }
 
+fn remove_dotted(document: &mut Value, path: &str) -> Result<(), String> {
+    validate_dotted(path)?;
+    let parts: Vec<&str> = path.split('.').collect();
+    let mut current = document;
+    for key in &parts[..parts.len() - 1] {
+        let Some(next) = current
+            .as_object_mut()
+            .and_then(|object| object.get_mut(*key))
+        else {
+            return Ok(());
+        };
+        current = next;
+    }
+    if let Some(object) = current.as_object_mut() {
+        object.remove(parts[parts.len() - 1]);
+    }
+    Ok(())
+}
+
+fn get_dotted<'a>(document: &'a Value, path: &str) -> Option<&'a Value> {
+    path.split('.')
+        .try_fold(document, |value, key| value.get(key))
+}
+
+/// A narrow rollback token for one dotted JSON set. It records only the old
+/// leaf and ancestors absent when that set ran; rollback never replaces a
+/// later whole-document snapshot.
+pub(crate) struct JsonSetRollback {
+    path: String,
+    previous: Option<Value>,
+    expected: Value,
+    introduced_ancestors: Vec<String>,
+}
+
+fn json_set_rollback(
+    document: &Value,
+    path: &str,
+    expected: &Value,
+) -> Result<JsonSetRollback, String> {
+    validate_dotted(path)?;
+    if !document.is_object() {
+        return Err("caduceus-household-config-path-invalid".to_string());
+    }
+    let parts: Vec<&str> = path.split('.').collect();
+    let mut current = Some(document);
+    let mut introduced_ancestors = Vec::new();
+    for (index, key) in parts[..parts.len() - 1].iter().enumerate() {
+        let prefix = parts[..=index].join(".");
+        match current.and_then(|value| value.get(*key)) {
+            Some(value) if value.is_object() => current = Some(value),
+            Some(_) => return Err("caduceus-household-config-path-invalid".to_string()),
+            None => {
+                introduced_ancestors.push(prefix);
+                current = None;
+            }
+        }
+    }
+    Ok(JsonSetRollback {
+        path: path.to_string(),
+        previous: get_dotted(document, path).cloned(),
+        expected: expected.clone(),
+        introduced_ancestors,
+    })
+}
+
+fn prune_empty_ancestors(document: &mut Value, ancestors: &[String]) -> Result<(), String> {
+    for path in ancestors.iter().rev() {
+        let is_empty_object = get_dotted(document, path)
+            .and_then(Value::as_object)
+            .is_some_and(Map::is_empty);
+        if is_empty_object {
+            remove_dotted(document, path)?;
+        }
+    }
+    Ok(())
+}
+
 /// Atomically replace a Caduceus-owned file with a fully synced, owner-created
 /// sibling. Callers validate and render before this boundary so a refusal never
 /// changes the prior durable bytes.
@@ -333,6 +410,16 @@ pub fn transaction_lock() -> Result<std::sync::MutexGuard<'static, ()>, String> 
 }
 
 fn mutate(op: &str, target: &str, update: Value) -> Result<Value, String> {
+    mutate_with_rollback(op, target, update, None, None)
+}
+
+fn mutate_with_rollback(
+    op: &str,
+    target: &str,
+    update: Value,
+    capture_rollback: Option<&mut Option<JsonSetRollback>>,
+    restore: Option<JsonSetRollback>,
+) -> Result<Value, String> {
     let _guard = transaction_lock()?;
     let resolved = resolve()?;
     ensure_not_symlink_target(&resolved.fs_path)?;
@@ -341,7 +428,26 @@ fn mutate(op: &str, target: &str, update: Value) -> Result<Value, String> {
     }
     let mut document = read_document(&resolved)?;
     let before = document.clone();
-    let keys_touched: Vec<String> = if op == "set" {
+    if let Some(rollback) = restore.as_ref() {
+        if get_dotted(&document, &rollback.path) != Some(&rollback.expected) {
+            return Err("caduceus-household-config-rollback-conflict".to_string());
+        }
+    }
+    if let Some(capture) = capture_rollback {
+        if op != "set" {
+            return Err("caduceus-household-config-rollback-set-required".to_string());
+        }
+        *capture = Some(json_set_rollback(&before, target, &update)?);
+    }
+    let keys_touched: Vec<String> = if let Some(rollback) = restore {
+        if let Some(previous) = rollback.previous {
+            set_dotted(&mut document, &rollback.path, previous)?;
+        } else {
+            remove_dotted(&mut document, &rollback.path)?;
+            prune_empty_ancestors(&mut document, &rollback.introduced_ancestors)?;
+        }
+        vec![rollback.path]
+    } else if op == "set" {
         set_dotted(&mut document, target, update)?;
         vec![target.to_string()]
     } else {
@@ -413,6 +519,20 @@ fn mutate(op: &str, target: &str, update: Value) -> Result<Value, String> {
 
 pub fn set_json(path: &str, value: Value) -> Result<Value, String> {
     mutate("set", path, value)
+}
+
+pub(crate) fn set_json_with_rollback(
+    path: &str,
+    value: Value,
+    rollback: &mut Option<JsonSetRollback>,
+) -> Result<Value, String> {
+    *rollback = None;
+    mutate_with_rollback("set", path, value, Some(rollback), None)
+}
+
+pub(crate) fn restore_json_set(rollback: JsonSetRollback) -> Result<Value, String> {
+    let path = rollback.path.clone();
+    mutate_with_rollback("restore", &path, Value::Null, None, Some(rollback))
 }
 
 pub fn patch_json(merge: Value) -> Result<Value, String> {
