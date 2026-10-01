@@ -1,20 +1,21 @@
 //! Native, persistent per-host appliance telemetry.
 use crate::shared::config;
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     ffi::CString,
-    fs,
+    fs::{self, File},
+    io::Read,
     net::TcpStream,
     path::PathBuf,
     process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, OnceLock, RwLock,
+        Arc, Mutex, OnceLock, RwLock,
     },
-    thread,
+    thread::{self, JoinHandle},
     time::Instant,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -36,19 +37,35 @@ struct StatsState {
     last_model_lane_pulse_unix: AtomicU64,
     model_lane_pulse_requested: AtomicBool,
     error: Option<String>,
-    process_ticks: BTreeMap<u32, u64>,
-    process_sample_at: Option<Instant>,
     gpu_cache: Option<Value>,
     last_gpu_refresh: Option<Instant>,
 }
 static STATE: OnceLock<Arc<RwLock<StatsState>>> = OnceLock::new();
+static DATABASE: OnceLock<Result<Mutex<Connection>, String>> = OnceLock::new();
+static RAW_PENDING: OnceLock<Mutex<VecDeque<PendingRaw>>> = OnceLock::new();
+static COLLECTOR: OnceLock<Mutex<Option<(Arc<AtomicBool>, JoinHandle<Result<(), String>>)>>> =
+    OnceLock::new();
 const MODEL_LANE_PULSE_INTERVAL: u64 = 86_400;
 const MODEL_LANE_TIMEOUT: Duration = Duration::from_millis(400);
+
+#[derive(Clone)]
+struct PendingRaw {
+    ts: i64,
+    sequence: u64,
+    data: Arc<str>,
+}
 
 fn db_path() -> PathBuf {
     config::path("var/lib/caduceus/stats.sqlite3")
 }
-fn open_db() -> Result<Connection, String> {
+fn open_db() -> Result<&'static Mutex<Connection>, String> {
+    match DATABASE.get_or_init(|| open_db_once().map(Mutex::new)) {
+        Ok(connection) => Ok(connection),
+        Err(error) => Err(error.clone()),
+    }
+}
+
+fn open_db_once() -> Result<Connection, String> {
     let path = db_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -72,7 +89,9 @@ pub fn ruyi_put(
     received_at: i64,
     perspective: Option<&str>,
 ) -> Result<(), String> {
-    let mut c = open_db()?;
+    let mut c = open_db()?
+        .lock()
+        .map_err(|_| "stats database lock poisoned".to_string())?;
     let tx = c.transaction().map_err(|e| e.to_string())?;
     tx.execute(
         "INSERT INTO ruyi(mac,row,last_seen) VALUES(?1,?2,?3) ON CONFLICT(mac) DO UPDATE SET row=excluded.row,last_seen=excluded.last_seen",
@@ -100,7 +119,9 @@ pub struct RuyiSnapshot {
 
 /// Both halves of a GET observe the same SQLite snapshot, even during PUT/DELETE.
 pub fn ruyi_snapshot() -> Result<RuyiSnapshot, String> {
-    let mut c = open_db()?;
+    let mut c = open_db()?
+        .lock()
+        .map_err(|_| "stats database lock poisoned".to_string())?;
     let tx = c.transaction().map_err(|e| e.to_string())?;
     let read = |sql: &str| -> Result<Vec<(String, String, i64)>, String> {
         let mut statement = tx.prepare(sql).map_err(|e| e.to_string())?;
@@ -117,6 +138,8 @@ pub fn ruyi_snapshot() -> Result<RuyiSnapshot, String> {
 
 pub fn ruyi_row(mac: &str) -> Result<Option<String>, String> {
     open_db()?
+        .lock()
+        .map_err(|_| "stats database lock poisoned".to_string())?
         .query_row("SELECT row FROM ruyi WHERE mac=?1", [mac], |row| row.get(0))
         .optional()
         .map_err(|e| e.to_string())
@@ -124,7 +147,9 @@ pub fn ruyi_row(mac: &str) -> Result<Option<String>, String> {
 
 /// Remove only the registered row and its author's perspective, never peer evidence.
 pub fn ruyi_delete(mac: &str) -> Result<Option<String>, String> {
-    let mut c = open_db()?;
+    let mut c = open_db()?
+        .lock()
+        .map_err(|_| "stats database lock poisoned".to_string())?;
     let tx = c
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .map_err(|e| e.to_string())?;
@@ -150,7 +175,9 @@ pub fn ruyi_delete(mac: &str) -> Result<Option<String>, String> {
 }
 
 fn ruyi_list_result() -> Result<Vec<(String, String, i64)>, String> {
-    let c = open_db()?;
+    let c = open_db()?
+        .lock()
+        .map_err(|_| "stats database lock poisoned".to_string())?;
     let mut statement = c
         .prepare("SELECT mac,row,last_seen FROM ruyi ORDER BY mac")
         .map_err(|e| e.to_string())?;
@@ -313,109 +340,223 @@ fn thermal_label(name: &str) -> &'static str {
         "other"
     }
 }
-fn temperatures() -> Value {
-    let mut paths = BTreeSet::new();
-    let mut sources: BTreeMap<PathBuf, &'static str> = BTreeMap::new();
+struct ThermalCache {
+    discovered_at: Option<Instant>,
+    sources: Vec<(PathBuf, &'static str)>,
+    other_values: Vec<(f64, &'static str)>,
+    storage_values: Vec<(f64, &'static str)>,
+    other_sampled_at: i64,
+    storage_sampled_at: i64,
+    other_refreshed_at: Option<Instant>,
+    storage_refreshed_at: Option<Instant>,
+}
+
+impl Default for ThermalCache {
+    fn default() -> Self {
+        Self {
+            discovered_at: None,
+            sources: Vec::new(),
+            other_values: Vec::new(),
+            storage_values: Vec::new(),
+            other_sampled_at: 0,
+            storage_sampled_at: 0,
+            other_refreshed_at: None,
+            storage_refreshed_at: None,
+        }
+    }
+}
+
+fn discover_thermal_sources() -> Vec<(PathBuf, &'static str)> {
+    let mut sources = BTreeMap::new();
     if let Ok(entries) = fs::read_dir("/sys/class/thermal") {
-        for e in entries.flatten() {
-            if e.file_name().to_string_lossy().starts_with("thermal_zone") {
-                let path = e.path().join("temp");
-                paths.insert(path.clone());
-                let label = read_text(&e.path().join("type").to_string_lossy())
-                    .map(|s| thermal_label(&s))
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().starts_with("thermal_zone") {
+                let path = entry.path().join("temp");
+                let label = read_text(&entry.path().join("type").to_string_lossy())
+                    .map(|name| thermal_label(&name))
                     .unwrap_or("other");
                 sources.insert(path, label);
             }
         }
     }
     if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
-        for e in entries.flatten() {
-            let label = read_text(&e.path().join("name").to_string_lossy())
-                .map(|s| thermal_label(&s))
+        for entry in entries.flatten() {
+            let label = read_text(&entry.path().join("name").to_string_lossy())
+                .map(|name| thermal_label(&name))
                 .unwrap_or("other");
-            if let Ok(ts) = fs::read_dir(e.path()) {
-                for t in ts.flatten() {
-                    let n = t.file_name().to_string_lossy().to_string();
-                    if n.starts_with("temp") && n.ends_with("_input") {
-                        let path = t.path();
-                        paths.insert(path.clone());
-                        sources.insert(path, label);
+            if let Ok(files) = fs::read_dir(entry.path()) {
+                for file in files.flatten() {
+                    let name = file.file_name().to_string_lossy().to_string();
+                    if name.starts_with("temp") && name.ends_with("_input") {
+                        sources.insert(file.path(), label);
                     }
                 }
             }
         }
     }
+    sources.into_iter().collect()
+}
+
+fn read_temperature_sources(
+    sources: &[(PathBuf, &'static str)],
+    storage: bool,
+) -> Vec<(f64, &'static str)> {
+    sources
+        .iter()
+        .filter(|(_, label)| (*label == "storage") == storage)
+        .filter_map(|(path, label)| {
+            let value = fs::read_to_string(path).ok()?.trim().parse::<f64>().ok()? / 1000.0;
+            value.is_finite().then_some((value, *label))
+        })
+        .collect()
+}
+
+fn temperatures(cache: &mut ThermalCache) -> (Value, i64, i64) {
+    let rediscovered = cache
+        .discovered_at
+        .map_or(true, |at| at.elapsed() >= Duration::from_secs(60));
+    if rediscovered {
+        cache.sources = discover_thermal_sources();
+        cache.discovered_at = Some(Instant::now());
+        cache.other_refreshed_at = None;
+        cache.storage_refreshed_at = None;
+    }
+    if cache
+        .other_refreshed_at
+        .map_or(true, |at| at.elapsed() >= Duration::from_secs(1))
+    {
+        cache.other_values = read_temperature_sources(&cache.sources, false);
+        cache.other_sampled_at = now();
+        cache.other_refreshed_at = Some(Instant::now());
+    }
+    if cache
+        .storage_refreshed_at
+        .map_or(true, |at| at.elapsed() >= Duration::from_secs(30))
+    {
+        cache.storage_values = read_temperature_sources(&cache.sources, true);
+        cache.storage_sampled_at = now();
+        cache.storage_refreshed_at = Some(Instant::now());
+    }
     let mut values = Vec::new();
     let mut by_source = Vec::new();
-    for path in paths {
-        if let Some(value) = fs::read_to_string(&path)
-            .ok()
-            .and_then(|v| v.trim().parse::<f64>().ok())
-        {
-            let celsius = value / 1000.0;
-            values.push(celsius);
-            by_source.push(json!({
-                "label": sources.get(&path).copied().unwrap_or("other"),
-                "celsius": celsius,
-            }));
-        }
+    for (value, label) in &cache.other_values {
+        values.push(*value);
+        by_source.push(json!({"label":label,"celsius":value,"sampledAt":cache.other_sampled_at}));
     }
-    if values.is_empty() {
+    for (value, label) in &cache.storage_values {
+        values.push(*value);
+        by_source.push(json!({"label":label,"celsius":value,"sampledAt":cache.storage_sampled_at}));
+    }
+    let value = if values.is_empty() {
         Value::Null
     } else {
         json!({"celsius": values.iter().sum::<f64>() / values.len() as f64, "sources": values.len(), "bySource": by_source})
-    }
+    };
+    (value, cache.other_sampled_at, cache.storage_sampled_at)
 }
-fn fans() -> Value {
-    let mut out = Vec::new();
-    if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
-        for e in entries.flatten() {
-            let label = match read_text(&e.path().join("name").to_string_lossy()) {
-                Some(name) => name.trim().to_string(),
-                None => continue,
-            };
-            if let Ok(files) = fs::read_dir(e.path()) {
-                for file in files.flatten() {
-                    let name = file.file_name().to_string_lossy().to_string();
-                    if name.starts_with("fan") && name.ends_with("_input") {
-                        if let Some(rpm) = fs::read_to_string(file.path())
-                            .ok()
-                            .and_then(|v| v.trim().parse::<f64>().ok())
-                        {
-                            out.push(json!({"label":label,"rpm":rpm}));
+
+#[derive(Default)]
+struct FanCache {
+    discovered_at: Option<Instant>,
+    paths: Vec<(String, PathBuf)>,
+}
+
+fn fans(cache: &mut FanCache) -> Value {
+    if cache
+        .discovered_at
+        .map_or(true, |at| at.elapsed() >= Duration::from_secs(60))
+    {
+        let mut paths = Vec::new();
+        if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
+            for entry in entries.flatten() {
+                let Some(label) = read_text(&entry.path().join("name").to_string_lossy()) else {
+                    continue;
+                };
+                if let Ok(files) = fs::read_dir(entry.path()) {
+                    for file in files.flatten() {
+                        let name = file.file_name().to_string_lossy().to_string();
+                        if name.starts_with("fan") && name.ends_with("_input") {
+                            paths.push((label.trim().to_owned(), file.path()));
                         }
                     }
                 }
             }
         }
+        cache.paths = paths;
+        cache.discovered_at = Some(Instant::now());
     }
+    let out = cache
+        .paths
+        .iter()
+        .filter_map(|(label, path)| {
+            let rpm = fs::read_to_string(path).ok()?.trim().parse::<f64>().ok()?;
+            rpm.is_finite().then(|| json!({"label":label,"rpm":rpm}))
+        })
+        .collect::<Vec<_>>();
     if out.is_empty() {
         Value::Null
     } else {
         json!(out)
     }
 }
-fn network() -> Value {
-    let excluded = |n: &str| {
-        n == "lo"
-            || n == "docker0"
-            || n.starts_with("br-")
-            || n.starts_with("virbr")
-            || n.starts_with("vnet")
-            || n.starts_with("zt")
-    };
+#[derive(Default)]
+struct InterfaceCache {
+    discovered_at: Option<Instant>,
+    paths: Vec<(String, PathBuf)>,
+}
+
+fn excluded_interface(name: &str) -> bool {
+    name == "lo"
+        || name == "docker0"
+        || name.starts_with("br-")
+        || name.starts_with("virbr")
+        || name.starts_with("vnet")
+        || name.starts_with("zt")
+}
+
+fn network(cache: &mut InterfaceCache) -> Value {
+    if cache
+        .discovered_at
+        .map_or(true, |at| at.elapsed() >= Duration::from_secs(60))
+    {
+        cache.paths = fs::read_dir("/sys/class/net")
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().to_string();
+                (!excluded_interface(&name)).then(|| {
+                    (name, entry.path().join("operstate"))
+                })
+            })
+            .collect();
+        cache.paths.sort_by(|a, b| a.0.cmp(&b.0));
+        cache.discovered_at = Some(Instant::now());
+    }
     let mut list = Vec::new();
-    if let Some(t) = read_text("/proc/net/dev") {
-        for line in t.lines().skip(2) {
-            if let Some((name, rest)) = line.split_once(':') {
-                let name = name.trim();
-                let p: Vec<_> = rest.split_whitespace().collect();
-                if !excluded(name) && p.len() >= 9 {
-                    let state = read_text(&format!("/sys/class/net/{name}/operstate"))
-                        .map(|s| s.trim().to_string());
-                    list.push(json!({"name":name,"rxBytes":p[0].parse::<u64>().unwrap_or(0),"txBytes":p[8].parse::<u64>().unwrap_or(0),"operstate":state}));
-                }
-            }
+    let counters = read_text("/proc/net/dev").unwrap_or_default();
+    let counters = counters
+        .lines()
+        .skip(2)
+        .filter_map(|line| {
+            let (name, rest) = line.split_once(':')?;
+            let fields = rest.split_whitespace().collect::<Vec<_>>();
+            (fields.len() >= 9).then(|| {
+                (
+                    name.trim().to_owned(),
+                    (
+                        fields[0].parse::<u64>().unwrap_or(0),
+                        fields[8].parse::<u64>().unwrap_or(0),
+                    ),
+                )
+            })
+        })
+        .collect::<BTreeMap<_, _>>();
+    for (name, operstate) in &cache.paths {
+        if let Some((rx, tx)) = counters.get(name) {
+            let state = fs::read_to_string(operstate).ok().map(|value| value.trim().to_owned());
+            list.push(json!({"name":name,"rxBytes":rx,"txBytes":tx,"operstate":state}));
         }
     }
     list.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
@@ -484,31 +625,130 @@ fn disk_io(usage: &Value) -> Value {
     }
     json!(out)
 }
-fn has_nvidia_gpu() -> bool {
-    if fs::read_dir("/proc/driver/nvidia/gpus")
-        .ok()
-        .and_then(|mut entries| entries.next())
-        .is_some()
-    {
-        return true;
+struct GpuSysfsDevice {
+    metrics: Vec<(String, PathBuf)>,
+    temperatures: Vec<PathBuf>,
+    fans: Vec<(PathBuf, PathBuf)>,
+}
+
+#[derive(Default)]
+struct GpuSysfsCache {
+    discovered_at: Option<Instant>,
+    devices: Vec<GpuSysfsDevice>,
+    nvidia_present: bool,
+}
+
+impl GpuSysfsCache {
+    fn refresh_discovery_if_due(&mut self) {
+        if !self
+            .discovered_at
+            .map_or(true, |at| at.elapsed() >= Duration::from_secs(60))
+        {
+            return;
+        }
+        let proc_nvidia = fs::read_dir("/proc/driver/nvidia/gpus")
+            .ok()
+            .and_then(|mut entries| entries.next())
+            .is_some();
+        let mut devices = Vec::new();
+        let mut nvidia_present = proc_nvidia;
+        if let Ok(entries) = fs::read_dir("/sys/class/drm") {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !name.strip_prefix("card").map_or(false, |number| {
+                    !number.is_empty() && number.chars().all(|c| c.is_ascii_digit())
+                }) {
+                    continue;
+                }
+                let device = entry.path().join("device");
+                let Some(vendor) = read_text(&device.join("vendor").to_string_lossy()) else {
+                    continue;
+                };
+                nvidia_present |= vendor.trim().eq_ignore_ascii_case("0x10de");
+                let metrics = [
+                    ("gpu_busy_percent", "utilizationPercent"),
+                    ("mem_info_vram_used", "memoryUsedBytes"),
+                    ("mem_info_vram_total", "memoryTotalBytes"),
+                ]
+                .into_iter()
+                .map(|(file, key)| (key.to_owned(), device.join(file)))
+                .collect();
+                let mut temperatures = Vec::new();
+                let mut fans = Vec::new();
+                if let Ok(hwmon) = fs::read_dir(device.join("hwmon")) {
+                    for hwmon_entry in hwmon.flatten() {
+                        if let Ok(files) = fs::read_dir(hwmon_entry.path()) {
+                            for file in files.flatten() {
+                                let filename = file.file_name().to_string_lossy().to_string();
+                                if filename.starts_with("temp") && filename.ends_with("_input") {
+                                    temperatures.push(file.path());
+                                } else if filename.starts_with("pwm") && filename.ends_with("_max") {
+                                    fans.push((
+                                        file.path().with_file_name(filename.trim_end_matches("_max")),
+                                        file.path(),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+                devices.push(GpuSysfsDevice {
+                    metrics,
+                    temperatures,
+                    fans,
+                });
+            }
+        }
+        self.devices = devices;
+        self.nvidia_present = nvidia_present;
+        self.discovered_at = Some(Instant::now());
     }
-    fs::read_dir("/sys/class/drm")
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .strip_prefix("card")
-                .map_or(false, |n| {
-                    !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())
-                })
-        })
-        .any(|e| {
-            read_text(&e.path().join("device/vendor").to_string_lossy())
-                .map_or(false, |v| v.trim().eq_ignore_ascii_case("0x10de"))
-        })
+
+    fn sample(&mut self) -> Value {
+        self.refresh_discovery_if_due();
+        let mut out = serde_json::Map::new();
+        let mut temperatures = Vec::new();
+        for device in &self.devices {
+            for (key, path) in &device.metrics {
+                if let Some(value) = fs::read_to_string(path)
+                    .ok()
+                    .and_then(|value| value.trim().parse::<u64>().ok())
+                {
+                    out.insert(key.clone(), json!(value));
+                }
+            }
+            for path in &device.temperatures {
+                if let Some(value) = fs::read_to_string(path)
+                    .ok()
+                    .and_then(|value| value.trim().parse::<f64>().ok())
+                    .filter(|value| value.is_finite())
+                {
+                    temperatures.push(value / 1000.0);
+                }
+            }
+            for (pwm, maximum) in &device.fans {
+                let max = fs::read_to_string(maximum)
+                    .ok()
+                    .and_then(|value| value.trim().parse::<f64>().ok())
+                    .filter(|value| value.is_finite() && *value > 0.0);
+                let value = fs::read_to_string(pwm)
+                    .ok()
+                    .and_then(|value| value.trim().parse::<f64>().ok())
+                    .filter(|value| value.is_finite());
+                if let (Some(value), Some(max)) = (value, max) {
+                    out.insert("fanPercent".into(), json!(value * 100.0 / max));
+                }
+            }
+        }
+        if let Some(value) = temperatures.first() {
+            out.insert("temperatureCelsius".into(), json!(*value));
+        }
+        if out.is_empty() {
+            Value::Null
+        } else {
+            Value::Object(out)
+        }
+    }
 }
 fn refresh_nvidia_gpu_cache() -> Option<(bool, String)> {
     let mut c = Command::new("nvidia-smi");
@@ -552,81 +792,14 @@ fn nvidia_gpu_output(output: &str) -> Value {
     };
     json!({"utilizationPercent":u,"temperatureCelsius":t,"fanPercent":fan,"memoryUsedBytes":used,"memoryTotalBytes":total})
 }
-fn gpu_sysfs() -> Value {
-    let mut out = serde_json::Map::new();
-    let mut temps = Vec::new();
-    if let Ok(es) = fs::read_dir("/sys/class/drm") {
-        for e in es.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            if !name.strip_prefix("card").map_or(false, |n| {
-                !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())
-            }) {
-                continue;
-            }
-            let d = e.path().join("device");
-            if read_text(&d.join("vendor").to_string_lossy()).is_none() {
-                continue;
-            }
-            for (file, key) in [
-                ("gpu_busy_percent", "utilizationPercent"),
-                ("mem_info_vram_used", "memoryUsedBytes"),
-                ("mem_info_vram_total", "memoryTotalBytes"),
-            ] {
-                if let Some(v) = read_text(&d.join(file).to_string_lossy())
-                    .and_then(|x| x.trim().parse::<u64>().ok())
-                {
-                    out.insert(key.into(), json!(v));
-                }
-            }
-            if let Ok(hs) = fs::read_dir(d.join("hwmon")) {
-                for h in hs.flatten() {
-                    if let Ok(fs2) = fs::read_dir(h.path()) {
-                        for f in fs2.flatten() {
-                            let n = f.file_name().to_string_lossy().to_string();
-                            if n.starts_with("temp") && n.ends_with("_input") {
-                                if let Some(v) = read_text(&f.path().to_string_lossy())
-                                    .and_then(|x| x.trim().parse::<f64>().ok())
-                                {
-                                    temps.push(v / 1000.0)
-                                }
-                            } else if n.starts_with("pwm") && n.ends_with("_max") {
-                                if let Some(max) = read_text(&f.path().to_string_lossy())
-                                    .and_then(|x| x.trim().parse::<f64>().ok())
-                                    .filter(|v| v.is_finite() && *v > 0.0)
-                                {
-                                    let pwm_name = n.trim_end_matches("_max");
-                                    let pwm_path = f.path().with_file_name(pwm_name);
-                                    if let Some(value) = read_text(&pwm_path.to_string_lossy())
-                                        .and_then(|x| x.trim().parse::<f64>().ok())
-                                        .filter(|v| v.is_finite())
-                                    {
-                                        out.insert("fanPercent".into(), json!(value * 100.0 / max));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if let Some(v) = temps.first() {
-        out.insert("temperatureCelsius".into(), json!(*v));
-    }
-    if out.is_empty() {
-        Value::Null
-    } else {
-        Value::Object(out)
-    }
-}
-fn gpu(cached: Option<&Value>) -> Value {
+fn gpu(cached: Option<&Value>, sysfs: &mut GpuSysfsCache) -> Value {
     let mut out = match cached {
-        Some(Value::Object(m)) => m.clone(),
+        Some(Value::Object(metrics)) => metrics.clone(),
         _ => serde_json::Map::new(),
     };
-    if let Value::Object(m) = gpu_sysfs() {
-        for (k, v) in m {
-            out.insert(k, v);
+    if let Value::Object(metrics) = sysfs.sample() {
+        for (key, value) in metrics {
+            out.insert(key, value);
         }
     }
     if out.is_empty() {
@@ -669,9 +842,9 @@ fn unescape_mountinfo(s: &str) -> String {
     }
     o
 }
-fn mount_owner(path: &str) -> Option<(String, String)> {
+fn mount_owner_from(mountinfo: &str, path: &str) -> Option<(String, String)> {
     let mut best = None;
-    for line in read_text("/proc/self/mountinfo")?.lines() {
+    for line in mountinfo.lines() {
         let Some((l, r)) = line.split_once(" - ") else {
             continue;
         };
@@ -692,14 +865,34 @@ fn mount_owner(path: &str) -> Option<(String, String)> {
     }
     best.map(|(s, m, _)| (s, m))
 }
-fn disk_usage() -> Value {
+#[derive(Default)]
+struct MountCache {
+    refreshed_at: Option<Instant>,
+    contents: String,
+}
+
+impl MountCache {
+    fn refresh_if_due(&mut self) -> &str {
+        if self
+            .refreshed_at
+            .map_or(true, |at| at.elapsed() >= Duration::from_secs(60))
+        {
+            self.contents = read_text("/proc/self/mountinfo").unwrap_or_default();
+            self.refreshed_at = Some(Instant::now());
+        }
+        &self.contents
+    }
+}
+
+fn disk_usage(mountinfo: &str) -> Value {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
     for path in ["/", "/home", "/vault", "/mnt/nas"] {
         let Some((total, used, available)) = statvfs_bytes(path) else {
             continue;
         };
-        let (fsname, mount) = mount_owner(path).unwrap_or_else(|| ("unknown".into(), path.into()));
+        let (fsname, mount) =
+            mount_owner_from(mountinfo, path).unwrap_or_else(|| ("unknown".into(), path.into()));
         if !seen.insert(mount.clone()) {
             continue;
         }
@@ -713,22 +906,35 @@ fn disk_usage() -> Value {
     }
     json!(out)
 }
+const PROC_STAT_BUFFER_SIZE: usize = 4096;
+
 fn processes(
     previous: &BTreeMap<u32, u64>,
     elapsed: Option<Duration>,
+    stat_buffer: &mut Vec<u8>,
+    statm_buffer: &mut String,
 ) -> (Value, BTreeMap<u32, u64>) {
     let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as f64;
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(1) as u64;
     let mut next = BTreeMap::new();
-    let mut rows = Vec::new();
+    let mut candidates = Vec::new();
     if let Ok(es) = fs::read_dir("/proc") {
         for e in es.flatten() {
             let Ok(pid) = e.file_name().to_string_lossy().parse::<u32>() else {
                 continue;
             };
-            let Some(stat) = read_text(&e.path().join("stat").to_string_lossy()) else {
+            stat_buffer.resize(PROC_STAT_BUFFER_SIZE, 0);
+            let Ok(mut stat_file) = File::open(e.path().join("stat")) else {
                 continue;
             };
+            let Ok(bytes_read) = stat_file.read(stat_buffer.as_mut_slice()) else {
+                continue;
+            };
+            if bytes_read == 0 {
+                continue;
+            }
+            stat_buffer.truncate(bytes_read);
+            let stat = String::from_utf8_lossy(&stat_buffer[..]);
             let Some(close) = stat.rfind(')') else {
                 continue;
             };
@@ -747,10 +953,6 @@ fn processes(
             };
             let ticks = u + st;
             next.insert(pid, ticks);
-            let rss = read_text(&e.path().join("statm").to_string_lossy())
-                .and_then(|x| x.split_whitespace().nth(1)?.parse::<u64>().ok())
-                .unwrap_or(0)
-                * page;
             let command = stat[open + 1..close].to_string();
             let cpu = match (previous.get(&pid), elapsed) {
                 (Some(old), Some(dt)) if dt.as_secs_f64() > 0.0 => {
@@ -758,22 +960,31 @@ fn processes(
                 }
                 _ => 0.0,
             };
-            if !["ps", "sh", "bash", "sudo", "python3"].contains(&command.as_str())
-                && (cpu > 0.0 || rss > 0)
-            {
-                rows.push(
-                    json!({"command":command,"cpuPercent":cpu,"rssBytes":rss,"processCount":1}),
-                );
+            if !["ps", "sh", "bash", "sudo", "python3"].contains(&command.as_str()) {
+                candidates.push((pid, command, cpu, ticks, e.path()));
             }
         }
     }
-    rows.sort_by(|a, b| {
-        b["cpuPercent"]
-            .as_f64()
-            .partial_cmp(&a["cpuPercent"].as_f64())
+    candidates.sort_by(|a, b| {
+        b.2.partial_cmp(&a.2)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.3.cmp(&a.3))
+            .then_with(|| a.0.cmp(&b.0))
     });
-    rows.truncate(10);
+    let rows = candidates
+        .into_iter()
+        .take(10)
+        .map(|(_, command, cpu, _, path)| {
+            statm_buffer.clear();
+            let rss = File::open(path.join("statm"))
+                .and_then(|mut file| file.read_to_string(statm_buffer))
+                .ok()
+                .and_then(|_| statm_buffer.split_whitespace().nth(1)?.parse::<u64>().ok())
+                .unwrap_or(0)
+                .saturating_mul(page);
+            json!({"command":command,"cpuPercent":cpu,"rssBytes":rss,"processCount":1})
+        })
+        .collect::<Vec<_>>();
     (json!(rows), next)
 }
 
@@ -979,21 +1190,46 @@ fn db_file_bytes() -> (u64, u64) {
     )
 }
 
+#[derive(Default)]
+struct SelfMetricsCache {
+    refreshed_at: Option<Instant>,
+    fd_count: u64,
+    anon_mappings_over_64_mib: u64,
+    fd_sampled_at: i64,
+    maps_sampled_at: i64,
+}
+
+impl SelfMetricsCache {
+    fn refresh_if_due(&mut self) {
+        if self
+            .refreshed_at
+            .map_or(true, |at| at.elapsed() >= Duration::from_secs(60))
+        {
+            self.fd_count = fs::read_dir("/proc/self/fd")
+                .map(|entries| entries.flatten().count() as u64)
+                .unwrap_or(0)
+                .min(65_536);
+            let maps = read_text("/proc/self/maps").unwrap_or_default();
+            self.anon_mappings_over_64_mib = proc_maps_metrics(&maps).0;
+            let sampled_at = now();
+            self.fd_sampled_at = sampled_at;
+            self.maps_sampled_at = sampled_at;
+            self.refreshed_at = Some(Instant::now());
+        }
+    }
+}
+
 fn self_sample(
     doors: Value,
     tick_millis: u64,
     persist_millis: u64,
     previous_ticks: Option<u64>,
     elapsed: Option<Duration>,
-) -> (Value, Option<u64>, u64) {
+    cache: &mut SelfMetricsCache,
+) -> (Value, Option<u64>, u64, i64, i64) {
+    cache.refresh_if_due();
     let status = read_text("/proc/self/status").unwrap_or_default();
     let stat = read_text("/proc/self/stat").and_then(|value| proc_stat_fields(&value));
-    let fd_count = fs::read_dir("/proc/self/fd")
-        .map(|entries| entries.flatten().count() as u64)
-        .unwrap_or(0)
-        .min(65_536);
-    let maps = read_text("/proc/self/maps").unwrap_or_default();
-    let (anon_mappings, _) = proc_maps_metrics(&maps);
     let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as f64;
     let (user_ticks, system_ticks, start_ticks) = stat.unwrap_or((0, 0, 0));
     let total_ticks = user_ticks.saturating_add(system_ticks);
@@ -1032,51 +1268,135 @@ fn self_sample(
             "swapBytes": swap,
             "dataBytes": data,
             "threads": threads,
-            "fdCount": fd_count,
+            "fdCount": cache.fd_count,
             "cpuPercent": cpu_percent,
             "tickMillis": tick_millis,
             "persistMillis": persist_millis,
             "dbBytes": db_bytes,
             "walBytes": wal_bytes,
-            "anonMappingsOver64MiB": anon_mappings,
+            "anonMappingsOver64MiB": cache.anon_mappings_over_64_mib,
             "doors": doors,
         }),
         Some(total_ticks),
         rss,
+        cache.maps_sampled_at,
+        cache.fd_sampled_at,
     )
+}
+
+#[derive(Default)]
+struct ProcessCache {
+    sampled_at: Option<Instant>,
+    sampled_ts: i64,
+    value: Value,
+    ticks: BTreeMap<u32, u64>,
+    stat_buffer: Vec<u8>,
+    statm_buffer: String,
+}
+
+impl ProcessCache {
+    fn refresh_if_due(&mut self) {
+        let instant = Instant::now();
+        if self
+            .sampled_at
+            .map_or(true, |at| at.elapsed() >= Duration::from_secs(5))
+        {
+            let elapsed = self.sampled_at.map(|at| instant.saturating_duration_since(at));
+            let (value, ticks) = processes(
+                &self.ticks,
+                elapsed,
+                &mut self.stat_buffer,
+                &mut self.statm_buffer,
+            );
+            self.value = value;
+            self.ticks = ticks;
+            self.sampled_at = Some(Instant::now());
+            self.sampled_ts = now();
+        }
+    }
+}
+
+#[derive(Default)]
+struct TcpCache {
+    refreshed_at: Option<Instant>,
+    sampled_ts: i64,
+    value: Value,
+}
+
+impl TcpCache {
+    fn refresh_if_due(&mut self) {
+        if self
+            .refreshed_at
+            .map_or(true, |at| at.elapsed() >= Duration::from_secs(10))
+        {
+            self.value = tcp();
+            self.sampled_ts = now();
+            self.refreshed_at = Some(Instant::now());
+        }
+    }
 }
 
 fn snapshot_with_state(
     previous: Option<&Value>,
-    process_ticks: &BTreeMap<u32, u64>,
-    elapsed: Option<Duration>,
+    process_cache: &mut ProcessCache,
+    tcp_cache: &mut TcpCache,
+    thermal_cache: &mut ThermalCache,
+    fan_cache: &mut FanCache,
+    gpu_sysfs_cache: &mut GpuSysfsCache,
+    interface_cache: &mut InterfaceCache,
+    mount_cache: &mut MountCache,
+    self_cache: &mut SelfMetricsCache,
     gpu_cache: Option<&Value>,
+    gpu_cache_ts: Option<i64>,
     doors: Value,
     tick_millis: u64,
     persist_millis: u64,
     previous_self_ticks: Option<u64>,
+    elapsed: Option<Duration>,
     previous_cpu: Option<CpuCounters>,
-) -> (
-    Value,
-    BTreeMap<u32, u64>,
-    Option<u64>,
-    u64,
-    Option<CpuCounters>,
-) {
+) -> (Value, Option<u64>, u64, Option<CpuCounters>) {
+    process_cache.refresh_if_due();
+    tcp_cache.refresh_if_due();
     let ts = now();
     let cpu_counters = read_text("/proc/stat").and_then(|stat| parse_cpu_counters(&stat));
     let cpu_usage = cpu_usage_percent(previous_cpu, cpu_counters);
-    let net = network();
-    let usage = disk_usage();
+    let net = network(interface_cache);
+    let mountinfo = mount_cache.refresh_if_due();
+    let usage = disk_usage(mountinfo);
     let io = disk_io(&usage);
-    let (self_value, self_ticks, self_rss) = self_sample(
+    let (self_value, self_ticks, self_rss, maps_ts, fd_ts) = self_sample(
         doors,
         tick_millis,
         persist_millis,
         previous_self_ticks,
         elapsed,
+        self_cache,
     );
-    let mut value = json!({"schema":"caduceus.appliance.stats.sample.v1","ts":ts,"collectedAt":chrono::DateTime::<chrono::Utc>::from_timestamp(ts,0).map(|d|d.to_rfc3339()),"cpu":{"usagePercent":cpu_usage},"pressure":{"io":io_pressure()},"load":load(),"temperature":temperatures(),"fans":fans(),"gpu":gpu(gpu_cache),"memory":meminfo(),"network":{"interfaces":net,"throughput":Value::Null},"tcp":tcp(),"disk":{"io":io,"usage":usage,"throughput":Value::Null},"processes":Value::Null,"self":self_value});
+    let (temperature, temperature_ts, storage_temperature_ts) = temperatures(thermal_cache);
+    let mut value = json!({
+        "schema":"caduceus.appliance.stats.sample.v1",
+        "ts":ts,
+        "collectedAt":chrono::DateTime::<chrono::Utc>::from_timestamp(ts,0).map(|d|d.to_rfc3339()),
+        "cpu":{"usagePercent":cpu_usage},
+        "pressure":{"io":io_pressure()},
+        "load":load(),
+        "temperature":temperature,
+        "temperatureTs":temperature_ts,
+        "storageTemperatureTs":storage_temperature_ts,
+        "fans":fans(fan_cache),
+        "gpu":gpu(gpu_cache, gpu_sysfs_cache),
+        "gpuCacheTs":gpu_cache_ts,
+        "memory":meminfo(),
+        "network":{"interfaces":net,"throughput":Value::Null},
+        "tcp":tcp_cache.value,
+        "tcpTs":tcp_cache.sampled_ts,
+        "disk":{"io":io,"usage":usage,"throughput":Value::Null},
+        "processes":process_cache.value,
+        "processesTs":process_cache.sampled_ts,
+        "selfMapsTs":maps_ts,
+        "selfFdTs":fd_ts,
+        "self":self_value
+    });
     if let Some(prev) = previous {
         let dt = (ts - prev.get("ts").and_then(Value::as_i64).unwrap_or(ts)).max(1) as f64;
         let mut throughput = json!({});
@@ -1117,9 +1437,7 @@ fn snapshot_with_state(
             });
         }
     }
-    let (processes, ticks) = processes(process_ticks, elapsed);
-    value["processes"] = processes;
-    (value, ticks, self_ticks, self_rss, cpu_counters)
+    (value, self_ticks, self_rss, cpu_counters)
 }
 
 const AGGREGATE_SQL: &str = "SELECT COUNT(*), AVG(json_extract(data, '$.load.one')), AVG(json_extract(data, '$.load.five')), AVG(json_extract(data, '$.load.fifteen')), AVG(json_extract(data, '$.temperature.celsius')), AVG(json_extract(data, '$.gpu.utilizationPercent')), AVG(json_extract(data, '$.gpu.temperatureCelsius')), AVG(json_extract(data, '$.memory.usedBytes')), AVG(json_extract(data, '$.memory.usedBytesSwap')), AVG(json_extract(data, '$.network.throughput.rxBytesPerSecond')), AVG(json_extract(data, '$.network.throughput.txBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.readBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.writeBytesPerSecond')), AVG(json_extract(data, '$.self.rssBytes')), MAX(json_extract(data, '$.self.rssBytes')), AVG(json_extract(data, '$.self.tickMillis')), MAX(json_extract(data, '$.self.tickMillis')), AVG(json_extract(data, '$.cpu.usagePercent')), AVG(json_extract(data, '$.pressure.io.someAvg10')), AVG(json_extract(data, '$.pressure.io.fullAvg10')) FROM raw_samples WHERE ts >= ?1 AND ts < ?2";
@@ -1157,14 +1475,7 @@ fn aggregate(c: &Connection, bucket: i64) -> Result<String, String> {
             ))
         })
         .map_err(|error| error.to_string())?;
-    let last: Option<String> = c
-        .query_row(
-            "SELECT data FROM raw_samples WHERE ts < ?2 ORDER BY ts DESC, id DESC LIMIT 1",
-            params![start, end],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(|error| error.to_string())?;
+
     let (
         samples,
         load_one,
@@ -1187,7 +1498,7 @@ fn aggregate(c: &Connection, bucket: i64) -> Result<String, String> {
         io_some,
         io_full,
     ) = row;
-    let mut result = json!({
+    let result = json!({
         "schema": "caduceus.appliance.stats.minute.v1",
         "bucket": bucket,
         "samples": samples,
@@ -1212,22 +1523,12 @@ fn aggregate(c: &Connection, bucket: i64) -> Result<String, String> {
             "ioPressureSomeAvg10": sql_value(io_some),
             "ioPressureFullAvg10": sql_value(io_full),
         },
-        "last": Value::Null,
     })
     .to_string();
-    if let Some(last) = last {
-        let marker = "\"last\":null";
-        if let Some(position) = result.find(marker) {
-            result.replace_range(
-                position..position + marker.len(),
-                &format!("\"last\":{last}"),
-            );
-        }
-    }
     Ok(result)
 }
 
-fn prune_retention(c: &mut Connection, timestamp: i64) -> Result<(), String> {
+fn prune_retention(c: &Connection, timestamp: i64) -> Result<(), String> {
     let mut raw = c
         .prepare_cached("DELETE FROM raw_samples WHERE ts < ?1")
         .map_err(|error| error.to_string())?;
@@ -1255,40 +1556,17 @@ fn prune_retention(c: &mut Connection, timestamp: i64) -> Result<(), String> {
     Ok(())
 }
 
-fn persist_raw(c: &mut Connection, ts: i64, data: &str) -> Result<(), String> {
-    let mut statement = c
-        .prepare_cached("INSERT INTO raw_samples(ts,data) VALUES(?1,?2)")
+fn persist_minute(c: &Connection, bucket: i64, data: &str, benchmark: &str) -> Result<(), String> {
+    c.execute(
+        "INSERT INTO minute_samples(bucket,data) VALUES(?1,?2)",
+        params![bucket, data],
+    )
         .map_err(|error| error.to_string())?;
-    statement
-        .execute(params![ts, data])
+    c.execute(
+        "INSERT INTO self_benchmark(bucket,data) VALUES(?1,?2)",
+        params![bucket, benchmark],
+    )
         .map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-fn persist_minute(c: &mut Connection, bucket: i64, data: &str, benchmark: &str) -> Result<(), String> {
-    let mut minute = c
-        .prepare_cached("INSERT INTO minute_samples(bucket,data) VALUES(?1,?2)")
-        .map_err(|error| error.to_string())?;
-    minute
-        .execute(params![bucket, data])
-        .map_err(|error| error.to_string())?;
-    drop(minute);
-
-    let mut self_benchmark = c
-        .prepare_cached("INSERT INTO self_benchmark(bucket,data) VALUES(?1,?2)")
-        .map_err(|error| error.to_string())?;
-    self_benchmark
-        .execute(params![bucket, benchmark])
-        .map_err(|error| error.to_string())?;
-    drop(self_benchmark);
-
-    prune_retention(c, now())?;
-    c.execute_batch("PRAGMA wal_checkpoint(PASSIVE);")
-        .map_err(|error| error.to_string())?;
-    #[cfg(target_os = "linux")]
-    unsafe {
-        libc::malloc_trim(0);
-    }
     Ok(())
 }
 
@@ -1439,6 +1717,7 @@ fn benchmark(
     rss_end: u64,
     rss_max: u64,
     skipped_ticks: u64,
+    anon_mappings_over_64_mib: u64,
     doors: &crate::routes::leaf_appliance_stats::DoorSnapshot,
     c: &Connection,
 ) -> Result<String, String> {
@@ -1453,8 +1732,6 @@ fn benchmark(
             row.get::<_, u64>(0)
         })
         .map_err(|error| error.to_string())?;
-    let (anon_mappings_over_64_mib, _) =
-        proc_maps_metrics(&read_text("/proc/self/maps").unwrap_or_default());
     let value = json!({
         "schema": "caduceus.self.benchmark.v1",
         "bucket": bucket,
@@ -1483,18 +1760,149 @@ fn benchmark(
 }
 
 fn collector_error(state: &Arc<RwLock<StatsState>>, error: String) {
-    if let Ok(mut guard) = state.write() {
-        guard.error = Some(format!("{UNAVAILABLE}: {error}"));
-    }
+    state
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .error = Some(format!("{UNAVAILABLE}: {error}"));
 }
 
 fn clear_collector_error(state: &Arc<RwLock<StatsState>>) {
-    if let Ok(mut guard) = state.write() {
-        guard.error = None;
+    state
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .error = None;
+}
+
+struct FlushResult {
+    committed: bool,
+    error: Option<String>,
+}
+
+fn flush_rollover(
+    database: &'static Mutex<Connection>,
+    pending: &'static Mutex<VecDeque<PendingRaw>>,
+    first_bucket: i64,
+    through_bucket: i64,
+    tick_histogram: &[u64; 8],
+    persist_histogram: &[u64; 8],
+    rss_start: u64,
+    rss_end: u64,
+    rss_max: u64,
+    skipped_ticks: u64,
+    anon_mappings_over_64_mib: u64,
+    doors: &crate::routes::leaf_appliance_stats::DoorSnapshot,
+) -> FlushResult {
+    let mut pending = pending
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut connection = match database.lock() {
+        Ok(connection) => connection,
+        Err(_) => {
+            return FlushResult {
+                committed: false,
+                error: Some("stats database lock poisoned".to_owned()),
+            }
+        }
+    };
+    let transaction = match connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+    {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            return FlushResult {
+                committed: false,
+                error: Some(error.to_string()),
+            }
+        }
+    };
+    let first_bucket = first_bucket.max(
+        through_bucket.saturating_sub(MINUTE_RETENTION_SECONDS / 60),
+    );
+    let write_result = (|| -> Result<(), String> {
+        for sample in pending.iter() {
+            transaction
+                .execute(
+                    "INSERT INTO raw_samples(ts,data) VALUES(?1,?2)",
+                    params![sample.ts, sample.data.as_ref()],
+                )
+                .map_err(|error| error.to_string())?;
+        }
+        let empty_histogram = [0u64; 8];
+        let empty_doors = crate::routes::leaf_appliance_stats::DoorSnapshot::default();
+        for bucket in first_bucket..through_bucket {
+            let minute = aggregate(&transaction, bucket)?;
+            let (ticks, persists, start, end, max, skipped, bucket_doors) = if bucket == first_bucket {
+                (
+                    tick_histogram,
+                    persist_histogram,
+                    rss_start,
+                    rss_end,
+                    rss_max,
+                    skipped_ticks,
+                    doors,
+                )
+            } else {
+                (
+                    &empty_histogram,
+                    &empty_histogram,
+                    0,
+                    0,
+                    0,
+                    0,
+                    &empty_doors,
+                )
+            };
+            let benchmark = benchmark(
+                bucket,
+                ticks,
+                persists,
+                start,
+                end,
+                max,
+                skipped,
+                anon_mappings_over_64_mib,
+                bucket_doors,
+                &transaction,
+            )?;
+            persist_minute(&transaction, bucket, &minute, &benchmark)?;
+        }
+        prune_retention(&transaction, now())?;
+        Ok(())
+    })();
+    if let Err(error) = write_result {
+        drop(transaction);
+        return FlushResult {
+            committed: false,
+            error: Some(error),
+        };
+    }
+    if let Err(error) = transaction.commit() {
+        return FlushResult {
+            committed: false,
+            error: Some(error.to_string()),
+        };
+    }
+    pending.clear();
+    let checkpoint_error = connection
+        .execute_batch("PRAGMA wal_checkpoint(PASSIVE);")
+        .err()
+        .map(|error| error.to_string());
+    #[cfg(target_os = "linux")]
+    unsafe {
+        libc::malloc_trim(0);
+    }
+    FlushResult {
+        committed: true,
+        error: checkpoint_error,
     }
 }
 
-fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
+fn collect_loop(
+    state: Arc<RwLock<StatsState>>,
+    database: &'static Mutex<Connection>,
+    pending: &'static Mutex<VecDeque<PendingRaw>>,
+    stopping: Arc<AtomicBool>,
+) -> Result<(), String> {
     let mut next = Instant::now() + Duration::from_secs(1);
     let mut previous: Option<Value> = None;
     let mut previous_self_ticks: Option<u64> = None;
@@ -1507,12 +1915,46 @@ fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
     let mut bucket_rss_end = 0u64;
     let mut bucket_rss_max = 0u64;
     let mut minute_doors = crate::routes::leaf_appliance_stats::DoorSnapshot::default();
-    let mut process_ticks = BTreeMap::new();
-    let mut process_sample_at: Option<Instant> = None;
+    let mut process_cache = ProcessCache::default();
+    let mut tcp_cache = TcpCache::default();
+    let mut thermal_cache = ThermalCache::default();
+    let mut fan_cache = FanCache::default();
+    let mut gpu_sysfs_cache = GpuSysfsCache::default();
+    let mut interface_cache = InterfaceCache::default();
+    let mut mount_cache = MountCache::default();
+    let mut self_cache = SelfMetricsCache::default();
     let mut gpu_cache = None;
+    let mut gpu_cache_ts = None;
     let mut last_gpu_refresh: Option<Instant> = None;
     let mut skipped_ticks = 0u64;
+    let mut collector_healthy = true;
     loop {
+        if stopping.load(Ordering::Acquire) {
+            let current_bucket = (now() / 60).max(bucket);
+            let flush = flush_rollover(
+                database,
+                pending,
+                bucket,
+                current_bucket.saturating_add(1),
+                &tick_histogram,
+                &persist_histogram,
+                bucket_rss_start,
+                bucket_rss_end,
+                bucket_rss_max,
+                skipped_ticks,
+                self_cache.anon_mappings_over_64_mib,
+                &minute_doors,
+            );
+            if let Some(error) = flush.error {
+                collector_error(&state, error.clone());
+                return Err(error);
+            }
+            if !flush.committed {
+                return Err("stats shutdown flush did not commit".to_owned());
+            }
+            clear_collector_error(&state);
+            return Ok(());
+        }
         let behind = Instant::now().saturating_duration_since(next);
         if behind > Duration::from_secs(1) {
             // Stalled (suspend, slow tick, scheduler): resnap instead of bursting catch-up samples.
@@ -1521,11 +1963,16 @@ fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
         }
         let delay = next.saturating_duration_since(Instant::now());
         if !delay.is_zero() {
-            thread::sleep(delay);
+            thread::park_timeout(delay);
+        }
+        if stopping.load(Ordering::Acquire) {
+            continue;
         }
         next += Duration::from_secs(1);
         let instant = Instant::now();
-        let elapsed = process_sample_at.map(|at| instant.saturating_duration_since(at));
+        let elapsed = process_cache
+            .sampled_at
+            .map(|at| instant.saturating_duration_since(at));
         let pulse = match state.read() {
             Ok(guard) => {
                 guard
@@ -1535,7 +1982,8 @@ fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
             }
             Err(_) => false,
         };
-        if has_nvidia_gpu()
+        gpu_sysfs_cache.refresh_discovery_if_due();
+        if gpu_sysfs_cache.nvidia_present
             && last_gpu_refresh.map_or(true, |at| at.elapsed() >= Duration::from_secs(60))
         {
             if let Some((ok, output)) = refresh_nvidia_gpu_cache() {
@@ -1543,6 +1991,7 @@ fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
                     let value = nvidia_gpu_output(&output);
                     if !value.is_null() {
                         gpu_cache = Some(value);
+                        gpu_cache_ts = Some(now());
                     }
                 }
             }
@@ -1561,55 +2010,73 @@ fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
         }
 
         let current_bucket = now() / 60;
-        let mut rollover_failed = false;
-        if current_bucket != bucket {
-            let completed_doors = std::mem::take(&mut minute_doors);
-            let result = aggregate(&connection, bucket).and_then(|minute| {
-                benchmark(
-                    bucket,
-                    &tick_histogram,
-                    &persist_histogram,
-                    bucket_rss_start,
-                    bucket_rss_end,
-                    bucket_rss_max,
-                    skipped_ticks,
-                    &completed_doors,
-                    &connection,
-                )
-                .and_then(|benchmark| persist_minute(&mut connection, bucket, &minute, &benchmark))
-            });
-            if let Err(error) = result {
-                rollover_failed = true;
-                collector_error(&state, error);
+        if current_bucket > bucket {
+            let flush = flush_rollover(
+                database,
+                pending,
+                bucket,
+                current_bucket,
+                &tick_histogram,
+                &persist_histogram,
+                bucket_rss_start,
+                bucket_rss_end,
+                bucket_rss_max,
+                skipped_ticks,
+                self_cache.anon_mappings_over_64_mib,
+                &minute_doors,
+            );
+            if flush.committed {
+                bucket = current_bucket;
+                tick_histogram = [0u64; 8];
+                persist_histogram = [0u64; 8];
+                bucket_rss_start = 0;
+                bucket_rss_end = 0;
+                bucket_rss_max = 0;
+                minute_doors = crate::routes::leaf_appliance_stats::DoorSnapshot::default();
+                skipped_ticks = 0;
             }
-            bucket = current_bucket;
-            tick_histogram = [0; 8];
-            persist_histogram = [0; 8];
-            bucket_rss_start = 0;
-            bucket_rss_max = 0;
-            skipped_ticks = 0;
+            match flush.error {
+                Some(error) => {
+                    collector_healthy = false;
+                    collector_error(&state, error);
+                }
+                None if flush.committed => {
+                    collector_healthy = true;
+                    clear_collector_error(&state);
+                }
+                None => {
+                    collector_healthy = false;
+                    collector_error(&state, "stats rollover did not commit".to_owned());
+                }
+            }
         }
         let door_snapshot = crate::routes::leaf_appliance_stats::snapshot_and_reset();
         minute_doors.add_assign(&door_snapshot);
         let doors = door_snapshot.as_value();
         let sample_started = Instant::now();
-        let (mut value, ticks, self_ticks, self_rss, cpu_counters) = snapshot_with_state(
+        let (mut value, self_ticks, self_rss, cpu_counters) = snapshot_with_state(
             previous.as_ref(),
-            &process_ticks,
-            elapsed,
+            &mut process_cache,
+            &mut tcp_cache,
+            &mut thermal_cache,
+            &mut fan_cache,
+            &mut gpu_sysfs_cache,
+            &mut interface_cache,
+            &mut mount_cache,
+            &mut self_cache,
             gpu_cache.as_ref(),
+            gpu_cache_ts,
             doors,
             0,
             previous_persist_millis.unwrap_or(0),
             previous_self_ticks,
+            elapsed,
             previous_cpu,
         );
         let sample_millis = sample_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
         value["self"]["tickMillis"] = json!(sample_millis);
         let tick_bin = histogram_index(Duration::from_millis(sample_millis));
         tick_histogram[tick_bin] = tick_histogram[tick_bin].saturating_add(1);
-        process_ticks = ticks;
-        process_sample_at = Some(instant);
         previous_self_ticks = self_ticks;
         previous_cpu = cpu_counters;
         if bucket_rss_start == 0 {
@@ -1621,25 +2088,34 @@ fn collect_loop(state: Arc<RwLock<StatsState>>, mut connection: Connection) {
         let data: Arc<str> = Arc::from(value.to_string());
         let ts = value["ts"].as_i64().unwrap_or_else(now);
         let persist_started = Instant::now();
-        let write_result = persist_raw(&mut connection, ts, data.as_ref());
+        {
+            let mut tail = pending
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let sequence = tail
+                .back()
+                .map_or(0, |sample| sample.sequence.saturating_add(1));
+            tail.push_back(PendingRaw {
+                ts,
+                sequence,
+                data: Arc::clone(&data),
+            });
+        }
         let persist_millis = persist_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
         let persist_bin = histogram_index(Duration::from_millis(persist_millis));
         persist_histogram[persist_bin] = persist_histogram[persist_bin].saturating_add(1);
-        if let Err(error) = write_result {
-            collector_error(&state, error);
-        } else {
-            previous_persist_millis = Some(persist_millis);
-            if !rollover_failed {
-                clear_collector_error(&state);
-            }
-            if let Ok(mut guard) = state.write() {
-                guard.latest = Some(Arc::clone(&data));
-                guard.latest_ts = ts;
-                guard.process_ticks = process_ticks.clone();
-                guard.process_sample_at = process_sample_at;
-                guard.gpu_cache = gpu_cache.clone();
-                guard.last_gpu_refresh = last_gpu_refresh;
-            }
+        previous_persist_millis = Some(persist_millis);
+        if collector_healthy {
+            clear_collector_error(&state);
+        }
+        {
+            let mut guard = state
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            guard.latest = Some(Arc::clone(&data));
+            guard.latest_ts = ts;
+            guard.gpu_cache = gpu_cache.clone();
+            guard.last_gpu_refresh = last_gpu_refresh;
         }
         previous = Some(value);
     }
@@ -1660,25 +2136,58 @@ pub fn start() {
         last_model_lane_pulse_unix: AtomicU64::new(0),
         model_lane_pulse_requested: AtomicBool::new(false),
         error: None,
-        process_ticks: BTreeMap::new(),
-        process_sample_at: None,
         gpu_cache: None,
         last_gpu_refresh: None,
     }));
     let _ = STATE.set(Arc::clone(&state));
+    let pending = RAW_PENDING.get_or_init(|| Mutex::new(VecDeque::new()));
+    let collector = COLLECTOR.get_or_init(|| Mutex::new(None));
     match open_db() {
-        Ok(connection) => {
-            if let Err(error) = thread::Builder::new()
+        Ok(database) => {
+            let stopping = Arc::new(AtomicBool::new(false));
+            match thread::Builder::new()
                 .name("caduceus-stats".to_owned())
-                .spawn(move || collect_loop(state, connection))
+                .spawn({
+                    let state = Arc::clone(&state);
+                    let stopping = Arc::clone(&stopping);
+                    move || collect_loop(state, database, pending, stopping)
+                })
             {
-                collector_error(STATE.get().expect("stats state"), error.to_string());
+                Ok(handle) => {
+                    *collector
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                        Some((stopping, handle));
+                }
+                Err(error) => collector_error(&state, error.to_string()),
             }
         }
         Err(error) => collector_error(&state, error),
     }
     #[cfg(leaf_storage_disk_census)]
     disk_census::start();
+}
+
+pub fn stop() -> Result<(), String> {
+    let Some(collector) = COLLECTOR.get() else {
+        return Ok(());
+    };
+    let handle = {
+        let mut collector = collector
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        collector.take().map(|(stopping, handle)| {
+            stopping.store(true, Ordering::Release);
+            handle.thread().unpark();
+            handle
+        })
+    };
+    match handle {
+        Some(handle) => handle
+            .join()
+            .map_err(|_| "stats collector thread panicked".to_owned())?,
+        None => Ok(()),
+    }
 }
 
 fn state() -> Result<Arc<RwLock<StatsState>>, String> {
@@ -1689,14 +2198,30 @@ fn state() -> Result<Arc<RwLock<StatsState>>, String> {
 }
 
 pub fn snapshot() -> Value {
+    let mut process_cache = ProcessCache::default();
+    let mut tcp_cache = TcpCache::default();
+    let mut thermal_cache = ThermalCache::default();
+    let mut fan_cache = FanCache::default();
+    let mut gpu_sysfs_cache = GpuSysfsCache::default();
+    let mut interface_cache = InterfaceCache::default();
+    let mut mount_cache = MountCache::default();
+    let mut self_cache = SelfMetricsCache::default();
     snapshot_with_state(
         None,
-        &BTreeMap::new(),
+        &mut process_cache,
+        &mut tcp_cache,
+        &mut thermal_cache,
+        &mut fan_cache,
+        &mut gpu_sysfs_cache,
+        &mut interface_cache,
+        &mut mount_cache,
+        &mut self_cache,
         None,
         None,
         crate::routes::leaf_appliance_stats::door_stats(false),
         0,
         0,
+        None,
         None,
         None,
     )
@@ -1746,6 +2271,69 @@ pub struct HistoryQuery {
     pub since: Option<i64>,
     pub until: Option<i64>,
     pub limit: Option<usize>,
+}
+
+struct RawHistoryRow {
+    ts: i64,
+    source: u8,
+    order: u64,
+    data: String,
+}
+
+fn history_raw(
+    c: &Connection,
+    pending: &VecDeque<PendingRaw>,
+    since: i64,
+    until: i64,
+    limit: usize,
+) -> Result<String, String> {
+    let mut rows = Vec::with_capacity(limit.min(HISTORY_LIMIT_MAX) + pending.len());
+    let mut statement = c
+        .prepare("SELECT id,ts,data FROM raw_samples WHERE ts >= ?1 AND ts <= ?2 ORDER BY ts DESC,id DESC LIMIT ?3")
+        .map_err(|error| error.to_string())?;
+    let stored = statement
+        .query_map(params![since, until, limit], |row| {
+            Ok(RawHistoryRow {
+                ts: row.get(1)?,
+                source: 0,
+                order: row.get::<_, i64>(0)?.max(0) as u64,
+                data: row.get(2)?,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+    for row in stored {
+        rows.push(row.map_err(|error| error.to_string())?);
+    }
+    rows.extend(
+        pending
+            .iter()
+            .filter(|row| row.ts >= since && row.ts <= until)
+            .map(|row| RawHistoryRow {
+                ts: row.ts,
+                source: 1,
+                order: row.sequence,
+                data: row.data.to_string(),
+            }),
+    );
+    rows.sort_by(|a, b| {
+        a.ts.cmp(&b.ts)
+            .then_with(|| a.source.cmp(&b.source))
+            .then_with(|| a.order.cmp(&b.order))
+    });
+    if rows.len() > limit {
+        rows.drain(..rows.len() - limit);
+    }
+    let capacity = rows.iter().map(|row| row.data.len() + 1).sum::<usize>() + 2;
+    let mut output = String::with_capacity(capacity);
+    output.push('[');
+    for (index, row) in rows.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str(&row.data);
+    }
+    output.push(']');
+    Ok(output)
 }
 
 fn history_array(
@@ -1806,25 +2394,22 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
         .unwrap_or_else(|| until.saturating_sub(default_retention));
     let raw_since = since.max(until.saturating_sub(RAW_RETENTION_SECONDS));
     let minute_points = MINUTE_RETENTION_SECONDS / 60;
-    let db = Connection::open_with_flags(
-        db_path(),
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(|error| format!("{UNAVAILABLE}: {error}"))?;
+    let pending = RAW_PENDING.get_or_init(|| Mutex::new(VecDeque::new()));
+    let pending_guard = pending
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let database = open_db()?;
+    let database_guard = database
+        .lock()
+        .map_err(|_| format!("{UNAVAILABLE}: stats database lock poisoned"))?;
     let raw = if matches!(tier, "raw" | "both") {
-        history_array(
-            &db,
-            "SELECT data FROM raw_samples WHERE ts >= ?1 AND ts <= ?2 ORDER BY ts DESC,id DESC LIMIT ?3",
-            raw_since,
-            until,
-            raw_limit,
-        )?
+        history_raw(&database_guard, &pending_guard, raw_since, until, raw_limit)?
     } else {
         "[]".to_owned()
     };
     let minute = if matches!(tier, "minute" | "both") {
         history_array(
-            &db,
+            &database_guard,
             "SELECT data FROM minute_samples WHERE bucket >= (?1 / 60) AND bucket <= (?2 / 60) ORDER BY bucket DESC,id DESC LIMIT ?3",
             since,
             until,
@@ -1835,7 +2420,7 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
     };
     let self_benchmark = if tier == "self" {
         history_array(
-            &db,
+            &database_guard,
             "SELECT data FROM self_benchmark WHERE bucket >= (?1 / 60) AND bucket <= (?2 / 60) ORDER BY bucket DESC,id DESC LIMIT ?3",
             since,
             until,

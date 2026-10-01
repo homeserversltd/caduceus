@@ -716,6 +716,10 @@ pub async fn run_async() -> i32 {
             if !report("uds", uds_task.await) { result = 1; }
         }
     }
+    if let Err(error) = crate::stats::stop() {
+        eprintln!("caduceus-stats-stop-failed: {error}");
+        result = 1;
+    }
     if let Err(error) = cleanup_staff_socket(&socket_path, &identity) {
         eprintln!("caduceus-staff-socket-cleanup-failed: {error}");
         result = 1;

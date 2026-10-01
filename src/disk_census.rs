@@ -45,8 +45,11 @@ pub(super) fn start() {
     });
 }
 
-fn open() -> Result<Connection, String> {
-    let connection = super::open_db()?;
+fn open() -> Result<&'static Mutex<Connection>, String> {
+    let database = super::open_db()?;
+    let connection = database
+        .lock()
+        .map_err(|_| "stats database lock poisoned".to_string())?;
     connection
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS disk_census_devices (
@@ -58,10 +61,14 @@ fn open() -> Result<Connection, String> {
             device TEXT NOT NULL, mount TEXT NOT NULL, PRIMARY KEY(device,mount));",
         )
         .map_err(|error| error.to_string())?;
-    Ok(connection)
+    drop(connection);
+    Ok(database)
 }
 
-fn hydrate(connection: &mut Connection) -> Result<Option<Value>, String> {
+fn hydrate(database: &Mutex<Connection>) -> Result<Option<Value>, String> {
+    let mut connection = database
+        .lock()
+        .map_err(|_| "stats database lock poisoned".to_string())?;
     let tx = connection
         .transaction()
         .map_err(|error| error.to_string())?;
@@ -95,8 +102,11 @@ fn hydrate(connection: &mut Connection) -> Result<Option<Value>, String> {
     Ok(Some(value))
 }
 
-fn persist(connection: &mut Connection, value: &Value) -> Result<(), String> {
+fn persist(database: &Mutex<Connection>, value: &Value) -> Result<(), String> {
     let devices = value["devices"].as_array().ok_or(UNAVAILABLE)?;
+    let mut connection = database
+        .lock()
+        .map_err(|_| "stats database lock poisoned".to_string())?;
     let tx = connection
         .transaction()
         .map_err(|error| error.to_string())?;
@@ -140,7 +150,7 @@ fn persist(connection: &mut Connection, value: &Value) -> Result<(), String> {
 }
 
 fn collect_loop() {
-    let mut connection = None;
+    let mut database = None;
     let mut hydrated = false;
     loop {
         let generation = STATE
@@ -148,13 +158,13 @@ fn collect_loop() {
             .unwrap_or_else(|error| error.into_inner())
             .generation;
         let result = (|| {
-            if connection.is_none() {
-                connection = Some(open()?);
+            if database.is_none() {
+                database = Some(open()?);
             }
-            let connection = connection.as_mut().ok_or(UNAVAILABLE)?;
+            let database = database.as_ref().ok_or(UNAVAILABLE)?;
             if !hydrated {
                 hydrated = true;
-                match hydrate(connection) {
+                match hydrate(database) {
                     Ok(snapshot) => {
                         let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
                         // A mutation before/during startup forbids the previous snapshot.
@@ -166,7 +176,7 @@ fn collect_loop() {
                 }
             }
             let value = crate::routes::disk::collect_json()?;
-            persist(connection, &value)?;
+            persist(database, &value)?;
             Ok::<_, String>(value)
         })();
         let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());

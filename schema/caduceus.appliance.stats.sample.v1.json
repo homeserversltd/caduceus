@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.appliance.stats.sample.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.0.1",
   "role": "One emitted Caduceus appliance statistics sample",
   "authority": {
     "owner": "caduceus",
@@ -27,7 +27,14 @@
     "disk": {"type": "object"},
     "processes": {"type": ["array", "object", "null"]},
     "self": {"type": "object"},
-    "model_lanes": {"type": "array"}
+    "model_lanes": {"type": "array"},
+    "tcpTs": {"type": "integer"},
+    "temperatureTs": {"type": "integer"},
+    "storageTemperatureTs": {"type": "integer"},
+    "processesTs": {"type": "integer"},
+    "gpuCacheTs": {"type": ["integer", "null"]},
+    "selfMapsTs": {"type": "integer"},
+    "selfFdTs": {"type": "integer"}
   },
   "field_types": {
     "schema": "string",
@@ -45,7 +52,14 @@
     "disk": "object",
     "processes": "array|object|null",
     "self": "object",
-    "model_lanes": "array"
+    "model_lanes": "array",
+    "tcpTs": "integer",
+    "temperatureTs": "integer",
+    "storageTemperatureTs": "integer",
+    "processesTs": "integer",
+    "gpuCacheTs": "integer|null",
+    "selfMapsTs": "integer",
+    "selfFdTs": "integer"
   },
   "required": ["schema"],
   "optional": [
@@ -63,7 +77,14 @@
     "disk",
     "processes",
     "self",
-    "model_lanes"
+    "model_lanes",
+    "tcpTs",
+    "temperatureTs",
+    "storageTemperatureTs",
+    "processesTs",
+    "gpuCacheTs",
+    "selfMapsTs",
+    "selfFdTs"
   ],
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }
