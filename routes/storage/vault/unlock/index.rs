@@ -7,6 +7,10 @@ const STATE: &str = "/var/lib/homeconsole/state.json";
 const APPLIANCE_CONFIG: &str = "/etc/appliance/config.json";
 const POLICY_RECEIPT_SCHEMA: &str = "caduceus.vault.policy-write.v1";
 const GOVERNING_KEYFILE: &str = "/root/key/homeconsole-vault.key";
+const VAULT_OPEN_KEY_ABSENT_SIGNAL: &str = "agathodaimon-vault-open-key-absent";
+const VAULT_OPEN_UNLOCK_REFUSED_SIGNAL: &str = "agathodaimon-vault-unlock-refused";
+const VAULT_OPEN_MOUNTPOINT_REFUSED_SIGNAL: &str = "agathodaimon-vault-mountpoint-refused";
+const VAULT_OPEN_MOUNT_REFUSED_SIGNAL: &str = "agathodaimon-vault-mount-refused";
 
 #[derive(Clone)]
 struct VaultConfig {
@@ -182,8 +186,20 @@ fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<(bool, Opti
         "mountpoint": logical(&mountpoint_path(cfg)),
         "passphrase": passphrase,
     });
-    let receipt = crate::gate::snake::crossing_path("storage/vault/open", &payload)
-        .map_err(|_| "vault-open-crossing-unavailable".to_string())?;
+    let receipt = match crate::gate::snake::crossing_path("storage/vault/open", &payload) {
+        Ok(receipt) => receipt,
+        Err(signal) if signal == VAULT_OPEN_KEY_ABSENT_SIGNAL => {
+            return Ok((false, Some(false)));
+        }
+        Err(signal)
+            if signal == VAULT_OPEN_UNLOCK_REFUSED_SIGNAL
+                || signal == VAULT_OPEN_MOUNTPOINT_REFUSED_SIGNAL
+                || signal == VAULT_OPEN_MOUNT_REFUSED_SIGNAL =>
+        {
+            return Ok((false, Some(true)));
+        }
+        Err(_) => return Err("vault-open-crossing-unavailable".to_string()),
+    };
     let ok = receipt
         .get("ok")
         .and_then(Value::as_bool)
