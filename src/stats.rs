@@ -79,6 +79,12 @@ fn open_db_once() -> Result<Connection, String> {
     Ok(c)
 }
 
+fn open_db_read_only() -> Result<Connection, String> {
+    open_db()?;
+    Connection::open_with_flags(db_path(), rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|error| error.to_string())
+}
+
 pub fn ruyi_upsert(mac: &str, row_json: &str, last_seen: i64) -> Result<(), String> {
     ruyi_put(mac, row_json, last_seen, None)
 }
@@ -960,7 +966,13 @@ fn processes(
                 }
                 _ => 0.0,
             };
-            if !["ps", "sh", "bash", "sudo", "python3"].contains(&command.as_str()) {
+            let rss_pages = f
+                .get(21)
+                .and_then(|field| field.parse::<i64>().ok())
+                .unwrap_or(0);
+            if !["ps", "sh", "bash", "sudo", "python3"].contains(&command.as_str())
+                && (cpu > 0.0 || rss_pages > 0)
+            {
                 candidates.push((pid, command, cpu, ticks, e.path()));
             }
         }
@@ -1930,12 +1942,11 @@ fn collect_loop(
     let mut collector_healthy = true;
     loop {
         if stopping.load(Ordering::Acquire) {
-            let current_bucket = (now() / 60).max(bucket);
             let flush = flush_rollover(
                 database,
                 pending,
                 bucket,
-                current_bucket.saturating_add(1),
+                bucket,
                 &tick_histogram,
                 &persist_histogram,
                 bucket_rss_start,
@@ -2015,7 +2026,7 @@ fn collect_loop(
                 database,
                 pending,
                 bucket,
-                current_bucket,
+                bucket.saturating_add(1),
                 &tick_histogram,
                 &persist_histogram,
                 bucket_rss_start,
@@ -2282,17 +2293,17 @@ struct RawHistoryRow {
 
 fn history_raw(
     c: &Connection,
-    pending: &VecDeque<PendingRaw>,
+    pending: &[PendingRaw],
     since: i64,
     until: i64,
     limit: usize,
 ) -> Result<String, String> {
     let mut rows = Vec::with_capacity(limit.min(HISTORY_LIMIT_MAX) + pending.len());
     let mut statement = c
-        .prepare("SELECT id,ts,data FROM raw_samples WHERE ts >= ?1 AND ts <= ?2 ORDER BY ts DESC,id DESC LIMIT ?3")
+        .prepare("SELECT id,ts,data FROM raw_samples WHERE ts >= ?1 AND ts <= ?2 ORDER BY ts DESC,id DESC")
         .map_err(|error| error.to_string())?;
     let stored = statement
-        .query_map(params![since, until, limit], |row| {
+        .query_map(params![since, until], |row| {
             Ok(RawHistoryRow {
                 ts: row.get(1)?,
                 source: 0,
@@ -2320,6 +2331,17 @@ fn history_raw(
             .then_with(|| a.source.cmp(&b.source))
             .then_with(|| a.order.cmp(&b.order))
     });
+    let mut unique: Vec<RawHistoryRow> = Vec::with_capacity(rows.len());
+    for row in rows {
+        if let Some(previous) = unique.last_mut() {
+            if previous.ts == row.ts {
+                *previous = row;
+                continue;
+            }
+        }
+        unique.push(row);
+    }
+    let mut rows = unique;
     if rows.len() > limit {
         rows.drain(..rows.len() - limit);
     }
@@ -2395,21 +2417,23 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
     let raw_since = since.max(until.saturating_sub(RAW_RETENTION_SECONDS));
     let minute_points = MINUTE_RETENTION_SECONDS / 60;
     let pending = RAW_PENDING.get_or_init(|| Mutex::new(VecDeque::new()));
-    let pending_guard = pending
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let database = open_db()?;
-    let database_guard = database
-        .lock()
-        .map_err(|_| format!("{UNAVAILABLE}: stats database lock poisoned"))?;
+    let pending_snapshot = if matches!(tier, "raw" | "both") {
+        let pending_guard = pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        pending_guard.iter().cloned().collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let database = open_db_read_only()?;
     let raw = if matches!(tier, "raw" | "both") {
-        history_raw(&database_guard, &pending_guard, raw_since, until, raw_limit)?
+        history_raw(&database, &pending_snapshot, raw_since, until, raw_limit)?
     } else {
         "[]".to_owned()
     };
     let minute = if matches!(tier, "minute" | "both") {
         history_array(
-            &database_guard,
+            &database,
             "SELECT data FROM minute_samples WHERE bucket >= (?1 / 60) AND bucket <= (?2 / 60) ORDER BY bucket DESC,id DESC LIMIT ?3",
             since,
             until,
@@ -2420,7 +2444,7 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
     };
     let self_benchmark = if tier == "self" {
         history_array(
-            &database_guard,
+            &database,
             "SELECT data FROM self_benchmark WHERE bucket >= (?1 / 60) AND bucket <= (?2 / 60) ORDER BY bucket DESC,id DESC LIMIT ?3",
             since,
             until,
