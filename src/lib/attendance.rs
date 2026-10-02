@@ -122,6 +122,117 @@ pub fn set_pin_mode_json(body: &Value) -> Result<Value, String> {
     Ok(pin_mode_json())
 }
 
+pub fn sudo_mode_json() -> Value {
+    let passwordless_sudo = crate::shared::config::get_json("global.admin.passwordless_sudo")
+        .ok()
+        .and_then(|value| value.get("value").and_then(Value::as_bool))
+        .unwrap_or(false);
+    json!({
+        "schema": "caduceus.access.sudo.mode.v1",
+        "ok": true,
+        "passwordless_sudo": passwordless_sudo,
+        "firstMissingSignal": "none",
+    })
+}
+
+fn sudo_mode_refusal(wrapper: &Value, fallback: &str) -> String {
+    wrapper
+        .get("receiptPayload")
+        .and_then(|receipt| receipt.get("firstMissingSignal"))
+        .and_then(Value::as_str)
+        .filter(|signal| !signal.is_empty() && *signal != "none")
+        .or_else(|| {
+            wrapper
+                .get("firstMissingSignal")
+                .and_then(Value::as_str)
+                .filter(|signal| !signal.is_empty() && *signal != "none")
+        })
+        .unwrap_or(fallback)
+        .to_string()
+}
+
+pub fn set_sudo_mode_json(body: &Value) -> Result<Value, String> {
+    let object = body
+        .as_object()
+        .filter(|object| object.len() == 1)
+        .ok_or_else(|| "caduceus-access-sudo-mode-invalid".to_string())?;
+    let passwordless_sudo = object
+        .get("passwordless_sudo")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "caduceus-access-sudo-mode-invalid".to_string())?;
+    crate::shared::config::patch_json(json!({
+        "global": {"admin": {"passwordless_sudo": passwordless_sudo}}
+    }))
+    .map_err(|_| "caduceus-access-sudo-mode-unavailable".to_string())?;
+
+    // Keep the local switch even when the staff band refuses; the next POST retries it.
+    let band = "appliance/sudo-passwordless";
+    let envelope = json!({
+        "schema": crate::protocol::SCHEMA_ID,
+        "intent_id": format!("caduceus-{band}"),
+        "transition": band,
+        "origin_of_intent": "near",
+        "payload": {"passwordless": passwordless_sudo},
+    });
+    let refusal = "caduceus-sudo-passwordless-result-unobserved";
+    let wrapper = crate::gate::snake::run(band, &envelope)?;
+    if wrapper.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err(sudo_mode_refusal(&wrapper, refusal));
+    }
+    let Some(receipt) = wrapper.get("receiptPayload") else {
+        return Err(sudo_mode_refusal(&wrapper, refusal));
+    };
+    if receipt.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err(sudo_mode_refusal(&wrapper, refusal));
+    }
+    if receipt.get("schema").and_then(Value::as_str)
+        != Some("agathodaimon.appliance.sudo-passwordless.v1")
+    {
+        return Err(sudo_mode_refusal(
+            &wrapper,
+            "caduceus-sudo-passwordless-receipt-schema-unobserved",
+        ));
+    }
+    let Some(echoed_passwordless) = receipt.get("passwordless").and_then(Value::as_bool) else {
+        return Err(sudo_mode_refusal(
+            &wrapper,
+            "caduceus-sudo-passwordless-switch-unobserved",
+        ));
+    };
+    if echoed_passwordless != passwordless_sudo {
+        return Err(sudo_mode_refusal(
+            &wrapper,
+            "caduceus-sudo-passwordless-switch-mismatch",
+        ));
+    }
+    let Some(fragment_present) = receipt.get("fragment_present").and_then(Value::as_bool) else {
+        return Err(sudo_mode_refusal(
+            &wrapper,
+            "caduceus-sudo-passwordless-fragment-presence-unobserved",
+        ));
+    };
+    if fragment_present != passwordless_sudo {
+        return Err(sudo_mode_refusal(
+            &wrapper,
+            "caduceus-sudo-passwordless-fragment-presence-mismatch",
+        ));
+    }
+    let Some(changed) = receipt.get("changed").and_then(Value::as_bool) else {
+        return Err(sudo_mode_refusal(
+            &wrapper,
+            "caduceus-sudo-passwordless-change-unobserved",
+        ));
+    };
+    Ok(json!({
+        "schema": "caduceus.access.sudo.mode.v1",
+        "ok": true,
+        "passwordless_sudo": passwordless_sudo,
+        "fragment_present": fragment_present,
+        "changed": changed,
+        "firstMissingSignal": "none",
+    }))
+}
+
 fn bound_verifier(value: &Value) -> Option<BoundVerifier> {
     let public_key = value.get("publicKey").and_then(Value::as_str)?;
     if public_key.is_empty() {

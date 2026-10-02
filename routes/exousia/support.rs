@@ -31,6 +31,20 @@ pub(crate) async fn pin_mode_route(
         .map_err(|signal| api_error_signal("access pin mode", &signal))
 }
 
+pub(crate) async fn sudo_mode_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    Ok(Json(crate::shared::attendance::sudo_mode_json()))
+}
+
+pub(crate) async fn sudo_mode_route(
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    access_attendance_admits(&headers)?;
+    change_pin::set_sudo_mode_json(&body)
+        .map(Json)
+        .map_err(|signal| api_error_signal("access sudo mode", &signal))
+}
+
 pub(crate) async fn pin_reset_default_route(
     connect_info: Option<ConnectInfo<ConnectionInfo>>,
     Json(body): Json<Value>,
