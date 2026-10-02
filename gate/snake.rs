@@ -178,8 +178,19 @@ fn execute_command(
     timeout_error: &str,
     spawn_error: &str,
 ) -> Result<Value, String> {
-    let outer = crate::protocol::Envelope::parse(outer_envelope.clone())?;
-    let raw = serde_json::to_string(outer.raw())
+    let mut forwarded = outer_envelope.clone();
+    let fields = forwarded
+        .as_object_mut()
+        .ok_or_else(|| "protocol-envelope-not-object".to_string())?;
+    fields
+        .entry("version")
+        .or_insert_with(|| json!(env!("CARGO_PKG_VERSION")));
+    fields.entry("timestamp").or_insert_with(|| {
+        json!(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+    });
+    let outer = crate::protocol::Envelope::parse(forwarded)?;
+    let forwarded = outer.into_raw();
+    let raw = serde_json::to_string(&forwarded)
         .map_err(|_| "caduceus-snake-envelope-invalid".to_string())?;
     let mut child = command
         .stdin(Stdio::piped())
@@ -284,7 +295,7 @@ fn execute_command(
     } else {
         "caduceus-agathodaimon-refused"
     };
-    let mut stamped = outer.raw().clone();
+    let mut stamped = forwarded.clone();
     let object = stamped
         .as_object_mut()
         .ok_or_else(|| "protocol-envelope-not-object".to_string())?;
@@ -310,7 +321,7 @@ fn execute_command(
         "receiptPayload":payload,
         "rawChildStdout":stdout,
         "rawChildStderr":stderr,
-        "rawEnvelope":outer.raw(),
+        "rawEnvelope":forwarded,
         "envelope":stamped,
         "refusal":refusal,
         "firstMissingSignal":first_missing
@@ -374,8 +385,7 @@ pub fn run_launcher(argv: &[String], envelope: &Value, timeout: Duration) -> Res
 }
 pub fn run(band: &str, envelope: &Value) -> Result<Value, String> {
     let band = safe_band_path(band)?;
-    let envelope = crate::protocol::Envelope::parse(envelope.clone())?;
-    execute(&band, envelope.raw())
+    execute(&band, envelope)
 }
 pub fn crossing_path(path: &str, input: &Value) -> Result<Value, String> {
     let env = json!({"schema":crate::protocol::SCHEMA_ID,"intent_id":format!("caduceus-{path}"),"transition":path,"origin_of_intent":"near","payload":input});

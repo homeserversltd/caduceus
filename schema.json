@@ -113,12 +113,16 @@
     "fields": [
       "schema",
       "intent_id",
-      "transition"
+      "transition",
+      "version",
+      "timestamp"
     ],
     "required": [
       "schema",
       "intent_id",
-      "transition"
+      "transition",
+      "version",
+      "timestamp"
     ]
   },
   "origin_of_intent": {
