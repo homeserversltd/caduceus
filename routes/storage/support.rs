@@ -1,6 +1,5 @@
 use crate::gate::{
-    api_error, api_error_signal, document_attendance_admits, gated_json, missing_signal,
-    ApiErrorBody,
+    administrative_admits, api_error, api_error_signal, gated_json, missing_signal, ApiErrorBody,
 };
 #[cfg(leaf_storage_disk_census)]
 use crate::routes::disk;
@@ -17,15 +16,10 @@ pub(crate) async fn disk_census_route(
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "disk census";
-    let document = headers
-        .get("x-caduceus-document")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    document_attendance_admits(
-        document,
-        headers
-            .get("x-caduceus-attendance")
-            .and_then(|value| value.to_str().ok()),
+    administrative_admits(
+        &headers,
+        &Value::Null,
+        "/api/v1/storage/disk/census",
     )
     .map_err(|signal| api_error_signal(COMMAND, &signal))?;
     disk::census_json().map(Json).map_err(|err| {
@@ -51,15 +45,10 @@ pub(crate) async fn storage_categories_route(
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "storage categories";
-    let document = headers
-        .get("x-caduceus-document")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
-    document_attendance_admits(
-        document,
-        headers
-            .get("x-caduceus-attendance")
-            .and_then(|v| v.to_str().ok()),
+    administrative_admits(
+        &headers,
+        &Value::Null,
+        "/api/v1/storage/categories",
     )
     .map_err(|signal| api_error_signal(COMMAND, &signal))?;
     storage_categories::cached_json().map(Json).map_err(|err| {
@@ -79,15 +68,10 @@ pub(crate) async fn storage_categories_scan_route(
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "storage categories scan";
-    let document = headers
-        .get("x-caduceus-document")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
-    document_attendance_admits(
-        document,
-        headers
-            .get("x-caduceus-attendance")
-            .and_then(|v| v.to_str().ok()),
+    administrative_admits(
+        &headers,
+        &Value::Null,
+        "/api/v1/storage/categories/scan",
     )
     .map_err(|signal| api_error_signal(COMMAND, &signal))?;
     match crate::shared::policy::allows_command(COMMAND) {

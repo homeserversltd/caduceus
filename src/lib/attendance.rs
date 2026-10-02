@@ -308,6 +308,19 @@ fn pin_verified(pin: &str, public_key: &str) -> Result<bool, String> {
         .ok_or_else(|| "caduceus-signer-verification-unavailable".to_string())
 }
 
+pub(crate) fn verify_administrative_pin(pin: &str) -> Result<(), String> {
+    if pin.is_empty() || pin.len() > 512 {
+        return Err("caduceus-administrative-pin-required".to_string());
+    }
+    let verifier = verifier()?;
+    current_verifier(&verifier)?;
+    if pin_verified(pin, &verifier.public_key)? {
+        Ok(())
+    } else {
+        Err("caduceus-administrative-pin-wrong".to_string())
+    }
+}
+
 fn open_verified_json(body: &Value, origin: AttendanceOrigin) -> Result<Value, String> {
     let document_id = text(body, "documentId")?;
     let document_incarnation = text(body, "documentIncarnation")?;

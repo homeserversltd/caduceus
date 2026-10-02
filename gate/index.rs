@@ -4,7 +4,7 @@
 use crate::shared::{attendance, policy};
 use axum::serve::IncomingStream;
 use axum::{
-    body::Body,
+    body::{to_bytes, Body},
     extract::connect_info::{ConnectInfo, Connected},
     http::{header::CONTENT_TYPE, HeaderMap, Request, StatusCode},
     middleware,
@@ -17,13 +17,16 @@ use hyper_util::rt::TokioIo;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    env, fs,
+    env,
+    ffi::CString,
+    fs::{self, File, OpenOptions},
+    io::{self, Read},
     net::SocketAddr,
     os::{
         fd::{AsRawFd, FromRawFd, OwnedFd},
-        unix::fs::{FileTypeExt, MetadataExt, PermissionsExt},
+        unix::{ffi::OsStrExt, fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt}},
     },
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     time::Instant,
 };
 use tokio::{
@@ -210,24 +213,372 @@ pub(crate) fn document_attendance_admits(
         Err("caduceus-attendance-not-current".into())
     }
 }
+const ADMINISTRATIVE_PROFILE_MAX_BYTES: usize = 16 * 1024;
+const ADMINISTRATIVE_ROUTES_MAX_BYTES: usize = 64 * 1024;
+const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
+    "/api/v1/access/pin/mode",
+    "/api/v1/access/sudo/mode",
+    "/api/v1/storage/vault/unlock",
+    "/api/v1/storage/vault/auto-decrypt",
+    "/api/v1/network/cors/allowed-origins/add",
+    "/api/v1/network/notes",
+    "/api/v1/network/dns/adblock",
+    "/api/v1/network/dns/blocklist/update",
+    "/api/v1/network/dns/upstream",
+    "/api/v1/network/dns/device-name/create",
+    "/api/v1/network/dns/device-name/remove",
+    "/api/v1/network/dns/alias/create",
+    "/api/v1/network/dns/alias/remove",
+    "/api/v1/network/dns",
+    "/api/v1/config/set",
+    "/api/v1/config/patch",
+    "/api/v1/storage/disk/census",
+    "/api/v1/storage/categories",
+    "/api/v1/storage/categories/scan",
+];
+
+fn open_nofollow_shelf_file(path: &Path) -> io::Result<File> {
+    if !path.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "administrative shelf path must be absolute",
+        ));
+    }
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::RootDir => {}
+            Component::Normal(name) => components.push(name),
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "administrative shelf path contains a non-normal component",
+                ));
+            }
+        }
+    }
+    if components.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "administrative shelf path has no file component",
+        ));
+    }
+
+    let root = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open("/")?;
+    let mut parent: OwnedFd = root.into();
+    for (index, component) in components.iter().enumerate() {
+        let name = CString::new(component.as_bytes()).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "NUL in administrative shelf path")
+        })?;
+        let last = index + 1 == components.len();
+        let flags = if last {
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK
+        } else {
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_DIRECTORY
+        };
+        let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let opened = unsafe { OwnedFd::from_raw_fd(fd) };
+        if last {
+            return Ok(File::from(opened));
+        }
+        parent = opened;
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "administrative shelf path has no file component",
+    ))
+}
+
+fn bounded_json_nofollow(path: &Path, limit: usize) -> Result<Option<Value>, String> {
+    let file = match open_nofollow_shelf_file(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("caduceus-administrative-config-unavailable".to_string()),
+    };
+    if !file
+        .metadata()
+        .map_err(|_| "caduceus-administrative-config-unavailable".to_string())?
+        .is_file()
+    {
+        return Err("caduceus-administrative-config-invalid".to_string());
+    }
+    let mut bytes = Vec::new();
+    file.take(limit.saturating_add(1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "caduceus-administrative-config-unavailable".to_string())?;
+    if bytes.len() > limit {
+        return Err("caduceus-administrative-config-invalid".to_string());
+    }
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|_| "caduceus-administrative-config-invalid".to_string())
+}
+
+fn administrative_profile() -> Result<String, String> {
+    let path = crate::shared::config::path("etc/appliance/profile.json");
+    let Some(value) = bounded_json_nofollow(&path, ADMINISTRATIVE_PROFILE_MAX_BYTES)? else {
+        return Ok("lab".to_string());
+    };
+    let Some(profile) = value.get("profile") else {
+        return Ok("lab".to_string());
+    };
+    let profile = profile
+        .as_str()
+        .filter(|value| {
+            !value.is_empty()
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        })
+        .ok_or_else(|| "caduceus-administrative-profile-invalid".to_string())?;
+    Ok(profile.to_string())
+}
+
+fn configured_administrative_routes() -> Result<Option<Vec<String>>, String> {
+    let profile = administrative_profile()?;
+    let path = crate::shared::config::path(&format!(
+        "usr/local/sbin/agathodaimon/crossings/{profile}.json"
+    ));
+    let Some(value) = bounded_json_nofollow(&path, ADMINISTRATIVE_ROUTES_MAX_BYTES)? else {
+        return Ok(None);
+    };
+    let Some(routes) = value.pointer("/administrative/routes") else {
+        return Ok(None);
+    };
+    let routes = routes
+        .as_array()
+        .ok_or_else(|| "caduceus-administrative-routes-invalid".to_string())?;
+    routes
+        .iter()
+        .map(|route| {
+            if let Some(route) = route.as_str() {
+                Ok(route.to_string())
+            } else {
+                let method = route
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "caduceus-administrative-routes-invalid".to_string())?;
+                let path = route
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "caduceus-administrative-routes-invalid".to_string())?;
+                Ok(format!("{method} {path}"))
+            }
+        })
+        .collect::<Result<Vec<_>, String>>()
+        .map(Some)
+}
+
+fn route_matches(entry: &str, method: Option<&str>, path: &str) -> bool {
+    if let Some((listed_method, listed_path)) = entry.split_once(' ') {
+        listed_path == path
+            && method.map_or(true, |method| listed_method.eq_ignore_ascii_case(method))
+    } else {
+        entry == path
+    }
+}
+
+fn administrative_routes_match(
+    method: Option<&str>,
+    path: &str,
+) -> Result<bool, String> {
+    if method.is_some_and(|method| {
+        method.eq_ignore_ascii_case("GET") && path == "/api/v1/access/pin/mode"
+    }) {
+        return Ok(false);
+    }
+    Ok(match configured_administrative_routes()? {
+        Some(routes) => routes
+            .iter()
+            .any(|entry| route_matches(entry, method, path)),
+        None => ADMINISTRATIVE_FALLBACK_ROUTES
+            .iter()
+            .any(|entry| route_matches(entry, method, path)),
+    })
+}
+
+fn administrative_pin_required() -> bool {
+    crate::shared::config::get_json("global.admin.pin_required")
+        .ok()
+        .and_then(|value| value.get("value").and_then(Value::as_bool))
+        .unwrap_or(false)
+}
+
+fn administrative_credentials_admit(
+    headers: &HeaderMap,
+    body: &Value,
+) -> Result<(), String> {
+    if !administrative_pin_required() {
+        return Ok(());
+    }
+    let document = headers
+        .get("x-caduceus-document")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    let attendance = headers
+        .get("x-caduceus-attendance")
+        .and_then(|value| value.to_str().ok());
+    if document_attendance_admits(document, attendance).is_ok() {
+        return Ok(());
+    }
+    let pin = body
+        .pointer("/flags/exousia/pin")
+        .and_then(Value::as_str)
+        .filter(|pin| !pin.is_empty() && pin.len() <= 512)
+        .ok_or_else(|| "caduceus-administrative-pin-required".to_string())?;
+    attendance::verify_administrative_pin(pin)
+}
+
+const INTERNAL_ADMIN_GATE_HEADER: &str = "x-caduceus-internal-administrative-gate";
+const ADMINISTRATIVE_REQUEST_BODY_MAX_BYTES: usize = 2 * 1024 * 1024;
+
+pub(crate) fn administrative_admits(
+    headers: &HeaderMap,
+    body: &Value,
+    route: &str,
+) -> Result<(), String> {
+    if headers.contains_key(INTERNAL_ADMIN_GATE_HEADER) {
+        return Ok(());
+    }
+    if !administrative_routes_match(None, route)? {
+        return Ok(());
+    }
+    administrative_credentials_admit(headers, body)
+}
+
+pub(crate) fn strip_administrative_flags(body: &mut Value) -> bool {
+    let Some(object) = body.as_object_mut() else {
+        return false;
+    };
+    let removed_pin = {
+        let Some(flags) = object.get_mut("flags").and_then(Value::as_object_mut) else {
+            return false;
+        };
+        let Some(exousia) = flags.get_mut("exousia").and_then(Value::as_object_mut) else {
+            return false;
+        };
+        exousia.remove("pin").is_some()
+    };
+    if !removed_pin {
+        return false;
+    }
+
+    if object
+        .get("flags")
+        .and_then(Value::as_object)
+        .and_then(|flags| flags.get("exousia"))
+        .and_then(Value::as_object)
+        .is_some_and(|container| container.is_empty())
+    {
+        if let Some(flags) = object.get_mut("flags").and_then(Value::as_object_mut) {
+            flags.remove("exousia");
+        }
+    }
+    if object
+        .get("flags")
+        .and_then(Value::as_object)
+        .is_some_and(|container| container.is_empty())
+    {
+        object.remove("flags");
+    }
+    true
+}
+
+async fn administrative_route_gate(
+    mut request: Request<Body>,
+    next: middleware::Next,
+) -> Response {
+    request.headers_mut().remove(INTERNAL_ADMIN_GATE_HEADER);
+    let method = request.method().as_str().to_owned();
+    let path = request.uri().path().to_owned();
+    let administrative = match administrative_routes_match(Some(&method), &path) {
+        Ok(administrative) => administrative,
+        Err(signal) => {
+            return api_error_signal("administrative route gate", &signal).into_response();
+        }
+    };
+    if !administrative {
+        request.headers_mut().insert(
+            INTERNAL_ADMIN_GATE_HEADER,
+            axum::http::HeaderValue::from_static("1"),
+        );
+        return next.run(request).await;
+    }
+
+    let (mut parts, body) = request.into_parts();
+    let bytes = match to_bytes(body, ADMINISTRATIVE_REQUEST_BODY_MAX_BYTES).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: "administrative route gate".into(),
+                    first_missing_signal: "caduceus-administrative-request-too-large".into(),
+                }),
+            )
+                .into_response();
+        }
+    };
+    let parsed_body = serde_json::from_slice::<Value>(&bytes).ok();
+    let empty_body = Value::Null;
+    let admission_body = parsed_body.as_ref().unwrap_or(&empty_body);
+    if let Err(signal) = administrative_credentials_admit(&parts.headers, admission_body) {
+        return api_error_signal("administrative route gate", &signal).into_response();
+    }
+
+    let mut stripped_pin = false;
+    let forwarded_bytes = if let Some(mut body) = parsed_body {
+        stripped_pin = strip_administrative_flags(&mut body);
+        if stripped_pin {
+            match serde_json::to_vec(&body) {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    return api_error_signal(
+                        "administrative route gate",
+                        "caduceus-administrative-request-invalid",
+                    )
+                    .into_response();
+                }
+            }
+        } else {
+            bytes.to_vec()
+        }
+    } else {
+        bytes.to_vec()
+    };
+    if stripped_pin {
+        parts.headers.remove("content-length");
+    }
+    parts.headers.insert(
+        INTERNAL_ADMIN_GATE_HEADER,
+        axum::http::HeaderValue::from_static("1"),
+    );
+    next.run(Request::from_parts(parts, Body::from(forwarded_bytes)))
+        .await
+}
+
 pub(crate) fn vault_attendance_admits(
     headers: &HeaderMap,
+    body: &Value,
+    route: &str,
 ) -> Result<(), (StatusCode, Json<ApiErrorBody>)> {
-    document_attendance_admits(
-        headers
-            .get("x-caduceus-document")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or_default(),
-        headers
-            .get("x-caduceus-attendance")
-            .and_then(|v| v.to_str().ok()),
-    )
-    .map_err(|s| api_error_signal(VAULT_ATTENDANCE_COMMAND, &s))
+    administrative_admits(headers, body, route)
+        .map_err(|signal| api_error_signal(VAULT_ATTENDANCE_COMMAND, &signal))
 }
 pub(crate) fn access_attendance_admits(
     headers: &HeaderMap,
+    body: &Value,
+    route: &str,
 ) -> Result<(), (StatusCode, Json<ApiErrorBody>)> {
-    vault_attendance_admits(headers)
+    vault_attendance_admits(headers, body, route)
 }
 async fn self_telemetry_route(request: Request<Body>, next: middleware::Next) -> Response {
     let path = request.uri().path().to_owned();
@@ -288,7 +639,9 @@ pub fn router() -> Router {
             .route("/health", get(health_route))
             .route("/api/v1/doors", get(doors_route)),
     );
-    router.layer(middleware::from_fn(self_telemetry_route))
+    router
+        .layer(middleware::from_fn(administrative_route_gate))
+        .layer(middleware::from_fn(self_telemetry_route))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

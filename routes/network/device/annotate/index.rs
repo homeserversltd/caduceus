@@ -6,6 +6,7 @@
 
 use crate::shared::config;
 use crate::shared::config as paths;
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::fs;
@@ -130,13 +131,15 @@ pub fn write_json(mac: &str, note: &str) -> Result<Value, String> {
 
 
 use axum::{extract::Json, http::StatusCode, Router};
-use crate::gate::{gated_json, ApiErrorBody};
+use crate::gate::{administrative_admits, gated_json, ApiErrorBody};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct NetworkNotesBody {
     mac: String,
     note: String,
+    #[serde(default)]
+    flags: Option<Value>,
 }
 
 async fn network_notes_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
@@ -171,17 +174,13 @@ async fn network_notes_write_route(
         Ok(false) => Err(api_error(command)),
         Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
         Ok(true) => {
-            let document = headers
-                .get("x-caduceus-document")
-                .and_then(|value| value.to_str().ok())
-                .filter(|value| !value.trim().is_empty());
-            document_attendance_admits(
-                document.unwrap_or(""),
-                headers
-                    .get("x-caduceus-attendance")
-                    .and_then(|value| value.to_str().ok()),
+            let admission_body = json!({"flags": body.flags.as_ref()});
+            administrative_admits(
+                &headers,
+                &admission_body,
+                "/api/v1/network/notes",
             )
-            .map_err(|signal| api_error_signal(command, &signal))?;
+            .map_err(|signal| crate::gate::api_error_signal(command, &signal))?;
             network_notes::write_json(&body.mac, &body.note)
                 .map(|value| (StatusCode::OK, Json(value)))
                 .map_err(network_notes_write_error)

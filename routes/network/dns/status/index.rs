@@ -102,7 +102,7 @@ mod tests {
 
 use axum::{extract::Json, http::{HeaderMap, StatusCode}, Router};
 use serde::Deserialize;
-use crate::gate::{api_error, api_error_signal, document_attendance_admits, mutation_status, ApiErrorBody};
+use crate::gate::{administrative_admits, api_error, api_error_signal, mutation_status, ApiErrorBody};
 use crate::shared::policy;
 use crate::routes::{dns_control, dns};
 
@@ -111,6 +111,8 @@ use crate::routes::{dns_control, dns};
 struct DnsDeviceNameBody {
     hostname: String,
     ip: String,
+    #[serde(default)]
+    flags: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -118,12 +120,16 @@ struct DnsDeviceNameBody {
 struct DnsAliasBody {
     label: String,
     hostname: String,
+    #[serde(default)]
+    flags: Option<Value>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DnsAdblockBody {
     pub(crate) enabled: bool,
+    #[serde(default)]
+    flags: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -132,32 +138,23 @@ struct DnsUpstreamBody {
     preset: Option<String>,
     custom: Option<Vec<String>>,
     dot: bool,
+    #[serde(default)]
+    flags: Option<Value>,
 }
 
 fn dns_mutation_admits(
     command: &'static str,
+    route: &'static str,
     headers: &HeaderMap,
+    body: &Value,
 ) -> Result<(), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
         Ok(true) => {}
         Ok(false) => return Err(api_error(command)),
         Err(_) => return Err(api_error_signal(command, "caduceus-profile-missing")),
     }
-    let document = headers
-        .get("x-caduceus-document")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty());
-    if let Some(document) = document {
-        document_attendance_admits(
-            document,
-            headers
-                .get("x-caduceus-attendance")
-                .and_then(|value| value.to_str().ok()),
-        )
+    administrative_admits(headers, body, route)
         .map_err(|signal| api_error_signal(command, &signal))
-    } else {
-        Ok(())
-    }
 }
 
 fn dns_mutation_response(
@@ -192,7 +189,12 @@ async fn dns_resolver_adblock_route(
     Json(body): Json<DnsAdblockBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns resolver adblock";
-    dns_mutation_admits(COMMAND, &headers)?;
+    dns_mutation_admits(
+        COMMAND,
+        "/api/v1/network/dns/adblock",
+        &headers,
+        &json!({"flags": body.flags.as_ref()}),
+    )?;
     dns_mutation_response(
         COMMAND,
         dns_control::resolver_json("adblock", Some(json!({"enabled": body.enabled}))),
@@ -203,7 +205,12 @@ async fn dns_resolver_blocklist_update_route(
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns resolver blocklist-update";
-    dns_mutation_admits(COMMAND, &headers)?;
+    dns_mutation_admits(
+        COMMAND,
+        "/api/v1/network/dns/blocklist/update",
+        &headers,
+        &Value::Null,
+    )?;
     dns_mutation_response(
         COMMAND,
         dns_control::resolver_json("blocklist-update", None),
@@ -215,7 +222,12 @@ async fn dns_resolver_upstream_route(
     Json(body): Json<DnsUpstreamBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns resolver upstream";
-    dns_mutation_admits(COMMAND, &headers)?;
+    dns_mutation_admits(
+        COMMAND,
+        "/api/v1/network/dns/upstream",
+        &headers,
+        &json!({"flags": body.flags.as_ref()}),
+    )?;
     dns_mutation_response(
         COMMAND,
         dns_control::resolver_json(
@@ -230,7 +242,12 @@ async fn dns_device_name_create_route(
     Json(body): Json<DnsDeviceNameBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns device-name create";
-    dns_mutation_admits(COMMAND, &headers)?;
+    dns_mutation_admits(
+        COMMAND,
+        "/api/v1/network/dns/device-name/create",
+        &headers,
+        &json!({"flags": body.flags.as_ref()}),
+    )?;
     dns_mutation_response(
         COMMAND,
         dns::device_name_json("create", &body.hostname, &body.ip),
@@ -242,7 +259,12 @@ async fn dns_device_name_remove_route(
     Json(body): Json<DnsDeviceNameBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns device-name remove";
-    dns_mutation_admits(COMMAND, &headers)?;
+    dns_mutation_admits(
+        COMMAND,
+        "/api/v1/network/dns/device-name/remove",
+        &headers,
+        &json!({"flags": body.flags.as_ref()}),
+    )?;
     dns_mutation_response(
         COMMAND,
         dns::device_name_json("remove", &body.hostname, &body.ip),
@@ -254,7 +276,12 @@ async fn dns_alias_create_route(
     Json(body): Json<DnsAliasBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns alias create";
-    dns_mutation_admits(COMMAND, &headers)?;
+    dns_mutation_admits(
+        COMMAND,
+        "/api/v1/network/dns/alias/create",
+        &headers,
+        &json!({"flags": body.flags.as_ref()}),
+    )?;
     dns_mutation_response(
         COMMAND,
         dns::alias_json("create", &body.label, &body.hostname),
@@ -266,7 +293,12 @@ async fn dns_alias_remove_route(
     Json(body): Json<DnsAliasBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns alias remove";
-    dns_mutation_admits(COMMAND, &headers)?;
+    dns_mutation_admits(
+        COMMAND,
+        "/api/v1/network/dns/alias/remove",
+        &headers,
+        &json!({"flags": body.flags.as_ref()}),
+    )?;
     dns_mutation_response(
         COMMAND,
         dns::alias_json("remove", &body.label, &body.hostname),
@@ -279,7 +311,14 @@ async fn network_dns_route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns intent";
     const TARGET: &str = "/api/dns/unbound/drop-in";
-    dns_mutation_admits(COMMAND, &headers)?;
+    dns_mutation_admits(
+        COMMAND,
+        "/api/v1/network/dns",
+        &headers,
+        &metadata,
+    )?;
+    let mut metadata = metadata;
+    crate::gate::strip_administrative_flags(&mut metadata);
     dns_mutation_response(COMMAND, dns_control::intent_json("POST", TARGET, metadata))
 }
 

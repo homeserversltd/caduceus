@@ -1,6 +1,4 @@
-use crate::gate::{
-    api_error, api_error_signal, document_attendance_admits, mutation_status, ApiErrorBody,
-};
+use crate::gate::{api_error, api_error_signal, administrative_admits, mutation_status, ApiErrorBody};
 use crate::shared::{config, policy};
 use axum::{
     extract::Query,
@@ -37,32 +35,15 @@ fn read(
 }
 fn mutate(
     command: &str,
-    target: &str,
+    route: &str,
     headers: &HeaderMap,
+    body: &Value,
     f: impl FnOnce() -> Result<Value, String>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
         Ok(true) => {
-            if target != "tabs.starred" {
-                let document = headers
-                    .get("x-caduceus-document")
-                    .and_then(|v| v.to_str().ok())
-                    .filter(|v| !v.trim().is_empty());
-                let attendance = headers
-                    .get("x-caduceus-attendance")
-                    .and_then(|v| v.to_str().ok())
-                    .filter(|v| !v.trim().is_empty());
-                document_attendance_admits(document.unwrap_or_default(), attendance).map_err(
-                    |e| {
-                        let signal = if document.is_none() || attendance.is_none() {
-                            "caduceus-attendance-required"
-                        } else {
-                            &e
-                        };
-                        api_error_signal(command, signal)
-                    },
-                )?;
-            }
+            administrative_admits(headers, body, route)
+                .map_err(|signal| api_error_signal(command, &signal))?;
             f().map(|v| (mutation_status(&v), Json(v)))
                 .map_err(|e| err(command, e))
         }
@@ -74,10 +55,14 @@ fn mutate(
 pub struct SetBody {
     pub path: String,
     pub value: Value,
+    #[serde(default)]
+    pub flags: Option<Value>,
 }
 #[derive(Deserialize)]
 pub struct PatchBody {
     pub merge: Value,
+    #[serde(default)]
+    pub flags: Option<Value>,
 }
 pub async fn path() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     read("config path", config::path_json)
@@ -99,15 +84,23 @@ pub async fn set(
     headers: HeaderMap,
     Json(b): Json<SetBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    mutate("config set", &b.path, &headers, || {
-        config::set_json(&b.path, b.value)
-    })
+    mutate(
+        "config set",
+        "/api/v1/config/set",
+        &headers,
+        &serde_json::json!({"flags": b.flags.as_ref()}),
+        || config::set_json(&b.path, b.value),
+    )
 }
 pub async fn patch(
     headers: HeaderMap,
     Json(b): Json<PatchBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    mutate("config patch", "household-config", &headers, || {
-        config::patch_json(b.merge)
-    })
+    mutate(
+        "config patch",
+        "/api/v1/config/patch",
+        &headers,
+        &serde_json::json!({"flags": b.flags.as_ref()}),
+        || config::patch_json(b.merge),
+    )
 }

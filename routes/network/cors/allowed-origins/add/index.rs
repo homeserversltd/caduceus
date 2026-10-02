@@ -81,7 +81,13 @@ async fn add_route(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    crate::gate::access_attendance_admits(&headers)?;
+    crate::gate::access_attendance_admits(
+        &headers,
+        &body,
+        "/api/v1/network/cors/allowed-origins/add",
+    )?;
+    let mut body = body;
+    crate::gate::strip_administrative_flags(&mut body);
     let origin = body
         .get("origin")
         .and_then(Value::as_str)

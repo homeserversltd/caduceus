@@ -1,8 +1,7 @@
 use crate::gate::ConnectionInfo;
 use crate::gate::{
     access_attendance_admits, api_error, api_error_signal, gated_json, gated_mutation,
-    mutation_status, vault_attendance_admits, ApiErrorBody, VaultAutoBody, VaultUnlockBody,
-    VAULT_ATTENDANCE_COMMAND,
+    mutation_status, vault_attendance_admits, ApiErrorBody, VAULT_ATTENDANCE_COMMAND,
 };
 use crate::routes::{change_pin, hyalos, open_vault, staff};
 use crate::shared::{attendance, policy};
@@ -11,7 +10,25 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::Response,
 };
+use serde::Deserialize;
 use serde_json::Value;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VaultSupportUnlockBody {
+    #[serde(default)]
+    password: Option<String>,
+    #[serde(default)]
+    flags: Option<Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VaultSupportAutoBody {
+    enabled: bool,
+    #[serde(default)]
+    flags: Option<Value>,
+}
 
 pub(crate) async fn posture_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     gated_json("exousia posture read", attendance::posture_json).await
@@ -25,7 +42,13 @@ pub(crate) async fn pin_mode_route(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    access_attendance_admits(&headers)?;
+    access_attendance_admits(
+        &headers,
+        &body,
+        "/api/v1/access/pin/mode",
+    )?;
+    let mut body = body;
+    crate::gate::strip_administrative_flags(&mut body);
     change_pin::set_pin_mode_json(&body)
         .map(Json)
         .map_err(|signal| api_error_signal("access pin mode", &signal))
@@ -39,7 +62,13 @@ pub(crate) async fn sudo_mode_route(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    access_attendance_admits(&headers)?;
+    access_attendance_admits(
+        &headers,
+        &body,
+        "/api/v1/access/sudo/mode",
+    )?;
+    let mut body = body;
+    crate::gate::strip_administrative_flags(&mut body);
     change_pin::set_sudo_mode_json(&body)
         .map(Json)
         .map_err(|signal| api_error_signal("access sudo mode", &signal))
@@ -95,7 +124,7 @@ pub(crate) async fn vault_status_route() -> Result<Json<Value>, (StatusCode, Jso
 
 pub(crate) async fn vault_unlock_route(
     headers: HeaderMap,
-    Json(body): Json<VaultUnlockBody>,
+    Json(body): Json<VaultSupportUnlockBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(VAULT_ATTENDANCE_COMMAND) {
         Ok(true) => {}
@@ -107,7 +136,11 @@ pub(crate) async fn vault_unlock_route(
             ))
         }
     }
-    vault_attendance_admits(&headers)?;
+    vault_attendance_admits(
+        &headers,
+        &serde_json::json!({"flags": body.flags.as_ref()}),
+        "/api/v1/storage/vault/unlock",
+    )?;
     Ok((
         StatusCode::OK,
         Json(open_vault::unlock_json(body.password.as_deref())),
@@ -116,7 +149,7 @@ pub(crate) async fn vault_unlock_route(
 
 pub(crate) async fn vault_auto_route(
     headers: HeaderMap,
-    Json(body): Json<VaultAutoBody>,
+    Json(body): Json<VaultSupportAutoBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(VAULT_ATTENDANCE_COMMAND) {
         Ok(true) => {}
@@ -128,7 +161,11 @@ pub(crate) async fn vault_auto_route(
             ))
         }
     }
-    vault_attendance_admits(&headers)?;
+    vault_attendance_admits(
+        &headers,
+        &serde_json::json!({"flags": body.flags.as_ref()}),
+        "/api/v1/storage/vault/auto-decrypt",
+    )?;
     Ok((
         StatusCode::OK,
         Json(open_vault::auto_decrypt_json(body.enabled)),
