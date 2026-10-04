@@ -289,6 +289,44 @@ steps:
         from_secret: FORGEJO_TOKEN
     commands:
       - python3 ci/release-flag.py --house-ca
+
+  - name: github-latest-caduceus
+    image: python:3.12-alpine
+    when:
+      - event: push
+        branch: main
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: FORGEJO_TOKEN
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - |
+        set -eu
+        if [ -z "$${FORGEJO_TOKEN:-}" ]; then
+          printf '%s\n' "github-latest-caduceus: FORGEJO_TOKEN secret is empty" >&2
+          exit 1
+        fi
+        if [ -z "$${GITHUB_TOKEN:-}" ]; then
+          printf '%s\n' "github-latest-caduceus: github_token secret is empty" >&2
+          exit 1
+        fi
+        python3 - <<'PY'
+        import urllib.request
+
+        with urllib.request.urlopen("http://192.168.123.1:7100/v1/trust/ca-bundle") as response:
+            ca_bundle = response.read()
+        with open("/tmp/house-ca.pem", "wb") as bundle_file:
+            bundle_file.write(ca_bundle)
+        PY
+        if [ ! -s /tmp/house-ca.pem ]; then
+          printf '%s\n' "github-latest-caduceus: house CA bundle is empty" >&2
+          exit 1
+        fi
+        export SSL_CERT_FILE=/tmp/house-ca.pem
+        apk add --no-cache git
+        python3 ci/github-latest.py --commit-sha "$${CI_COMMIT_SHA:-}"
+
   - name: ci-outcome-caduceus
     image: python:3.12-alpine
     backend_options:
