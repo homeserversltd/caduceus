@@ -292,6 +292,7 @@ steps:
 
   - name: github-latest-caduceus
     image: python:3.12-alpine
+    failure: ignore
     when:
       - event: push
         branch: main
