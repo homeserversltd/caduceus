@@ -114,6 +114,7 @@ class Clients:
         context = ssl.create_default_context()
         self.forgejo_token = forgejo_token
         self.github_token = github_token
+        self.forgejo_push_mirrors_sync_http_status = None
         self.forgejo_opener = build_opener(NoRedirect(), HTTPSHandler(context=context))
         self.github_opener = build_opener(NoRedirect(), HTTPSHandler(context=context))
         self.github_asset_opener = build_opener(
@@ -637,6 +638,8 @@ def plan(clients, commit):
         clients, github_release, source_assets, commit
     )
     ref_ready = github_tag_sha == commit
+    planned_latest_tag = planned_tag_move(forgejo_tag_sha, commit)
+    sync_needed = planned_latest_tag["action"] != "no-op" or not ref_ready
     return {
         "status": "plan",
         "source_sha": commit,
@@ -646,15 +649,21 @@ def plan(clients, commit):
         "profile_digests": profile_digests,
         "release_flag_source_sha": flag["source_sha"],
         "assets": asset_rows,
-        "forgejo_latest_tag": planned_tag_move(forgejo_tag_sha, commit),
+        "forgejo_latest_tag": planned_latest_tag,
         "github_latest_ref": {
             "status": "matched" if ref_ready else ("missing" if github_tag_sha is None else "mismatch"),
             "resolved_sha": github_tag_sha,
             "required_sha": commit,
-            "action": "no-op" if ref_ready else "wait-for-forgejo-mirror",
+            "action": "no-op" if ref_ready else "request-forgejo-push-mirror-sync",
             "route": "GET /repos/HOMESERVERSLTD/caduceus/git/ref/tags/latest; Forgejo mirror readback only",
             "mutation": "none (no direct GitHub ref write)",
             "ready_for_release_write": ref_ready,
+        },
+        "forgejo_push_mirrors_sync": {
+            "method": "POST",
+            "path": "/repos/HOMESERVERSLTD/caduceus/push_mirrors-sync",
+            "condition": "Forgejo latest tag moved, or tag was a no-op and GitHub latest ref differs from source_sha",
+            "status": "planned" if sync_needed else "not-needed",
         },
         "github_latest_release": {
             "status": github_assessment,
@@ -840,16 +849,34 @@ def publish(clients, commit):
             "forgejo_main_sha": forgejo_main_sha(clients),
             "forgejo_latest_tag": "moved-before-supersession-check",
         }
+    sync_status = None
+    should_sync = tag_action in ("created", "force-updated")
+    if tag_action == "no-op":
+        _ref, github_tag_sha = github_latest_ref(clients)
+        should_sync = github_tag_sha != commit
+    if should_sync:
+        sync_status, _response = clients.forgejo(
+            "POST", repo_path("/push_mirrors-sync")
+        )
+        clients.forgejo_push_mirrors_sync_http_status = sync_status
+        if not 200 <= sync_status < 300:
+            raise PublishError("forgejo-push-mirrors-sync-http-" + str(sync_status))
     mirrored = wait_for_github_latest_tag(clients, commit)
     if not mirrored:
         return {
             "status": "no-op-superseded",
             "source_sha": commit,
             "forgejo_main_sha": forgejo_main_sha(clients),
+            "forgejo_push_mirrors_sync_http_status": sync_status,
         }
     ready, current_sha = require_publish_ready(clients, commit)
     if not ready:
-        return {"status": "no-op-superseded", "source_sha": commit, "forgejo_main_sha": current_sha}
+        return {
+            "status": "no-op-superseded",
+            "source_sha": commit,
+            "forgejo_main_sha": current_sha,
+            "forgejo_push_mirrors_sync_http_status": sync_status,
+        }
 
     github_release = read_github_release(clients)
     listed_latest = github_release_count(clients)
@@ -869,17 +896,28 @@ def publish(clients, commit):
             "asset_count": len(expected),
             "asset_sha256": {row["name"]: row["sha256"] for row in asset_rows},
             "forgejo_latest_tag": tag_action,
+            "forgejo_push_mirrors_sync_http_status": sync_status,
         }
 
     ready, current_sha = require_publish_ready(clients, commit)
     if not ready:
-        return {"status": "no-op-superseded", "source_sha": commit, "forgejo_main_sha": current_sha}
+        return {
+            "status": "no-op-superseded",
+            "source_sha": commit,
+            "forgejo_main_sha": current_sha,
+            "forgejo_push_mirrors_sync_http_status": sync_status,
+        }
     if github_release is not None:
         delete_github_assets(clients, github_release["id"], named or {})
 
     ready, current_sha = require_publish_ready(clients, commit)
     if not ready:
-        return {"status": "no-op-superseded", "source_sha": commit, "forgejo_main_sha": current_sha}
+        return {
+            "status": "no-op-superseded",
+            "source_sha": commit,
+            "forgejo_main_sha": current_sha,
+            "forgejo_push_mirrors_sync_http_status": sync_status,
+        }
     release_id = write_github_release(clients, github_release, commit)
     upload_github_assets(clients, release_id, expected)
     verify_github_readback(clients, release_id, expected, commit)
@@ -895,6 +933,7 @@ def publish(clients, commit):
         "profile_digests": profile_digests,
         "asset_sha256": {row["name"]: row["sha256"] for row in asset_rows},
         "forgejo_latest_tag": tag_action,
+        "forgejo_push_mirrors_sync_http_status": sync_status,
         "release_flag_source_sha": flag["source_sha"],
     }
 
@@ -921,6 +960,8 @@ def main(argv=None):
             missing.append("GITHUB_TOKEN")
         print(json.dumps({"status": "error", "error": "missing-secret-environment:" + ",".join(missing)}, separators=(",", ":")))
         return 1
+    clients = None
+    result: dict = {}
     try:
         clients = Clients(forgejo_token, github_token)
         result = plan(clients, args.commit_sha) if args.plan else publish(clients, args.commit_sha)
@@ -932,6 +973,9 @@ def main(argv=None):
         # Do not stringify unexpected exceptions: they can carry request data.
         result = {"status": "error", "error": "internal-error-" + type(exc).__name__}
         code = 1
+    sync_status = getattr(clients, "forgejo_push_mirrors_sync_http_status", None)
+    if type(sync_status) is int and 100 <= sync_status <= 599:
+        result["forgejo_push_mirrors_sync_http_status"] = sync_status
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     return code
 
