@@ -543,6 +543,25 @@ def body_for(commit):
     return "Caduceus rolling release mirrored from Forgejo.\n\nSource SHA: " + commit + "\n"
 
 
+def github_release_request(release, commit):
+    body = {
+        "name": "Caduceus latest",
+        "body": body_for(commit),
+        "target_commitish": commit,
+        "draft": False,
+        "prerelease": False,
+        "make_latest": "true",
+    }
+    if release is None:
+        body["tag_name"] = "latest"
+        return {"method": "POST", "path": repo_path("/releases"), "body": body}
+    return {
+        "method": "PATCH",
+        "path": repo_path(f"/releases/{release['id']}"),
+        "body": body,
+    }
+
+
 def source_digest_map_from_assets(assets):
     return {
         profile: hashlib.sha256(assets[f"{REPO}-{profile}-x86_64"]).hexdigest()
@@ -574,6 +593,7 @@ def assess_github_release(clients, release, expected, commit):
         or release.get("prerelease") is not False
         or release.get("name") != "Caduceus latest"
         or release.get("body") != body_for(commit)
+        or release.get("target_commitish") != commit
     ):
         return "replace", named
     if set(named) != set(expected):
@@ -668,7 +688,23 @@ def plan(clients, commit):
         "github_latest_release": {
             "status": github_assessment,
             "id": github_release.get("id") if github_release else None,
+            "target_commitish": github_release.get("target_commitish") if github_release else None,
+            "expected_target_commitish": commit,
+            "commitish_mismatch": (
+                {
+                    "field": "target_commitish",
+                    "current": github_release.get("target_commitish"),
+                    "expected": commit,
+                }
+                if github_release is not None and github_release.get("target_commitish") != commit
+                else None
+            ),
             "would_write_release": github_assessment != "exact",
+            "request": (
+                {**github_release_request(github_release, commit), "executed": False}
+                if github_assessment != "exact"
+                else None
+            ),
         },
         "publication": "ready" if ref_ready else "waiting-for-forgejo-mirror-tag",
         "mutation": "none (GET-only plan)",
@@ -765,23 +801,18 @@ def delete_github_assets(clients, release_id, named):
 
 
 def write_github_release(clients, release, commit):
-    body = {
-        "name": "Caduceus latest",
-        "body": body_for(commit),
-        "draft": False,
-        "prerelease": False,
-        "make_latest": "true",
-    }
+    request = github_release_request(release, commit)
     if release is None:
-        body["tag_name"] = "latest"
-        status, created = clients.github("POST", repo_path("/releases"), body=body)
+        status, created = clients.github(
+            request["method"], request["path"], body=request["body"]
+        )
         if status not in (200, 201) or not isinstance(created, dict):
             raise PublishError("github-latest-release-create-http-" + str(status))
         release_id = created.get("id")
     else:
         release_id = release["id"]
         status, updated = clients.github(
-            "PATCH", repo_path(f"/releases/{release_id}"), body=body
+            request["method"], request["path"], body=request["body"]
         )
         if status != 200 or not isinstance(updated, dict):
             raise PublishError("github-latest-release-update-http-" + str(status))
@@ -805,6 +836,7 @@ def verify_github_readback(clients, release_id, expected, commit):
         release.get("tag_name") != "latest"
         or release.get("name") != "Caduceus latest"
         or release.get("body") != body_for(commit)
+        or release.get("target_commitish") != commit
         or release.get("draft") is not False
         or release.get("prerelease") is not False
     ):
