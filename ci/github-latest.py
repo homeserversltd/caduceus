@@ -224,6 +224,10 @@ def repo_path(suffix):
     return "/repos/" + quote(OWNER, safe="") + "/" + quote(REPO, safe="") + suffix
 
 
+def github_release_asset_path(asset_id):
+    return repo_path(f"/releases/assets/{asset_id}")
+
+
 def forgejo_main_sha(clients):
     status, ref = clients.forgejo("GET", repo_path("/git/refs/heads/main"))
     if status != 200:
@@ -791,9 +795,13 @@ def delete_github_assets(clients, release_id, named):
     for asset in named.values():
         asset_id = asset["id"]
         status, _ = clients.github(
-            "DELETE", repo_path(f"/releases/{release_id}/assets/{asset_id}")
+            "DELETE", github_release_asset_path(asset_id)
         )
-        if status not in (200, 204):
+        if status == 404:
+            reread = read_github_assets(clients, release_id)
+            if any(asset["id"] == asset_id for asset in reread.values()):
+                raise PublishError("github-latest-old-asset-delete-http-404")
+        elif status not in (200, 204):
             raise PublishError("github-latest-old-asset-delete-http-" + str(status))
     reread = read_github_assets(clients, release_id)
     if reread:
