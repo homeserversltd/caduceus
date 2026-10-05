@@ -1,5 +1,6 @@
 use crate::gate::{
-    api_error, gated_json, gated_mutation, missing_signal, ApiErrorBody, ServiceToggleBody,
+    api_error, api_error_signal, gated_json, gated_mutation, missing_signal,
+    service_unavailable, ApiErrorBody, ServiceToggleBody,
 };
 #[cfg(any(
     leaf_settings_appearance,
@@ -17,7 +18,7 @@ use crate::routes::open_settings_pane as gui;
 use crate::routes::{receipts, sync_sources as sync, update_appliance as update};
 use crate::shared::policy;
 use axum::{
-    extract::{Json, Query},
+    extract::{rejection::JsonRejection, Json, Query},
     http::{HeaderMap, StatusCode},
 };
 use serde_json::Value;
@@ -112,18 +113,34 @@ pub(crate) async fn receipts_ledger_route(
 
 pub(crate) async fn update_service_status_route(
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("update service status", update::service_status_json).await
+    match policy::allows_command("update service status") {
+        Ok(true) => update::service_status_json()
+            .map(Json)
+            .map_err(|signal| service_unavailable("update service status", &signal)),
+        Ok(false) => Err(api_error("update service status")),
+        Err(_) => Err(api_error_signal(
+            "update service status",
+            "caduceus-profile-missing",
+        )),
+    }
 }
 
 pub(crate) async fn update_service_toggle_route(
     headers: HeaderMap,
-    Json(body): Json<ServiceToggleBody>,
+    body: Result<Json<ServiceToggleBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let Json(body) = match body {
+        Ok(body) => body,
+        Err(_) => return Err(api_error("update service toggle")),
+    };
     let state = body.state;
+    if !matches!(state.as_str(), "on" | "off") {
+        return Err(api_error("update service toggle"));
+    }
     match policy::allows_command("update service toggle") {
         Ok(true) => match update::service_toggle_json(&state, &[]) {
             Ok(value) => Ok((StatusCode::OK, Json(value))),
-            Err(_) => Err(api_error("update service toggle")),
+            Err(signal) => Err(service_unavailable("update service toggle", &signal)),
         },
         Ok(false) => Err(api_error("update service toggle")),
         Err(_) => Err((

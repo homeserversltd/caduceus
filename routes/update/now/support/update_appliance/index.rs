@@ -62,38 +62,77 @@ fn update_timer_name() -> Result<String, String> {
         .ok_or_else(|| "caduceus-update-timer-missing".to_string())
 }
 
+const UPDATE_SERVICE_BAND: &str = "update/service";
+
+fn update_service_receipt(action: &str) -> Result<Value, String> {
+    let receipt =
+        crate::gate::snake::crossing_path(UPDATE_SERVICE_BAND, &json!({"action": action}))?;
+    if receipt.get("ok").and_then(Value::as_bool) == Some(true) {
+        Ok(receipt)
+    } else {
+        Err(receipt
+            .get("firstMissingSignal")
+            .and_then(Value::as_str)
+            .unwrap_or("caduceus-update-service-refused")
+            .to_string())
+    }
+}
+
+fn update_service_response(receipt: Value, schema: &str, timer: &str) -> Value {
+    let mut response = receipt.as_object().cloned().unwrap_or_default();
+    response.insert("schema".to_string(), json!(schema));
+    response.insert("timer".to_string(), json!(timer));
+    response.entry("enabled".to_string()).or_insert(Value::Null);
+    response.entry("active".to_string()).or_insert(Value::Null);
+    response.entry("output".to_string()).or_insert(Value::Null);
+    response
+        .entry("firstMissingSignal".to_string())
+        .or_insert(json!("none"));
+    response.entry("ok".to_string()).or_insert(json!(true));
+    Value::Object(response)
+}
+
 pub fn service_status_json() -> Result<Value, String> {
     let timer = update_timer_name()?;
-    Ok(json!({
-        "schema": "caduceus.update.service.status.v1",
-        "timer": timer,
-        "timerState": systemd::timer_status(&timer),
-        "firstMissingSignal": "none",
-        "ok": true
-    }))
+    let receipt = update_service_receipt("status")?;
+    let mut response =
+        update_service_response(receipt, "caduceus.update.service.status.v1", &timer);
+    response["timerState"] = json!(systemd::timer_status(&timer));
+    Ok(response)
 }
 
 pub fn service_toggle_json(state: &str, rest: &[String]) -> Result<Value, String> {
-    let dry_run = rest.iter().any(|arg| arg == "--dry-run");
-    match state {
-        "on" | "off" => {
-            let body = format!(
-                "schema=caduceus.update.service.toggle.v1\nmutation={}\nrequested_state={}\nfirst_missing_signal=none\n",
-                !dry_run, state
-            );
-            if !dry_run {
-                let _ = receipts::write_latest(&body);
-            }
-            Ok(json!({
-                "schema": "caduceus.update.service.toggle.v1",
-                "mutation": !dry_run,
-                "requestedState": state,
-                "firstMissingSignal": "none",
-                "ok": true
-            }))
-        }
-        _ => Err("caduceus-public-action-not-allowed".to_string()),
+    if !matches!(state, "on" | "off") {
+        return Err("caduceus-public-action-not-allowed".to_string());
     }
+    let timer = update_timer_name()?;
+    let dry_run = rest.iter().any(|arg| arg == "--dry-run");
+    if dry_run {
+        return Ok(json!({
+            "schema": "caduceus.update.service.toggle.v1",
+            "ok": true,
+            "timer": timer,
+            "mutation": false,
+            "requestedState": state,
+            "enabled": null,
+            "active": null,
+            "output": null,
+            "firstMissingSignal": "none",
+            "plan": {
+                "band": UPDATE_SERVICE_BAND,
+                "stdinPayload": {"action": state}
+            }
+        }));
+    }
+
+    let receipt = update_service_receipt(state)?;
+    let mut response =
+        update_service_response(receipt, "caduceus.update.service.toggle.v1", &timer);
+    response["mutation"] = json!(true);
+    response["requestedState"] = json!(state);
+    let receipt_body = response.to_string();
+    let _ = receipts::write_latest(&receipt_body);
+    Ok(response)
 }
 
 pub fn status() -> i32 {
@@ -135,12 +174,22 @@ pub fn service_status() -> i32 {
             println!("schema=caduceus.update.service.status.v1");
             println!("timer={}", value["timer"]);
             println!("timer_state={}", value["timerState"]);
-            println!("first_missing_signal=none");
-            0
+            println!("enabled={}", value["enabled"]);
+            println!("active={}", value["active"]);
+            println!("ok={}", value["ok"]);
+            println!("first_missing_signal={}", value["firstMissingSignal"]);
+            if value["ok"].as_bool() == Some(true) {
+                0
+            } else {
+                1
+            }
         }
         Err(err) => {
             println!("schema=caduceus.update.service.status.v1");
             println!("timer_state=unknown");
+            println!("enabled=unknown");
+            println!("active=unknown");
+            println!("ok=false");
             println!("first_missing_signal={err}");
             1
         }
@@ -151,14 +200,27 @@ pub fn service_toggle(state: &str, rest: &[String]) -> i32 {
     match service_toggle_json(state, rest) {
         Ok(value) => {
             println!("schema=caduceus.update.service.toggle.v1");
+            println!("ok={}", value["ok"]);
             println!("mutation={}", value["mutation"]);
             println!("requested_state={}", value["requestedState"]);
-            println!("first_missing_signal=none");
+            if let Some(timer) = value.get("timer").and_then(Value::as_str) {
+                println!("timer={timer}");
+            }
+            if let Some(plan) = value.get("plan") {
+                println!("band={}", plan["band"]);
+                println!("stdin_payload={}", plan["stdinPayload"]);
+            }
+            println!("enabled={}", value["enabled"]);
+            println!("active={}", value["active"]);
+            println!("output={}", value["output"]);
+            println!("first_missing_signal={}", value["firstMissingSignal"]);
             0
         }
-        Err(_) => {
-            eprintln!("caduceus-public-action-not-allowed");
-            2
+        Err(signal) => {
+            eprintln!("schema=caduceus.update.service.toggle.v1");
+            eprintln!("ok=false");
+            eprintln!("first_missing_signal={signal}");
+            1
         }
     }
 }
