@@ -1,1 +1,1 @@
-{"namespace":"network/status","admittance":"open","flags":{},"serve":[{"snake":"settings/datetime"}]}
+{"namespace":"network/status","admittance":"open","flags":{},"serve":[{"snake":"settings/datetime","verb":["settings","datetime"]}]}
