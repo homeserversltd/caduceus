@@ -230,6 +230,7 @@ pub(crate) fn document_attendance_admits(
 }
 const ADMINISTRATIVE_PROFILE_MAX_BYTES: usize = 16 * 1024;
 const ADMINISTRATIVE_ROUTES_MAX_BYTES: usize = 64 * 1024;
+const NAS_SETUP_HTTP_PATH: &str = "/api/v1/storage/nas/setup";
 const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "/api/v1/access/pin/mode",
     "/api/v1/access/sudo/mode",
@@ -247,7 +248,7 @@ const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "/api/v1/network/dns",
     "/api/v1/config/set",
     "/api/v1/config/patch",
-    "/api/v1/storage/disk/census",
+    "/api/v1/disk/census",
     "/api/v1/storage/categories",
     "/api/v1/storage/categories/scan",
 ];
@@ -403,6 +404,13 @@ fn administrative_routes_match(
     method: Option<&str>,
     path: &str,
 ) -> Result<bool, String> {
+    // This mutation remains attended when an older configured administrative
+    // shelf replaces the fallback list and omits the new door.
+    if method.is_some_and(|method| {
+        method.eq_ignore_ascii_case("POST") && path == NAS_SETUP_HTTP_PATH
+    }) {
+        return Ok(true);
+    }
     if method.is_some_and(|method| {
         method.eq_ignore_ascii_case("GET") && path == "/api/v1/access/pin/mode"
     }) {

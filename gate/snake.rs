@@ -7,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
+const MAX_CROSSING_TIMEOUT: Duration = Duration::from_secs(600);
 fn shelf_root() -> PathBuf {
     PathBuf::from(crate::protocol::SERPENTS_SHELF_PATH).join("agathodaimon")
 }
@@ -328,7 +329,11 @@ fn execute_command(
     }))
 }
 
-fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
+fn execute_with_timeout(
+    band: &str,
+    outer_envelope: &Value,
+    timeout: Duration,
+) -> Result<Value, String> {
     let override_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some();
     let cli = cli_path();
     if !cli.is_file() {
@@ -359,11 +364,14 @@ fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
         band,
         outer_envelope,
         command,
-        Duration::from_secs(30),
+        timeout,
         e.get("facePath").cloned().unwrap_or(Value::Null),
         "caduceus-agathodaimon-timeout",
         "caduceus-agathodaimon-cli-unavailable",
     )
+}
+fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
+    execute_with_timeout(band, outer_envelope, Duration::from_secs(30))
 }
 
 pub fn run_launcher(argv: &[String], envelope: &Value, timeout: Duration) -> Result<Value, String> {
@@ -387,8 +395,27 @@ pub fn run(band: &str, envelope: &Value) -> Result<Value, String> {
     let band = safe_band_path(band)?;
     execute(&band, envelope)
 }
+fn crossing_envelope(path: &str, input: &Value) -> Value {
+    json!({"schema":crate::protocol::SCHEMA_ID,"intent_id":format!("caduceus-{path}"),"transition":path,"origin_of_intent":"near","payload":input})
+}
+
+/// Run a shared staff crossing with a bounded deadline while retaining the
+/// executor result, including the band's structured refusal receiptPayload.
+pub fn crossing_path_with_timeout(
+    path: &str,
+    input: &Value,
+    timeout: Duration,
+) -> Result<Value, String> {
+    if timeout.is_zero() || timeout > MAX_CROSSING_TIMEOUT {
+        return Err("caduceus-snake-timeout-out-of-range".to_string());
+    }
+    let band = safe_band_path(path)?;
+    let envelope = crossing_envelope(&band, input);
+    execute_with_timeout(&band, &envelope, timeout)
+}
+
 pub fn crossing_path(path: &str, input: &Value) -> Result<Value, String> {
-    let env = json!({"schema":crate::protocol::SCHEMA_ID,"intent_id":format!("caduceus-{path}"),"transition":path,"origin_of_intent":"near","payload":input});
+    let env = crossing_envelope(path, input);
     let v = execute(path, &env)?;
     if v.get("ok").and_then(Value::as_bool) == Some(true) {
         Ok(v.get("receiptPayload").cloned().unwrap_or(v))

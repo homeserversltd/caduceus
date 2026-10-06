@@ -103,9 +103,6 @@ routes:
 - network/cert/trust
 - storage/disk/census
 - storage/disk/test
-- storage/disk/mount
-- storage/disk/unlock
-- storage/disk/format
 - storage/disk/wipe
 - storage/vault/status
 - storage/vault/unlock

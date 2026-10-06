@@ -281,9 +281,8 @@ pub fn mutation_target_admitted(target: &str) -> Result<(), String> {
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: axum::Router) -> axum::Router {
-    router
-        .route(
-            "/api/v1/storage/disk/census",
-            axum::routing::get(crate::routes::storage_support::disk_census_route),
-        )
+    router.route(
+        "/api/v1/disk/census",
+        axum::routing::get(crate::routes::storage_support::disk_census_route),
+    )
 }

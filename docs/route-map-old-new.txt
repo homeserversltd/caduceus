@@ -2,9 +2,6 @@
 
 | OLD WIRE PATH | NEW CANONICAL PATH |
 |---|---|
-| `/api/admin/diskman/format` | `/api/v1/storage/disk/format` |
-| `/api/admin/diskman/mount` | `/api/v1/storage/disk/mount` |
-| `/api/admin/diskman/unlock` | `/api/v1/storage/disk/unlock` |
 | `/api/admin/diskman/wipe` | `/api/v1/storage/disk/wipe` |
 | `/api/admin/logs/homeserver` | `/api/v1/log/read` |
 | `/api/v1/access/pin/change` | `/api/v1/admin-admittance/change-pin` |
@@ -39,7 +36,7 @@
 | `/api/v1/config/path` | `/api/v1/doors` |
 | `/api/v1/config/set` | `/api/v1/doors` |
 | `/api/v1/config/show` | `/api/v1/doors` |
-| `/api/v1/disk/census` | `/api/v1/storage/disk/census` |
+| `/api/v1/storage/disk/census` | `/api/v1/disk/census` |
 | `/api/v1/doors` | `/api/v1/doors` |
 | `/api/v1/file/ingress` | `/api/v1/doors` |
 | `/api/v1/gui/update/now` | `/api/v1/update/now` |

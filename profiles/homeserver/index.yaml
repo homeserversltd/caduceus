@@ -61,6 +61,7 @@ commands:
 - staff status
 - staff actuators
 - staff intent
+- storage nas setup
 - exousia posture read
 - cert status
 - cert refresh-root
@@ -194,11 +195,9 @@ routes:
 - settings/sound
 - settings/ssh
 - storage/disk/census
-- storage/disk/format
-- storage/disk/mount
 - storage/disk/test
-- storage/disk/unlock
 - storage/disk/wipe
+- storage/nas/setup
 - storage/vault/auto-decrypt
 - storage/vault/status
 - storage/vault/unlock
