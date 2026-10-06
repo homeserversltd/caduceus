@@ -248,7 +248,7 @@ const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "/api/v1/network/dns",
     "/api/v1/config/set",
     "/api/v1/config/patch",
-    "/api/v1/disk/census",
+    "/api/v1/storage/disk/census",
     "/api/v1/storage/categories",
     "/api/v1/storage/categories/scan",
 ];

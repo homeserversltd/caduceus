@@ -36,7 +36,7 @@
 | `/api/v1/config/path` | `/api/v1/doors` |
 | `/api/v1/config/set` | `/api/v1/doors` |
 | `/api/v1/config/show` | `/api/v1/doors` |
-| `/api/v1/storage/disk/census` | `/api/v1/disk/census` |
+| `/api/v1/disk/census` | `/api/v1/storage/disk/census` |
 | `/api/v1/doors` | `/api/v1/doors` |
 | `/api/v1/file/ingress` | `/api/v1/doors` |
 | `/api/v1/gui/update/now` | `/api/v1/update/now` |

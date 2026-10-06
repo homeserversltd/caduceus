@@ -19,7 +19,7 @@ pub(crate) async fn disk_census_route(
     administrative_admits(
         &headers,
         &Value::Null,
-        "/api/v1/disk/census",
+        "/api/v1/storage/disk/census",
     )
     .map_err(|signal| api_error_signal(COMMAND, &signal))?;
     disk::census_json().map(Json).map_err(|err| {
