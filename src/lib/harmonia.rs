@@ -168,6 +168,14 @@ fn invoke_in_transient_service(argv: &[String]) -> io::Result<InvocationOutput> 
     stderr_file.seek(SeekFrom::Start(0))?;
     stderr_file.read_to_end(&mut stderr_bytes)?;
 
+    let transcript_directory = config::path(HARMONIA_TRANSCRIPT_DIR);
+    for stream in ["stdout", "stderr"] {
+        let filename = format!("{invocation_id}.{stream}");
+        if let Err(error) = fs::remove_file(transcript_directory.join(&filename)) {
+            eprintln!("failed to remove Harmonia transcript {filename}: {error}");
+        }
+    }
+
     let stdout = String::from_utf8_lossy(&stdout_bytes).into_owned();
     let mut stderr = String::from_utf8_lossy(&stderr_bytes).into_owned();
     let completion = strip_manager_footer(&mut stderr, &invocation_id);
