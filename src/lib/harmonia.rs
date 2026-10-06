@@ -168,17 +168,20 @@ fn invoke_in_transient_service(argv: &[String]) -> io::Result<InvocationOutput> 
     stderr_file.seek(SeekFrom::Start(0))?;
     stderr_file.read_to_end(&mut stderr_bytes)?;
 
-    let transcript_directory = config::path(HARMONIA_TRANSCRIPT_DIR);
-    for stream in ["stdout", "stderr"] {
-        let filename = format!("{invocation_id}.{stream}");
-        if let Err(error) = fs::remove_file(transcript_directory.join(&filename)) {
-            eprintln!("failed to remove Harmonia transcript {filename}: {error}");
-        }
-    }
-
     let stdout = String::from_utf8_lossy(&stdout_bytes).into_owned();
     let mut stderr = String::from_utf8_lossy(&stderr_bytes).into_owned();
     let completion = strip_manager_footer(&mut stderr, &invocation_id);
+    // A signal-terminated systemd-run can wake the still-alive waiter before the
+    // detached child finishes; don't unlink incomplete streams.
+    if completion.is_some() || manager_status.code().is_some() {
+        let transcript_directory = config::path(HARMONIA_TRANSCRIPT_DIR);
+        for stream in ["stdout", "stderr"] {
+            let filename = format!("{invocation_id}.{stream}");
+            if let Err(error) = fs::remove_file(transcript_directory.join(&filename)) {
+                eprintln!("failed to remove Harmonia transcript {filename}: {error}");
+            }
+        }
+    }
     let (exit_code, success) = completion.unwrap_or((
         manager_status.code().unwrap_or(-1),
         manager_status.success(),
