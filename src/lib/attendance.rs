@@ -1,5 +1,6 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -47,16 +48,9 @@ struct Attendance {
     last_touch: Instant,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct BoundVerifier {
-    public_key: String,
-    epoch: String,
-}
-
 #[derive(Default)]
 struct AttendanceState {
     current: HashMap<String, Attendance>,
-    verifier: Option<BoundVerifier>,
 }
 
 static STATE: OnceLock<Mutex<AttendanceState>> = OnceLock::new();
@@ -233,35 +227,32 @@ pub fn set_sudo_mode_json(body: &Value) -> Result<Value, String> {
     }))
 }
 
-fn bound_verifier(value: &Value) -> Option<BoundVerifier> {
-    let public_key = value.get("publicKey").and_then(Value::as_str)?;
-    if public_key.is_empty() {
-        return None;
-    }
-    let epoch = value.get("epoch").and_then(|value| match value {
-        Value::String(value) if !value.is_empty() => Some(value.clone()),
-        Value::Number(value) => Some(value.to_string()),
-        _ => None,
-    })?;
-    Some(BoundVerifier {
-        public_key: public_key.to_string(),
-        epoch,
-    })
+const PIN_NOT_PROVISIONED: &str = "caduceus-pin-not-yet-provisioned";
+const PIN_DEFAULT_RESET_FAILED: &str = "caduceus-pin-default-reset-failed";
+
+/// Read the live PIN seat for each operation; never cache or delegate verification.
+fn configured_pin() -> Result<String, String> {
+    let value = crate::shared::config::get_json("global.admin.pin")
+        .map_err(|_| PIN_NOT_PROVISIONED.to_string())?;
+    value
+        .get("value")
+        .and_then(Value::as_str)
+        .filter(|pin| !pin.is_empty() && pin.len() <= 512)
+        .map(str::to_string)
+        .ok_or_else(|| PIN_NOT_PROVISIONED.to_string())
 }
 
-/// Bind only public verifier material at process startup. Any unsuccessful crossing is UNBOUND.
+fn pin_matches(pin: &str) -> Result<bool, String> {
+    Ok(pin == configured_pin()?)
+}
+
+/// Startup posture is the live config seat, independent of staff or signer material.
 pub fn bind() {
-    let (bound, posture, signal) =
-        match crate::shared::agathodaimon::crossing("exousia", "bind", &json!({})) {
-            Ok(value) => match bound_verifier(&value) {
-                Some(verifier) => (Some(verifier), "DERIVED_BOUND", "none".to_string()),
-                None => (None, "UNBOUND", "caduceus-derived-unbound".to_string()),
-            },
-            Err(signal) => (None, "UNBOUND", signal),
-        };
-    if let Ok(mut guard) = state().lock() {
-        guard.verifier = bound;
-    }
+    let (posture, signal) = if configured_pin().is_ok() {
+        ("BOUND", "none")
+    } else {
+        ("UNBOUND", PIN_NOT_PROVISIONED)
+    };
     eprintln!(
         "{}",
         json!({
@@ -272,49 +263,11 @@ pub fn bind() {
     );
 }
 
-fn verifier() -> Result<BoundVerifier, String> {
-    state()
-        .lock()
-        .map_err(|_| "caduceus-attendance-unavailable".to_string())?
-        .verifier
-        .clone()
-        .ok_or_else(|| "caduceus-pin-not-yet-provisioned".to_string())
-}
-
-fn fresh_verifier() -> Result<BoundVerifier, String> {
-    let value = crate::shared::agathodaimon::crossing("exousia", "bind", &json!({}))
-        .map_err(|_| "caduceus-signer-current-bind-unavailable".to_string())?;
-    bound_verifier(&value).ok_or_else(|| "caduceus-signer-current-bind-unavailable".to_string())
-}
-
-fn current_verifier(stored: &BoundVerifier) -> Result<(), String> {
-    let current = fresh_verifier()?;
-    if current.public_key != stored.public_key || current.epoch != stored.epoch {
-        return Err("caduceus-signer-stale-derived".to_string());
-    }
-    Ok(())
-}
-
-fn pin_verified(pin: &str, public_key: &str) -> Result<bool, String> {
-    let value = crate::shared::agathodaimon::crossing(
-        "exousia",
-        "verify",
-        &json!({ "pin": pin, "publicKey": public_key }),
-    )
-    .map_err(|_| "caduceus-signer-verification-unavailable".to_string())?;
-    value
-        .get("verified")
-        .and_then(Value::as_bool)
-        .ok_or_else(|| "caduceus-signer-verification-unavailable".to_string())
-}
-
 pub(crate) fn verify_administrative_pin(pin: &str) -> Result<(), String> {
     if pin.is_empty() || pin.len() > 512 {
         return Err("caduceus-administrative-pin-required".to_string());
     }
-    let verifier = verifier()?;
-    current_verifier(&verifier)?;
-    if pin_verified(pin, &verifier.public_key)? {
+    if pin_matches(pin)? {
         Ok(())
     } else {
         Err("caduceus-administrative-pin-wrong".to_string())
@@ -325,9 +278,7 @@ fn open_verified_json(body: &Value, origin: AttendanceOrigin) -> Result<Value, S
     let document_id = text(body, "documentId")?;
     let document_incarnation = text(body, "documentIncarnation")?;
     let pin = text(body, "pin")?;
-    let verifier = verifier()?;
-    current_verifier(&verifier)?;
-    if !pin_verified(&pin, &verifier.public_key)? {
+    if !pin_matches(&pin)? {
         return Ok(envelope(false, "caduceus-attendance-pin-wrong"));
     }
     let now = Instant::now();
@@ -504,9 +455,7 @@ pub fn open_request_json(body: &Value, trusted_unix_carrier: bool) -> Result<Val
             derive_browser_child_json(parent, document_id, document_incarnation, target_document)
         } else {
             let (document, service, action, pin) = agent_target(body)?;
-            let verifier = verifier()?;
-            current_verifier(&verifier)?;
-            if !pin_verified(&pin, &verifier.public_key)? {
+            if !pin_matches(&pin)? {
                 return Ok(envelope(false, "caduceus-attendance-pin-wrong"));
             }
             let now = Instant::now();
@@ -609,27 +558,13 @@ pub fn change_pin_json(body: &Value) -> Result<Value, String> {
             "caduceus-attendance-document-incarnation-mismatch",
         ));
     }
-    let verifier = guard
-        .verifier
-        .clone()
-        .ok_or_else(|| "caduceus-pin-not-yet-provisioned".to_string())?;
-    current_verifier(&verifier)?;
-    if !pin_verified(&current_pin, &verifier.public_key)? {
+    if !pin_matches(&current_pin)? {
         return Ok(envelope(false, "caduceus-attendance-pin-wrong"));
     }
-    let receipt = match crate::shared::agathodaimon::crossing(
-        "exousia",
-        "change",
-        &json!({ "oldPin": current_pin, "newPin": new_pin }),
-    ) {
-        Ok(value) => value,
-        Err(_) => return Ok(envelope(false, "caduceus-attendance-change-failed")),
-    };
-    let Some(rebound) = bound_verifier(&receipt) else {
+    if crate::shared::config::set_json("global.admin.pin", Value::String(new_pin)).is_err() {
         return Ok(envelope(false, "caduceus-attendance-change-failed"));
-    };
+    }
 
-    guard.verifier = Some(rebound);
     guard.current.retain(|key, _| key == &attendance);
     if let Some(current) = guard.current.get_mut(&attendance) {
         current.last_touch = now;
@@ -637,19 +572,27 @@ pub fn change_pin_json(body: &Value) -> Result<Value, String> {
     Ok(envelope(true, "none"))
 }
 
-pub fn reset_default_pin_json(body: &Value) -> Result<Value, String> {
-    let new_pin = text(body, "newPin")?;
-    let receipt = crate::shared::agathodaimon::crossing(
-        "exousia",
-        "reset-default",
-        &json!({ "newPin": new_pin }),
-    )?;
-    let rebound =
-        bound_verifier(&receipt).ok_or_else(|| "caduceus-pin-default-reset-failed".to_string())?;
+fn provisioned_default_pin() -> Result<String, String> {
+    let path = crate::shared::config::path("/etc/appliance/config.factory");
+    let text = fs::read_to_string(path).map_err(|_| PIN_DEFAULT_RESET_FAILED.to_string())?;
+    let document: Value =
+        serde_json::from_str(&text).map_err(|_| PIN_DEFAULT_RESET_FAILED.to_string())?;
+    document
+        .pointer("/global/admin/pin")
+        .and_then(Value::as_str)
+        .filter(|pin| !pin.is_empty() && pin.len() <= 512)
+        .map(str::to_string)
+        .ok_or_else(|| PIN_DEFAULT_RESET_FAILED.to_string())
+}
+
+pub fn reset_default_pin_json(_body: &Value) -> Result<Value, String> {
+    // The request shape remains; the provisioned factory seat is the only reset value.
+    let default_pin = provisioned_default_pin()?;
     let mut guard = state()
         .lock()
         .map_err(|_| "caduceus-attendance-unavailable".to_string())?;
-    guard.verifier = Some(rebound);
+    crate::shared::config::set_json("global.admin.pin", Value::String(default_pin))
+        .map_err(|_| PIN_DEFAULT_RESET_FAILED.to_string())?;
     guard.current.clear();
     Ok(envelope(true, "none"))
 }
@@ -698,49 +641,22 @@ pub fn admits_target(attendance: &str, document_id: &str) -> bool {
 }
 
 pub fn posture_json() -> Result<Value, String> {
-    let stored = state()
-        .lock()
-        .map_err(|_| "caduceus-attendance-unavailable".to_string())?
-        .verifier
-        .clone();
-    let current = fresh_verifier().ok();
-    let stored_present = stored.is_some();
-    let current_present = current.is_some();
-    let epoch_matches = stored
-        .as_ref()
-        .zip(current.as_ref())
-        .is_some_and(|(stored, current)| stored.epoch == current.epoch);
-    let bound = stored
-        .as_ref()
-        .zip(current.as_ref())
-        .is_some_and(|(stored, current)| {
-            stored.public_key == current.public_key && stored.epoch == current.epoch
-        });
-    let posture = if bound {
-        "DERIVED_BOUND"
-    } else if stored_present || current_present {
-        if stored_present && current_present {
-            "STALE_DERIVED"
-        } else {
-            "UNBOUND_PROVISIONED"
-        }
-    } else {
-        "UNBOUND"
-    };
+    let bound = configured_pin().is_ok();
+    let posture = if bound { "BOUND" } else { "UNBOUND" };
+    // These schema fields describe retired signer-derived verifier material and stay false.
     Ok(json!({
         "schema": "caduceus.exousia.posture.v1",
         "ok": true,
         "posture": posture,
         "bound": bound,
-        "storedVerifierPresent": stored_present,
-        "currentPresent": current_present,
-        "epochMatches": epoch_matches,
+        "storedVerifierPresent": false,
+        "currentPresent": false,
+        "epochMatches": false,
     }))
 }
 
 pub fn reset_for_tests() {
     if let Ok(mut guard) = state().lock() {
         guard.current.clear();
-        guard.verifier = None;
     }
 }
