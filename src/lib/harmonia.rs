@@ -1,6 +1,9 @@
 use crate::shared::config;
 use serde_json::{json, Value};
-use std::process::Command;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Read, Seek, SeekFrom};
+use std::os::unix::fs::OpenOptionsExt;
+use std::process::{Command, Stdio};
 
 pub const DEFAULT_HARMONIA_BIN: &str = "/usr/local/bin/harmonia";
 
@@ -57,10 +60,127 @@ pub fn build_argv(route: &Value, rest: &[String]) -> Result<Vec<String>, String>
     Ok(argv)
 }
 
-fn privileged_command(bin: &str, run_args: &[String]) -> Command {
+const HARMONIA_TRANSCRIPT_DIR: &str = "var/lib/caduceus/harmonia-transcripts";
+
+struct InvocationOutput {
+    stdout: String,
+    stderr: String,
+    success: bool,
+    exit_code: i32,
+}
+
+fn create_transcripts() -> io::Result<(String, File, File)> {
+    let directory = config::path(HARMONIA_TRANSCRIPT_DIR);
+    fs::create_dir_all(&directory)?;
+
+    for _ in 0..3 {
+        let invocation_id = uuid::Uuid::new_v4().to_string();
+        let stdout_path = directory.join(format!("{invocation_id}.stdout"));
+        let stderr_path = directory.join(format!("{invocation_id}.stderr"));
+        let open_transcript = |path: &std::path::Path| {
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(path)
+        };
+        let stdout = match open_transcript(&stdout_path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+        let stderr = match open_transcript(&stderr_path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+        return Ok((invocation_id, stdout, stderr));
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not allocate unique Harmonia transcript files",
+    ))
+}
+
+// D-Bus-created transient command arguments do not expand '%' specifiers, but
+// systemd still expands '$' in command arguments. Double only '$' so literal
+// application arguments survive while percent bytes remain unchanged.
+fn escaped_systemd_argument(argument: &str) -> String {
+    argument.replace('$', "$$")
+}
+
+// The transient D-Bus property leaves '%' alone; printf needs real %s
+// conversions in its format string. Double '$' so the shell receives variables.
+fn exec_stop_post_property(invocation_id: &str) -> String {
+    format!(
+        "ExecStopPost=/bin/sh -c 'printf \"\\n__CADUCEUS_HARMONIA_EXIT_V1_{invocation_id}__|%s|%s\\n\" \"$$EXIT_CODE\" \"$$EXIT_STATUS\" >&2'"
+    )
+}
+
+fn strip_manager_footer(stderr: &mut String, invocation_id: &str) -> Option<(i32, bool)> {
+    let without_final_newline = stderr.strip_suffix('\n')?;
+    let (body, footer) = without_final_newline.rsplit_once('\n')?;
+    let marker = format!("__CADUCEUS_HARMONIA_EXIT_V1_{invocation_id}__|");
+    let values = footer.strip_prefix(&marker)?;
+    let (exit_kind, exit_status) = values.split_once('|')?;
+    if exit_status.contains('|') {
+        return None;
+    }
+
+    let completion = match exit_kind {
+        "exited" => {
+            let code = exit_status.parse::<i32>().ok()?;
+            (code, code == 0)
+        }
+        "killed" | "dumped" => (-1, false),
+        _ => return None,
+    };
+    stderr.truncate(body.len());
+    Some(completion)
+}
+
+fn invoke_in_transient_service(argv: &[String]) -> io::Result<InvocationOutput> {
+    let (invocation_id, mut stdout_file, mut stderr_file) = create_transcripts()?;
     let mut command = Command::new("sudo");
-    command.arg("-n").arg(bin).args(run_args);
     command
+        .arg("-n")
+        .arg("/usr/bin/systemd-run")
+        .args(["--quiet", "--wait", "--pipe", "--collect"])
+        .arg("--property")
+        .arg(exec_stop_post_property(&invocation_id))
+        .arg("--")
+        .args(
+            argv.iter()
+                .map(|argument| escaped_systemd_argument(argument)),
+        )
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(stdout_file.try_clone()?))
+        .stderr(Stdio::from(stderr_file.try_clone()?));
+
+    let manager_status = command.status()?;
+    let mut stdout_bytes = Vec::new();
+    let mut stderr_bytes = Vec::new();
+    stdout_file.seek(SeekFrom::Start(0))?;
+    stdout_file.read_to_end(&mut stdout_bytes)?;
+    stderr_file.seek(SeekFrom::Start(0))?;
+    stderr_file.read_to_end(&mut stderr_bytes)?;
+
+    let stdout = String::from_utf8_lossy(&stdout_bytes).into_owned();
+    let mut stderr = String::from_utf8_lossy(&stderr_bytes).into_owned();
+    let completion = strip_manager_footer(&mut stderr, &invocation_id);
+    let (exit_code, success) = completion.unwrap_or((
+        manager_status.code().unwrap_or(-1),
+        manager_status.success(),
+    ));
+    Ok(InvocationOutput {
+        stdout,
+        stderr,
+        success,
+        exit_code,
+    })
 }
 
 pub fn invoke_body_to_json(route_key: &str, code: i32, body: &str) -> Value {
@@ -101,11 +221,11 @@ pub fn invoke_body_to_json(route_key: &str, code: i32, body: &str) -> Value {
 }
 
 fn invoke_argv(route_key: &str, route_value: &Value, argv: &[String]) -> (i32, String) {
-    let (bin, run_args) = argv.split_first().unwrap();
-    let output = privileged_command(bin, run_args).output();
+    let bin = argv.first().unwrap();
+    let output = invoke_in_transient_service(argv);
     match output {
         Ok(result) => {
-            let ok = result.status.success();
+            let ok = result.success;
             if route_value
                 .get("raw_json")
                 .and_then(Value::as_bool)
@@ -114,17 +234,16 @@ fn invoke_argv(route_key: &str, route_value: &Value, argv: &[String]) -> (i32, S
                 // Harmonia receipts are authoritative even when the process refuses.
                 // The refusal receipt is emitted on stdout by contract and must not
                 // be replaced with sudo/stderr text.
-                let body = String::from_utf8_lossy(if result.stdout.is_empty() {
-                    &result.stderr
+                let body = if result.stdout.is_empty() {
+                    result.stderr
                 } else {
-                    &result.stdout
-                })
-                .into_owned();
+                    result.stdout
+                };
                 return (if ok { 0 } else { 1 }, body);
             }
             let body = format!(
                 "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute={route_key}\nok={ok}\nexit_code={}\ncommand={}\nfirst_missing_signal={}\n",
-                result.status.code().unwrap_or(-1),
+                result.exit_code,
                 bin,
                 if ok { "none" } else { "caduceus-harmonia-command-failed" }
             );
