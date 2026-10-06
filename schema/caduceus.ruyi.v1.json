@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.ruyi.v1",
-  "schema_version": "1.0.5",
+  "schema_version": "1.1.0",
   "role": "Public Ruyi row, roster and removal envelope",
   "authority": {
     "owner": "caduceus",
@@ -99,6 +99,14 @@
         "null"
       ],
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "stamp_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Optional externally attested stamp for this row; Caduceus only carries and compares it"
     },
     "last_seen": {
       "type": "integer",
@@ -205,6 +213,15 @@
               "null"
             ]
           },
+          "kind": {
+            "type": "string",
+            "const": "stamp",
+            "description": "Present only on an additional stamp trust projection; absent rows retain legacy syzygy/BeamPair meaning"
+          },
+          "stamp_sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
           "beam_pair": {
             "type": "object",
             "fields": {
@@ -291,6 +308,7 @@
     "rustc_installed": "string",
     "harmonia_sha": "string|null",
     "syzygy_sha": "string|null",
+    "stamp_sha": "string|null",
     "last_seen": "integer",
     "last_update": "object|null",
     "perspective": "object|null",
@@ -314,6 +332,7 @@
     "ipv4_source",
     "dns_unresolved",
     "syzygy_sha",
+    "stamp_sha",
     "last_seen",
     "perspective",
     "perspectives",
@@ -343,6 +362,7 @@
         "ipv4_source",
         "caduceus_port",
         "syzygy_sha",
+        "stamp_sha",
         "rustc_version",
         "harmonia_rustc_version",
         "rustc_installed",
@@ -391,6 +411,7 @@
         "rustc_version",
         "harmonia_sha",
         "syzygy_sha",
+        "stamp_sha",
         "last_update",
         "stats",
         "stats_signal"
@@ -416,6 +437,7 @@
         "rustc_installed",
         "harmonia_sha",
         "syzygy_sha",
+        "stamp_sha",
         "last_seen",
         "last_update",
         "discovered_via",

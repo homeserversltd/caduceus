@@ -14,6 +14,7 @@ pub(crate) struct BeamBody {
     rustc_version: &'static str,
     gui_face: Option<&'static str>,
     syzygy_sha: Option<String>,
+    stamp_sha: Option<String>,
 }
 
 pub(crate) async fn route() -> Result<Json<BeamBody>, (StatusCode, Json<crate::gate::ApiErrorBody>)>
@@ -30,6 +31,8 @@ pub(crate) async fn route() -> Result<Json<BeamBody>, (StatusCode, Json<crate::g
         )
     };
     let syzygy_sha = crate::routes::leaf_ruyi::local_syzygy()
+        .map_err(|_| failure("caduceus-ruyi-store-failed"))?;
+    let stamp_sha = crate::routes::leaf_ruyi::local_stamp_sha()
         .map_err(|_| failure("caduceus-ruyi-store-failed"))?;
     let profile = crate::routes::profile_routes::ACTIVE_PROFILE.to_owned();
     let gui_face = match profile.as_str() {
@@ -48,6 +51,7 @@ pub(crate) async fn route() -> Result<Json<BeamBody>, (StatusCode, Json<crate::g
         rustc_version: option_env!("CADUCEUS_BUILD_RUSTC_VERSION").unwrap_or("unset"),
         gui_face,
         syzygy_sha,
+        stamp_sha,
     };
     let value = serde_json::to_value(&body).map_err(|_| failure("caduceus-schema-desync"))?;
     if !crate::routes::leaf_schema::accepts(body.schema, &value) {

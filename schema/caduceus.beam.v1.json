@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.beam.v1",
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "role": "Public compiled BeamPair and locally registered syzygy",
   "authority": {
     "owner": "caduceus",
@@ -50,6 +50,14 @@
         "null"
       ],
       "description": "Stored local-MAC Ruyi row syzygy, null when absent"
+    },
+    "stamp_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Stored local-MAC Ruyi row stamp, null when absent"
     }
   },
   "field_types": {
@@ -61,7 +69,8 @@
     "env_sha": "string",
     "rustc_version": "string",
     "gui_face": "string|null",
-    "syzygy_sha": "string|null"
+    "syzygy_sha": "string|null",
+    "stamp_sha": "string|null"
   },
   "required": [
     "schema",
@@ -74,6 +83,7 @@
   "optional": [
     "gui_face",
     "syzygy_sha",
+    "stamp_sha",
     "rustc_version"
   ],
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."

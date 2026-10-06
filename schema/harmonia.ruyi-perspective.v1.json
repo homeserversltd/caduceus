@@ -1,6 +1,6 @@
 {
   "schema": "harmonia.ruyi-perspective.v1",
-  "schema_version": "1.0.2",
+  "schema_version": "1.1.0",
   "role": "A registered body's raw perspective of the Ruyi staff",
   "authority": {
     "owner": "caduceus",
@@ -117,6 +117,13 @@
           ],
           "pattern": "^[0-9a-f]{64}$"
         },
+        "stamp_sha": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
         "lineage": {
           "type": "array",
           "items": {
@@ -138,6 +145,13 @@
     "Sighting": {
       "fields": {
         "syzygy_sha": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stamp_sha": {
           "type": [
             "string",
             "null"

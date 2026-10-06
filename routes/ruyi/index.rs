@@ -64,6 +64,8 @@ struct RuyiRow {
     harmonia_sha: String,
     syzygy_sha: Option<String>,
     #[serde(default)]
+    stamp_sha: Option<String>,
+    #[serde(default)]
     last_seen: u64,
     last_update: RuyiLastUpdate,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
@@ -103,6 +105,7 @@ struct DiscoveredRuyiRow {
     harmonia_sha: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     syzygy_sha: Option<String>,
+    stamp_sha: Option<String>,
     last_seen: u64,
     last_update: Option<RuyiLastUpdate>,
     discovered_via: String,
@@ -208,6 +211,10 @@ fn valid_row(row: &RuyiRow, path_mac: &str) -> bool {
         && valid_hex(&row.harmonia_sha, 40)
         && row
             .syzygy_sha
+            .as_deref()
+            .map_or(true, |sha| valid_hex(sha, 64))
+        && row
+            .stamp_sha
             .as_deref()
             .map_or(true, |sha| valid_hex(sha, 64))
         && valid_bounded_text(&row.last_update.run_id)
@@ -516,12 +523,13 @@ async fn probe_candidate(
     let gui_face = beam.get("gui_face").and_then(Value::as_str).map(str::to_owned);
     let rustc_version = beam.get("rustc_version").and_then(Value::as_str).map(str::to_owned);
     let syzygy_sha = beam.get("syzygy_sha").and_then(Value::as_str).map(str::to_owned);
+    let stamp_sha = beam.get("stamp_sha").and_then(Value::as_str).map(str::to_owned);
     let (stats, stats_signal) = if include_stats {
         fetch_peer_stats(&host, peer_port).await
     } else {
         (None, None)
     };
-    Some(DiscoveredRuyiRow { schema: row_schema().to_owned(), mac: candidate.mac, hostname, canonical_name, ipv4: ipv4.to_string(), ipv4_source: source.to_owned(), profile, gui_face, caduceus_sha, env_sha, rustc_version, harmonia_sha: None, syzygy_sha, last_seen: server_now(), last_update: None, discovered_via: "lease-sweep".to_owned(), stats: include_stats.then_some(stats), stats_signal })
+    Some(DiscoveredRuyiRow { schema: row_schema().to_owned(), mac: candidate.mac, hostname, canonical_name, ipv4: ipv4.to_string(), ipv4_source: source.to_owned(), profile, gui_face, caduceus_sha, env_sha, rustc_version, harmonia_sha: None, syzygy_sha, stamp_sha, last_seen: server_now(), last_update: None, discovered_via: "lease-sweep".to_owned(), stats: include_stats.then_some(stats), stats_signal })
 }
 
 fn response_json_200(response: &[u8]) -> Option<Value> {
@@ -688,6 +696,7 @@ async fn list(
                 caduceus_sha: row.caduceus_sha.clone(),
                 env_sha: row.env_sha.clone(),
                 syzygy_sha: row.syzygy_sha.clone(),
+                stamp_sha: row.stamp_sha.clone(),
                 last_seen: row.last_seen,
             },
             RuyiStaff::Discovered(row) => TrustRow {
@@ -695,11 +704,18 @@ async fn list(
                 caduceus_sha: row.caduceus_sha.clone(),
                 env_sha: row.env_sha.clone(),
                 syzygy_sha: row.syzygy_sha.clone(),
+                stamp_sha: row.stamp_sha.clone(),
                 last_seen: row.last_seen,
             },
         })
         .collect();
-    let trust = derive_trust(&trust_rows, &perspectives, &received, &discovered_macs);
+    let mut trust = derive_trust(&trust_rows, &perspectives, &received, &discovered_macs);
+    trust.extend(derive_stamp_trust(
+        &trust_rows,
+        &perspectives,
+        &received,
+        &discovered_macs,
+    ));
     let dns_unresolved = if !dns.is_empty() { staves.iter().filter_map(|staff| {
         let value = match staff { RuyiStaff::Announced(row) => (row.mac.as_str(), row.hostname.as_str(), row.canonical_name.as_str(), row.ipv4.as_str(), row.ipv4_source.as_deref()), RuyiStaff::Discovered(row) => (row.mac.as_str(), row.hostname.as_str(), row.canonical_name.as_str(), row.ipv4.as_str(), Some(row.ipv4_source.as_str())) };
         (value.4 == Some("declared")).then(|| json!({"mac":value.0,"hostname":value.1,"canonical_name":value.2,"ipv4":value.3}))
@@ -717,6 +733,7 @@ struct TrustRow {
     caduceus_sha: String,
     env_sha: String,
     syzygy_sha: Option<String>,
+    stamp_sha: Option<String>,
     last_seen: u64,
 }
 
@@ -728,6 +745,10 @@ fn agrees(target: &TrustRow, evidence: &Value) -> bool {
                 && pair.get("env_sha").and_then(Value::as_str) == Some(target.env_sha.as_str())
         }),
     }
+}
+
+fn stamp_agrees(stamp_sha: &str, evidence: &Value) -> bool {
+    evidence.get("stamp_sha").and_then(Value::as_str) == Some(stamp_sha)
 }
 
 /// Trust is a projection of the registered roster, never a second stored roster.
@@ -798,6 +819,72 @@ fn derive_trust(
         .collect()
 }
 
+fn derive_stamp_trust(
+    staves: &[TrustRow],
+    perspectives: &BTreeMap<String, Value>,
+    received: &BTreeMap<String, u64>,
+    discovered: &BTreeSet<String>,
+) -> Vec<Value> {
+    staves
+        .iter()
+        .filter_map(|target| {
+            let stamp_sha = target.stamp_sha.as_deref()?;
+            let mut witnesses = if discovered.contains(&target.mac) {
+                BTreeSet::new()
+            } else {
+                BTreeSet::from([target.mac.clone()])
+            };
+            let mut first_seen = target.last_seen;
+            let mut last_seen = target.last_seen;
+            let mut last_event = target.last_seen;
+            for witness in staves {
+                let Some(perspective) = perspectives.get(&witness.mac) else {
+                    continue;
+                };
+                let fallback = perspective
+                    .get("written_at")
+                    .and_then(Value::as_u64)
+                    .or_else(|| received.get(&witness.mac).copied())
+                    .unwrap_or(witness.last_seen);
+                let Some(peer) = perspective
+                    .get("seen")
+                    .and_then(|seen| seen.get(&target.mac))
+                else {
+                    continue;
+                };
+                if peer.get("mac").and_then(Value::as_str) != Some(target.mac.as_str()) {
+                    continue;
+                }
+                let at = peer
+                    .get("last_checked_in_at")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(fallback);
+                last_event = last_event.max(at);
+                if stamp_agrees(stamp_sha, peer) {
+                    witnesses.insert(witness.mac.clone());
+                    first_seen = first_seen.min(at);
+                    last_seen = last_seen.max(at);
+                }
+                if let Some(lineage) = peer.get("lineage").and_then(Value::as_array) {
+                    for event in lineage {
+                        let Some(at) = event.get("seen_at").and_then(Value::as_u64) else {
+                            continue;
+                        };
+                        last_event = last_event.max(at);
+                        if stamp_agrees(stamp_sha, event) {
+                            first_seen = first_seen.min(at);
+                            last_seen = last_seen.max(at);
+                        }
+                    }
+                }
+            }
+            Some(json!({"mac":target.mac,"kind":"stamp","stamp_sha":stamp_sha,
+            "agree":witnesses.len(),"of":staves.len(),"witnesses":witnesses,
+            "first_seen":first_seen,"last_seen":last_seen,"last_event":last_event}))
+        })
+        .collect()
+}
+
 pub(crate) fn local_syzygy() -> Result<Option<String>, String> {
     let Some(mac) = current_identity().mac else {
         return Ok(None);
@@ -808,6 +895,18 @@ pub(crate) fn local_syzygy() -> Result<Option<String>, String> {
     let row: RuyiRow =
         serde_json::from_str(&row).map_err(|_| "caduceus-ruyi-row-invalid".to_owned())?;
     Ok(row.syzygy_sha)
+}
+
+pub(crate) fn local_stamp_sha() -> Result<Option<String>, String> {
+    let Some(mac) = current_identity().mac else {
+        return Ok(None);
+    };
+    let Some(row) = crate::stats::ruyi_row(&mac)? else {
+        return Ok(None);
+    };
+    let row: RuyiRow =
+        serde_json::from_str(&row).map_err(|_| "caduceus-ruyi-row-invalid".to_owned())?;
+    Ok(row.stamp_sha)
 }
 
 async fn remove(
