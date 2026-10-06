@@ -1,9 +1,0 @@
-{
-  "schema": "caduceus.state.v1",
-  "services": {
-    "update": {
-      "enabled": true,
-      "timer": "arch-console-maintenance.timer"
-    }
-  }
-}
