@@ -149,6 +149,43 @@ steps:
         build_profile tv
         build_profile probe
 
+  - name: build-caduceus-package
+    image: git.home.arpa/homeserversltd/rust-house:house
+    when:
+      - event: push
+        branch: main
+    commands:
+      - |
+        set -eu
+        if ! printf '%s' "$${CI_COMMIT_SHA:-}" | grep -Eq "^[0-9a-f]{40}$"; then
+          echo "build-caduceus-package: CI_COMMIT_SHA must be a full 40-hex commit SHA" >&2
+          exit 1
+        fi
+        if [ -z "$${CI_PIPELINE_URL:-}" ]; then
+          echo "build-caduceus-package: CI_PIPELINE_URL is required" >&2
+          exit 1
+        fi
+
+        rustc_vv="$(rustc -Vv)"
+        env_sha=$(printf '%s\n%s\n%s\n' "$rustc_vv" "$(cargo -V)" x86_64-unknown-linux-gnu | sha256sum | cut -d' ' -f1)
+        rustc_version="$(printf '%s\n' "$rustc_vv" | sed -n 's/^release: //p')"
+        if [ -z "$rustc_version" ]; then
+          echo "build-caduceus-package: rustc -Vv has no release field" >&2
+          exit 1
+        fi
+
+        mkdir -p .release/package
+        CADUCEUS_BUILD_SHA="$${CI_COMMIT_SHA}" CADUCEUS_BUILD_ENV_SHA="$env_sha" cargo build --release --locked
+        cp target/release/caduceus .release/package/caduceus
+        binary=.release/package/caduceus
+        test -f "$binary"
+        binary_sha256="$(sha256sum "$binary" | cut -d' ' -f1)"
+        built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+        printf '{\n  "schema": "estate.artifact.manifest.v1",\n  "component": "caduceus",\n  "source_sha": "%s",\n  "env_sha": "%s",\n  "rustc_version": "%s",\n  "target": "x86_64-unknown-linux-gnu",\n  "sha256": "%s",\n  "built_at": "%s",\n  "pipeline_url": "%s"\n}\n' \
+          "$${CI_COMMIT_SHA}" "$env_sha" "$rustc_version" "$binary_sha256" "$built_at" "$${CI_PIPELINE_URL}" \
+          > .release/package/manifest.json
+
   - name: pool-publish-caduceus
     image: python:3.12-alpine
     when:
@@ -188,7 +225,7 @@ steps:
         export GIT_CONFIG_COUNT=1
         export GIT_CONFIG_VALUE_0='!f() { if [ "$${1}" = get ]; then printf "username=x-token\npassword=%s\n" "$${FORGEJO_TOKEN}"; fi; }; f'
 
-        WUKONG_STAFF_SHA=58f29bee09ca30e5b61d5ccef08b28c1941d91c7
+        WUKONG_STAFF_SHA=6767ed1a1567d8328928be2dd1f6206533c35a0f
         git clone --depth 1 https://git.home.arpa/HOMESERVERSLTD/wukong-staff.git wukong-staff
         git -C wukong-staff fetch --depth 1 origin "$${WUKONG_STAFF_SHA}"
         git -C wukong-staff checkout --detach "$${WUKONG_STAFF_SHA}"
