@@ -10,7 +10,10 @@ pub(crate) async fn route(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("interactable run") {
         Ok(true) => {
-            let (code, body) = harmonia::invoke("interactable_run", &[id], false);
+            let (code, body) = crate::gate::blocking_task("interactable run", move || {
+                harmonia::invoke("interactable_run", &[id], false)
+            })
+            .await?;
             let value = harmonia::invoke_body_to_json("interactable_run", code, &body);
             Ok((
                 if value.get("ok").and_then(Value::as_bool) == Some(true) {

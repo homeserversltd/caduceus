@@ -66,10 +66,13 @@ pub(crate) async fn route(
     Json(raw): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(COMMAND) {
-        Ok(true) => match execute_envelope(raw) {
-            Ok(value) => Ok((crate::gate::mutation_status(&value), Json(value))),
-            Err(error) => Err(api_error_signal(COMMAND, &error)),
-        },
+        Ok(true) => {
+            let result = crate::gate::blocking_task(COMMAND, move || execute_envelope(raw)).await?;
+            match result {
+                Ok(value) => Ok((crate::gate::mutation_status(&value), Json(value))),
+                Err(error) => Err(api_error_signal(COMMAND, &error)),
+            }
+        }
         Ok(false) => Err(api_error(COMMAND)),
         Err(_) => Err(api_error_signal(COMMAND, "caduceus-profile-missing")),
     }

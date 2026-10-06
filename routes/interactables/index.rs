@@ -7,7 +7,10 @@ pub const NAMESPACE: &str = "interactables";
 pub(crate) async fn route() -> Result<Response, (StatusCode, axum::Json<ApiErrorBody>)> {
     match policy::allows_command("interactable list") {
         Ok(true) => {
-            let (code, body) = harmonia::invoke("interactable_list", &[], false);
+            let (code, body) = crate::gate::blocking_task("interactable list", || {
+                harmonia::invoke("interactable_list", &[], false)
+            })
+            .await?;
             if code != 0 {
                 return Err(api_error_signal(
                     "interactable list",

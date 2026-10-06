@@ -170,13 +170,28 @@ pub(crate) struct VaultUnlockBody {
 pub(crate) struct VaultAutoBody {
     pub(crate) enabled: bool,
 }
+pub(crate) async fn blocking_task<T, F>(
+    command: &str,
+    run: F,
+) -> Result<T, (StatusCode, Json<ApiErrorBody>)>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    tokio::task::spawn_blocking(run)
+        .await
+        .map_err(|_error: tokio::task::JoinError| {
+            service_unavailable(command, "caduceus-blocking-task-join-failed")
+        })
+}
+
 pub(crate) async fn gated_mutation(
     command: &str,
     run: fn() -> Value,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
         Ok(true) => {
-            let value = run();
+            let value = blocking_task(command, run).await?;
             Ok((mutation_status(&value), Json(value)))
         }
         Ok(false) => Err(api_error(command)),

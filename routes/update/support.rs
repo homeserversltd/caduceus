@@ -1,5 +1,5 @@
 use crate::gate::{
-    api_error, api_error_signal, gated_json, gated_mutation, missing_signal,
+    api_error, api_error_signal, blocking_task, gated_json, gated_mutation, missing_signal,
     service_unavailable, ApiErrorBody, ServiceToggleBody,
 };
 #[cfg(any(
@@ -138,10 +138,16 @@ pub(crate) async fn update_service_toggle_route(
         return Err(api_error("update service toggle"));
     }
     match policy::allows_command("update service toggle") {
-        Ok(true) => match update::service_toggle_json(&state, &[]) {
-            Ok(value) => Ok((StatusCode::OK, Json(value))),
-            Err(signal) => Err(service_unavailable("update service toggle", &signal)),
-        },
+        Ok(true) => {
+            let result = blocking_task("update service toggle", move || {
+                update::service_toggle_json(&state, &[])
+            })
+            .await?;
+            match result {
+                Ok(value) => Ok((StatusCode::OK, Json(value))),
+                Err(signal) => Err(service_unavailable("update service toggle", &signal)),
+            }
+        }
         Ok(false) => Err(api_error("update service toggle")),
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
