@@ -2,7 +2,7 @@ pub use crate::routes::issue_certificate::{trust_fetch_json, trust_install_json}
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct TrustFetchBody {
+pub(super) struct TrustFetchBody {
     server: String,
     #[serde(default = "default_platform")]
     platform: String,
@@ -22,7 +22,7 @@ fn default_platform() -> String {
     "linux".to_string()
 }
 
-async fn trust_fetch(
+pub(super) async fn trust_fetch(
     axum::Json(body): axum::Json<TrustFetchBody>,
 ) -> Result<
     (axum::http::StatusCode, axum::Json<serde_json::Value>),
@@ -59,7 +59,6 @@ async fn trust_install(
 /// Canonical registration seam for this leaf.
 pub fn register(router: axum::Router) -> axum::Router {
     router
-        .route("/api/v1/cert/trust-fetch", axum::routing::post(trust_fetch))
         .route(
             "/api/v1/cert/trust-install",
             axum::routing::post(trust_install),

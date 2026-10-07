@@ -122,6 +122,7 @@ routes:
 - xenia/status
 - xenia/status/:id
 - exousia/change-pin
+- access/pin/mode
 - exousia/invalidate
 - exousia/open
 - exousia/posture
@@ -131,6 +132,8 @@ routes:
 - appliance/name
 - appliance/report
 - appliance/stats
+- appliance/stats/history
+- appliance/model-lanes/pulse
 - cartridges/admit
 - cartridges/list
 - cartridges/remove
@@ -141,7 +144,9 @@ routes:
 - gaming/input/profile/apply
 - gaming/input/profile/bind
 - gaming/provider-keys
+- games/provider-keys
 - gaming/sync
+- games/sync
 - appliance/restart
 - appliance/reboot
 - appliance/poweroff
@@ -152,6 +157,7 @@ routes:
 - settings/ssh/service/disable
 - console/restart
 - local-ai/query
+- local-ai/runtime/status
 - log/clear
 - log/read
 - log/receipts
@@ -164,7 +170,9 @@ routes:
 - network/cert/ensure-root
 - network/cert/issue-leaf
 - network/cert/status
+- cert/status
 - network/cert/trust
+- cert/trust-fetch
 - network/device/annotate
 - network/device/claim
 - network/device/list
@@ -218,6 +226,8 @@ routes:
 - storage/vault/status
 - storage/vault/unlock
 - update/check
+- update/service/status
+- update/service/toggle
 - update/now
 - update/status
 - update/modules

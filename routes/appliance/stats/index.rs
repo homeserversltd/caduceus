@@ -140,7 +140,7 @@ async fn current_http(
         .map(json_response)
 }
 
-async fn history_http(
+pub(super) async fn history_http(
     axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
 ) -> axum::response::Response {
     match crate::shared::policy::allows_command(STATS_COMMAND) {
@@ -178,7 +178,7 @@ async fn history_http(
     }
 }
 
-async fn pulse_http(
+pub(super) async fn pulse_http(
 ) -> Result<axum::Json<Value>, (axum::http::StatusCode, axum::Json<ApiErrorBody>)> {
     gated_json(STATS_COMMAND, crate::stats::request_model_lane_pulse).await
 }
@@ -186,12 +186,4 @@ async fn pulse_http(
 pub fn register(router: axum::Router) -> axum::Router {
     router
         .route("/api/v1/appliance/stats", axum::routing::get(current_http))
-        .route(
-            "/api/v1/appliance/stats/history",
-            axum::routing::get(history_http),
-        )
-        .route(
-            "/api/v1/appliance/model-lanes/pulse",
-            axum::routing::post(pulse_http),
-        )
 }

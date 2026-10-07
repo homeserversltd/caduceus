@@ -5,12 +5,14 @@
 | `/api/admin/diskman/wipe` | `/api/v1/storage/disk/wipe` |
 | `/api/admin/logs/homeserver` | `/api/v1/log/read` |
 | `/api/v1/access/pin/change` | `/api/v1/admin-admittance/change-pin` |
-| `/api/v1/access/pin/mode` | `/api/v1/admin-admittance/change-pin` |
+| `/api/v1/access/pin/mode` | `/api/v1/access/pin/mode` |
 | `/api/v1/admin-admittance/change-pin` | `/api/v1/exousia/change-pin` |
 | `/api/v1/admin-admittance/invalidate` | `/api/v1/exousia/invalidate` |
 | `/api/v1/admin-admittance/open` | `/api/v1/exousia/open` |
 | `/api/v1/admin-admittance/touch` | `/api/v1/exousia/touch` |
 | `/api/v1/admin-admittance/validate` | `/api/v1/exousia/validate` |
+| `/api/v1/appliance/model-lanes/pulse` | `/api/v1/appliance/model-lanes/pulse` |
+| `/api/v1/appliance/stats/history` | `/api/v1/appliance/stats/history` |
 | `/api/v1/attendance/change-pin` | `/api/v1/admin-admittance/change-pin` |
 | `/api/v1/attendance/invalidate` | `/api/v1/admin-admittance/invalidate` |
 | `/api/v1/attendance/open` | `/api/v1/admin-admittance/open` |
@@ -28,8 +30,8 @@
 | `/api/v1/cert/ensure-root` | `/api/v1/network/cert/ensure-root` |
 | `/api/v1/cert/issue-leaf` | `/api/v1/network/cert/issue-leaf` |
 | `/api/v1/cert/portal-admit` | `/api/v1/portals/admit` |
-| `/api/v1/cert/status` | `/api/v1/network/cert/status` |
-| `/api/v1/cert/trust-fetch` | `/api/v1/network/cert/trust` |
+| `/api/v1/cert/status` | `/api/v1/cert/status` |
+| `/api/v1/cert/trust-fetch` | `/api/v1/cert/trust-fetch` |
 | `/api/v1/cert/trust-install` | `/api/v1/network/cert/trust` |
 | `/api/v1/config/get` | `/api/v1/doors` |
 | `/api/v1/config/patch` | `/api/v1/doors` |
@@ -39,6 +41,8 @@
 | `/api/v1/disk/census` | `/api/v1/storage/disk/census` |
 | `/api/v1/doors` | `/api/v1/doors` |
 | `/api/v1/file/ingress` | `/api/v1/doors` |
+| `/api/v1/games/provider-keys` | `/api/v1/games/provider-keys` |
+| `/api/v1/games/sync` | `/api/v1/games/sync` |
 | `/api/v1/gui/update/now` | `/api/v1/update/now` |
 | `/api/v1/harmonia/update` | `/api/v1/update/now` |
 | `/api/v1/health` | `/health` |
@@ -53,6 +57,7 @@
 | `/api/v1/linker/deploy` | `/api/v1/portals/deploy` |
 | `/api/v1/linker/mkdir` | `/api/v1/portals/mkdir` |
 | `/api/v1/linker/rename` | `/api/v1/portals/rename` |
+| `/api/v1/local-ai/runtime/status` | `/api/v1/local-ai/runtime/status` |
 | `/api/v1/network/device` | `/api/v1/network/device/list` |
 | `/api/v1/network/device/claim` | `/api/v1/network/device/claim` |
 | `/api/v1/network/dhcp` | `/api/v1/network/dhcp/status` |
@@ -79,6 +84,8 @@
 | `/api/v1/time/state` | `/api/v1/network/status` |
 | `/api/v1/update/check` | `/api/v1/update/check` |
 | `/api/v1/update/now` | `/api/v1/update/now` |
+| `/api/v1/update/service/status` | `/api/v1/update/service/status` |
+| `/api/v1/update/service/toggle` | `/api/v1/update/service/toggle` |
 | `/api/v1/update/status` | `/api/v1/update/status` |
 | `/api/v1/vault/auto-decrypt` | `/api/v1/storage/vault/auto-decrypt` |
 | `/api/v1/vault/status` | `/api/v1/storage/vault/status` |

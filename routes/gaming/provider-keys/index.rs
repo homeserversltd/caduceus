@@ -37,7 +37,7 @@ fn bad_request() -> (StatusCode, Json<crate::gate::ApiErrorBody>) {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProviderKeysBody {
+pub(super) struct ProviderKeysBody {
     steamgriddb_api_key: Option<String>,
     thegamesdb_api_key: Option<String>,
     screenscraper_api_key: Option<String>,
@@ -68,7 +68,7 @@ fn public_keys(value: &Value) -> Value {
     json!({"schema":"caduceus.games.provider-keys.v1","ok":true,"keys":keys})
 }
 
-async fn status() -> Result<Json<Value>, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
+pub(super) async fn status() -> Result<Json<Value>, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
     match crate::shared::policy::allows_command("gaming provider-keys read") {
         Ok(true) => crate::gate::snake::crossing_path(
             "games/provider-keys",
@@ -84,7 +84,7 @@ async fn status() -> Result<Json<Value>, (StatusCode, Json<crate::gate::ApiError
     }
 }
 
-async fn save(
+pub(super) async fn save(
     Json(body): Json<ProviderKeysBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<crate::gate::ApiErrorBody>)> {
     let keys = [
@@ -115,11 +115,9 @@ async fn save(
     }
 }
 
-/// Canonical registration seam plus the `/games/provider-keys` compatibility alias.
+/// Canonical registration seam for this leaf.
 pub fn register(router: Router) -> Router {
     router
         .route("/api/v1/gaming/provider-keys", axum::routing::get(status))
         .route("/api/v1/gaming/provider-keys", axum::routing::post(save))
-        .route("/api/v1/games/provider-keys", axum::routing::get(status))
-        .route("/api/v1/games/provider-keys", axum::routing::post(save))
 }

@@ -113,10 +113,9 @@ pub fn runtime_update(rest: &[String]) -> i32 {
     }
 }
 
-async fn http_status() -> Result<axum::Json<serde_json::Value>, (axum::http::StatusCode, axum::Json<crate::gate::ApiErrorBody>)> { crate::gate::gated_json("local-ai runtime status", runtime_status_json).await }
+pub(super) async fn http_status() -> Result<axum::Json<serde_json::Value>, (axum::http::StatusCode, axum::Json<crate::gate::ApiErrorBody>)> { crate::gate::gated_json("local-ai runtime status", runtime_status_json).await }
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: axum::Router) -> axum::Router {
     router
-        .route("/api/v1/local-ai/runtime/status", axum::routing::get(http_status))
 }

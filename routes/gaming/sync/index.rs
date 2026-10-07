@@ -16,7 +16,7 @@ fn staff_refusal(command: &str, signal: String) -> (StatusCode, Json<crate::gate
     )
 }
 
-async fn sync() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<crate::gate::ApiErrorBody>)>
+pub(super) async fn sync() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<crate::gate::ApiErrorBody>)>
 {
     let body = json!({});
     match crate::shared::policy::allows_command("gaming sync") {
@@ -31,9 +31,8 @@ async fn sync() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<crate::ga
     }
 }
 
-/// Canonical registration seam plus the `/games/sync` compatibility alias.
+/// Canonical registration seam for this leaf.
 pub fn register(router: Router) -> Router {
     router
         .route("/api/v1/gaming/sync", axum::routing::post(sync))
-        .route("/api/v1/games/sync", axum::routing::post(sync))
 }
