@@ -132,8 +132,27 @@ fn collect_candidates(
     }
     let fstype = string(entry, "fstype").unwrap_or_default();
     let is_luks = fstype.eq_ignore_ascii_case("crypto_luks");
+    let luks_mapper = if is_luks {
+        entry
+            .get("children")
+            .and_then(Value::as_array)
+            .and_then(|children| {
+                children
+                    .iter()
+                    .find(|child| string(child, "type") == Some("crypt"))
+            })
+    } else {
+        None
+    };
+    if luks_mapper.is_some_and(|mapper| {
+        mountpoints(mapper)
+            .iter()
+            .any(|mount| HIDDEN_MOUNTS.contains(&mount.as_str()))
+    }) {
+        return;
+    }
     if NAS_FILESYSTEMS.contains(&fstype) || is_luks {
-        census.push(receipt(parent, entry, is_luks, space));
+        census.push(receipt(parent, entry, luks_mapper, space));
         return;
     }
     if string(entry, "type") == Some("disk")
@@ -144,7 +163,7 @@ fn collect_candidates(
             .map_or(true, |children| children.as_array().is_some_and(Vec::is_empty))
         && mountpoints(entry).is_empty()
     {
-        let mut candidate = receipt(parent, entry, false, space);
+        let mut candidate = receipt(parent, entry, None, space);
         if let Some(fields) = candidate.as_object_mut() {
             fields.insert("blank".to_string(), json!(true));
         }
@@ -161,11 +180,21 @@ fn collect_candidates(
 fn receipt(
     parent: &Value,
     entry: &Value,
-    locked_luks: bool,
+    luks_mapper: Option<&Value>,
     space: &BTreeMap<String, Value>,
 ) -> Value {
-    let mountpoint = mountpoints(entry).into_iter().next();
-    let mapper = if string(entry, "type") == Some("crypt") {
+    let filesystem = luks_mapper.unwrap_or(entry);
+    let locked_luks = string(entry, "fstype")
+        .is_some_and(|fstype| fstype.eq_ignore_ascii_case("crypto_luks"))
+        && luks_mapper.is_none();
+    let mountpoint = if locked_luks {
+        None
+    } else {
+        mountpoints(filesystem).into_iter().next()
+    };
+    let mapper = if let Some(mapper) = luks_mapper {
+        string(mapper, "name").map(str::to_string)
+    } else if string(entry, "type") == Some("crypt") {
         string(entry, "name").map(str::to_string)
     } else {
         None
@@ -191,7 +220,7 @@ fn receipt(
         "sizeBytes".to_string(),
         entry.get("size").cloned().unwrap_or(Value::Null),
     );
-    value.insert("fstype".to_string(), json!(string(entry, "fstype")));
+    value.insert("fstype".to_string(), json!(string(filesystem, "fstype")));
     value.insert("encryption".to_string(), encryption);
     value.insert("mountpoint".to_string(), json!(mountpoint));
     value.insert(
