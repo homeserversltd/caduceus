@@ -9,6 +9,8 @@ commands:
 - update modules toggle
 - update now
 - update check
+- update service status
+- update service toggle
 - hyalos reflect
 - hyalos append
 - hyalos tail
