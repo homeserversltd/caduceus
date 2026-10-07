@@ -37,6 +37,7 @@
     "xenia.events.v1": {"file": "schema/xenia.events.v1.json", "schema_version": "1.0.0"},
     "caduceus.exousia.posture.v1": {"file": "schema/caduceus.exousia.posture.v1.json", "schema_version": "1.0.0"},
     "coronatio.exousia.agent.service.v1": {"file": "schema/coronatio.exousia.agent.service.v1.json", "schema_version": "1.0.0"},
-    "coronatio.exousia.agent.posture.v1": {"file": "schema/coronatio.exousia.agent.posture.v1.json", "schema_version": "1.0.0"}
+    "coronatio.exousia.agent.posture.v1": {"file": "schema/coronatio.exousia.agent.posture.v1.json", "schema_version": "1.0.0"},
+    "caduceus.nas.setup.v1": {"file": "schema/caduceus.nas.setup.v1.json", "schema_version": "1.0.0"}
   }
 }
