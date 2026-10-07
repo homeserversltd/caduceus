@@ -48,6 +48,9 @@ commands:
 - interactable list
 - interactable run
 - profile sources reseed
+services:
+  update:
+    timer: harmonia.timer
 pjlink:
   catalog_path: var/lib/caduceus/pjlink-known-products.jsonl
   devices:

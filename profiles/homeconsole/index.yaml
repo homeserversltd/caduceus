@@ -79,7 +79,7 @@ commands:
 services:
   ledger: /var/lib/harmonia/receipts/homeconsole-ledger.jsonl
   update:
-    timer: harmonia-homeconsole.timer
+    timer: harmonia.timer
     latest_receipt: /var/lib/harmonia/receipts/update-latest/run.json
   sync:
     latest_receipt: /var/lib/harmonia/receipts/homeconsole-sync-latest/run.json

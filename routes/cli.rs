@@ -653,7 +653,10 @@ where
             }
         }
         [domain, object, verb] if domain == "update" && object == "service" && verb == "status" => {
-            update::service_status()
+            match require_policy("update service status", &[]) {
+                Ok(_) => update::service_status(),
+                Err(code) => code,
+            }
         }
         [domain, object, verb, state, rest @ ..]
             if domain == "update" && object == "service" && verb == "toggle" =>

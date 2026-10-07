@@ -1,1 +1,1 @@
-{"namespace":"update/service/status","admittance":"open","flags":{},"serve":[]}
+{"namespace":"update/service/status","admittance":"open","flags":{},"commands":["update service status"],"serve":[{"snake":"update/service","verb":["update","service"],"payload":{"action":["status"]}}]}

@@ -1,6 +1,6 @@
 use crate::gate::{
     api_error, api_error_signal, blocking_task, gated_json, gated_mutation, missing_signal,
-    service_unavailable, ApiErrorBody, ServiceToggleBody,
+    service_unavailable, ApiErrorBody,
 };
 #[cfg(any(
     leaf_settings_appearance,
@@ -127,16 +127,28 @@ pub(crate) async fn update_service_status_route(
 
 pub(crate) async fn update_service_toggle_route(
     headers: HeaderMap,
-    body: Result<Json<ServiceToggleBody>, JsonRejection>,
+    body: Result<Json<Value>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let Json(body) = match body {
         Ok(body) => body,
         Err(_) => return Err(api_error("update service toggle")),
     };
-    let state = body.state;
-    if !matches!(state.as_str(), "on" | "off") {
+    let Some(body) = body.as_object() else {
         return Err(api_error("update service toggle"));
-    }
+    };
+    let state = body
+        .get("state")
+        .or_else(|| {
+            body.get("payload")
+                .and_then(Value::as_object)
+                .and_then(|payload| payload.get("state"))
+        })
+        .and_then(Value::as_str)
+        .filter(|state| matches!(*state, "on" | "off"))
+        .map(str::to_owned);
+    let Some(state) = state else {
+        return Err(api_error("update service toggle"));
+    };
     match policy::allows_command("update service toggle") {
         Ok(true) => {
             let result = blocking_task("update service toggle", move || {
