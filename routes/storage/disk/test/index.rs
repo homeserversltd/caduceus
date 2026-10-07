@@ -1,18 +1,20 @@
 // Hard-drive test control and readback.
 //
-// The start door retains the OG tester command, but dry-run is a plan only: it
-// resolves the requested identifier and returns the exact argv without spawning
-// the destructive external tester.
+// The start door crosses the storage/disk/test staff band. Dry-run resolves the
+// requested identifier and returns the exact argv and JSON stdin without spawning.
 
 use serde_json::{json, Value};
+use std::ffi::OsString;
+use std::io::Write;
 use std::{
     fs,
     path::Path,
-    process::{Child, Command},
+    process::{Child, Command, Stdio},
     sync::{Mutex, OnceLock},
 };
 
-const TESTER: &str = "/usr/local/sbin/harddrive_test.sh";
+const AGATHODAIMON_CLI: &str = "/usr/local/sbin/agathodaimon/cli.py";
+const DISK_TEST_BAND: &str = "storage/disk/test";
 const RESULTS_FILE: &str = "/var/harddriveTest.txt";
 const TEST_TYPES: &[&str] = &["quick", "full", "ultimate"];
 
@@ -27,18 +29,65 @@ fn active_test() -> &'static Mutex<Option<ActiveTest>> {
     ACTIVE.get_or_init(|| Mutex::new(None))
 }
 
-fn tester_argv(device: &str, test_type: &str) -> Vec<String> {
-    vec![
-        "/usr/bin/sudo".into(),
-        "-n".into(),
-        TESTER.into(),
-        device.into(),
-        test_type.into(),
-    ]
+struct StaffBandInvocation {
+    executable: OsString,
+    args: Vec<OsString>,
 }
 
 fn command_text(argv: &[String]) -> String {
     argv.join(" ")
+}
+
+fn staff_band_invocation() -> StaffBandInvocation {
+    match std::env::var_os("CADUCEUS_AGATHODAIMON_CLI") {
+        Some(cli) => StaffBandInvocation {
+            executable: cli,
+            args: vec![DISK_TEST_BAND.into()],
+        },
+        None => StaffBandInvocation {
+            executable: "/usr/bin/sudo".into(),
+            args: vec!["-n".into(), AGATHODAIMON_CLI.into(), DISK_TEST_BAND.into()],
+        },
+    }
+}
+
+impl StaffBandInvocation {
+    fn argv(&self) -> Vec<String> {
+        std::iter::once(&self.executable)
+            .chain(self.args.iter())
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    }
+}
+
+fn test_band_payload(device: &str, test_type: &str) -> Value {
+    json!({
+        "device": device,
+        "test_type": test_type,
+    })
+}
+
+fn spawn_test_band(invocation: &StaffBandInvocation, payload: &Value) -> Result<Child, String> {
+    let payload = serde_json::to_vec(payload)
+        .map_err(|error| format!("caduceus-hard-drive-test-start-failed:{error}"))?;
+    let mut child = Command::new(&invocation.executable)
+        .args(&invocation.args)
+        .stdin(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("caduceus-hard-drive-test-start-failed:{error}"))?;
+    let Some(mut stdin) = child.stdin.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("caduceus-hard-drive-test-start-failed:staff-stdin-unavailable".into());
+    };
+    if let Err(error) = stdin.write_all(&payload) {
+        drop(stdin);
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("caduceus-hard-drive-test-start-failed:{error}"));
+    }
+    drop(stdin);
+    Ok(child)
 }
 
 pub fn resolve_device_identifier(identifier: &str) -> Result<String, String> {
@@ -106,7 +155,9 @@ fn validate_test_type(test_type: &str) -> Result<(), String> {
 pub fn start_json(device: &str, test_type: &str, dry_run: bool) -> Result<Value, String> {
     validate_test_type(test_type)?;
     let device = resolve_device_identifier(device)?;
-    let argv = tester_argv(&device, test_type);
+    let invocation = staff_band_invocation();
+    let argv = invocation.argv();
+    let stdin_json = test_band_payload(&device, test_type);
     if dry_run {
         return Ok(json!({
             "schema": "caduceus.hard-drive-test.start.v1",
@@ -118,6 +169,7 @@ pub fn start_json(device: &str, test_type: &str, dry_run: bool) -> Result<Value,
             "testType": test_type,
             "argv": argv,
             "command": command_text(&argv),
+            "stdinJson": stdin_json,
             "firstMissingSignal": "none"
         }));
     }
@@ -132,10 +184,7 @@ pub fn start_json(device: &str, test_type: &str, dry_run: bool) -> Result<Value,
         return Err("caduceus-hard-drive-test-already-running".into());
     }
     *active = None;
-    let child = Command::new("/usr/bin/sudo")
-        .args(["-n", TESTER, &device, test_type])
-        .spawn()
-        .map_err(|err| format!("caduceus-hard-drive-test-start-failed:{err}"))?;
+    let child = spawn_test_band(&invocation, &stdin_json)?;
     *active = Some(ActiveTest {
         child,
         device: device.clone(),
@@ -151,6 +200,7 @@ pub fn start_json(device: &str, test_type: &str, dry_run: bool) -> Result<Value,
         "testType": test_type,
         "argv": argv,
         "command": command_text(&argv),
+        "stdinJson": stdin_json,
         "firstMissingSignal": "none"
     }))
 }

@@ -1,11 +1,13 @@
 use crate::shared::config;
 use serde_json::{json, Value};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::process::{Command, Stdio};
 
 pub const DEFAULT_HARMONIA_BIN: &str = "/usr/local/bin/harmonia";
+const AGATHODAIMON_CLI: &str = "/usr/local/sbin/agathodaimon/cli.py";
+const HARMONIA_PRESS_BAND: &str = "appliance/harmonia-press";
 
 pub fn load_profile_value() -> Result<Value, String> {
     config::read_public_profile_value()
@@ -105,21 +107,6 @@ fn create_transcripts() -> io::Result<(String, File, File)> {
     ))
 }
 
-// D-Bus-created transient command arguments do not expand '%' specifiers, but
-// systemd still expands '$' in command arguments. Double only '$' so literal
-// application arguments survive while percent bytes remain unchanged.
-fn escaped_systemd_argument(argument: &str) -> String {
-    argument.replace('$', "$$")
-}
-
-// The transient D-Bus property leaves '%' alone; printf needs real %s
-// conversions in its format string. Double '$' so the shell receives variables.
-fn exec_stop_post_property(invocation_id: &str) -> String {
-    format!(
-        "ExecStopPost=/bin/sh -c 'printf \"\\n__CADUCEUS_HARMONIA_EXIT_V1_{invocation_id}__|%s|%s\\n\" \"$$EXIT_CODE\" \"$$EXIT_STATUS\" >&2'"
-    )
-}
-
 fn strip_manager_footer(stderr: &mut String, invocation_id: &str) -> Option<(i32, bool)> {
     let without_final_newline = stderr.strip_suffix('\n')?;
     let (body, footer) = without_final_newline.rsplit_once('\n')?;
@@ -142,25 +129,61 @@ fn strip_manager_footer(stderr: &mut String, invocation_id: &str) -> Option<(i32
     Some(completion)
 }
 
+// The staff band owns systemd-run and its dollar escaping. Caduceus sends the
+// original program argv and transcript correlation id; the transient service
+// itself remains systemd-owned if this caller is restarted.
+fn invoke_harmonia_press_band(
+    invocation_id: &str,
+    argv: &[String],
+    stdout_file: &File,
+    stderr_file: &File,
+) -> io::Result<std::process::ExitStatus> {
+    let payload = serde_json::to_vec(&json!({
+        "argv": argv,
+        "invocation_id": invocation_id,
+    }))
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    // This override is the direct recorder seam for local proof only; production uses sudo -n.
+    let override_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI");
+    let mut command = match override_cli {
+        Some(cli) => {
+            let mut command = Command::new(cli);
+            command.arg(HARMONIA_PRESS_BAND);
+            command
+        }
+        None => {
+            let mut command = Command::new("/usr/bin/sudo");
+            command.args(["-n", AGATHODAIMON_CLI, HARMONIA_PRESS_BAND]);
+            command
+        }
+    };
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::from(stdout_file.try_clone()?))
+        .stderr(Stdio::from(stderr_file.try_clone()?))
+        .spawn()?;
+    let Some(mut stdin) = child.stdin.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "agathodaimon band stdin unavailable",
+        ));
+    };
+    if let Err(error) = stdin.write_all(&payload) {
+        drop(stdin);
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
+    drop(stdin);
+    child.wait()
+}
+
 fn invoke_in_transient_service(argv: &[String]) -> io::Result<InvocationOutput> {
     let (invocation_id, mut stdout_file, mut stderr_file) = create_transcripts()?;
-    let mut command = Command::new("sudo");
-    command
-        .arg("-n")
-        .arg("/usr/bin/systemd-run")
-        .args(["--quiet", "--wait", "--pipe", "--collect"])
-        .arg("--property")
-        .arg(exec_stop_post_property(&invocation_id))
-        .arg("--")
-        .args(
-            argv.iter()
-                .map(|argument| escaped_systemd_argument(argument)),
-        )
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(stdout_file.try_clone()?))
-        .stderr(Stdio::from(stderr_file.try_clone()?));
-
-    let manager_status = command.status()?;
+    let manager_status =
+        invoke_harmonia_press_band(&invocation_id, argv, &stdout_file, &stderr_file)?;
     let mut stdout_bytes = Vec::new();
     let mut stderr_bytes = Vec::new();
     stdout_file.seek(SeekFrom::Start(0))?;
