@@ -225,7 +225,7 @@ steps:
         export GIT_CONFIG_COUNT=1
         export GIT_CONFIG_VALUE_0='!f() { if [ "$${1}" = get ]; then printf "username=x-token\npassword=%s\n" "$${FORGEJO_TOKEN}"; fi; }; f'
 
-        WUKONG_STAFF_SHA=6767ed1a1567d8328928be2dd1f6206533c35a0f
+        WUKONG_STAFF_SHA=c849d8da6c7b58e4ffe9ce17ac023edf58a6cc81
         git clone --depth 1 https://git.home.arpa/HOMESERVERSLTD/wukong-staff.git wukong-staff
         git -C wukong-staff fetch --depth 1 origin "$${WUKONG_STAFF_SHA}"
         git -C wukong-staff checkout --detach "$${WUKONG_STAFF_SHA}"
