@@ -4,7 +4,6 @@ use std::fs;
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 
-const STATE: &str = "/var/lib/homeconsole/state.json";
 const APPLIANCE_CONFIG: &str = "/etc/appliance/config.json";
 const POLICY_RECEIPT_SCHEMA: &str = "caduceus.vault.policy-write.v1";
 const CONFIG_MUTATION_SCHEMA: &str = "caduceus.household-config.mutation.v1";
@@ -87,12 +86,6 @@ fn log_internal(operation: &str, error: &str) {
     eprintln!("vault-{operation}-failed: {error}");
 }
 
-fn state() -> Result<Value, String> {
-    let text =
-        fs::read_to_string(root_path(STATE)).map_err(|_| "vault-state-unavailable".to_string())?;
-    serde_json::from_str(&text).map_err(|_| "vault-state-invalid".to_string())
-}
-
 fn config() -> Result<Value, String> {
     let text = fs::read_to_string(root_path(APPLIANCE_CONFIG))
         .map_err(|_| "vault-config-unavailable".to_string())?;
@@ -121,12 +114,6 @@ fn configured_auto_unlock(cfg: &Value) -> Option<bool> {
 }
 
 fn vault_config() -> Result<VaultConfig, String> {
-    let state = state()?;
-    let vault = state.get("vault").unwrap_or(&state);
-    let mapper = string_at(vault, &["mapper", "name"])
-        .ok_or_else(|| "vault-mapper-unconfigured".to_string())?;
-    let mountpoint = string_at(vault, &["mountpoint", "mount_point"])
-        .ok_or_else(|| "vault-mountpoint-unconfigured".to_string())?;
     let cfg = config()?;
     let top_level_vault = cfg.get("mounts").and_then(|v| v.get("vault"));
     let global_vault = cfg
@@ -136,6 +123,10 @@ fn vault_config() -> Result<VaultConfig, String> {
     let mounts = top_level_vault
         .or(global_vault)
         .ok_or_else(|| "vault-mount-config-unavailable".to_string())?;
+    let mapper = string_at(mounts, &["mapper"])
+        .ok_or_else(|| "vault-mapper-unconfigured".to_string())?;
+    let mountpoint = string_at(mounts, &["mountPoint", "mountpoint", "mount_point"])
+        .ok_or_else(|| "vault-mountpoint-unconfigured".to_string())?;
     let auto_unlock = configured_auto_unlock(&cfg);
     let (device, keyfile) = if let Some(object) = mounts.as_object() {
         (
@@ -312,13 +303,8 @@ fn result(success: bool, message: &str) -> Value {
 pub fn status_json() -> Value {
     match vault_config() {
         Ok(cfg) => {
-            let present = state()
-                .ok()
-                .and_then(|state| {
-                    let vault = state.get("vault").unwrap_or(&state);
-                    vault.get("enabled").and_then(Value::as_bool)
-                })
-                .unwrap_or(false);
+            // Status presence is a parsed appliance declaration, not mount state or the staff receipt's `present`.
+            let present = true;
             let (auto_decrypt_enabled, auto_unlock_source) = auto_unlock_state(&cfg);
             json!({
                 "mounted": mounted(&cfg),
