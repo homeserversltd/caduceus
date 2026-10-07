@@ -63,6 +63,8 @@ commands:
 - update now
 routes:
 - appliance/stats
+- appliance/stats/history
+- appliance/model-lanes/pulse
 - appliance/report
 - appliance/name
 - appliance/claim
@@ -77,6 +79,7 @@ routes:
 - exousia/validate
 - exousia/touch
 - exousia/change-pin
+- access/pin/mode
 - exousia/invalidate
 - network/status
 - network/tailnet
@@ -96,11 +99,13 @@ routes:
 - network/device/pin-address
 - network/device/whitelist
 - network/cert/status
+- cert/status
 - network/cert/bundle
 - network/cert/issue-leaf
 - network/cert/apply
 - network/cert/ensure-root
 - network/cert/trust
+- cert/trust-fetch
 - storage/disk/census
 - storage/disk/test
 - storage/disk/wipe
@@ -122,4 +127,6 @@ routes:
 - update/modules/:id
 - update/module
 - update/check
+- update/service/status
+- update/service/toggle
 - update/now
