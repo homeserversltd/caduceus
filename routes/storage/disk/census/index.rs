@@ -136,6 +136,21 @@ fn collect_candidates(
         census.push(receipt(parent, entry, is_luks, space));
         return;
     }
+    if string(entry, "type") == Some("disk")
+        && parent == entry
+        && string(entry, "fstype").is_none()
+        && entry
+            .get("children")
+            .map_or(true, |children| children.as_array().is_some_and(Vec::is_empty))
+        && mountpoints(entry).is_empty()
+    {
+        let mut candidate = receipt(parent, entry, false, space);
+        if let Some(fields) = candidate.as_object_mut() {
+            fields.insert("blank".to_string(), json!(true));
+        }
+        census.push(candidate);
+        return;
+    }
     if let Some(children) = entry.get("children").and_then(Value::as_array) {
         for child in children {
             collect_candidates(parent, child, space, census);
