@@ -64,6 +64,8 @@ commands:
 - staff actuators
 - staff intent
 - storage nas setup
+- storage nas attach
+- storage nas detach
 - exousia posture read
 - cert status
 - cert refresh-root
@@ -208,6 +210,8 @@ routes:
 - storage/disk/test
 - storage/disk/wipe
 - storage/nas/setup
+- storage/nas/attach
+- storage/nas/detach
 - storage/vault/auto-decrypt
 - storage/vault/status
 - storage/vault/unlock

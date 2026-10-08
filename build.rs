@@ -315,6 +315,8 @@ fn main() {
         "coronatio.exousia.agent.service.v1",
         "coronatio.exousia.agent.posture.v1",
         "caduceus.nas.setup.v1",
+        "caduceus.nas.attach.v1",
+        "caduceus.nas.detach.v1",
     ]
     .map(|id| PathBuf::from(format!("schema/{id}.json")));
     let mut embedded = String::from("const EMBEDDED_SEATS: &[(&str, &str)] = &[\n");

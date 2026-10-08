@@ -1,0 +1,81 @@
+{
+  "schema": "caduceus.nas.attach.v1",
+  "schema_version": "1.0.0",
+  "role": "Caduceus NAS attach transaction receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.nas.attach.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "The declared flat required fields are the NAS attach receipt kernel."
+  },
+  "required": [
+    "schema",
+    "ok",
+    "firstMissingSignal",
+    "role",
+    "partlabel",
+    "mapper",
+    "mountpoint",
+    "steps",
+    "servicesStarted"
+  ],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.nas.attach.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "firstMissingSignal": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string",
+      "enum": ["primary", "backup"]
+    },
+    "partlabel": {
+      "type": ["string", "null"]
+    },
+    "mapper": {
+      "type": ["string", "null"]
+    },
+    "mountpoint": {
+      "type": ["string", "null"]
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step", "ok", "readback"],
+        "properties": {
+          "step": {"type": "string"},
+          "ok": {"type": "boolean"},
+          "readback": {}
+        },
+        "additionalProperties": true
+      }
+    },
+    "servicesStarted": {
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "firstMissingSignal": "string",
+    "role": "string",
+    "partlabel": "string|null",
+    "mapper": "string|null",
+    "mountpoint": "string|null",
+    "steps": "array",
+    "servicesStarted": "array"
+  },
+  "optional": [],
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}
