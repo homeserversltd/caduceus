@@ -66,6 +66,9 @@ commands:
 - storage nas setup
 - storage nas attach
 - storage nas detach
+- transmission up
+- transmission down
+- transmission status
 - exousia posture read
 - cert status
 - cert refresh-root
@@ -212,6 +215,9 @@ routes:
 - storage/nas/setup
 - storage/nas/attach
 - storage/nas/detach
+- transmission/up
+- transmission/down
+- transmission/status
 - storage/vault/auto-decrypt
 - storage/vault/status
 - storage/vault/unlock

@@ -40,6 +40,9 @@
     "coronatio.exousia.agent.posture.v1": {"file": "schema/coronatio.exousia.agent.posture.v1.json", "schema_version": "1.0.0"},
     "caduceus.nas.setup.v1": {"file": "schema/caduceus.nas.setup.v1.json", "schema_version": "1.0.0"},
     "caduceus.nas.attach.v1": {"file": "schema/caduceus.nas.attach.v1.json", "schema_version": "1.0.0"},
-    "caduceus.nas.detach.v1": {"file": "schema/caduceus.nas.detach.v1.json", "schema_version": "1.0.0"}
+    "caduceus.nas.detach.v1": {"file": "schema/caduceus.nas.detach.v1.json", "schema_version": "1.0.0"},
+    "caduceus.transmission.up.v1": {"file": "schema/caduceus.transmission.up.v1.json", "schema_version": "1.0.0"},
+    "caduceus.transmission.down.v1": {"file": "schema/caduceus.transmission.down.v1.json", "schema_version": "1.0.0"},
+    "caduceus.transmission.status.v1": {"file": "schema/caduceus.transmission.status.v1.json", "schema_version": "1.0.0"}
   }
 }

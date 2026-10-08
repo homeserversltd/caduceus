@@ -233,6 +233,8 @@ const ADMINISTRATIVE_ROUTES_MAX_BYTES: usize = 64 * 1024;
 const NAS_SETUP_HTTP_PATH: &str = "/api/v1/storage/nas/setup";
 const NAS_ATTACH_HTTP_PATH: &str = "/api/v1/storage/nas/attach";
 const NAS_DETACH_HTTP_PATH: &str = "/api/v1/storage/nas/detach";
+const TRANSMISSION_UP_HTTP_PATH: &str = "/api/v1/transmission/up";
+const TRANSMISSION_DOWN_HTTP_PATH: &str = "/api/v1/transmission/down";
 const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "/api/v1/access/pin/mode",
     "/api/v1/access/sudo/mode",
@@ -414,7 +416,9 @@ fn administrative_routes_match(
         method.eq_ignore_ascii_case("POST")
             && (path == NAS_SETUP_HTTP_PATH
                 || path == NAS_ATTACH_HTTP_PATH
-                || path == NAS_DETACH_HTTP_PATH)
+                || path == NAS_DETACH_HTTP_PATH
+                || path == TRANSMISSION_UP_HTTP_PATH
+                || path == TRANSMISSION_DOWN_HTTP_PATH)
     }) {
         return Ok(true);
     }

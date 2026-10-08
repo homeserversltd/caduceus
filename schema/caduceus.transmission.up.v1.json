@@ -1,0 +1,62 @@
+{
+  "schema": "caduceus.transmission.up.v1",
+  "schema_version": "1.0.0",
+  "role": "Caduceus Transmission up receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.transmission.up.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Only schema is required; absent optional receipt fields mean null."
+  },
+  "required": ["schema"],
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.transmission.up.v1"},
+    "ok": {"type": ["boolean", "null"]},
+    "firstMissingSignal": {"type": ["string", "null"]},
+    "provider": {"type": ["string", "null"]},
+    "steps": {"type": ["array", "null"], "items": {}},
+    "on": {"type": ["boolean", "null"]},
+    "conditions": {
+      "type": ["object", "null"],
+      "properties": {
+        "namespace": {"type": ["boolean", "null"]},
+        "tunnel": {"type": ["boolean", "null"]},
+        "forward": {"type": ["boolean", "null"]},
+        "daemon": {"type": ["boolean", "null"]},
+        "peerPort": {"type": ["boolean", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "forwardPort": {"type": ["integer", "null"]},
+    "peerPort": {"type": ["integer", "null"]},
+    "rpcPort": {"type": ["integer", "null"]}
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean|null",
+    "firstMissingSignal": "string|null",
+    "provider": "string|null",
+    "steps": "array|null",
+    "on": "boolean|null",
+    "conditions": "object|null",
+    "forwardPort": "integer|null",
+    "peerPort": "integer|null",
+    "rpcPort": "integer|null"
+  },
+  "optional": [
+    "ok",
+    "firstMissingSignal",
+    "provider",
+    "steps",
+    "on",
+    "conditions",
+    "forwardPort",
+    "peerPort",
+    "rpcPort"
+  ],
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}
