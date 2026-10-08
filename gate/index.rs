@@ -1005,6 +1005,10 @@ async fn wait_for_shutdown(mut stop: watch::Receiver<bool>) {
 }
 
 pub async fn run_async() -> i32 {
+    if let Err(error) = crate::crossings::initialize() {
+        eprintln!("{error}");
+        return 1;
+    }
     let mut ctrl_c = match signal(SignalKind::interrupt()) {
         Ok(signal) => signal,
         Err(error) => {

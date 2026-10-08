@@ -1,1 +1,1 @@
-{"namespace":"network/device/wake","admittance":"open","flags":{},"serve":[]}
+{"namespace":"network/device/wake","admittance":"open","flags":{},"serve":[{"snake":"network/wake-on-lan","verb":["network","wake-on-lan"]}]}

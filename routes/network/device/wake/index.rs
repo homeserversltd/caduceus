@@ -2,7 +2,7 @@
 use serde_json::Value;
 
 pub fn command_json(metadata: Value) -> Result<Value, String> {
-    crate::routes::staff::execute_registered_actuator("wake-on-lan", metadata)
+    crate::routes::staff::named_actuator_json("wake-on-lan", metadata)
 }
 
 pub fn command(metadata: Value) -> i32 {
@@ -20,17 +20,17 @@ pub fn command(metadata: Value) -> i32 {
 
 use crate::gate::ApiErrorBody;
 use axum::{
-    extract::{Json, OriginalUri},
+    extract::Json,
     http::{HeaderMap, StatusCode},
     Router,
 };
 
 async fn wake_named_actuator_route(
     _headers: HeaderMap,
-    OriginalUri(uri): OriginalUri,
     Json(metadata): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    if !crate::gate::roster_allows("POST", uri.path()).unwrap_or(false) {
+    // The exact mounted leaf is checked against its profile namespace, not its wire URL.
+    if !crate::gate::roster_allows("POST", "network/device/wake").unwrap_or(false) {
         return Err(crate::gate::api_error_signal(
             "staff intent",
             "caduceus-route-off-roster",

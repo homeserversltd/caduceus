@@ -353,7 +353,7 @@ fn execute_with_timeout(
     };
     let mut command = if override_cli {
         let mut command = Command::new(&cli);
-        command.args(band.split('/'));
+        command.arg(band);
         command
     } else {
         let mut command = Command::new("/usr/bin/sudo");

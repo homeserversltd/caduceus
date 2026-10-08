@@ -567,7 +567,18 @@ where
             }
         }
         [domain, verb] if domain == "staff" && verb == "status" => staff::status(),
-        [domain, verb] if domain == "staff" && verb == "actuators" => staff::actuators(),
+        [domain, verb] if domain == "staff" && verb == "actuators" => {
+            match crate::crossings::raw() {
+                Ok(raw) => {
+                    print!("{raw}");
+                    0
+                }
+                Err(err) => {
+                    eprintln!("{err}");
+                    1
+                }
+            }
+        }
         [domain, verb] if domain == "staff" && verb == "crossings" => staff::crossings(),
         [domain, verb, method, route, rest @ ..] if domain == "staff" && verb == "intent" => {
             match require_policy("staff intent", rest) {

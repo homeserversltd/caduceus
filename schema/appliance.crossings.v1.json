@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema": "appliance.crossings.v1",
+  "schema_version": "1.0.0",
+  "description": "Profile-bound public Caduceus crossings declaration. Optional collections are empty when absent; readers preserve unknown fields.",
+  "type": "object",
+  "required": ["schema", "profile"],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "appliance.crossings.v1"
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bands": {
+      "type": ["array", "null"],
+      "items": {"type": "string"},
+      "default": []
+    },
+    "routes": {
+      "type": ["array", "null"],
+      "items": {"type": "string"},
+      "default": []
+    },
+    "verbs": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {"type": "string"}
+      },
+      "default": []
+    },
+    "administrative": {
+      "type": ["object", "null"],
+      "properties": {
+        "bands": {
+          "type": ["array", "null"],
+          "items": {"type": "string"},
+          "default": []
+        },
+        "routes": {
+          "type": ["array", "null"],
+          "items": {"type": "string"},
+          "default": []
+        },
+        "verbs": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {"type": "string"}
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

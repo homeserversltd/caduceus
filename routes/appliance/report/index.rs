@@ -103,8 +103,16 @@ async fn homeserver_show_http(
     }
 }
 
-async fn staff_actuators_http() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    gated_json("staff actuators", crate::routes::staff::actuators_json).await
+async fn crossings_http() -> axum::response::Response {
+    use axum::response::IntoResponse;
+    match crate::crossings::raw() {
+        Ok(raw) => (
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            raw,
+        )
+            .into_response(),
+        Err(signal) => crate::gate::api_error_signal("crossings", &signal).into_response(),
+    }
 }
 
 /// Coronatio's source-currency door: the relation of a running Coronatio build
@@ -153,6 +161,7 @@ pub fn register(router: axum::Router) -> axum::Router {
         )
         .route(
             "/api/v1/staff/actuators",
-            axum::routing::get(staff_actuators_http),
+            axum::routing::get(crossings_http),
         )
+        .route("/api/v1/crossings", axum::routing::get(crossings_http))
 }

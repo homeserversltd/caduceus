@@ -155,12 +155,11 @@ pub fn status() -> i32 {
     }
 }
 
-// Profile-indexed public read delegation for DHCP, DNS, and device roster data.
+// Fixed-band public read delegation for DHCP, DNS, and device roster data.
 //
 // This native band selects only admitted read actuators and never reads or
 // mutates appliance network state itself.
 
-use crate::routes::staff;
 use std::{env, process::Command};
 
 #[derive(Clone, Copy)]
@@ -229,42 +228,19 @@ pub fn named(command: &str) -> Option<&'static ReadCommand> {
         .find(|candidate| candidate.command == command)
 }
 
-fn launcher(command: &ReadCommand) -> Result<(String, Vec<String>), String> {
-    if let Ok(override_command) = env::var("CADUCEUS_NETWORK_READ_CMD") {
-        let parts: Vec<String> = override_command
-            .split_whitespace()
-            .map(str::to_string)
-            .collect();
-        if let Some((program, prefix)) = parts.split_first() {
-            return Ok((program.clone(), prefix.to_vec()));
-        }
+fn band_request(command: &ReadCommand) -> Result<(&'static str, &'static [&'static str]), String> {
+    if command.command.starts_with("network dhcp ") {
+        Ok(("network/dhcp", command.args))
+    } else if command.command.starts_with("network dns ") {
+        Ok(("network/dns", command.args))
+    } else if command.command == "network device list" {
+        Ok(("network/identity", &["device-list"]))
+    } else {
+        Err(format!(
+            "caduceus-network-read-band-unmapped:{}",
+            command.command
+        ))
     }
-    let profile = staff::profile_json()?;
-    let actuator = profile
-        .get("actuators")
-        .and_then(Value::as_array)
-        .and_then(|actuators| {
-            actuators
-                .iter()
-                .find(|entry| entry.get("id") == Some(&json!(command.actuator_id)))
-        })
-        .ok_or_else(|| {
-            format!(
-                "caduceus-network-read-actuator-missing:{}",
-                command.actuator_id
-            )
-        })?;
-    let launcher = actuator
-        .get("launcher")
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| {
-            format!(
-                "caduceus-network-read-launcher-missing:{}",
-                command.actuator_id
-            )
-        })?;
-    Ok((launcher.to_string(), Vec::new()))
 }
 
 pub fn invoke(command: &ReadCommand) -> Result<Value, String> {
@@ -274,34 +250,59 @@ pub fn invoke(command: &ReadCommand) -> Result<Value, String> {
     ) {
         return Ok(crate::routes::native_kea_read::response(command.command));
     }
-    let (program, prefix) = launcher(command)?;
-    let output = Command::new(program)
-        .args(prefix)
-        .args(command.args)
-        .env("CADUCEUS_STAFF_ACTUATOR_ID", command.actuator_id)
-        .output()
-        .map_err(|err| {
+    let payload = if let Some(configured) = env::var_os("CADUCEUS_NETWORK_READ_CMD") {
+        let configured = configured
+            .into_string()
+            .map_err(|_| "caduceus-network-read-command-invalid".to_string())?;
+        let parts = configured
+            .split_whitespace()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        let (program, prefix) = parts
+            .split_first()
+            .ok_or_else(|| "caduceus-network-read-command-empty".to_string())?;
+        let output = Command::new(program)
+            .args(prefix)
+            .args(command.args)
+            .env("CADUCEUS_STAFF_ACTUATOR_ID", command.actuator_id)
+            .output()
+            .map_err(|err| {
+                format!(
+                    "caduceus-network-read-unavailable:{}:{err}",
+                    command.actuator_id
+                )
+            })?;
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if stdout.is_empty() {
+            return Err(format!(
+                "caduceus-network-read-empty:{}:status={} stderr={}",
+                command.actuator_id,
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        let payload: Value = serde_json::from_str(&stdout).map_err(|err| {
             format!(
-                "caduceus-network-read-unavailable:{}:{err}",
+                "caduceus-network-read-invalid-json:{}:{err}",
                 command.actuator_id
             )
         })?;
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if stdout.is_empty() {
-        return Err(format!(
-            "caduceus-network-read-empty:{}:status={} stderr={}",
-            command.actuator_id,
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    let payload: Value = serde_json::from_str(&stdout).map_err(|err| {
-        format!(
-            "caduceus-network-read-invalid-json:{}:{err}",
-            command.actuator_id
-        )
-    })?;
-    if !output.status.success() || payload.get("ok") == Some(&json!(false)) {
+        if !output.status.success() {
+            let signal = payload
+                .get("firstMissingSignal")
+                .and_then(Value::as_str)
+                .unwrap_or("caduceus-network-read-failed");
+            return Err(format!(
+                "caduceus-network-read-failed:{}:{}",
+                command.actuator_id, signal
+            ));
+        }
+        payload
+    } else {
+        let (band, args) = band_request(command)?;
+        crate::gate::snake::crossing_path(band, &json!({"args": args}))?
+    };
+    if payload.get("ok") == Some(&json!(false)) {
         let signal = payload
             .get("firstMissingSignal")
             .and_then(Value::as_str)

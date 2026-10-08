@@ -2,54 +2,26 @@ use serde_json::{json, Value};
 use std::io::Write;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
+use std::time::Duration;
 
 #[cfg(leaf_portals_deploy)]
 use crate::routes::linker;
 use crate::routes::{dhcp, dns_control};
 use crate::shared::hyalos;
 
-const PROFILE_PATH: &str = "/usr/local/sbin/profile.json";
-
-pub fn profile_json() -> Result<Value, String> {
-    let profile = std::fs::read_to_string(PROFILE_PATH)
-        .map_err(|err| format!("caduceus-staff-actuator-profile-unavailable: {err}"))?;
-    serde_json::from_str(&profile)
-        .map_err(|err| format!("caduceus-staff-actuator-profile-invalid: {err}"))
-}
-
 pub fn status_json() -> Result<Value, String> {
-    let profile = profile_json()?;
-    let staff = profile
-        .get("staff")
-        .cloned()
-        .ok_or_else(|| "caduceus-staff-config-missing".to_string())?;
-    let count = profile
-        .get("actuators")
+    let declaration = crate::crossings::declaration()?;
+    let band_count = declaration
+        .get("bands")
         .and_then(Value::as_array)
         .map(Vec::len)
         .unwrap_or(0);
     Ok(json!({
         "schema": "caduceus.staff.status.v1",
         "ok": true,
-        "staff": staff,
-        "actuatorCount": count,
-        "firstMissingSignal": "none"
-    }))
-}
-
-pub fn actuators_json() -> Result<Value, String> {
-    let profile = profile_json()?;
-    let actuators = profile
-        .get("actuators")
-        .and_then(Value::as_array)
-        .cloned()
-        .ok_or_else(|| "caduceus-staff-catalog-missing".to_string())?;
-    Ok(json!({
-        "schema": "caduceus.staff.actuators.v1",
-        "ok": true,
-        "count": actuators.len(),
-        "actuators": actuators,
+        "profile": declaration.get("profile").cloned().unwrap_or(Value::Null),
+        "bandCount": band_count,
         "firstMissingSignal": "none"
     }))
 }
@@ -57,76 +29,14 @@ pub fn actuators_json() -> Result<Value, String> {
 pub fn status() -> i32 {
     match status_json() {
         Ok(value) => {
-            let staff = &value["staff"];
             println!("schema=caduceus.staff.status.v1");
-            println!(
-                "staff_user={}",
-                staff.get("user").and_then(Value::as_str).unwrap_or("")
-            );
-            println!(
-                "staff_home={}",
-                staff.get("home").and_then(Value::as_str).unwrap_or("")
-            );
-            println!(
-                "staff_venv={}",
-                staff.get("venv").and_then(Value::as_str).unwrap_or("")
-            );
-            println!(
-                "staff_lib_root={}",
-                staff.get("libRoot").and_then(Value::as_str).unwrap_or("")
-            );
-            println!(
-                "receipt_root={}",
-                staff
-                    .get("receiptRoot")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-            );
-            println!("actuator_count={}", value["actuatorCount"]);
+            println!("profile={}", value["profile"].as_str().unwrap_or(""));
+            println!("band_count={}", value["bandCount"]);
             println!("first_missing_signal=none");
             0
         }
         Err(err) => {
             eprintln!("caduceus-staff-status-failed: {err}");
-            1
-        }
-    }
-}
-
-pub fn actuators() -> i32 {
-    match actuators_json() {
-        Ok(value) => {
-            println!("schema=caduceus.staff.actuators.v1");
-            println!("count={}", value["count"]);
-            if let Some(actuators) = value.get("actuators").and_then(Value::as_array) {
-                for actuator in actuators {
-                    println!(
-                        "actuator={} family={} class={} launcher={} lib={} status={}",
-                        actuator.get("id").and_then(Value::as_str).unwrap_or(""),
-                        actuator.get("family").and_then(Value::as_str).unwrap_or(""),
-                        actuator
-                            .get("actuatorClass")
-                            .and_then(Value::as_str)
-                            .unwrap_or(""),
-                        actuator
-                            .get("launcher")
-                            .and_then(Value::as_str)
-                            .unwrap_or(""),
-                        actuator
-                            .get("libraryEntry")
-                            .and_then(Value::as_str)
-                            .unwrap_or(""),
-                        actuator
-                            .get("conversionStatus")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                    );
-                }
-            }
-            0
-        }
-        Err(err) => {
-            eprintln!("caduceus-staff-catalog-failed: {err}");
             1
         }
     }
@@ -404,9 +314,9 @@ pub fn intent_json(
     {
         return execute_file_ingress(metadata.unwrap_or_else(|| json!({})));
     }
-    let profile = profile_json()?;
-    let actuator_count = profile
-        .get("actuators")
+    let declaration = crate::crossings::declaration()?;
+    let actuator_count = declaration
+        .get("bands")
         .and_then(Value::as_array)
         .map(Vec::len)
         .unwrap_or(0);
@@ -474,84 +384,81 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
         "network-dhcp" => dhcp::intent_json("POST", "/api/dhcp/reservations", metadata),
         #[cfg(leaf_portals_deploy)]
         "linker" => linker::intent_json(metadata),
-        id @ ("backblaze-b2-recover"
-        | "backblaze-forgejo-b2-push"
-        | "backblaze-forgejo-migrate"
-        | "backblaze-config"
-        | "calibre-helper-daemon"
-        | "calibre-watch"
-        | "keyman-doors"
-        | "service-control-doors"
-        | "disk-doors"
-        | "wake-on-lan"
-        | "child-device"
-        | "nas-sync") => execute_registered_actuator(id, metadata),
+        "backblaze-b2-recover" => staff_actuator_receipt(
+            "backblaze-b2-recover",
+            "storage/backup/backblaze-recover",
+            metadata,
+        ),
+        "backblaze-forgejo-b2-push" => staff_actuator_receipt(
+            "backblaze-forgejo-b2-push",
+            "storage/backup/forgejo/backup-b2",
+            metadata,
+        ),
+        "backblaze-forgejo-migrate" => staff_actuator_receipt(
+            "backblaze-forgejo-migrate",
+            "storage/backup/forgejo/migrate",
+            metadata,
+        ),
+        "backblaze-config" => staff_actuator_receipt(
+            "backblaze-config",
+            "storage/backup/backblaze-config",
+            metadata,
+        ),
+        "calibre-helper-daemon" => {
+            staff_actuator_receipt("calibre-helper-daemon", "portals/calibre", metadata)
+        }
+        "calibre-watch" => staff_actuator_receipt("calibre-watch", "portals/calibre", metadata),
+        "keyman-doors" => staff_actuator_receipt("keyman-doors", "storage/vault/keyman", metadata),
+        "service-control-doors" => {
+            staff_actuator_receipt("service-control-doors", "portals/service-control", metadata)
+        }
+        "disk-doors" => staff_actuator_receipt("disk-doors", "storage/disk-doors", metadata),
+        "wake-on-lan" => staff_actuator_receipt("wake-on-lan", "network/wake-on-lan", metadata),
+        "child-device" => staff_actuator_receipt("child-device", "network/child-device", metadata),
+        "nas-sync" => staff_actuator_receipt("nas-sync", "storage/backup/nas-sync", metadata),
         _ => Err("caduceus-staff-actuator-unmapped".to_string()),
     }
 }
 
-pub fn execute_registered_actuator(actuator_id: &str, metadata: Value) -> Result<Value, String> {
-    let profile = profile_json()?;
-    let actuator = profile
-        .get("actuators")
-        .and_then(Value::as_array)
-        .and_then(|items| {
-            items
-                .iter()
-                .find(|item| item.get("id").and_then(Value::as_str) == Some(actuator_id))
-        })
-        .ok_or_else(|| "caduceus-staff-actuator-unmapped".to_string())?;
-    let launcher = actuator
-        .get("launcher")
-        .and_then(Value::as_str)
-        .filter(|value| value.starts_with('/') && !value.contains('\0'))
-        .ok_or_else(|| "caduceus-staff-launcher-invalid".to_string())?;
-    let input = serde_json::to_vec(&json!({"actuator":actuator_id,"metadata":metadata}))
-        .map_err(|_| "caduceus-staff-request-invalid".to_string())?;
-    let mut child = Command::new("/usr/bin/sudo")
-        .arg("-n")
-        .arg(&launcher)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|_| "caduceus-staff-unavailable".to_string())?;
-    use std::io::Write;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| "caduceus-staff-unavailable".to_string())?
-        .write_all(&input)
-        .map_err(|_| "caduceus-staff-unavailable".to_string())?;
-    let output = child
-        .wait_with_output()
-        .map_err(|_| "caduceus-staff-unavailable".to_string())?;
-    let receipt: Value = serde_json::from_slice(&output.stdout)
-        .map_err(|_| "caduceus-staff-invalid-receipt".to_string())?;
+fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Result<Value, String> {
+    let walked = if matches!(
+        actuator_id,
+        "backblaze-forgejo-b2-push" | "backblaze-forgejo-migrate"
+    ) {
+        crate::gate::snake::crossing_path_with_timeout(band, &metadata, Duration::from_secs(30))?
+    } else {
+        let input = json!({"actuator": actuator_id, "metadata": metadata});
+        let envelope = json!({
+            "schema": crate::protocol::SCHEMA_ID,
+            "intent_id": format!("caduceus-{band}"),
+            "transition": band,
+            "origin_of_intent": "near",
+            "payload": input.clone(),
+            "actuator": actuator_id,
+            "metadata": input["metadata"].clone(),
+        });
+        crate::gate::snake::run(band, &envelope)?
+    };
+    let receipt = walked
+        .get("receiptPayload")
+        .cloned()
+        .filter(Value::is_object)
+        .ok_or_else(|| "caduceus-staff-invalid-receipt".to_string())?;
     if actuator_id == "backblaze-config"
         && receipt.get("ok").and_then(Value::as_bool) == Some(false)
     {
         return Ok(receipt);
     }
-    if !output.status.success() || receipt.get("ok").and_then(Value::as_bool) == Some(false) {
+    if walked.get("ok").and_then(Value::as_bool) != Some(true)
+        || receipt.get("ok").and_then(Value::as_bool) == Some(false)
+    {
         return Err(receipt
             .get("firstMissingSignal")
             .and_then(Value::as_str)
             .unwrap_or("caduceus-staff-refused")
             .to_string());
     }
-    #[cfg(leaf_storage_disk_census)]
-    if actuator_id == "disk-doors"
-        && receipt.is_object()
-        && receipt.get("converged").and_then(Value::as_bool) != Some(false)
-    {
-        // The child has completed successfully. Invalidate before returning its
-        // receipt without changing the registered actuator's response semantics.
-        crate::stats::disk_census::request_refresh();
-    }
-    Ok(
-        json!({"schema":"caduceus.staff.named_actuator.v1","ok":true,"accepted":true,"actuatorId":actuator_id,"receiptFamily":actuator.get("receiptFamily"),"receipt":receipt,"mutationPerformed":receipt.get("mutationPerformed").and_then(Value::as_bool).unwrap_or(true),"firstMissingSignal":"none"}),
-    )
+    Ok(receipt)
 }
 
 fn ingress_root() -> PathBuf {

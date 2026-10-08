@@ -320,6 +320,7 @@ fn main() {
         "caduceus.transmission.up.v1",
         "caduceus.transmission.down.v1",
         "caduceus.transmission.status.v1",
+        "appliance.crossings.v1",
     ]
     .map(|id| PathBuf::from(format!("schema/{id}.json")));
     let mut embedded = String::from("const EMBEDDED_SEATS: &[(&str, &str)] = &[\n");
@@ -339,6 +340,45 @@ fn main() {
     embedded.push_str("];\n");
     fs::write(Path::new(&out_dir).join("public_schema_seats.rs"), embedded)
         .expect("embedded public seats writable");
+
+    let mut embedded_crossings = String::from("const EMBEDDED_CROSSINGS: &[(&str, &str)] = &[\n");
+    for profile in ["homeserver", "homeconsole", "tv"] {
+        let path = format!("crossings/{profile}.json");
+        println!("cargo:rerun-if-changed={path}");
+        let bytes = fs::read_to_string(&path).unwrap_or_else(|error| {
+            panic!("caduceus-crossings-declaration-invalid: {path} unavailable: {error}")
+        });
+        let declaration: serde_json::Value = serde_json::from_str(&bytes).unwrap_or_else(|error| {
+            panic!("caduceus-crossings-declaration-invalid: {path} invalid JSON: {error}")
+        });
+        let observed_schema = declaration
+            .get("schema")
+            .and_then(serde_json::Value::as_str);
+        assert_eq!(
+            observed_schema,
+            Some("appliance.crossings.v1"),
+            "caduceus-crossings-declaration-invalid: {path} schema expected appliance.crossings.v1, observed {observed_schema:?}"
+        );
+        let observed_profile = declaration
+            .get("profile")
+            .and_then(serde_json::Value::as_str);
+        assert_eq!(
+            observed_profile,
+            Some(profile),
+            "caduceus-crossings-declaration-invalid: {path} profile expected {profile}, observed {observed_profile:?}"
+        );
+        embedded_crossings.push_str(&format!(
+            "({}, {}),\n",
+            rust_string(profile),
+            rust_string(&bytes)
+        ));
+    }
+    embedded_crossings.push_str("];\n");
+    fs::write(
+        Path::new(&out_dir).join("embedded_crossings.rs"),
+        embedded_crossings,
+    )
+    .expect("embedded crossings declarations writable");
 
     if let Ok(build_sha) = env::var("CADUCEUS_BUILD_SHA") {
         assert!(

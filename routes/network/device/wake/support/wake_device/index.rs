@@ -2,7 +2,7 @@
 use serde_json::Value;
 
 pub fn command_json(metadata: Value) -> Result<Value, String> {
-    crate::routes::staff::execute_registered_actuator("wake-on-lan", metadata)
+    crate::routes::staff::named_actuator_json("wake-on-lan", metadata)
 }
 
 pub fn command(metadata: Value) -> i32 {
