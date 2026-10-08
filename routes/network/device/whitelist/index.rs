@@ -36,21 +36,17 @@ use serde::Deserialize;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct FirewallPutBody {
+struct FirewallChildBody {
     schema: String,
     mac: String,
-    mode: String,
-    sites: Vec<String>,
-    expected_revision: String,
-    pub(crate) enabled: bool,
-    enforcement: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct FirewallDeleteBody {
+struct FirewallWhitelistBody {
     schema: String,
     mac: String,
+    hostnames: Vec<String>,
     expected_revision: String,
 }
 
@@ -172,26 +168,106 @@ fn firewall_read(
     }
 }
 
-async fn firewall_status_route() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    firewall_read("status", None)
+async fn firewall_observed_route() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    firewall_read("observed", None)
 }
 
-async fn firewall_policies_route() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+async fn firewall_children_route() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     firewall_read("list", None)
 }
 
-async fn firewall_policy_route(
-    axum::extract::Path(mac): axum::extract::Path<String>,
+async fn firewall_child_whitelist_route(
+    Path(mac): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let mac = firewall_mac(&mac)
         .ok_or_else(|| firewall_refusal(StatusCode::BAD_REQUEST, "firewall-mac-invalid"))?;
-    firewall_read("get", Some(mac))
+    firewall_read("whitelist-get", Some(mac))
 }
 
-async fn firewall_put_route(
+async fn firewall_register_route(
     headers: HeaderMap,
-    axum::extract::Path(path_mac): axum::extract::Path<String>,
-    Json(body): Json<FirewallPutBody>,
+    Json(body): Json<FirewallChildBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let command = "caduceus.network.firewall.put";
+    let mac = firewall_mac(&body.mac)
+        .ok_or_else(|| firewall_refusal(StatusCode::BAD_REQUEST, "firewall-mac-invalid"))?;
+    if body.schema != "caduceus.network.firewall.child.v1" {
+        return Err(firewall_refusal(
+            StatusCode::BAD_REQUEST,
+            "firewall-input-invalid",
+        ));
+    }
+    match policy::allows_command(command) {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(firewall_refusal(
+                StatusCode::FORBIDDEN,
+                "caduceus-public-action-not-allowed",
+            ))
+        }
+        Err(_) => {
+            return Err(firewall_refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "caduceus-profile-missing",
+            ))
+        }
+    }
+    attendance_admits(
+        FIREWALL_DOCUMENT_TARGET,
+        headers
+            .get("x-caduceus-document")
+            .and_then(|value| value.to_str().ok()),
+        headers
+            .get("x-caduceus-attendance")
+            .and_then(|value| value.to_str().ok()),
+    )
+    .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
+    firewall::invoke(serde_json::json!({"action":"register", "mac":mac}))
+        .map(|value| (StatusCode::OK, Json(value)))
+        .map_err(|value| (firewall_status(&value), Json(value)))
+}
+
+async fn firewall_unregister_route(
+    headers: HeaderMap,
+    Path(path_mac): Path<String>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let command = "caduceus.network.firewall.delete";
+    let mac = firewall_mac(&path_mac)
+        .ok_or_else(|| firewall_refusal(StatusCode::BAD_REQUEST, "firewall-mac-invalid"))?;
+    match policy::allows_command(command) {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(firewall_refusal(
+                StatusCode::FORBIDDEN,
+                "caduceus-public-action-not-allowed",
+            ))
+        }
+        Err(_) => {
+            return Err(firewall_refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "caduceus-profile-missing",
+            ))
+        }
+    }
+    attendance_admits(
+        FIREWALL_DOCUMENT_TARGET,
+        headers
+            .get("x-caduceus-document")
+            .and_then(|value| value.to_str().ok()),
+        headers
+            .get("x-caduceus-attendance")
+            .and_then(|value| value.to_str().ok()),
+    )
+    .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
+    firewall::invoke(serde_json::json!({"action":"unregister", "mac":mac}))
+        .map(|value| (StatusCode::OK, Json(value)))
+        .map_err(|value| (firewall_status(&value), Json(value)))
+}
+
+async fn firewall_whitelist_set_route(
+    headers: HeaderMap,
+    Path(path_mac): Path<String>,
+    Json(body): Json<FirewallWhitelistBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let command = "caduceus.network.firewall.put";
     let path = firewall_mac(&path_mac)
@@ -199,11 +275,9 @@ async fn firewall_put_route(
     let mac = firewall_mac(&body.mac)
         .filter(|mac| mac == &path)
         .ok_or_else(|| firewall_refusal(StatusCode::BAD_REQUEST, "firewall-mac-mismatch"))?;
-    if body.schema != "caduceus.network.firewall.policy.v1"
-        || body.mode != "allow-only"
-        || body.enforcement != "dns-policy"
-        || !(1..=64).contains(&body.sites.len())
-        || !firewall_fqdns(&body.sites)
+    if body.schema != "caduceus.network.firewall.whitelist.v1"
+        || !(0..=64).contains(&body.hostnames.len())
+        || !firewall_fqdns(&body.hostnames)
         || !firewall_digest(&body.expected_revision)
     {
         return Err(firewall_refusal(
@@ -236,63 +310,12 @@ async fn firewall_put_route(
             .and_then(|value| value.to_str().ok()),
     )
     .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
-    let intent = if body.enabled {
-        serde_json::json!({"action":"put", "mac":mac, "fqdns":body.sites, "revision":body.expected_revision})
-    } else {
-        serde_json::json!({"action":"delete", "mac":mac, "revision":body.expected_revision})
-    };
-    firewall::invoke(intent)
-        .map(|value| (StatusCode::OK, Json(value)))
-        .map_err(|value| (firewall_status(&value), Json(value)))
-}
-
-async fn firewall_delete_route(
-    headers: HeaderMap,
-    axum::extract::Path(path_mac): axum::extract::Path<String>,
-    Json(body): Json<FirewallDeleteBody>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    let command = "caduceus.network.firewall.delete";
-    let path = firewall_mac(&path_mac)
-        .ok_or_else(|| firewall_refusal(StatusCode::BAD_REQUEST, "firewall-mac-invalid"))?;
-    let mac = firewall_mac(&body.mac)
-        .filter(|mac| mac == &path)
-        .ok_or_else(|| firewall_refusal(StatusCode::BAD_REQUEST, "firewall-mac-mismatch"))?;
-    if body.schema != "caduceus.network.firewall.policy.delete.v1"
-        || !firewall_digest(&body.expected_revision)
-    {
-        return Err(firewall_refusal(
-            StatusCode::BAD_REQUEST,
-            "firewall-input-invalid",
-        ));
-    }
-    match policy::allows_command(command) {
-        Ok(true) => {}
-        Ok(false) => {
-            return Err(firewall_refusal(
-                StatusCode::FORBIDDEN,
-                "caduceus-public-action-not-allowed",
-            ))
-        }
-        Err(_) => {
-            return Err(firewall_refusal(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "caduceus-profile-missing",
-            ))
-        }
-    }
-    attendance_admits(
-        FIREWALL_DOCUMENT_TARGET,
-        headers
-            .get("x-caduceus-document")
-            .and_then(|value| value.to_str().ok()),
-        headers
-            .get("x-caduceus-attendance")
-            .and_then(|value| value.to_str().ok()),
-    )
-    .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
-    firewall::invoke(
-        serde_json::json!({"action":"delete", "mac":mac, "revision":body.expected_revision}),
-    )
+    firewall::invoke(serde_json::json!({
+        "action":"whitelist-set",
+        "mac":mac,
+        "hostnames":body.hostnames,
+        "revision":body.expected_revision
+    }))
     .map(|value| (StatusCode::OK, Json(value)))
     .map_err(|value| (firewall_status(&value), Json(value)))
 }
@@ -301,23 +324,23 @@ async fn firewall_delete_route(
 pub fn register(router: Router) -> Router {
     router
         .route(
-            "/api/v1/network/firewall/status",
-            axum::routing::get(firewall_status_route),
+            "/api/v1/network/firewall/observed",
+            axum::routing::get(firewall_observed_route),
         )
         .route(
-            "/api/v1/network/firewall/policies",
-            axum::routing::get(firewall_policies_route),
+            "/api/v1/network/firewall/children",
+            axum::routing::get(firewall_children_route).post(firewall_register_route).layer(
+                axum::extract::DefaultBodyLimit::max(8192),
+            ),
         )
         .route(
-            "/api/v1/network/firewall/policies/:mac",
-            axum::routing::get(firewall_policy_route)
-                .merge(
-                    axum::routing::put(firewall_put_route)
-                        .layer(axum::extract::DefaultBodyLimit::max(8192)),
-                )
-                .merge(
-                    axum::routing::delete(firewall_delete_route)
-                        .layer(axum::extract::DefaultBodyLimit::max(8192)),
-                ),
+            "/api/v1/network/firewall/children/:mac",
+            axum::routing::delete(firewall_unregister_route),
+        )
+        .route(
+            "/api/v1/network/firewall/children/:mac/whitelist",
+            axum::routing::get(firewall_child_whitelist_route)
+                .put(firewall_whitelist_set_route)
+                .layer(axum::extract::DefaultBodyLimit::max(8192)),
         )
 }
