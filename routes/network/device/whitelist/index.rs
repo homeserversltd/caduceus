@@ -85,6 +85,18 @@ fn firewall_status(value: &Value) -> StatusCode {
     }
 }
 
+async fn firewall_invoke_http(
+    command: &str,
+    intent: Value,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let result = crate::gate::blocking_task(command, move || firewall::invoke(intent))
+        .await
+        .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
+    result
+        .map(Json)
+        .map_err(|value| (firewall_status(&value), Json(value)))
+}
+
 fn firewall_refusal(status: StatusCode, signal: &str) -> (StatusCode, Json<Value>) {
     (
         status,
@@ -143,19 +155,18 @@ fn firewall_digest(value: &str) -> bool {
         })
 }
 
-fn firewall_read(
+async fn firewall_read(
     action: &str,
     mac: Option<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    match policy::allows_command("caduceus.network.firewall.read") {
+    let command = "caduceus.network.firewall.read";
+    match policy::allows_command(command) {
         Ok(true) => {
             let mut intent = serde_json::json!({"action": action});
             if let Some(mac) = mac {
                 intent["mac"] = Value::String(mac);
             }
-            firewall::invoke(intent)
-                .map(Json)
-                .map_err(|value| (firewall_status(&value), Json(value)))
+            firewall_invoke_http(command, intent).await
         }
         Ok(false) => Err(firewall_refusal(
             StatusCode::FORBIDDEN,
@@ -169,11 +180,11 @@ fn firewall_read(
 }
 
 async fn firewall_observed_route() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    firewall_read("observed", None)
+    firewall_read("observed", None).await
 }
 
 async fn firewall_children_route() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    firewall_read("list", None)
+    firewall_read("list", None).await
 }
 
 async fn firewall_child_whitelist_route(
@@ -181,7 +192,7 @@ async fn firewall_child_whitelist_route(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let mac = firewall_mac(&mac)
         .ok_or_else(|| firewall_refusal(StatusCode::BAD_REQUEST, "firewall-mac-invalid"))?;
-    firewall_read("whitelist-get", Some(mac))
+    firewall_read("whitelist-get", Some(mac)).await
 }
 
 async fn firewall_register_route(
@@ -222,9 +233,9 @@ async fn firewall_register_route(
             .and_then(|value| value.to_str().ok()),
     )
     .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
-    firewall::invoke(serde_json::json!({"action":"register", "mac":mac}))
-        .map(|value| (StatusCode::OK, Json(value)))
-        .map_err(|value| (firewall_status(&value), Json(value)))
+    firewall_invoke_http(command, serde_json::json!({"action":"register", "mac":mac}))
+        .await
+        .map(|value| (StatusCode::OK, value))
 }
 
 async fn firewall_unregister_route(
@@ -259,9 +270,9 @@ async fn firewall_unregister_route(
             .and_then(|value| value.to_str().ok()),
     )
     .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
-    firewall::invoke(serde_json::json!({"action":"unregister", "mac":mac}))
-        .map(|value| (StatusCode::OK, Json(value)))
-        .map_err(|value| (firewall_status(&value), Json(value)))
+    firewall_invoke_http(command, serde_json::json!({"action":"unregister", "mac":mac}))
+        .await
+        .map(|value| (StatusCode::OK, value))
 }
 
 async fn firewall_whitelist_set_route(
@@ -310,14 +321,14 @@ async fn firewall_whitelist_set_route(
             .and_then(|value| value.to_str().ok()),
     )
     .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
-    firewall::invoke(serde_json::json!({
+    firewall_invoke_http(command, serde_json::json!({
         "action":"whitelist-set",
         "mac":mac,
         "hostnames":body.hostnames,
         "revision":body.expected_revision
     }))
-    .map(|value| (StatusCode::OK, Json(value)))
-    .map_err(|value| (firewall_status(&value), Json(value)))
+    .await
+    .map(|value| (StatusCode::OK, value))
 }
 
 /// Canonical registration seam for this leaf.
