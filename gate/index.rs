@@ -258,6 +258,11 @@ const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     NAS_DETACH_HTTP_PATH,
     "/api/v1/storage/categories",
     "/api/v1/storage/categories/scan",
+    "POST /api/v1/network/dhcp",
+    "POST /api/v1/network/dhcp/reservations",
+    "PUT /api/v1/network/dhcp/reservations/{reservation_id}",
+    "DELETE /api/v1/network/dhcp/reservations/{reservation_id}",
+    "POST /api/v1/network/dhcp/pool-boundary",
 ];
 
 fn open_nofollow_shelf_file(path: &Path) -> io::Result<File> {
@@ -399,11 +404,37 @@ fn configured_administrative_routes() -> Result<Option<Vec<String>>, String> {
 }
 
 fn route_matches(entry: &str, method: Option<&str>, path: &str) -> bool {
+    let path_matches = |listed_path: &str| {
+        let mut listed_segments = listed_path.split('/');
+        let mut requested_segments = path.split('/');
+        loop {
+            match (listed_segments.next(), requested_segments.next()) {
+                (Some(listed_segment), Some(requested_segment)) => {
+                    let placeholder = listed_segment
+                        .strip_prefix('{')
+                        .and_then(|name| name.strip_suffix('}'))
+                        .filter(|name| {
+                            !name.is_empty() && !name.contains('{') && !name.contains('}')
+                        });
+                    if placeholder.is_some() {
+                        if requested_segment.is_empty() {
+                            return false;
+                        }
+                    } else if listed_segment != requested_segment {
+                        return false;
+                    }
+                }
+                (None, None) => return true,
+                _ => return false,
+            }
+        }
+    };
+
     if let Some((listed_method, listed_path)) = entry.split_once(' ') {
-        listed_path == path
+        path_matches(listed_path)
             && method.map_or(true, |method| listed_method.eq_ignore_ascii_case(method))
     } else {
-        entry == path
+        path_matches(entry)
     }
 }
 
