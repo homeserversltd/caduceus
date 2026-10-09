@@ -23,28 +23,39 @@ fn err(command: &str, e: String) -> (StatusCode, Json<ApiErrorBody>) {
         api_error_signal(command, &e)
     }
 }
-fn read(
+async fn read<F>(
     command: &str,
-    f: impl FnOnce() -> Result<Value, String>,
-) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    f: F,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)>
+where
+    F: FnOnce() -> Result<Value, String> + Send + 'static,
+{
     match policy::allows_command(command) {
-        Ok(true) => f().map(Json).map_err(|e| err(command, e)),
+        Ok(true) => {
+            let result = crate::gate::blocking_task(command, f).await?;
+            result.map(Json).map_err(|e| err(command, e))
+        }
         Ok(false) => Err(api_error(command)),
         Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
     }
 }
-fn mutate(
+async fn mutate<F>(
     command: &str,
     route: &str,
     headers: &HeaderMap,
     body: &Value,
-    f: impl FnOnce() -> Result<Value, String>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    f: F,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)>
+where
+    F: FnOnce() -> Result<Value, String> + Send + 'static,
+{
     match policy::allows_command(command) {
         Ok(true) => {
             administrative_admits(headers, body, route)
                 .map_err(|signal| api_error_signal(command, &signal))?;
-            f().map(|v| (mutation_status(&v), Json(v)))
+            let result = crate::gate::blocking_task(command, f).await?;
+            result
+                .map(|v| (mutation_status(&v), Json(v)))
                 .map_err(|e| err(command, e))
         }
         Ok(false) => Err(api_error(command)),
@@ -65,42 +76,51 @@ pub struct PatchBody {
     pub flags: Option<Value>,
 }
 pub async fn path() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    read("config path", config::path_json)
+    read("config path", config::path_json).await
 }
 pub async fn show() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    read("config show", config::show_json)
+    read("config show", config::show_json).await
 }
 pub async fn get(
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    read("config get", || {
+    let path = q.get("path").cloned();
+    read("config get", move || {
         config::get_json(
-            q.get("path")
+            path.as_deref()
                 .ok_or_else(|| "caduceus-household-config-path-invalid".to_string())?,
         )
     })
+    .await
 }
 pub async fn set(
     headers: HeaderMap,
     Json(b): Json<SetBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let admission_body = serde_json::json!({"flags": b.flags.as_ref()});
+    let path = b.path;
+    let value = b.value;
     mutate(
         "config set",
         "/api/v1/config/set",
         &headers,
-        &serde_json::json!({"flags": b.flags.as_ref()}),
-        || config::set_json(&b.path, b.value),
+        &admission_body,
+        move || config::set_json(&path, value),
     )
+    .await
 }
 pub async fn patch(
     headers: HeaderMap,
     Json(b): Json<PatchBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let admission_body = serde_json::json!({"flags": b.flags.as_ref()});
+    let merge = b.merge;
     mutate(
         "config patch",
         "/api/v1/config/patch",
         &headers,
-        &serde_json::json!({"flags": b.flags.as_ref()}),
-        || config::patch_json(b.merge),
+        &admission_body,
+        move || config::patch_json(merge),
     )
+    .await
 }

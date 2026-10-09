@@ -61,9 +61,15 @@ async fn restart(
     };
     let payload = json!({"degree": degree});
     match crate::shared::policy::allows_command("console restart") {
-        Ok(true) => crate::gate::snake::crossing_path("console/restart", &payload)
-            .map(|value| (crate::gate::mutation_status(&value), Json(value)))
-            .map_err(|signal| staff_refusal("console restart", signal)),
+        Ok(true) => {
+            let result = crate::gate::blocking_task("console restart", move || {
+                crate::gate::snake::crossing_path("console/restart", &payload)
+            })
+            .await?;
+            result
+                .map(|value| (crate::gate::mutation_status(&value), Json(value)))
+                .map_err(|signal| staff_refusal("console restart", signal))
+        }
         Ok(false) => Err(crate::gate::api_error("console restart")),
         Err(_) => Err(crate::gate::api_error_signal(
             "console restart",

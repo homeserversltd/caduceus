@@ -1,7 +1,7 @@
 use crate::gate::ConnectionInfo;
 use crate::gate::{
     access_attendance_admits, api_error, api_error_signal, gated_json, gated_mutation,
-    mutation_status, vault_attendance_admits, ApiErrorBody, VAULT_ATTENDANCE_COMMAND,
+    mutation_status, blocking_task, vault_attendance_admits, ApiErrorBody, VAULT_ATTENDANCE_COMMAND,
 };
 use crate::routes::{change_pin, hyalos, open_vault, staff};
 use crate::shared::{attendance, policy};
@@ -35,7 +35,9 @@ pub(crate) async fn posture_route() -> Result<Json<Value>, (StatusCode, Json<Api
 }
 
 pub(crate) async fn pin_mode_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    Ok(Json(crate::shared::attendance::pin_mode_json()))
+    blocking_task("access pin mode", crate::shared::attendance::pin_mode_json)
+        .await
+        .map(Json)
 }
 
 pub(crate) async fn pin_mode_route(
@@ -49,13 +51,16 @@ pub(crate) async fn pin_mode_route(
     )?;
     let mut body = body;
     crate::gate::strip_administrative_flags(&mut body);
-    change_pin::set_pin_mode_json(&body)
+    blocking_task("access pin mode", move || change_pin::set_pin_mode_json(&body))
+        .await?
         .map(Json)
         .map_err(|signal| api_error_signal("access pin mode", &signal))
 }
 
 pub(crate) async fn sudo_mode_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    Ok(Json(crate::shared::attendance::sudo_mode_json()))
+    blocking_task("access sudo mode", crate::shared::attendance::sudo_mode_json)
+        .await
+        .map(Json)
 }
 
 pub(crate) async fn sudo_mode_route(
@@ -69,7 +74,8 @@ pub(crate) async fn sudo_mode_route(
     )?;
     let mut body = body;
     crate::gate::strip_administrative_flags(&mut body);
-    change_pin::set_sudo_mode_json(&body)
+    blocking_task("access sudo mode", move || change_pin::set_sudo_mode_json(&body))
+        .await?
         .map(Json)
         .map_err(|signal| api_error_signal("access sudo mode", &signal))
 }
@@ -84,7 +90,10 @@ pub(crate) async fn pin_reset_default_route(
             "caduceus-local-access-required",
         ));
     }
-    change_pin::reset_default_pin_json(&body)
+    blocking_task("access pin reset-default", move || {
+        change_pin::reset_default_pin_json(&body)
+    })
+    .await?
         .map(Json)
         .map_err(|signal| api_error_signal("access pin reset-default", &signal))
 }
@@ -184,7 +193,11 @@ pub(crate) async fn attendance_route(
     );
     let result = match uri.path() {
         "/api/v1/exousia/open" | "/api/v1/attendance/open" => {
-            attendance::open_request_json(&body, trusted_unix_carrier)
+            let request_body = body.clone();
+            blocking_task("attendance", move || {
+                attendance::open_request_json(&request_body, trusted_unix_carrier)
+            })
+            .await?
         }
         "/api/v1/exousia/validate" | "/api/v1/attendance/validate" => {
             attendance::validate_json(&body)
@@ -192,7 +205,11 @@ pub(crate) async fn attendance_route(
         "/api/v1/exousia/touch" | "/api/v1/attendance/touch" => attendance::touch_json(&body),
         "/api/v1/exousia/change-pin"
         | "/api/v1/access/pin/change"
-        | "/api/v1/attendance/change-pin" => attendance::change_pin_json(&body),
+        | "/api/v1/attendance/change-pin" => {
+            let request_body = body.clone();
+            blocking_task("attendance", move || attendance::change_pin_json(&request_body))
+                .await?
+        }
         "/api/v1/exousia/invalidate" | "/api/v1/attendance/invalidate" => {
             attendance::invalidate_json(&body)
         }
@@ -220,13 +237,14 @@ pub(crate) async fn attendance_route(
             "peer": connect_info.map(|ConnectInfo(peer)| peer.to_string()).unwrap_or_else(|| "unknown".to_string()),
         })
     );
-    let _ = hyalos::reflect_json(serde_json::json!({
+    let reflection = serde_json::json!({
         "organ": "caduceus-attendance",
         "kind": "admin-admission",
         "ok": signal == "none",
         "message": if signal == "none" { "attendance-admitted" } else { "attendance-refused" },
         "attributes_redacted": { "route": uri.path(), "first_missing_signal": signal }
-    }));
+    });
+    let _ = blocking_task("hyalos reflect", move || hyalos::reflect_json(reflection)).await?;
     match result {
         Ok(value) if value.get("ok").and_then(Value::as_bool) == Some(true) => Ok(Json(value)),
         Ok(value) => Err(api_error_signal(

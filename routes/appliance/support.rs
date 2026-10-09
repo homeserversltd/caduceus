@@ -44,7 +44,11 @@ async fn registered_service_action_route(
     let allowed = roster_allows("POST", &roster_path).unwrap_or(false)
         && policy::allows_command("staff intent").unwrap_or(false);
     if allowed {
-        staff::execute_registered_service(&service, action)
+        let result = crate::gate::blocking_task("staff intent", move || {
+            staff::execute_registered_service(&service, action)
+        })
+        .await?;
+        result
             .map(|value| (mutation_status(&value), Json(value)))
             .map_err(|reason| api_error_signal("staff intent", &reason))
     } else {

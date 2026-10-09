@@ -107,9 +107,16 @@ async fn staff_route(
     ),
 > {
     match crate::shared::policy::allows_command("staff intent") {
-        Ok(true) => crate::routes::staff::named_actuator_json(actuator, body)
-            .map(|v| (crate::gate::mutation_status(&v), axum::Json(v)))
-            .map_err(|e| crate::gate::api_error_signal("staff intent", &e)),
+        Ok(true) => {
+            let actuator = actuator.to_string();
+            let result = crate::gate::blocking_task("staff intent", move || {
+                crate::routes::staff::named_actuator_json(&actuator, body)
+            })
+            .await?;
+            result
+                .map(|v| (crate::gate::mutation_status(&v), axum::Json(v)))
+                .map_err(|e| crate::gate::api_error_signal("staff intent", &e))
+        }
         Ok(false) => Err(crate::gate::api_error("staff intent")),
         Err(_) => Err(crate::gate::api_error_signal(
             "staff intent",
@@ -152,24 +159,27 @@ async fn file_ingress_start(Json(body): Json<UploadStart>) -> axum::response::Re
         body.target_dir.trim_end_matches('/'),
         body.filename
     );
-    let target_path = match crate::routes::staff::file_ingress_target(&logical_target) {
-        Ok(path) => path,
-        Err(signal) => return upload_error(StatusCode::BAD_REQUEST, &signal),
-    };
-    if !target_path.parent().is_some_and(FsPath::is_dir) {
-        return upload_error(
-            StatusCode::BAD_REQUEST,
-            "caduceus-file-ingress-destination-missing",
-        );
-    }
-    if std::fs::symlink_metadata(&target_path)
-        .is_ok_and(|metadata| metadata.file_type().is_symlink())
+    let target_path = match crate::gate::blocking_task("file ingress start", move || {
+        let target_path = crate::routes::staff::file_ingress_target(&logical_target)
+            .map_err(|signal| signal.to_string())?;
+        if !target_path.parent().is_some_and(FsPath::is_dir) {
+            return Err("caduceus-file-ingress-destination-missing".to_string());
+        }
+        if std::fs::symlink_metadata(&target_path)
+            .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return Err("caduceus-file-ingress-target-symlink".to_string());
+        }
+        Ok::<_, String>(target_path)
+    })
+    .await
     {
-        return upload_error(
-            StatusCode::BAD_REQUEST,
-            "caduceus-file-ingress-target-symlink",
-        );
-    }
+        Ok(Ok(path)) => path,
+        Ok(Err(signal)) => return upload_error(StatusCode::BAD_REQUEST, &signal),
+        Err((status, Json(body))) => {
+            return (status, Json(json!(body))).into_response();
+        }
+    };
 
     let root = spool_root();
     if tokio::fs::create_dir_all(&root).await.is_err() {

@@ -579,33 +579,38 @@ async fn put(
     }
     let canonical_name = crate::shared::seat_identity::resolver_target(&row.hostname)
         .ok_or_else(|| error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"))?;
-    row.ipv4_source = Some("declared".to_owned());
-    if let Some(dns_ipv4) = unbound_dns_view(&crate::shared::config::path("etc/unbound"))
-        .and_then(|records| unbound_ipv4_for_hostname(&records, &row.hostname))
-    {
-        row.ipv4 = dns_ipv4.to_string();
-        row.ipv4_source = Some("dns".to_owned());
-    }
-    row.canonical_name = canonical_name;
-    row.last_seen = server_now();
-    let row_json = serde_json::to_string(&row).map_err(|_| {
-        error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "caduceus-ruyi-store-failed",
+    let row = crate::gate::blocking_task("ruyi", move || {
+        let mut row = row;
+        row.ipv4_source = Some("declared".to_owned());
+        if let Some(dns_ipv4) = unbound_dns_view(&crate::shared::config::path("etc/unbound"))
+            .and_then(|records| unbound_ipv4_for_hostname(&records, &row.hostname))
+        {
+            row.ipv4 = dns_ipv4.to_string();
+            row.ipv4_source = Some("dns".to_owned());
+        }
+        row.canonical_name = canonical_name;
+        row.last_seen = server_now();
+        let row_json = serde_json::to_string(&row).map_err(|_| {
+            error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "caduceus-ruyi-store-failed",
+            )
+        })?;
+        crate::stats::ruyi_put(
+            &row.mac,
+            &row_json,
+            row.last_seen as i64,
+            perspective_json.as_deref(),
         )
-    })?;
-    crate::stats::ruyi_put(
-        &row.mac,
-        &row_json,
-        row.last_seen as i64,
-        perspective_json.as_deref(),
-    )
-    .map_err(|_| {
-        error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "caduceus-ruyi-store-failed",
-        )
-    })?;
+        .map_err(|_| {
+            error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "caduceus-ruyi-store-failed",
+            )
+        })?;
+        Ok::<_, (StatusCode, Json<crate::gate::ApiErrorBody>)>(row)
+    })
+    .await??;
     Ok((StatusCode::OK, Json(row)))
 }
 
@@ -613,43 +618,114 @@ async fn list(
     OriginalUri(uri): OriginalUri,
 ) -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
     let include_stats = stats_requested(&uri);
-    let stored = crate::stats::ruyi_snapshot().map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-store-failed"))?;
-    let mut announced = Vec::with_capacity(stored.rows.len());
-    for (_, row_json, last_seen) in stored.rows {
-        let value: Value = serde_json::from_str(&row_json).map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-row-invalid"))?;
-        if !crate::routes::leaf_schema::accepts_form(row_schema(), "row", &value) { return Err(error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-row-invalid")); }
-        let mut row: RuyiRow = serde_json::from_value(value).map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-row-invalid"))?;
-        row.last_seen = u64::try_from(last_seen).map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-row-invalid"))?;
-        announced.push(row);
-    }
-    let mut perspectives = BTreeMap::new();
-    let mut received = BTreeMap::new();
-    for (mac, bytes, received_at) in stored.perspectives {
-        let value = serde_json::from_str(&bytes).map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-row-invalid"))?;
-        received.insert(mac.clone(), u64::try_from(received_at).map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-row-invalid"))?);
-        perspectives.insert(mac, value);
-    }
-    let identity = current_identity();
-    let self_mac = identity.mac.clone();
-    let dns = unbound_records(&crate::shared::config::path("etc/unbound"));
-    let mut candidates = BTreeMap::<String, KeaCandidate>::new();
-    if let (Ok(leases), Ok(reservations)) = (crate::routes::native_kea_read::read_leases(), crate::routes::native_kea_read::read_reservations()) {
-        for lease in leases {
-            if let (Some(mac), Ok(address)) = (normalized_mac(&lease.mac), lease.ip.parse::<Ipv4Addr>()) {
-                candidates.insert(mac.clone(), KeaCandidate { mac, address, hostname: lease.hostname, fallback_hostname: None });
+    let (mut announced, mut perspectives, mut received, identity, dns, mut candidates) =
+        crate::gate::blocking_task("ruyi", || {
+            let stored = crate::stats::ruyi_snapshot().map_err(|_| {
+                error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "caduceus-ruyi-store-failed",
+                )
+            })?;
+            let mut announced = Vec::with_capacity(stored.rows.len());
+            for (_, row_json, last_seen) in stored.rows {
+                let value: Value = serde_json::from_str(&row_json).map_err(|_| {
+                    error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "caduceus-ruyi-row-invalid",
+                    )
+                })?;
+                if !crate::routes::leaf_schema::accepts_form(row_schema(), "row", &value) {
+                    return Err(error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "caduceus-ruyi-row-invalid",
+                    ));
+                }
+                let mut row: RuyiRow = serde_json::from_value(value).map_err(|_| {
+                    error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "caduceus-ruyi-row-invalid",
+                    )
+                })?;
+                row.last_seen = u64::try_from(last_seen).map_err(|_| {
+                    error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "caduceus-ruyi-row-invalid",
+                    )
+                })?;
+                announced.push(row);
             }
-        }
-        for reservation in reservations {
-            if let (Some(mac), Ok(address)) = (normalized_mac(&reservation.mac), reservation.ip.parse::<Ipv4Addr>()) {
-                match candidates.entry(mac.clone()) {
-                    std::collections::btree_map::Entry::Vacant(entry) => { entry.insert(KeaCandidate { mac, address, hostname: reservation.hostname, fallback_hostname: None }); }
-                    std::collections::btree_map::Entry::Occupied(mut entry) => {
-                        if valid_hostname(&reservation.hostname) { entry.get_mut().fallback_hostname = Some(reservation.hostname); }
+            let mut perspectives = BTreeMap::new();
+            let mut received = BTreeMap::new();
+            for (mac, bytes, received_at) in stored.perspectives {
+                let value = serde_json::from_str(&bytes).map_err(|_| {
+                    error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "caduceus-ruyi-row-invalid",
+                    )
+                })?;
+                received.insert(
+                    mac.clone(),
+                    u64::try_from(received_at).map_err(|_| {
+                        error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "caduceus-ruyi-row-invalid",
+                        )
+                    })?,
+                );
+                perspectives.insert(mac, value);
+            }
+            let identity = current_identity();
+            let dns = unbound_records(&crate::shared::config::path("etc/unbound"));
+            let mut candidates = BTreeMap::<String, KeaCandidate>::new();
+            if let (Ok(leases), Ok(reservations)) = (
+                crate::routes::native_kea_read::read_leases(),
+                crate::routes::native_kea_read::read_reservations(),
+            ) {
+                for lease in leases {
+                    if let (Some(mac), Ok(address)) =
+                        (normalized_mac(&lease.mac), lease.ip.parse::<Ipv4Addr>())
+                    {
+                        candidates.insert(
+                            mac.clone(),
+                            KeaCandidate {
+                                mac,
+                                address,
+                                hostname: lease.hostname,
+                                fallback_hostname: None,
+                            },
+                        );
+                    }
+                }
+                for reservation in reservations {
+                    if let (Some(mac), Ok(address)) = (
+                        normalized_mac(&reservation.mac),
+                        reservation.ip.parse::<Ipv4Addr>(),
+                    ) {
+                        match candidates.entry(mac.clone()) {
+                            std::collections::btree_map::Entry::Vacant(entry) => {
+                                entry.insert(KeaCandidate {
+                                    mac,
+                                    address,
+                                    hostname: reservation.hostname,
+                                    fallback_hostname: None,
+                                });
+                            }
+                            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                                if valid_hostname(&reservation.hostname) {
+                                    entry.get_mut().fallback_hostname =
+                                        Some(reservation.hostname);
+                                }
+                            }
+                        }
                     }
                 }
             }
-        }
-    }
+            Ok::<_, (StatusCode, Json<crate::gate::ApiErrorBody>)>(
+                (announced, perspectives, received, identity, dns, candidates),
+            )
+        })
+        .await??;
+    let self_mac = identity.mac.clone();
     let stored_macs: BTreeSet<_> = announced.iter().map(|row| row.mac.to_ascii_lowercase()).collect();
     candidates.retain(|mac, _| !stored_macs.contains(mac) && self_mac.as_deref() != Some(mac.as_str()));
     let mut staves: Vec<RuyiStaff> = announced.iter().cloned().map(RuyiStaff::Announced).collect();
@@ -915,39 +991,45 @@ async fn remove(
     if !valid_mac(&mac) {
         return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"));
     }
-    // The native log records actual removals only; an absent row writes no line.
-    let log_path = crate::shared::config::path("var/log/appliance/appliance.log");
-    let hostname = crate::stats::ruyi_delete(&mac)
-        .map_err(|_| {
+    let value = crate::gate::blocking_task("ruyi", move || {
+        // The native log records actual removals only; an absent row writes no line.
+        let log_path = crate::shared::config::path("var/log/appliance/appliance.log");
+        let hostname = crate::stats::ruyi_delete(&mac)
+            .map_err(|_| {
+                error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "caduceus-ruyi-store-failed",
+                )
+            })?
+            .ok_or_else(|| error(StatusCode::NOT_FOUND, "caduceus-ruyi-row-absent"))?;
+        let append = || -> std::io::Result<()> {
+            if let Some(parent) = log_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let mut log = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_path)?;
+            writeln!(
+                log,
+                "ruyi removed mac={} hostname={}",
+                mac,
+                serde_json::to_string(&hostname).unwrap()
+            )
+        };
+        // A log failure is reported as partial failure, never as a successful deletion receipt.
+        append().map_err(|_| {
             error(
                 StatusCode::SERVICE_UNAVAILABLE,
-                "caduceus-ruyi-store-failed",
+                "caduceus-ruyi-removed-log-failed",
             )
-        })?
-        .ok_or_else(|| error(StatusCode::NOT_FOUND, "caduceus-ruyi-row-absent"))?;
-    let append = || -> std::io::Result<()> {
-        if let Some(parent) = log_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut log = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_path)?;
-        writeln!(
-            log,
-            "ruyi removed mac={} hostname={}",
-            mac,
-            serde_json::to_string(&hostname).unwrap()
+        })?;
+        Ok::<_, (StatusCode, Json<crate::gate::ApiErrorBody>)>(
+            json!({"schema":row_schema(),"ok":true,"removed":mac}),
         )
-    };
-    // A log failure is reported as partial failure, never as a successful deletion receipt.
-    append().map_err(|_| {
-        error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "caduceus-ruyi-removed-log-failed",
-        )
-    })?;
-    Ok(Json(json!({"schema":row_schema(),"ok":true,"removed":mac})))
+    })
+    .await??;
+    Ok(Json(value))
 }
 
 pub fn register(router: axum::Router) -> axum::Router {

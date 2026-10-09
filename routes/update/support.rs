@@ -86,18 +86,24 @@ pub(crate) async fn receipts_ledger_route(
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(10);
     match policy::allows_command("receipts ledger") {
-        Ok(true) => match receipts::read_ledger_json(page, per_page) {
-            Ok(value) => Ok(Json(value)),
-            Err(err) => Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(ApiErrorBody {
-                    schema: "caduceus.api.error.v1",
-                    ok: false,
-                    command: "receipts ledger".to_string(),
-                    first_missing_signal: missing_signal(&err).to_string(),
-                }),
-            )),
-        },
+        Ok(true) => {
+            let result = blocking_task("receipts ledger", move || {
+                receipts::read_ledger_json(page, per_page)
+            })
+            .await?;
+            match result {
+                Ok(value) => Ok(Json(value)),
+                Err(err) => Err((
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: "receipts ledger".to_string(),
+                        first_missing_signal: missing_signal(&err).to_string(),
+                    }),
+                )),
+            }
+        }
         Ok(false) => Err(api_error("receipts ledger")),
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -114,9 +120,13 @@ pub(crate) async fn receipts_ledger_route(
 pub(crate) async fn update_service_status_route(
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("update service status") {
-        Ok(true) => update::service_status_json()
-            .map(Json)
-            .map_err(|signal| service_unavailable("update service status", &signal)),
+        Ok(true) => {
+            let result = blocking_task("update service status", update::service_status_json)
+                .await?;
+            result
+                .map(Json)
+                .map_err(|signal| service_unavailable("update service status", &signal))
+        }
         Ok(false) => Err(api_error("update service status")),
         Err(_) => Err(api_error_signal(
             "update service status",

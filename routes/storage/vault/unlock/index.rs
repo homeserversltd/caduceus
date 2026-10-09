@@ -477,11 +477,16 @@ use axum::http::StatusCode;
 
 async fn vault_unlock_route(
     ExtractJson(body): ExtractJson<crate::gate::VaultUnlockBody>,
-) -> (StatusCode, axum::Json<serde_json::Value>) {
-    (
+) -> Result<(StatusCode, axum::Json<serde_json::Value>), (StatusCode, axum::Json<crate::gate::ApiErrorBody>)> {
+    let password = body.password;
+    let value = crate::gate::blocking_task("vault unlock", move || {
+        unlock_json(password.as_deref())
+    })
+    .await?;
+    Ok((
         StatusCode::OK,
-        axum::Json(unlock_json(body.password.as_deref())),
-    )
+        axum::Json(value),
+    ))
 }
 
 /// Canonical registration seam for this leaf.

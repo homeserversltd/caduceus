@@ -31,7 +31,9 @@ fn cartridge_error(
 }
 
 pub(crate) async fn cartridges_route() -> Result<Response, (StatusCode, Json<ApiErrorBody>)> {
-    let bytes = crate::routes::cartridges_shared::passage_bytes()
+    let result = crate::gate::blocking_task("cartridges read", crate::routes::cartridges_shared::passage_bytes)
+        .await?;
+    let bytes = result
         .map_err(|error| cartridge_error("cartridges read", error))?;
     Ok(([(CONTENT_TYPE, "application/json")], Body::from(bytes)).into_response())
 }
@@ -56,7 +58,11 @@ pub(crate) async fn cartridges_admit_route(
     Json(body): Json<crate::routes::cartridges_shared::Cartridge>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     cartridges_mutation_admitted()?;
-    crate::routes::cartridges_shared::admit(body)
+    let result = crate::gate::blocking_task("cartridges admit", move || {
+        crate::routes::cartridges_shared::admit(body)
+    })
+    .await?;
+    result
         .map(|receipt| (StatusCode::OK, Json(receipt)))
         .map_err(|error| cartridge_error("cartridges admit", error))
 }
@@ -65,7 +71,12 @@ pub(crate) async fn cartridges_remove_route(
     Json(body): Json<CartridgeRemoveBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     cartridges_mutation_admitted()?;
-    crate::routes::cartridges_shared::remove(&body.id)
+    let id = body.id;
+    let result = crate::gate::blocking_task("cartridges remove", move || {
+        crate::routes::cartridges_shared::remove(&id)
+    })
+    .await?;
+    result
         .map(|receipt| (StatusCode::OK, Json(receipt)))
         .map_err(|error| cartridge_error("cartridges remove", error))
 }

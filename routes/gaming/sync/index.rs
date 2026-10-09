@@ -20,9 +20,15 @@ pub(super) async fn sync() -> Result<(StatusCode, Json<Value>), (StatusCode, Jso
 {
     let body = json!({});
     match crate::shared::policy::allows_command("gaming sync") {
-        Ok(true) => crate::gate::snake::crossing_path("games/sync", &body)
-            .map(|value| (crate::gate::mutation_status(&value), Json(value)))
-            .map_err(|signal| staff_refusal("gaming sync", signal)),
+        Ok(true) => {
+            let result = crate::gate::blocking_task("gaming sync", move || {
+                crate::gate::snake::crossing_path("games/sync", &body)
+            })
+            .await?;
+            result
+                .map(|value| (crate::gate::mutation_status(&value), Json(value)))
+                .map_err(|signal| staff_refusal("gaming sync", signal))
+        }
         Ok(false) => Err(crate::gate::api_error("gaming sync")),
         Err(_) => Err(crate::gate::api_error_signal(
             "gaming sync",

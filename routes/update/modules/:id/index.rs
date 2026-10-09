@@ -17,19 +17,27 @@ pub(crate) async fn route(
     Json(body): Json<ToggleBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match crate::shared::policy::allows_command(COMMAND) {
-        Ok(true) => match crate::routes::toggle_harmonia_module::toggle_json(&id, body.enabled) {
-            Ok(_) => Ok((
-                StatusCode::OK,
-                Json(json!({
-                    "schema": "caduceus.update.modules.mutate.v1",
-                    "ok": true,
-                    "id": id,
-                    "enabled": body.enabled,
-                    "firstMissingSignal": "none"
-                })),
-            )),
-            Err(e) => Err(api_error_signal(COMMAND, &e)),
-        },
+        Ok(true) => {
+            let operation_id = id.clone();
+            let enabled = body.enabled;
+            let result = crate::gate::blocking_task(COMMAND, move || {
+                crate::routes::toggle_harmonia_module::toggle_json(&operation_id, enabled)
+            })
+            .await?;
+            match result {
+                Ok(_) => Ok((
+                    StatusCode::OK,
+                    Json(json!({
+                        "schema": "caduceus.update.modules.mutate.v1",
+                        "ok": true,
+                        "id": id,
+                        "enabled": body.enabled,
+                        "firstMissingSignal": "none"
+                    })),
+                )),
+                Err(e) => Err(api_error_signal(COMMAND, &e)),
+            }
+        }
         Ok(false) => Err(api_error(COMMAND)),
         Err(_) => Err(api_error_signal(COMMAND, "caduceus-profile-missing")),
     }

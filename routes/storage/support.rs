@@ -51,7 +51,8 @@ pub(crate) async fn storage_categories_route(
         "/api/v1/storage/categories",
     )
     .map_err(|signal| api_error_signal(COMMAND, &signal))?;
-    storage_categories::cached_json().map(Json).map_err(|err| {
+    let result = crate::gate::blocking_task(COMMAND, storage_categories::cached_json).await?;
+    result.map(Json).map_err(|err| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ApiErrorBody {
@@ -75,17 +76,20 @@ pub(crate) async fn storage_categories_scan_route(
     )
     .map_err(|signal| api_error_signal(COMMAND, &signal))?;
     match crate::shared::policy::allows_command(COMMAND) {
-        Ok(true) => storage_categories::scan_json().map(Json).map_err(|err| {
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(ApiErrorBody {
-                    schema: "caduceus.api.error.v1",
-                    ok: false,
-                    command: COMMAND.to_string(),
-                    first_missing_signal: err,
-                }),
-            )
-        }),
+        Ok(true) => {
+            let result = crate::gate::blocking_task(COMMAND, storage_categories::scan_json).await?;
+            result.map(Json).map_err(|err| {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: COMMAND.to_string(),
+                        first_missing_signal: err,
+                    }),
+                )
+            })
+        }
         Ok(false) => Err(api_error(COMMAND)),
         Err(_) => Err(api_error_signal(COMMAND, "caduceus-profile-missing")),
     }

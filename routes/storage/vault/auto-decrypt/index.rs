@@ -6,11 +6,15 @@ use axum::http::StatusCode;
 
 async fn vault_auto_decrypt_route(
     ExtractJson(body): ExtractJson<crate::gate::VaultAutoBody>,
-) -> (StatusCode, axum::Json<serde_json::Value>) {
-    (
+) -> Result<(StatusCode, axum::Json<serde_json::Value>), (StatusCode, axum::Json<crate::gate::ApiErrorBody>)> {
+    let value = crate::gate::blocking_task("vault auto-decrypt", move || {
+        crate::routes::open_vault::auto_decrypt_json(body.enabled)
+    })
+    .await?;
+    Ok((
         StatusCode::OK,
-        axum::Json(crate::routes::open_vault::auto_decrypt_json(body.enabled)),
-    )
+        axum::Json(value),
+    ))
 }
 
 /// Canonical registration seam for this leaf.

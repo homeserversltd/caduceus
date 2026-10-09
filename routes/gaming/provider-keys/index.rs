@@ -70,12 +70,16 @@ fn public_keys(value: &Value) -> Value {
 
 pub(super) async fn status() -> Result<Json<Value>, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
     match crate::shared::policy::allows_command("gaming provider-keys read") {
-        Ok(true) => crate::gate::snake::crossing_path(
-            "games/provider-keys",
-            &json!({"verb":"status","args":["status"]}),
-        )
-        .map(|value| Json(public_keys(&value)))
-        .map_err(|signal| staff_refusal("gaming provider-keys read", signal)),
+        Ok(true) => {
+            let payload = json!({"verb":"status","args":["status"]});
+            let result = crate::gate::blocking_task("gaming provider-keys read", move || {
+                crate::gate::snake::crossing_path("games/provider-keys", &payload)
+            })
+            .await?;
+            result
+                .map(|value| Json(public_keys(&value)))
+                .map_err(|signal| staff_refusal("gaming provider-keys read", signal))
+        }
         Ok(false) => Err(crate::gate::api_error("gaming provider-keys read")),
         Err(_) => Err(crate::gate::api_error_signal(
             "gaming provider-keys read",
@@ -104,9 +108,15 @@ pub(super) async fn save(
     }
     let payload = json!({"verb":"save","args":["save"],"keys":keys});
     match crate::shared::policy::allows_command("gaming provider-keys save") {
-        Ok(true) => crate::gate::snake::crossing_path("games/provider-keys", &payload)
-            .map(|value| (crate::gate::mutation_status(&value), Json(value)))
-            .map_err(|signal| staff_refusal("gaming provider-keys save", signal)),
+        Ok(true) => {
+            let result = crate::gate::blocking_task("gaming provider-keys save", move || {
+                crate::gate::snake::crossing_path("games/provider-keys", &payload)
+            })
+            .await?;
+            result
+                .map(|value| (crate::gate::mutation_status(&value), Json(value)))
+                .map_err(|signal| staff_refusal("gaming provider-keys save", signal))
+        }
         Ok(false) => Err(crate::gate::api_error("gaming provider-keys save")),
         Err(_) => Err(crate::gate::api_error_signal(
             "gaming provider-keys save",

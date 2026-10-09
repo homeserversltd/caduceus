@@ -30,10 +30,13 @@ pub(crate) async fn route() -> Result<Json<BeamBody>, (StatusCode, Json<crate::g
             }),
         )
     };
-    let syzygy_sha = crate::routes::leaf_ruyi::local_syzygy()
-        .map_err(|_| failure("caduceus-ruyi-store-failed"))?;
-    let stamp_sha = crate::routes::leaf_ruyi::local_stamp_sha()
-        .map_err(|_| failure("caduceus-ruyi-store-failed"))?;
+    let (syzygy_sha, stamp_sha) = crate::gate::blocking_task("beam", || {
+        let syzygy_sha = crate::routes::leaf_ruyi::local_syzygy()?;
+        let stamp_sha = crate::routes::leaf_ruyi::local_stamp_sha()?;
+        Ok::<_, String>((syzygy_sha, stamp_sha))
+    })
+    .await?
+    .map_err(|_| failure("caduceus-ruyi-store-failed"))?;
     let profile = crate::routes::profile_routes::ACTIVE_PROFILE.to_owned();
     let gui_face = match profile.as_str() {
         "homeserver" => Some("Coronatio"),
