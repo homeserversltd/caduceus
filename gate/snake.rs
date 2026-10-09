@@ -500,6 +500,33 @@ pub fn route_envelope(path: &str, input: &Value) -> Value {
     crossing_envelope(path, input)
 }
 
+/// Spawn a staff crossing and return its running child after forwarding the envelope.
+pub fn crossing_spawn(path: &str, input: &Value) -> Result<std::process::Child, String> {
+    let band = safe_band_path(path)?;
+    let (mut command, _face_path) = band_invocation(&band)?;
+    let envelope = crossing_envelope(&band, input);
+    let (_forwarded, raw) = prepare_envelope(&envelope)?;
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "caduceus-agathodaimon-cli-unavailable".to_string())?;
+    let Some(mut stdin) = child.stdin.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("caduceus-agathodaimon-cli-stdin-unavailable".into());
+    };
+    if stdin.write_all(raw.as_bytes()).is_err() {
+        drop(stdin);
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("caduceus-agathodaimon-cli-stdin-write-failed".into());
+    }
+    drop(stdin);
+    Ok(child)
+}
+
 /// Run a staff crossing with direct transcript sinks and a press-bounded deadline.
 pub fn crossing_path_with_streamed_output(
     path: &str,

@@ -4,10 +4,26 @@
 // requested identifier and returns the exact argv and JSON stdin without spawning.
 
 use serde_json::{json, Value};
-use std::{fs, path::Path, process::Command};
+use std::{
+    fs,
+    path::Path,
+    process::{Child, Command},
+    sync::{Mutex, OnceLock},
+};
 
 const RESULTS_FILE: &str = "/var/harddriveTest.txt";
 const TEST_TYPES: &[&str] = &["quick", "full", "ultimate"];
+
+struct ActiveTest {
+    child: Child,
+    device: String,
+    test_type: String,
+}
+
+fn active_test() -> &'static Mutex<Option<ActiveTest>> {
+    static ACTIVE: OnceLock<Mutex<Option<ActiveTest>>> = OnceLock::new();
+    ACTIVE.get_or_init(|| Mutex::new(None))
+}
 
 fn test_band_payload(device: &str, test_type: &str) -> Value {
     json!({
@@ -99,8 +115,23 @@ pub fn start_json(device: &str, test_type: &str, dry_run: bool) -> Result<Value,
         }));
     }
 
-    crate::gate::snake::crossing_path("storage/disk/test", &stdin_json)
+    let mut active = active_test()
+        .lock()
+        .map_err(|_| "caduceus-hard-drive-test-state-poisoned".to_string())?;
+    if active
+        .as_mut()
+        .is_some_and(|running| running.child.try_wait().ok().flatten().is_none())
+    {
+        return Err("caduceus-hard-drive-test-already-running".into());
+    }
+    *active = None;
+    let child = crate::gate::snake::crossing_spawn("storage/disk/test", &stdin_json)
         .map_err(|error| format!("caduceus-hard-drive-test-start-failed:{error}"))?;
+    *active = Some(ActiveTest {
+        child,
+        device: device.clone(),
+        test_type: test_type.to_string(),
+    });
     Ok(json!({
         "schema": "caduceus.hard-drive-test.start.v1",
         "ok": true,
@@ -117,16 +148,37 @@ pub fn start_json(device: &str, test_type: &str, dry_run: bool) -> Result<Value,
 }
 
 pub fn progress_json() -> Result<Value, String> {
-    Ok(json!({
-        "schema": "caduceus.hard-drive-test.progress.v1",
-        "ok": true,
-        "testing": false,
-        "device": null,
-        "label": null,
-        "testType": null,
-        "progress": null,
-        "firstMissingSignal": "none"
-    }))
+    let mut active = active_test()
+        .lock()
+        .map_err(|_| "caduceus-hard-drive-test-state-poisoned".to_string())?;
+    let finished = active
+        .as_mut()
+        .is_some_and(|running| running.child.try_wait().ok().flatten().is_some());
+    if finished {
+        *active = None;
+    }
+    match active.as_ref() {
+        Some(running) => Ok(json!({
+            "schema": "caduceus.hard-drive-test.progress.v1",
+            "ok": true,
+            "testing": true,
+            "device": running.device,
+            "label": null,
+            "testType": running.test_type,
+            "progress": null,
+            "firstMissingSignal": "none"
+        })),
+        None => Ok(json!({
+            "schema": "caduceus.hard-drive-test.progress.v1",
+            "ok": true,
+            "testing": false,
+            "device": null,
+            "label": null,
+            "testType": null,
+            "progress": null,
+            "firstMissingSignal": "none"
+        })),
+    }
 }
 
 pub fn results_json() -> Result<Value, String> {
