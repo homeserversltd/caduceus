@@ -10,32 +10,10 @@ const LIMIT: usize = 1024 * 1024;
 
 fn forgejo_credentials() -> Result<(String, String)> {
     let missing = || observation("F", "forge.credential", "forge-credential-unavailable");
-    let mut child = Command::new("/usr/bin/sudo")
-        .args([
-            "-n",
-            "/usr/local/sbin/agathodaimon/cli.py",
-            "storage/backup/forgejo/credential",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| missing())?;
-    let Some(mut stdin) = child.stdin.take() else {
-        let _ = child.wait();
-        return Err(missing());
-    };
-    let wrote = stdin.write_all(b"{}");
-    drop(stdin);
-    if wrote.is_err() {
-        let _ = child.wait();
-        return Err(missing());
-    }
-    let output = child.wait_with_output().map_err(|_| missing())?;
-    if !output.status.success() {
-        return Err(missing());
-    }
-    let text = String::from_utf8(output.stdout).map_err(|_| missing())?;
+    let payload =
+        crate::gate::snake::crossing_path("storage/backup/forgejo/credential", &json!({}))
+            .map_err(|_| missing())?;
+    let text = payload.as_str().ok_or_else(|| missing())?;
     let mut username = None;
     let mut password = None;
     for line in text.lines() {

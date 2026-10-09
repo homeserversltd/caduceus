@@ -1,1 +1,1 @@
-{"namespace":"appliance/report","admittance":"open","flags":{},"serve":[{"rust":"appliance_report_read"}]}
+{"namespace":"appliance/report","admittance":"open","flags":{},"serve":[{"rust":"appliance_report_read"},{"snake":"appliance/journal-vacuum"},{"snake":"storage/backup/forgejo/credential"},{"snake":"update/sources-reseed","verb":["update","sources-reseed"]}]}

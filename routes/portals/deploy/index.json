@@ -1,1 +1,1 @@
-{"namespace":"portals/deploy","admittance":"open","flags":{},"serve":[{"snake":"storage/upload/ingress","verb":["upload","ingress"],"recursive":true},{"snake":"storage/upload/force-permissions","verb":["upload","force-permissions"],"recursive":true}]}
+{"namespace":"portals/deploy","admittance":"open","flags":{},"serve":[{"snake":"storage/upload/ingress","verb":["upload","ingress"],"recursive":true},{"snake":"storage/upload/force-permissions","verb":["upload","force-permissions"],"recursive":true},{"snake":"network/linker","verb":["network","linker"]}]}
