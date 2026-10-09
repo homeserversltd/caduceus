@@ -133,7 +133,7 @@ pub(crate) async fn gated_json(
     read: fn() -> Result<Value, String>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
-        Ok(true) => read()
+        Ok(true) => blocking_task(command, read).await?
             .map(Json)
             .map_err(|err| service_unavailable(command, missing_signal(&err))),
         Ok(false) => Err(api_error(command)),
@@ -145,7 +145,8 @@ pub(crate) async fn gated_body(
     read: fn() -> Result<String, String>,
 ) -> Result<String, (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
-        Ok(true) => read().map_err(|err| service_unavailable(command, missing_signal(&err))),
+        Ok(true) => blocking_task(command, read).await?
+            .map_err(|err| service_unavailable(command, missing_signal(&err))),
         Ok(false) => Err(api_error(command)),
         Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
     }
