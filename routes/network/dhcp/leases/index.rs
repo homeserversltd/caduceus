@@ -9,7 +9,10 @@ async fn dhcp_leases_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBo
     let command = "network dhcp leases";
     match crate::shared::policy::allows_command(command) {
         Ok(true) => {
-            let value = crate::routes::native_kea_read::response(command);
+            let value = crate::gate::blocking_task(command, move || {
+                crate::routes::native_kea_read::response(command)
+            })
+            .await?;
             if value["ok"] == true {
                 Ok(Json(value))
             } else {

@@ -101,7 +101,9 @@ async fn device_claim_route(
                 args.push("--auto-ip".to_string());
             }
             args.extend(["--hostname".to_string(), body.hostname]);
-            network_identity::invoke(&args)
+            let result = crate::gate::blocking_task(COMMAND, move || network_identity::invoke(&args))
+                .await?;
+            result
                 .map(|receipt| (StatusCode::OK, Json(receipt)))
                 .map_err(|signal| api_error_signal(COMMAND, &signal))
         }

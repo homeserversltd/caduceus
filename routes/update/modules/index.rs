@@ -76,9 +76,10 @@ fn modules_json() -> Result<Value, String> {
 
 pub(crate) async fn route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(COMMAND) {
-        Ok(true) => modules_json()
-            .map(Json)
-            .map_err(|e| api_error_signal(COMMAND, &e)),
+        Ok(true) => {
+            let result = crate::gate::blocking_task(COMMAND, modules_json).await?;
+            result.map(Json).map_err(|e| api_error_signal(COMMAND, &e))
+        }
         Ok(false) => Err(api_error(COMMAND)),
         Err(_) => Err(api_error_signal(COMMAND, "caduceus-profile-missing")),
     }

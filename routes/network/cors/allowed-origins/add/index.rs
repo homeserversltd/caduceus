@@ -36,8 +36,7 @@ fn origin_key(raw: &str) -> Option<(String, String, u16)> {
     ))
 }
 
-fn add_origin(origin: &str) -> Result<Value, String> {
-    let key = origin_key(origin).ok_or_else(|| "caduceus-cors-origin-invalid".to_string())?;
+fn add_origin(origin: &str, key: (String, String, u16)) -> Result<Value, String> {
     let _guard = WRITE_LOCK
         .lock()
         .map_err(|_| "caduceus-cors-write-lock-failed".to_string())?;
@@ -92,7 +91,11 @@ async fn add_route(
         .get("origin")
         .and_then(Value::as_str)
         .ok_or_else(|| error("caduceus-cors-origin-invalid".to_string()))?;
-    add_origin(origin).map(Json).map_err(error)
+    let key = origin_key(origin)
+        .ok_or_else(|| error("caduceus-cors-origin-invalid".to_string()))?;
+    let origin = origin.to_string();
+    let result = crate::gate::blocking_task(COMMAND, move || add_origin(&origin, key)).await?;
+    result.map(Json).map_err(error)
 }
 
 fn error(signal: String) -> (StatusCode, Json<ApiErrorBody>) {

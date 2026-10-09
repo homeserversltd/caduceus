@@ -67,12 +67,22 @@ pub async fn execute(
     };
     let mutation = matches!(&plan, Plan::Mutation(_));
     let (success, result, failure) = match plan {
-        Plan::Read(args) => match run_readonly_nmcli(&args) {
-            Ok((stdout, _)) => (true, Some(parse_result(action, &stdout)), None),
-            Err(error) => (false, None, Some(error)),
-        },
+        Plan::Read(args) => {
+            let result = crate::gate::blocking_task(command, move || run_readonly_nmcli(&args))
+                .await
+                .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
+            match result {
+                Ok((stdout, _)) => (true, Some(parse_result(action, &stdout)), None),
+                Err(error) => (false, None, Some(error)),
+            }
+        }
         Plan::Mutation(payload) => {
-            match crate::gate::snake::crossing_path("network/wifi", &payload) {
+            let result = crate::gate::blocking_task(command, move || {
+                crate::gate::snake::crossing_path("network/wifi", &payload)
+            })
+            .await
+            .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
+            match result {
                 Ok(receipt_payload) => {
                     let success = receipt_payload
                         .get("ok")

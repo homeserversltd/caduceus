@@ -181,7 +181,13 @@ async fn network_notes_write_route(
                 "/api/v1/network/notes",
             )
             .map_err(|signal| crate::gate::api_error_signal(command, &signal))?;
-            network_notes::write_json(&body.mac, &body.note)
+            let mac = body.mac;
+            let note = body.note;
+            let result = crate::gate::blocking_task(command, move || {
+                network_notes::write_json(&mac, &note)
+            })
+            .await?;
+            result
                 .map(|value| (StatusCode::OK, Json(value)))
                 .map_err(network_notes_write_error)
         }
