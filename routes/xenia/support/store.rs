@@ -142,7 +142,7 @@ fn ensure_process_seat(proposed: &Value, id: &str) -> Result<Option<Seat>> {
     let walked =
         crate::gate::snake::run_launcher(&argv, &envelope, std::time::Duration::from_secs(30))
             .map_err(|error| {
-                let signal = if error == "xenos-launcher-absent" {
+                let signal = if matches!(error.as_str(), "xenos-launcher-absent" | "xenos-launcher-unavailable") {
                     "seat-launcher-unavailable"
                 } else {
                     "seat-launcher-refused"

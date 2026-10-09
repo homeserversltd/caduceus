@@ -99,7 +99,7 @@ fn census_listeners(id: &str) -> Result<Vec<Listener>> {
     let envelope = crate::gate::snake::route_envelope("xenia/status", &json!({"id": id}));
     let walked = crate::gate::snake::run_launcher(&argv, &envelope, Duration::from_secs(30))
         .map_err(|error| {
-            let signal = if error == "xenos-launcher-absent" {
+            let signal = if matches!(error.as_str(), "xenos-launcher-absent" | "xenos-launcher-unavailable") {
                 "census-launcher-unavailable"
             } else {
                 "census-launcher-refused"
