@@ -21,6 +21,13 @@ const FILE_INGRESS_DOCUMENT_TARGETS: &[&str] = &[
     "/api/v1/file/ingress/{upload_id}/complete",
     "/api/v1/file/ingress/{upload_id}",
 ];
+const NETWORK_DNS_DOCUMENT_TARGETS: &[&str] = &[
+    "/api/v1/network/dns/device-name/create",
+    "/api/v1/network/dns/device-name/remove",
+    "/api/v1/network/dns/adblock",
+    "/api/v1/network/dns/blocklist/update",
+    "/api/v1/network/dns/upstream",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AttendanceOrigin {
@@ -36,6 +43,7 @@ enum DerivationScope {
     Firewall,
     PortalService,
     FileIngress,
+    NetworkDns,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -365,6 +373,11 @@ fn derivation_scope(document: &str) -> Option<DerivationScope> {
         .any(|candidate| *candidate == document)
     {
         Some(DerivationScope::FileIngress)
+    } else if NETWORK_DNS_DOCUMENT_TARGETS
+        .iter()
+        .any(|candidate| *candidate == document)
+    {
+        Some(DerivationScope::NetworkDns)
     } else {
         None
     }
