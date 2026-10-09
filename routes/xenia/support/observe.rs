@@ -91,23 +91,33 @@ pub fn sockets() -> Result<Vec<Listener>> {
 }
 
 fn census_listeners(id: &str) -> Result<Vec<Listener>> {
-    let output = Command::new("/usr/bin/sudo")
-        .args([
-            "-n",
-            "/usr/local/sbin/agathodaimon/caduceus-xenos-run",
-            "census",
-            id,
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|_| observation("status", "census", "census-launcher-unavailable"))?;
-    if !output.status.success() {
+    let argv = vec![
+        crate::gate::snake::XENOS_LAUNCHER_PATH.to_string(),
+        "census".to_string(),
+        id.to_string(),
+    ];
+    let envelope = crate::gate::snake::route_envelope("xenia/status", &json!({"id": id}));
+    let walked = crate::gate::snake::run_launcher(&argv, &envelope, Duration::from_secs(30))
+        .map_err(|error| {
+            let signal = if error == "xenos-launcher-absent" {
+                "census-launcher-unavailable"
+            } else {
+                "census-launcher-refused"
+            };
+            observation("status", "census", signal)
+        })?;
+    if walked.get("ok").and_then(Value::as_bool) != Some(true) {
         return Err(observation("status", "census", "census-launcher-refused"));
     }
-    let receipt: Value = serde_json::from_slice(&output.stdout)
+    let raw_stdout = walked
+        .get("rawChildStdout")
+        .and_then(Value::as_str)
+        .ok_or_else(|| observation("status", "census", "census-receipt-invalid"))?;
+    serde_json::from_str::<Value>(raw_stdout.trim())
         .map_err(|_| observation("status", "census", "census-receipt-invalid"))?;
+    let receipt = walked
+        .get("receiptPayload")
+        .ok_or_else(|| observation("status", "census", "census-receipt-invalid"))?;
     if receipt.get("ok").and_then(Value::as_bool) != Some(true)
         || receipt.get("id").and_then(Value::as_str) != Some(id)
     {

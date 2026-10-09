@@ -7,11 +7,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-const AGATHODAIMON_CLI: &str = "/usr/local/sbin/agathodaimon/cli.py";
-const CERT_REFRESH_BAND: &str = "network/cert/refresh";
 
 pub fn invoke_json(args: &[String]) -> Result<Value, String> {
     let input = json!({"args": args});
@@ -252,44 +248,22 @@ pub fn bundle_export_download_json(platform: &str) -> Result<BundleDownload, Str
 /// Executes the preserved root-refresh script. Its successful renewal always
 /// requires clients to reinstall the refreshed certificate bundle.
 pub fn legacy_refresh_root_json() -> Result<Value, String> {
-    let input = serde_json::to_vec(&json!({}))
-        .map_err(|_| "caduceus-cert-refresh-script-unavailable".to_string())?;
-    // This override is the direct recorder seam for local proof only; production uses sudo -n.
-    let override_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI");
-    let mut command = match override_cli {
-        Some(cli) => {
-            let mut command = Command::new(cli);
-            command.arg(CERT_REFRESH_BAND);
-            command
+    let walked = crate::gate::snake::crossing_path_with_timeout(
+        "network/cert/refresh",
+        &json!({}),
+        Duration::from_secs(600),
+    )
+    .map_err(|signal| {
+        if matches!(
+            signal.as_str(),
+            "caduceus-agathodaimon-cli-missing" | "caduceus-agathodaimon-cli-unavailable"
+        ) {
+            "caduceus-cert-refresh-script-unavailable".to_string()
+        } else {
+            "caduceus-cert-refresh-script-failed".to_string()
         }
-        None => {
-            let mut command = Command::new("/usr/bin/sudo");
-            command.args(["-n", AGATHODAIMON_CLI, CERT_REFRESH_BAND]);
-            command
-        }
-    };
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|_| "caduceus-cert-refresh-script-unavailable".to_string())?;
-    let Some(mut stdin) = child.stdin.take() else {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err("caduceus-cert-refresh-script-failed".into());
-    };
-    if stdin.write_all(&input).is_err() {
-        drop(stdin);
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err("caduceus-cert-refresh-script-failed".into());
-    }
-    drop(stdin);
-    let output = child
-        .wait_with_output()
-        .map_err(|_| "caduceus-cert-refresh-script-unavailable".to_string())?;
-    if !output.status.success() {
+    })?;
+    if walked.get("ok").and_then(Value::as_bool) != Some(true) {
         return Err("caduceus-cert-refresh-script-failed".into());
     }
     Ok(json!({

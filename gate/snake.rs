@@ -1,20 +1,57 @@
 use serde_json::{json, Value};
 use std::{
     fs,
-    io::{Read, Write},
+    io::{self, Read, Write},
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command, ExitStatus, Stdio},
     time::{Duration, Instant},
 };
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 const MAX_CROSSING_TIMEOUT: Duration = Duration::from_secs(600);
+const MAX_STREAMED_CROSSING_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
+pub const XENOS_LAUNCHER_PATH: &str = "/usr/local/sbin/agathodaimon/caduceus-xenos-run";
+const CROSSING_SENTINEL: &str = "__caduceus_crossing_probe_nonexistent__";
 fn shelf_root() -> PathBuf {
     PathBuf::from(crate::protocol::SERPENTS_SHELF_PATH).join("agathodaimon")
 }
-fn cli_path() -> PathBuf {
+pub fn cli_path() -> PathBuf {
     std::env::var_os("CADUCEUS_AGATHODAIMON_CLI")
         .map(PathBuf::from)
         .unwrap_or_else(|| shelf_root().join("cli.py"))
+}
+
+fn command_argv(executable: &Path, args: &[String], privileged: bool) -> Vec<std::ffi::OsString> {
+    let mut argv = Vec::with_capacity(args.len() + 3);
+    if privileged {
+        argv.push("/usr/bin/sudo".into());
+        argv.push("-n".into());
+    }
+    argv.push(executable.as_os_str().to_owned());
+    argv.extend(
+        args.iter()
+            .map(|arg| std::ffi::OsString::from(arg.as_str())),
+    );
+    argv
+}
+
+fn command_from_argv(argv: &[std::ffi::OsString]) -> Command {
+    let mut command = Command::new(&argv[0]);
+    command.args(&argv[1..]);
+    command
+}
+
+fn cli_argv(path: &Path, args: &[String]) -> Vec<std::ffi::OsString> {
+    let privileged = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_none();
+    command_argv(path, args, privileged)
+}
+
+pub fn crossing_argv(path: &str) -> Result<Vec<String>, String> {
+    let band = safe_band_path(path)?;
+    Ok(cli_argv(&cli_path(), &[band])
+        .iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect())
 }
 pub fn safe_band_path(value: &str) -> Result<String, String> {
     let value = value.trim_matches('/');
@@ -170,15 +207,7 @@ pub fn status(band: Option<&str>) -> Value {
     }
     body
 }
-fn execute_command(
-    band: &str,
-    outer_envelope: &Value,
-    mut command: Command,
-    timeout: Duration,
-    face_path: Value,
-    timeout_error: &str,
-    spawn_error: &str,
-) -> Result<Value, String> {
+fn prepare_envelope(outer_envelope: &Value) -> Result<(Value, String), String> {
     let mut forwarded = outer_envelope.clone();
     let fields = forwarded
         .as_object_mut()
@@ -193,6 +222,19 @@ fn execute_command(
     let forwarded = outer.into_raw();
     let raw = serde_json::to_string(&forwarded)
         .map_err(|_| "caduceus-snake-envelope-invalid".to_string())?;
+    Ok((forwarded, raw))
+}
+
+fn execute_command(
+    band: &str,
+    outer_envelope: &Value,
+    mut command: Command,
+    timeout: Duration,
+    face_path: Value,
+    timeout_error: &str,
+    spawn_error: &str,
+) -> Result<Value, String> {
+    let (forwarded, raw) = prepare_envelope(outer_envelope)?;
     let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -329,43 +371,44 @@ fn execute_command(
     }))
 }
 
-fn execute_with_timeout(
-    band: &str,
-    outer_envelope: &Value,
-    timeout: Duration,
-) -> Result<Value, String> {
+fn band_invocation(band: &str) -> Result<(Command, Value), String> {
     let override_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some();
     let cli = cli_path();
     if !cli.is_file() {
         return Err("caduceus-agathodaimon-cli-missing".into());
     }
-    let e = if override_cli {
+    let entry = if override_cli {
         json!({"bandPath": band, "facePath": cli})
     } else {
-        let es = index_entries(&shelf_root())?;
-        es.iter()
-            .find(|v| {
-                v.get("bandPath").and_then(Value::as_str) == Some(band)
-                    && profile_allows(v, active_profile())
+        let entries = index_entries(&shelf_root())?;
+        entries
+            .iter()
+            .find(|value| {
+                value.get("bandPath").and_then(Value::as_str) == Some(band)
+                    && profile_allows(value, active_profile())
             })
             .cloned()
             .ok_or_else(|| "caduceus-snake-band-not-profile-lit".to_string())?
     };
-    let mut command = if override_cli {
-        let mut command = Command::new(&cli);
-        command.arg(band);
-        command
-    } else {
-        let mut command = Command::new("/usr/bin/sudo");
-        command.arg("-n").arg(&cli).arg(band);
-        command
-    };
+    let argv = cli_argv(&cli, &[band.to_string()]);
+    Ok((
+        command_from_argv(&argv),
+        entry.get("facePath").cloned().unwrap_or(Value::Null),
+    ))
+}
+
+fn execute_with_timeout(
+    band: &str,
+    outer_envelope: &Value,
+    timeout: Duration,
+) -> Result<Value, String> {
+    let (command, face_path) = band_invocation(band)?;
     execute_command(
         band,
         outer_envelope,
         command,
         timeout,
-        e.get("facePath").cloned().unwrap_or(Value::Null),
+        face_path,
         "caduceus-agathodaimon-timeout",
         "caduceus-agathodaimon-cli-unavailable",
     )
@@ -374,17 +417,70 @@ fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
     execute_with_timeout(band, outer_envelope, Duration::from_secs(30))
 }
 
+fn executable(path: &Path) -> bool {
+    path.is_file()
+        && fs::metadata(path)
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+}
+
+fn resolve_cli_program(program: &Path) -> Option<PathBuf> {
+    if program.is_absolute() || program.as_os_str().to_string_lossy().contains('/') {
+        return executable(program).then(|| program.to_path_buf());
+    }
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|directory| directory.join(program))
+            .find(|candidate| executable(candidate))
+    })
+}
+
+/// Exercise the raw nonexistent-noun CLI sentinel, not a declared band.
+pub fn probe_cli() -> Value {
+    let requested = cli_path();
+    let Some(cli) = resolve_cli_program(&requested) else {
+        return json!({
+            "ok":false,
+            "class":"resolve",
+            "exit":null,
+            "stderr":format!("agathodaimon cli unavailable: {}", requested.display())
+        });
+    };
+    let argv = cli_argv(&cli, &[CROSSING_SENTINEL.to_string()]);
+    let output = match command_from_argv(&argv).output() {
+        Ok(output) => output,
+        Err(error) => {
+            return json!({"ok":false,"class":"spawn","exit":null,"stderr":error.to_string()});
+        }
+    };
+    let exit = output.status.code();
+    let stderr = match String::from_utf8(output.stderr) {
+        Ok(stderr) => stderr,
+        Err(error) => {
+            return json!({"ok":false,"class":"parse","exit":exit,"stderr":error.to_string()});
+        }
+    };
+    let expected = format!("unknown noun: {CROSSING_SENTINEL}");
+    if exit != Some(2) {
+        return json!({"ok":false,"class":"exit","exit":exit,"stderr":stderr});
+    }
+    if stderr != expected && stderr != format!("{expected}{}", char::from(10)) {
+        return json!({"ok":false,"class":"parse","exit":exit,"stderr":stderr});
+    }
+    json!({"ok":true,"class":Value::Null,"exit":exit,"stderr":stderr})
+}
+
 pub fn run_launcher(argv: &[String], envelope: &Value, timeout: Duration) -> Result<Value, String> {
-    const LAUNCHER: &str = "/usr/local/sbin/agathodaimon/caduceus-xenos-run";
-    if argv.first().map(String::as_str) != Some(LAUNCHER) || !Path::new(LAUNCHER).is_file() {
+    if argv.first().map(String::as_str) != Some(XENOS_LAUNCHER_PATH)
+        || !Path::new(XENOS_LAUNCHER_PATH).is_file()
+    {
         return Err("xenos-launcher-absent".into());
     }
-    let mut command = Command::new("/usr/bin/sudo");
-    command.arg("-n").arg(LAUNCHER).args(&argv[1..]);
+    let command_argv = command_argv(Path::new(XENOS_LAUNCHER_PATH), &argv[1..], true);
     execute_command(
         argv.get(3).map(String::as_str).unwrap_or("xenia/run"),
         envelope,
-        command,
+        command_from_argv(&command_argv),
         timeout,
         Value::Null,
         "xenos-run-timeout",
@@ -397,6 +493,77 @@ pub fn run(band: &str, envelope: &Value) -> Result<Value, String> {
 }
 fn crossing_envelope(path: &str, input: &Value) -> Value {
     json!({"schema":crate::protocol::SCHEMA_ID,"intent_id":format!("caduceus-{path}"),"transition":path,"origin_of_intent":"near","payload":input})
+}
+
+/// Produce the shared public route envelope for a caller-owned transition.
+pub fn route_envelope(path: &str, input: &Value) -> Value {
+    crossing_envelope(path, input)
+}
+
+/// Run a staff crossing with direct transcript sinks and a press-bounded deadline.
+pub fn crossing_path_with_streamed_output(
+    path: &str,
+    input: &Value,
+    timeout: Duration,
+    stdout_file: &std::fs::File,
+    stderr_file: &std::fs::File,
+) -> io::Result<ExitStatus> {
+    if timeout.is_zero() || timeout > MAX_STREAMED_CROSSING_TIMEOUT {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "caduceus-snake-timeout-out-of-range",
+        ));
+    }
+    let band = safe_band_path(path)
+        .map_err(|signal| io::Error::new(io::ErrorKind::InvalidInput, signal))?;
+    let envelope = crossing_envelope(&band, input);
+    let (_forwarded, raw) = prepare_envelope(&envelope)
+        .map_err(|signal| io::Error::new(io::ErrorKind::InvalidInput, signal))?;
+    let (mut command, _face_path) =
+        band_invocation(&band).map_err(|signal| io::Error::new(io::ErrorKind::NotFound, signal))?;
+    let started = Instant::now();
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::from(stdout_file.try_clone()?))
+        .stderr(Stdio::from(stderr_file.try_clone()?))
+        .spawn()?;
+    let Some(mut stdin) = child.stdin.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "caduceus-agathodaimon-cli-stdin-unavailable",
+        ));
+    };
+    let writer = std::thread::spawn(move || stdin.write_all(raw.as_bytes()));
+    let deadline = started + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = writer.join();
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "caduceus-agathodaimon-timeout",
+                ));
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = writer.join();
+                return Err(error);
+            }
+        }
+    };
+    writer.join().map_err(|_| {
+        io::Error::new(io::ErrorKind::Other, "caduceus-snake-stdin-writer-failed")
+    })??;
+    Ok(status)
 }
 
 /// Run a shared staff crossing with a bounded deadline while retaining the

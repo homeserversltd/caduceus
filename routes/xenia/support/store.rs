@@ -5,7 +5,6 @@ use std::ffi::CString;
 use std::fs;
 use std::io::ErrorKind;
 use std::os::unix::fs::MetadataExt;
-use std::process::Command;
 
 pub const CONFIG: &str = "/etc/appliance/config.json";
 pub const REGISTER: &str = "/etc/appliance/xenia.json";
@@ -133,27 +132,39 @@ fn ensure_process_seat(proposed: &Value, id: &str) -> Result<Option<Seat>> {
         Err(error) if error.kind() == ErrorKind::NotFound => false,
         Err(error) => return Err(observation("transaction", &device_path, error.to_string())),
     };
-    let output = Command::new("/usr/bin/sudo")
-        .args([
-            "-n",
-            "/usr/local/sbin/agathodaimon/caduceus-xenos-run",
-            "seat",
-            id,
-        ])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .map_err(|_| observation("transaction", &device_path, "seat-launcher-unavailable"))?;
-    if !output.status.success() {
+    let argv = vec![
+        crate::gate::snake::XENOS_LAUNCHER_PATH.to_string(),
+        "seat".to_string(),
+        id.to_string(),
+    ];
+    let envelope =
+        crate::gate::snake::route_envelope("xenia/admit", &json!({"id": id, "owner": owner}));
+    let walked =
+        crate::gate::snake::run_launcher(&argv, &envelope, std::time::Duration::from_secs(30))
+            .map_err(|error| {
+                let signal = if error == "xenos-launcher-absent" {
+                    "seat-launcher-unavailable"
+                } else {
+                    "seat-launcher-refused"
+                };
+                observation("transaction", &device_path, signal)
+            })?;
+    if walked.get("ok").and_then(Value::as_bool) != Some(true) {
         return Err(observation(
             "transaction",
             &device_path,
             "seat-launcher-refused",
         ));
     }
-    let receipt: Value = serde_json::from_slice(&output.stdout)
+    let raw_stdout = walked
+        .get("rawChildStdout")
+        .and_then(Value::as_str)
+        .ok_or_else(|| observation("transaction", &device_path, "seat-receipt-invalid"))?;
+    serde_json::from_str::<Value>(raw_stdout.trim())
         .map_err(|_| observation("transaction", &device_path, "seat-receipt-invalid"))?;
+    let receipt = walked
+        .get("receiptPayload")
+        .ok_or_else(|| observation("transaction", &device_path, "seat-receipt-invalid"))?;
     if receipt.get("ok").and_then(Value::as_bool) != Some(true)
         || receipt.get("id").and_then(Value::as_str) != Some(id)
         || receipt.get("path").and_then(Value::as_str) != Some(device_path.as_str())

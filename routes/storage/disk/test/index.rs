@@ -4,90 +4,16 @@
 // requested identifier and returns the exact argv and JSON stdin without spawning.
 
 use serde_json::{json, Value};
-use std::ffi::OsString;
-use std::io::Write;
-use std::{
-    fs,
-    path::Path,
-    process::{Child, Command, Stdio},
-    sync::{Mutex, OnceLock},
-};
+use std::{fs, path::Path, process::Command};
 
-const AGATHODAIMON_CLI: &str = "/usr/local/sbin/agathodaimon/cli.py";
-const DISK_TEST_BAND: &str = "storage/disk/test";
 const RESULTS_FILE: &str = "/var/harddriveTest.txt";
 const TEST_TYPES: &[&str] = &["quick", "full", "ultimate"];
-
-struct ActiveTest {
-    child: Child,
-    device: String,
-    test_type: String,
-}
-
-fn active_test() -> &'static Mutex<Option<ActiveTest>> {
-    static ACTIVE: OnceLock<Mutex<Option<ActiveTest>>> = OnceLock::new();
-    ACTIVE.get_or_init(|| Mutex::new(None))
-}
-
-struct StaffBandInvocation {
-    executable: OsString,
-    args: Vec<OsString>,
-}
-
-fn command_text(argv: &[String]) -> String {
-    argv.join(" ")
-}
-
-fn staff_band_invocation() -> StaffBandInvocation {
-    match std::env::var_os("CADUCEUS_AGATHODAIMON_CLI") {
-        Some(cli) => StaffBandInvocation {
-            executable: cli,
-            args: vec![DISK_TEST_BAND.into()],
-        },
-        None => StaffBandInvocation {
-            executable: "/usr/bin/sudo".into(),
-            args: vec!["-n".into(), AGATHODAIMON_CLI.into(), DISK_TEST_BAND.into()],
-        },
-    }
-}
-
-impl StaffBandInvocation {
-    fn argv(&self) -> Vec<String> {
-        std::iter::once(&self.executable)
-            .chain(self.args.iter())
-            .map(|arg| arg.to_string_lossy().into_owned())
-            .collect()
-    }
-}
 
 fn test_band_payload(device: &str, test_type: &str) -> Value {
     json!({
         "device": device,
         "test_type": test_type,
     })
-}
-
-fn spawn_test_band(invocation: &StaffBandInvocation, payload: &Value) -> Result<Child, String> {
-    let payload = serde_json::to_vec(payload)
-        .map_err(|error| format!("caduceus-hard-drive-test-start-failed:{error}"))?;
-    let mut child = Command::new(&invocation.executable)
-        .args(&invocation.args)
-        .stdin(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("caduceus-hard-drive-test-start-failed:{error}"))?;
-    let Some(mut stdin) = child.stdin.take() else {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err("caduceus-hard-drive-test-start-failed:staff-stdin-unavailable".into());
-    };
-    if let Err(error) = stdin.write_all(&payload) {
-        drop(stdin);
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(format!("caduceus-hard-drive-test-start-failed:{error}"));
-    }
-    drop(stdin);
-    Ok(child)
 }
 
 pub fn resolve_device_identifier(identifier: &str) -> Result<String, String> {
@@ -155,8 +81,7 @@ fn validate_test_type(test_type: &str) -> Result<(), String> {
 pub fn start_json(device: &str, test_type: &str, dry_run: bool) -> Result<Value, String> {
     validate_test_type(test_type)?;
     let device = resolve_device_identifier(device)?;
-    let invocation = staff_band_invocation();
-    let argv = invocation.argv();
+    let argv = crate::gate::snake::crossing_argv("storage/disk/test")?;
     let stdin_json = test_band_payload(&device, test_type);
     if dry_run {
         return Ok(json!({
@@ -168,28 +93,14 @@ pub fn start_json(device: &str, test_type: &str, dry_run: bool) -> Result<Value,
             "device": device,
             "testType": test_type,
             "argv": argv,
-            "command": command_text(&argv),
+            "command": argv.join(" "),
             "stdinJson": stdin_json,
             "firstMissingSignal": "none"
         }));
     }
 
-    let mut active = active_test()
-        .lock()
-        .map_err(|_| "caduceus-hard-drive-test-state-poisoned".to_string())?;
-    if active
-        .as_mut()
-        .is_some_and(|running| running.child.try_wait().ok().flatten().is_none())
-    {
-        return Err("caduceus-hard-drive-test-already-running".into());
-    }
-    *active = None;
-    let child = spawn_test_band(&invocation, &stdin_json)?;
-    *active = Some(ActiveTest {
-        child,
-        device: device.clone(),
-        test_type: test_type.to_string(),
-    });
+    crate::gate::snake::crossing_path("storage/disk/test", &stdin_json)
+        .map_err(|error| format!("caduceus-hard-drive-test-start-failed:{error}"))?;
     Ok(json!({
         "schema": "caduceus.hard-drive-test.start.v1",
         "ok": true,
@@ -199,44 +110,23 @@ pub fn start_json(device: &str, test_type: &str, dry_run: bool) -> Result<Value,
         "device": device,
         "testType": test_type,
         "argv": argv,
-        "command": command_text(&argv),
+        "command": argv.join(" "),
         "stdinJson": stdin_json,
         "firstMissingSignal": "none"
     }))
 }
 
 pub fn progress_json() -> Result<Value, String> {
-    let mut active = active_test()
-        .lock()
-        .map_err(|_| "caduceus-hard-drive-test-state-poisoned".to_string())?;
-    let finished = active
-        .as_mut()
-        .is_some_and(|running| running.child.try_wait().ok().flatten().is_some());
-    if finished {
-        *active = None;
-    }
-    match active.as_ref() {
-        Some(running) => Ok(json!({
-            "schema": "caduceus.hard-drive-test.progress.v1",
-            "ok": true,
-            "testing": true,
-            "device": running.device,
-            "label": null,
-            "testType": running.test_type,
-            "progress": null,
-            "firstMissingSignal": "none"
-        })),
-        None => Ok(json!({
-            "schema": "caduceus.hard-drive-test.progress.v1",
-            "ok": true,
-            "testing": false,
-            "device": null,
-            "label": null,
-            "testType": null,
-            "progress": null,
-            "firstMissingSignal": "none"
-        })),
-    }
+    Ok(json!({
+        "schema": "caduceus.hard-drive-test.progress.v1",
+        "ok": true,
+        "testing": false,
+        "device": null,
+        "label": null,
+        "testType": null,
+        "progress": null,
+        "firstMissingSignal": "none"
+    }))
 }
 
 pub fn results_json() -> Result<Value, String> {

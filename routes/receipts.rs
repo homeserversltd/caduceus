@@ -18,13 +18,16 @@ pub fn status_json() -> Result<Value, String> {
         .and_then(Value::as_array)
         .map(Vec::len)
         .unwrap_or(0);
+    let cli_probe = crate::gate::snake::probe_cli();
+    let ok = cli_probe.get("ok").and_then(Value::as_bool) == Some(true);
     Ok(json!({
         "schema": "caduceus.staff.status.v1",
-        "ok": true,
+        "ok": ok,
         "profile": observed_profile,
         "declaration": declaration.get("profile").cloned().unwrap_or(Value::Null),
         "bandCount": band_count,
-        "firstMissingSignal": "none"
+        "cliProbe": cli_probe,
+        "firstMissingSignal": if ok { "none" } else { "caduceus-crossings-probe-failed" }
     }))
 }
 
@@ -38,8 +41,21 @@ pub fn status() -> i32 {
                 value["declaration"].as_str().unwrap_or("")
             );
             println!("band_count={}", value["bandCount"]);
-            println!("first_missing_signal=none");
-            0
+            println!(
+                "cli_probe={}",
+                serde_json::to_string(&value["cliProbe"]).unwrap()
+            );
+            println!(
+                "first_missing_signal={}",
+                value["firstMissingSignal"]
+                    .as_str()
+                    .unwrap_or("caduceus-crossings-probe-failed")
+            );
+            if value["ok"] == true {
+                0
+            } else {
+                1
+            }
         }
         Err(err) => {
             eprintln!("caduceus-staff-status-failed: {err}");
@@ -47,8 +63,6 @@ pub fn status() -> i32 {
         }
     }
 }
-
-const CROSSING_SENTINEL: &str = "__caduceus_crossing_probe_nonexistent__";
 
 fn executable(path: &Path) -> bool {
     path.is_file()
@@ -92,10 +106,9 @@ fn special_program(noun: &str, verb: &str) -> Result<Option<PathBuf>, Value> {
 }
 
 fn selected_cli() -> Result<PathBuf, Value> {
-    let cli = std::env::var("CADUCEUS_AGATHODAIMON_CLI")
-        .unwrap_or_else(|_| "/usr/local/sbin/agathodaimon/cli.py".to_string());
-    resolve_program(&cli).ok_or_else(|| {
-        json!({"ok":false,"class":"resolve","exit":null,"stderr":format!("agathodaimon cli unavailable: {cli}")})
+    let cli = crate::gate::snake::cli_path();
+    resolve_program(&cli.to_string_lossy()).ok_or_else(|| {
+        json!({"ok":false,"class":"resolve","exit":null,"stderr":format!("agathodaimon cli unavailable: {}", cli.display())})
     })
 }
 
@@ -181,42 +194,6 @@ fn resolve_manifest_entry(noun: &str, verb: &str) -> Value {
     json!({"ok":true,"class":Value::Null,"exit":null,"stderr":"","seat":seat})
 }
 
-fn sentinel_probe(cli: &Path) -> Value {
-    let override_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some();
-    let mut command = if override_cli {
-        let mut command = Command::new(cli);
-        command.arg(CROSSING_SENTINEL);
-        command
-    } else {
-        let mut command = Command::new("/usr/bin/sudo");
-        command.arg("-n").arg(cli).arg(CROSSING_SENTINEL);
-        command
-    };
-    let output = command.output();
-    let output = match output {
-        Ok(output) => output,
-        Err(error) => {
-            return json!({"ok":false,"class":"spawn","exit":null,"stderr":error.to_string()})
-        }
-    };
-    let exit = output.status.code();
-    let stderr = match String::from_utf8(output.stderr.clone()) {
-        Ok(stderr) => stderr,
-        Err(error) => {
-            return json!({"ok":false,"class":"parse","exit":exit,"stderr":error.to_string()})
-        }
-    };
-    let expected = format!("unknown noun: {CROSSING_SENTINEL}");
-    let exact = stderr == expected || stderr == format!("{expected}\n");
-    if exit != Some(2) {
-        return json!({"ok":false,"class":"exit","exit":exit,"stderr":stderr});
-    }
-    if !exact {
-        return json!({"ok":false,"class":"parse","exit":exit,"stderr":stderr});
-    }
-    json!({"ok":true,"class":Value::Null,"exit":exit,"stderr":stderr})
-}
-
 pub fn crossings_json() -> Result<Value, String> {
     let manifest = crate::protocol::seat()?
         .get("crossings")
@@ -228,10 +205,7 @@ pub fn crossings_json() -> Result<Value, String> {
     if manifest.is_empty() {
         return Err("caduceus-crossings-manifest-empty".to_string());
     }
-    let sentinel = match selected_cli() {
-        Ok(cli) => sentinel_probe(&cli),
-        Err(error) => error,
-    };
+    let sentinel = crate::gate::snake::probe_cli();
     let mut observed = Vec::new();
     let mut all_ok = sentinel.get("ok").and_then(Value::as_bool) == Some(true);
     for (index, entry) in manifest.into_iter().enumerate() {

@@ -1,13 +1,13 @@
 use crate::shared::config;
 use serde_json::{json, Value};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::fs::OpenOptionsExt;
-use std::process::{Command, Stdio};
 
 pub const DEFAULT_HARMONIA_BIN: &str = "/usr/local/bin/harmonia";
-const AGATHODAIMON_CLI: &str = "/usr/local/sbin/agathodaimon/cli.py";
 const HARMONIA_PRESS_BAND: &str = "appliance/harmonia-press";
+const HARMONIA_PRESS_LONG_DEADLINE: std::time::Duration =
+    std::time::Duration::from_secs(24 * 60 * 60);
 
 pub fn load_profile_value() -> Result<Value, String> {
     config::read_public_profile_value()
@@ -138,46 +138,17 @@ fn invoke_harmonia_press_band(
     stdout_file: &File,
     stderr_file: &File,
 ) -> io::Result<std::process::ExitStatus> {
-    let payload = serde_json::to_vec(&json!({
+    let input = json!({
         "argv": argv,
         "invocation_id": invocation_id,
-    }))
-    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    // This override is the direct recorder seam for local proof only; production uses sudo -n.
-    let override_cli = std::env::var_os("CADUCEUS_AGATHODAIMON_CLI");
-    let mut command = match override_cli {
-        Some(cli) => {
-            let mut command = Command::new(cli);
-            command.arg(HARMONIA_PRESS_BAND);
-            command
-        }
-        None => {
-            let mut command = Command::new("/usr/bin/sudo");
-            command.args(["-n", AGATHODAIMON_CLI, HARMONIA_PRESS_BAND]);
-            command
-        }
-    };
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::from(stdout_file.try_clone()?))
-        .stderr(Stdio::from(stderr_file.try_clone()?))
-        .spawn()?;
-    let Some(mut stdin) = child.stdin.take() else {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(io::Error::new(
-            io::ErrorKind::BrokenPipe,
-            "agathodaimon band stdin unavailable",
-        ));
-    };
-    if let Err(error) = stdin.write_all(&payload) {
-        drop(stdin);
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(error);
-    }
-    drop(stdin);
-    child.wait()
+    });
+    crate::gate::snake::crossing_path_with_streamed_output(
+        HARMONIA_PRESS_BAND,
+        &input,
+        HARMONIA_PRESS_LONG_DEADLINE,
+        stdout_file,
+        stderr_file,
+    )
 }
 
 fn invoke_in_transient_service(argv: &[String]) -> io::Result<InvocationOutput> {
