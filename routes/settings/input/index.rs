@@ -23,12 +23,18 @@ fn actuator_receipt(transition: &str, payload: Option<Value>) -> Result<Value, S
 
 async fn read_http() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     admitted(READ_COMMAND)?;
-    actuator_receipt("read", None).map(|receipt| (crate::gate::mutation_status(&receipt), Json(receipt))).map_err(|signal| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"schema":SCHEMA,"ok":false,"command":READ_COMMAND,"firstMissingSignal":signal}))))
+    let result = crate::gate::blocking_task(READ_COMMAND, || actuator_receipt("read", None))
+        .await
+        .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
+    result.map(|receipt| (crate::gate::mutation_status(&receipt), Json(receipt))).map_err(|signal| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"schema":SCHEMA,"ok":false,"command":READ_COMMAND,"firstMissingSignal":signal}))))
 }
 
 async fn set_http(Json(body): Json<Value>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     admitted(SET_COMMAND)?;
-    actuator_receipt("set", Some(body)).map(|receipt| (crate::gate::mutation_status(&receipt), Json(receipt))).map_err(|signal| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"schema":SCHEMA,"ok":false,"command":SET_COMMAND,"firstMissingSignal":signal}))))
+    let result = crate::gate::blocking_task(SET_COMMAND, move || actuator_receipt("set", Some(body)))
+        .await
+        .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
+    result.map(|receipt| (crate::gate::mutation_status(&receipt), Json(receipt))).map_err(|signal| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"schema":SCHEMA,"ok":false,"command":SET_COMMAND,"firstMissingSignal":signal}))))
 }
 
 /// Canonical registration seam for this leaf.

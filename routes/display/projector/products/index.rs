@@ -25,17 +25,32 @@ async fn known_add(
 > {
     let c = "pjlink known add";
     match crate::shared::policy::allows_command(c) {
-        Ok(true) => crate::routes::control_projector::add_known_product_json(
-            body.get("deviceId").and_then(|v| v.as_str()).unwrap_or(""),
-            body.get("dryRun")
+        Ok(true) => {
+            let id = body
+                .get("deviceId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let dry_run = body
+                .get("dryRun")
                 .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-            body.get("fromProfile")
+                .unwrap_or(false);
+            let from_profile = body
+                .get("fromProfile")
                 .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-        )
-        .map(|v| (crate::gate::mutation_status(&v), axum::Json(v)))
-        .map_err(|e| crate::gate::api_error_signal(c, &e)),
+                .unwrap_or(false);
+            let result = crate::gate::blocking_task(c, move || {
+                crate::routes::control_projector::add_known_product_json(
+                    &id,
+                    dry_run,
+                    from_profile,
+                )
+            })
+            .await?;
+            result
+                .map(|v| (crate::gate::mutation_status(&v), axum::Json(v)))
+                .map_err(|e| crate::gate::api_error_signal(c, &e))
+        }
         Ok(false) => Err(crate::gate::api_error(c)),
         Err(_) => Err(crate::gate::api_error_signal(c, "caduceus-profile-missing")),
     }

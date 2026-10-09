@@ -4,8 +4,10 @@ pub const NAMESPACE: &str = "storage/vault/status";
 use axum::Json;
 use serde_json::Value;
 
-async fn vault_status_route() -> Json<Value> {
-    Json(crate::routes::open_vault::status_json())
+async fn vault_status_route() -> Result<Json<Value>, (axum::http::StatusCode, Json<crate::gate::ApiErrorBody>)> {
+    crate::gate::blocking_task("vault status", crate::routes::open_vault::status_json)
+        .await
+        .map(Json)
 }
 
 /// Canonical registration seam for this leaf.

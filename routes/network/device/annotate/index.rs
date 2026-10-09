@@ -185,7 +185,12 @@ async fn network_notes_write_route(
             let invocation = context
                 .as_ref()
                 .map(crate::shared::load_trace::begin_invocation);
-            let result = network_notes::write_json(&body.mac, &body.note);
+            let mac = body.mac;
+            let note = body.note;
+            let result = crate::gate::blocking_task(command, move || {
+                network_notes::write_json(&mac, &note)
+            })
+            .await?;
             if let (Some(context), Some(invocation)) = (context, invocation) {
                 crate::shared::load_trace::finish_invocation(
                     &context,

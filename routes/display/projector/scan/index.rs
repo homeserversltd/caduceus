@@ -12,12 +12,20 @@ async fn scan_http(
     let command = "pjlink scan";
     match crate::shared::policy::allows_command(command) {
         Ok(true) => {
-            let id = body.get("deviceId").and_then(|v| v.as_str()).unwrap_or("");
+            let id = body
+                .get("deviceId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let dry = body
                 .get("dryRun")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            crate::routes::control_projector::scan_product_json(id, dry)
+            let result = crate::gate::blocking_task(command, move || {
+                crate::routes::control_projector::scan_product_json(&id, dry)
+            })
+            .await?;
+            result
                 .map(|v| (crate::gate::mutation_status(&v), axum::Json(v)))
                 .map_err(|e| crate::gate::api_error_signal(command, &e))
         }

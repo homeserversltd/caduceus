@@ -174,10 +174,14 @@ fn dns_mutation_admits(
 }
 
 #[cfg(carapace_feature_unbound)]
-fn dns_mutation_response(
+async fn dns_mutation_response<F>(
     command: &'static str,
-    result: Result<Value, String>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    operation: F,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)>
+where
+    F: FnOnce() -> Result<Value, String> + Send + 'static,
+{
+    let result = crate::gate::blocking_task(command, operation).await?;
     result
         .map(|value| (mutation_status(&value), Json(value)))
         .map_err(|err| {
@@ -213,10 +217,10 @@ async fn dns_resolver_adblock_route(
         &headers,
         &json!({"flags": body.flags.as_ref()}),
     )?;
-    dns_mutation_response(
-        COMMAND,
-        dns_control::resolver_json("adblock", Some(json!({"enabled": body.enabled}))),
-    )
+    dns_mutation_response(COMMAND, move || {
+        dns_control::resolver_json("adblock", Some(json!({"enabled": body.enabled})))
+    })
+    .await
 }
 
 #[cfg(carapace_feature_unbound)]
@@ -230,10 +234,10 @@ async fn dns_resolver_blocklist_update_route(
         &headers,
         &Value::Null,
     )?;
-    dns_mutation_response(
-        COMMAND,
-        dns_control::resolver_json("blocklist-update", None),
-    )
+    dns_mutation_response(COMMAND, || {
+        dns_control::resolver_json("blocklist-update", None)
+    })
+    .await
 }
 
 #[cfg(carapace_feature_unbound)]
@@ -248,13 +252,13 @@ async fn dns_resolver_upstream_route(
         &headers,
         &json!({"flags": body.flags.as_ref()}),
     )?;
-    dns_mutation_response(
-        COMMAND,
+    dns_mutation_response(COMMAND, move || {
         dns_control::resolver_json(
             "upstream",
             Some(json!({"preset": body.preset, "custom": body.custom, "dot": body.dot})),
-        ),
-    )
+        )
+    })
+    .await
 }
 
 #[cfg(carapace_feature_unbound)]
@@ -269,10 +273,10 @@ async fn dns_device_name_create_route(
         &headers,
         &json!({"flags": body.flags.as_ref()}),
     )?;
-    dns_mutation_response(
-        COMMAND,
-        dns::device_name_json("create", &body.hostname, &body.ip),
-    )
+    let hostname = body.hostname;
+    let ip = body.ip;
+    dns_mutation_response(COMMAND, move || dns::device_name_json("create", &hostname, &ip))
+        .await
 }
 
 #[cfg(carapace_feature_unbound)]
@@ -287,10 +291,10 @@ async fn dns_device_name_remove_route(
         &headers,
         &json!({"flags": body.flags.as_ref()}),
     )?;
-    dns_mutation_response(
-        COMMAND,
-        dns::device_name_json("remove", &body.hostname, &body.ip),
-    )
+    let hostname = body.hostname;
+    let ip = body.ip;
+    dns_mutation_response(COMMAND, move || dns::device_name_json("remove", &hostname, &ip))
+        .await
 }
 
 #[cfg(carapace_feature_unbound)]
@@ -305,10 +309,9 @@ async fn dns_alias_create_route(
         &headers,
         &json!({"flags": body.flags.as_ref()}),
     )?;
-    dns_mutation_response(
-        COMMAND,
-        dns::alias_json("create", &body.label, &body.hostname),
-    )
+    let label = body.label;
+    let hostname = body.hostname;
+    dns_mutation_response(COMMAND, move || dns::alias_json("create", &label, &hostname)).await
 }
 
 #[cfg(carapace_feature_unbound)]
@@ -323,10 +326,9 @@ async fn dns_alias_remove_route(
         &headers,
         &json!({"flags": body.flags.as_ref()}),
     )?;
-    dns_mutation_response(
-        COMMAND,
-        dns::alias_json("remove", &body.label, &body.hostname),
-    )
+    let label = body.label;
+    let hostname = body.hostname;
+    dns_mutation_response(COMMAND, move || dns::alias_json("remove", &label, &hostname)).await
 }
 
 #[cfg(carapace_feature_unbound)]
@@ -344,7 +346,7 @@ async fn network_dns_route(
     )?;
     let mut metadata = metadata;
     crate::gate::strip_administrative_flags(&mut metadata);
-    dns_mutation_response(COMMAND, dns_control::intent_json("POST", TARGET, metadata))
+    dns_mutation_response(COMMAND, move || dns_control::intent_json("POST", TARGET, metadata)).await
 }
 
 /// Canonical registration seam for this leaf.

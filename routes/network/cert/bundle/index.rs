@@ -3,7 +3,10 @@ pub const NAMESPACE: &str = "network/cert/bundle";
 
 async fn download(
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> Result<axum::response::Response, (axum::http::StatusCode, axum::Json<serde_json::Value>)> {
+) -> Result<
+    axum::response::Response,
+    (axum::http::StatusCode, axum::Json<serde_json::Value>),
+> {
     let cmd = "cert bundle read";
     if !crate::shared::policy::allows_command(cmd).unwrap_or(false) {
         return Err((
@@ -11,10 +14,18 @@ async fn download(
             axum::Json(serde_json::json!({"firstMissingSignal":"caduceus-house-ca-refused"})),
         ));
     }
-    let b = crate::routes::issue_certificate::bundle_download_json(
-        q.get("platform").map(String::as_str).unwrap_or("linux"),
-    )
-    .map_err(|e| {
+    let platform = q
+        .get("platform")
+        .cloned()
+        .unwrap_or_else(|| "linux".to_string());
+    let result = crate::gate::blocking_task(cmd, move || {
+        crate::routes::issue_certificate::bundle_download_json(&platform)
+    })
+    .await
+    .map_err(|(status, axum::Json(body))| {
+        (status, axum::Json(serde_json::json!(body)))
+    })?;
+    let b = result.map_err(|e| {
         (
             if e == "caduceus-cert-platform-invalid" {
                 axum::http::StatusCode::BAD_REQUEST

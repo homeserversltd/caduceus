@@ -109,7 +109,7 @@ fn option_json(args: &[String], name: &str) -> Option<Value> {
 }
 
 /// Canonical registration seam for this leaf.
-async fn append_http(axum::Json(body): axum::Json<Value>) -> Result<(axum::http::StatusCode, axum::Json<Value>), (axum::http::StatusCode, axum::Json<crate::gate::ApiErrorBody>)> { match crate::shared::policy::allows_command("hyalos append") { Ok(true) => append_json(body).map(|v|(crate::gate::mutation_status(&v), axum::Json(v))).map_err(|e| crate::gate::api_error_signal("hyalos append", &e)), Ok(false) => Err(crate::gate::api_error("hyalos append")), Err(_) => Err(crate::gate::api_error_signal("hyalos append", "caduceus-profile-missing")) } }
+async fn append_http(axum::Json(body): axum::Json<Value>) -> Result<(axum::http::StatusCode, axum::Json<Value>), (axum::http::StatusCode, axum::Json<crate::gate::ApiErrorBody>)> { match crate::shared::policy::allows_command("hyalos append") { Ok(true) => { let result=crate::gate::blocking_task("hyalos append",move||append_json(body)).await?; result.map(|v|(crate::gate::mutation_status(&v), axum::Json(v))).map_err(|e| crate::gate::api_error_signal("hyalos append", &e)) }, Ok(false) => Err(crate::gate::api_error("hyalos append")), Err(_) => Err(crate::gate::api_error_signal("hyalos append", "caduceus-profile-missing")) } }
 
 pub fn register(router: axum::Router) -> axum::Router {
     let router = router.route("/api/v1/log/write", axum::routing::post(append_http));

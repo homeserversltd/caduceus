@@ -22,7 +22,10 @@ pub(crate) async fn appliance_logs_read_route(
                 .and_then(|value| value.parse::<usize>().ok())
                 .unwrap_or(logs::DEFAULT_LIMIT)
                 .min(logs::MAX_LIMIT);
-            let receipt = logs::read_json(offset, limit);
+            let receipt = crate::gate::blocking_task(COMMAND, move || {
+                logs::read_json(offset, limit)
+            })
+            .await?;
             let status = if logs::is_missing(&receipt) {
                 StatusCode::NOT_FOUND
             } else if logs::is_failure(&receipt) {

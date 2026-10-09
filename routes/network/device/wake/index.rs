@@ -37,9 +37,15 @@ async fn wake_named_actuator_route(
         ));
     }
     match crate::shared::policy::allows_command("staff intent") {
-        Ok(true) => crate::routes::staff::named_actuator_json("wake-on-lan", metadata)
-            .map(|value| (crate::gate::mutation_status(&value), Json(value)))
-            .map_err(|signal| crate::gate::api_error_signal("staff intent", &signal)),
+        Ok(true) => {
+            let result = crate::gate::blocking_task("staff intent", move || {
+                crate::routes::staff::named_actuator_json("wake-on-lan", metadata)
+            })
+            .await?;
+            result
+                .map(|value| (crate::gate::mutation_status(&value), Json(value)))
+                .map_err(|signal| crate::gate::api_error_signal("staff intent", &signal))
+        }
         Ok(false) => Err(crate::gate::api_error("staff intent")),
         Err(_) => Err(crate::gate::api_error_signal(
             "staff intent",

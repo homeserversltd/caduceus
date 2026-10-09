@@ -12,13 +12,25 @@ async fn power_http(
     let command = "pjlink power set";
     match crate::shared::policy::allows_command(command) {
         Ok(true) => {
-            let id = body.get("deviceId").and_then(|v| v.as_str()).unwrap_or("");
-            let state = body.get("state").and_then(|v| v.as_str()).unwrap_or("");
+            let id = body
+                .get("deviceId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let state = body
+                .get("state")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let dry = body
                 .get("dryRun")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            crate::routes::control_projector::power_json(id, state, dry)
+            let result = crate::gate::blocking_task(command, move || {
+                crate::routes::control_projector::power_json(&id, &state, dry)
+            })
+            .await?;
+            result
                 .map(|v| (crate::gate::mutation_status(&v), axum::Json(v)))
                 .map_err(|e| crate::gate::api_error_signal(command, &e))
         }

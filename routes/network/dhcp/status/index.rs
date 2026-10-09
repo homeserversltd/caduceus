@@ -68,7 +68,10 @@ async fn dhcp_reservations_read_route() -> Result<Json<Value>, (StatusCode, Json
             let invocation = context
                 .as_ref()
                 .map(crate::shared::load_trace::begin_invocation);
-            let value = crate::routes::native_kea_read::response(command);
+            let value = crate::gate::blocking_task(command, move || {
+                crate::routes::native_kea_read::response(command)
+            })
+            .await?;
             if let (Some(context), Some(invocation)) = (context, invocation) {
                 crate::shared::load_trace::record_native_completion(
                     &context,
@@ -77,6 +80,7 @@ async fn dhcp_reservations_read_route() -> Result<Json<Value>, (StatusCode, Json
                     value["ok"] == true,
                 );
             }
+
             if value["ok"] == true {
                 let mut value = value;
                 crate::shared::load_trace::enrich_json(&mut value);
@@ -119,9 +123,15 @@ async fn dhcp_staff_actuator_route(
         }
     };
     match policy::allows_command("staff intent") {
-        Ok(true) => crate::routes::dhcp::intent_json(method, route, metadata)
-            .map(|value| (mutation_status(&value), Json(value)))
-            .map_err(|reason| api_error_signal("staff intent", &reason)),
+        Ok(true) => {
+            let result = crate::gate::blocking_task("staff intent", move || {
+                crate::routes::dhcp::intent_json(method, route, metadata)
+            })
+            .await?;
+            result
+                .map(|value| (mutation_status(&value), Json(value)))
+                .map_err(|reason| api_error_signal("staff intent", &reason))
+        }
         Ok(false) => Err(api_error("staff intent")),
         Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
     }
@@ -148,9 +158,15 @@ async fn dhcp_reservation_staff_actuator_route(
     );
     let route = format!("/api/dhcp/reservations/{reservation_id}");
     match policy::allows_command("staff intent") {
-        Ok(true) => crate::routes::dhcp::intent_json(method.as_str(), &route, metadata)
-            .map(|value| (mutation_status(&value), Json(value)))
-            .map_err(|reason| api_error_signal("staff intent", &reason)),
+        Ok(true) => {
+            let result = crate::gate::blocking_task("staff intent", move || {
+                crate::routes::dhcp::intent_json(method.as_str(), &route, metadata)
+            })
+            .await?;
+            result
+                .map(|value| (mutation_status(&value), Json(value)))
+                .map_err(|reason| api_error_signal("staff intent", &reason))
+        }
         Ok(false) => Err(api_error("staff intent")),
         Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
     }
