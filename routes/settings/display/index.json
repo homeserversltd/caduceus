@@ -1,1 +1,1 @@
-{"namespace":"settings/display","admittance":"open","flags":{},"serve":[{"rust":"settings_display_read_mutate"}]}
+{"namespace":"settings/display","admittance":"open","flags":{},"serve":[{"rust":"settings_display_read_mutate"},{"snake":"settings/display","verb":["settings","display"]}]}

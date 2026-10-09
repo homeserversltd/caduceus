@@ -12,6 +12,7 @@ use crate::shared::hyalos;
 
 pub fn status_json() -> Result<Value, String> {
     let declaration = crate::crossings::declaration()?;
+    let observed_profile = crate::crossings::observed_profile()?;
     let band_count = declaration
         .get("bands")
         .and_then(Value::as_array)
@@ -20,7 +21,8 @@ pub fn status_json() -> Result<Value, String> {
     Ok(json!({
         "schema": "caduceus.staff.status.v1",
         "ok": true,
-        "profile": declaration.get("profile").cloned().unwrap_or(Value::Null),
+        "profile": observed_profile,
+        "declaration": declaration.get("profile").cloned().unwrap_or(Value::Null),
         "bandCount": band_count,
         "firstMissingSignal": "none"
     }))
@@ -31,6 +33,10 @@ pub fn status() -> i32 {
         Ok(value) => {
             println!("schema=caduceus.staff.status.v1");
             println!("profile={}", value["profile"].as_str().unwrap_or(""));
+            println!(
+                "declaration={}",
+                value["declaration"].as_str().unwrap_or("")
+            );
             println!("band_count={}", value["bandCount"]);
             println!("first_missing_signal=none");
             0

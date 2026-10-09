@@ -1,1 +1,1 @@
-{"namespace":"network/cert/ensure-root","admittance":"open","flags":{},"serve":[]}
+{"namespace":"network/cert/ensure-root","admittance":"open","flags":{},"serve":[{"snake":"network/cert/house-ca"}]}

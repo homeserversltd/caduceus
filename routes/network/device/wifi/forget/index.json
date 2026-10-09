@@ -1,1 +1,1 @@
-{"namespace":"network/device/wifi/forget","admittance":"open","flags":{},"serve":[{"rust":"network_wifi_forget_mutate"}]}
+{"namespace":"network/device/wifi/forget","admittance":"open","flags":{},"serve":[{"rust":"network_wifi_forget_mutate"},{"snake":"network/wifi"}]}

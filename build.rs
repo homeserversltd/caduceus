@@ -342,7 +342,7 @@ fn main() {
         .expect("embedded public seats writable");
 
     let mut embedded_crossings = String::from("const EMBEDDED_CROSSINGS: &[(&str, &str)] = &[\n");
-    for profile in ["homeserver", "homeconsole", "tv"] {
+    for profile in ["homeserver", "homeconsole", "tv", "lab"] {
         let path = format!("crossings/{profile}.json");
         println!("cargo:rerun-if-changed={path}");
         let bytes = fs::read_to_string(&path).unwrap_or_else(|error| {

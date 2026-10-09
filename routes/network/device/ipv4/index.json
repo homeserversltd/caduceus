@@ -1,1 +1,1 @@
-{"namespace":"network/device/ipv4","admittance":"open","flags":{},"serve":[{"rust":"network_device_ipv4_mutate"}]}
+{"namespace":"network/device/ipv4","admittance":"open","flags":{},"serve":[{"rust":"network_device_ipv4_mutate"},{"snake":"network/wifi"}]}

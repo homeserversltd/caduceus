@@ -5,8 +5,14 @@
     "appliance/harmonia-press",
     "appliance/service",
     "appliance/sudo-passwordless",
+    "exousia/bind",
+    "exousia/change",
+    "exousia/reset-default",
+    "exousia/verify",
     "games/provider-keys",
     "games/sync",
+    "gui/update",
+    "network/cert/house-ca",
     "network/child-device",
     "network/dhcp",
     "network/dns",
@@ -14,8 +20,13 @@
     "network/identity",
     "network/wake-on-lan",
     "network/wifi",
+    "settings/appearance",
     "settings/datetime",
+    "settings/default-apps",
+    "settings/display",
     "settings/input",
+    "settings/notifications",
+    "settings/sound",
     "storage/nas/attach",
     "storage/nas/detach",
     "storage/nas/setup",
@@ -23,6 +34,9 @@
     "storage/upload/ingress",
     "storage/vault/open",
     "storage/vault/policy",
+    "transmission/down",
+    "transmission/status",
+    "transmission/up",
     "update/service"
   ],
   "verbs": [
@@ -115,6 +129,18 @@
       "sound"
     ],
     [
+      "transmission",
+      "down"
+    ],
+    [
+      "transmission",
+      "status"
+    ],
+    [
+      "transmission",
+      "up"
+    ],
+    [
       "update",
       "service"
     ],
@@ -194,6 +220,9 @@
     "/api/v1/storage/nas/setup",
     "/api/v1/storage/vault/unlock",
     "/api/v1/sync/now",
+    "/api/v1/transmission/down",
+    "/api/v1/transmission/status",
+    "/api/v1/transmission/up",
     "/api/v1/update/check",
     "/api/v1/update/now",
     "/api/v1/update/service/status",
@@ -211,7 +240,9 @@
       "storage/nas/detach",
       "storage/nas/setup",
       "storage/vault/open",
-      "storage/vault/policy"
+      "storage/vault/policy",
+      "transmission/down",
+      "transmission/up"
     ],
     "verbs": [
       [
@@ -279,7 +310,9 @@
       "/api/v1/storage/nas/attach",
       "/api/v1/storage/nas/detach",
       "/api/v1/storage/nas/setup",
-      "/api/v1/storage/vault/unlock"
+      "/api/v1/storage/vault/unlock",
+      "/api/v1/transmission/down",
+      "/api/v1/transmission/up"
     ]
   }
 }

@@ -1,1 +1,1 @@
-{"namespace":"exousia/change-pin","admittance":"open","flags":{},"serve":[]}
+{"namespace":"exousia/change-pin","admittance":"open","flags":{},"serve":[{"snake":"appliance/sudo-passwordless"},{"snake":"exousia/change","verb":["exousia","change"]},{"snake":"exousia/reset-default","verb":["exousia","reset-default"]}]}

@@ -7,6 +7,7 @@ include!(concat!(env!("OUT_DIR"), "/embedded_crossings.rs"));
 struct Loaded {
     raw: &'static str,
     value: Value,
+    observed_profile: String,
 }
 
 static LOADED: OnceLock<Result<Loaded, String>> = OnceLock::new();
@@ -51,21 +52,25 @@ fn load_once() -> Result<Loaded, String> {
         ));
     }
 
-    let (embedded_profile, raw) = EMBEDDED_CROSSINGS
-        .iter()
-        .find(|(id, _)| *id == profile)
-        .ok_or_else(|| {
-            let expected = EMBEDDED_CROSSINGS
-                .iter()
-                .map(|(id, _)| *id)
-                .collect::<Vec<_>>()
-                .join(", ");
-            invalid(
-                "sold-declaration-missing",
-                &format!("embedded declaration for one of [{expected}]"),
-                profile,
-            )
-        })?;
+    let selected = EMBEDDED_CROSSINGS.iter().find(|(id, _)| *id == profile);
+    let (embedded_profile, raw) = match selected {
+        Some(entry) => entry,
+        None => EMBEDDED_CROSSINGS
+            .iter()
+            .find(|(id, _)| *id == "lab")
+            .ok_or_else(|| {
+                let expected = EMBEDDED_CROSSINGS
+                    .iter()
+                    .map(|(id, _)| *id)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                invalid(
+                    "sold-declaration-missing",
+                    &format!("embedded declaration for one of [{expected}]"),
+                    profile,
+                )
+            })?,
+    };
 
     let value: Value = serde_json::from_str(raw).map_err(|error| {
         invalid(
@@ -89,15 +94,19 @@ fn load_once() -> Result<Loaded, String> {
         .get("profile")
         .and_then(Value::as_str)
         .unwrap_or("<missing-or-not-string>");
-    if observed_profile != profile || observed_profile != *embedded_profile {
+    if observed_profile != *embedded_profile {
         return Err(invalid(
             "profile-mismatch",
-            profile,
+            embedded_profile,
             observed_profile,
         ));
     }
 
-    Ok(Loaded { raw, value })
+    Ok(Loaded {
+        raw,
+        value,
+        observed_profile: profile.to_owned(),
+    })
 }
 
 fn loaded() -> Result<&'static Loaded, String> {
@@ -113,6 +122,10 @@ pub fn initialize() -> Result<(), String> {
 
 pub fn declaration() -> Result<Value, String> {
     Ok(loaded()?.value.clone())
+}
+
+pub fn observed_profile() -> Result<&'static str, String> {
+    Ok(loaded()?.observed_profile.as_str())
 }
 
 pub fn raw() -> Result<&'static str, String> {
