@@ -473,6 +473,36 @@ fn install(manifest: &Value, id: &str) -> Result<()> {
     Ok(())
 }
 
+fn style_sheet(manifest: &Value) -> Result<()> {
+    let Some(style) = manifest.get("style").filter(|style| !style.is_null()) else {
+        return Ok(());
+    };
+    let Some(sheet) = style.get("sheet").and_then(Value::as_str) else {
+        return Err(refuse(
+            "G",
+            "manifest.style.sheet",
+            "style-sheet-path-invalid",
+        ));
+    };
+    let path = Path::new(sheet);
+    if path.is_absolute()
+        || sheet.contains("..")
+        || sheet.contains('\\')
+        || !sheet.ends_with(".css")
+        || path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+        || path.file_name().is_none_or(|leaf| leaf.is_empty())
+    {
+        return Err(refuse(
+            "G",
+            "manifest.style.sheet",
+            "style-sheet-path-invalid",
+        ));
+    }
+    Ok(())
+}
+
 fn endpoint(value: &Value) -> Result<Option<(Option<u16>, String)>> {
     let Some(text) = value.as_str() else {
         if value.is_null() {
@@ -623,6 +653,19 @@ fn compatibility(manifest: &Value) -> Result<()> {
             "J",
             "manifest.requires_kit",
             "compatibility-readback-absent",
+        ));
+    }
+    if manifest
+        .get("style")
+        .and_then(|style| style.get("mode"))
+        .and_then(Value::as_str)
+        == Some("replace")
+    {
+        return Err(Refusal::new(
+            "J",
+            "manifest.style.mode",
+            "style-replace-not-built",
+            "Declare style.mode=extend until replacement support is built.",
         ));
     }
     Ok(())
@@ -800,6 +843,7 @@ pub fn validate(body: &Value) -> Result<Candidate> {
     };
     // G, H, I and J, in that order.
     install(manifest, id)?;
+    style_sheet(manifest)?;
     seat::field(
         XENIA,
         "transport",

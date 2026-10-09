@@ -212,14 +212,16 @@ pub fn node(rule: &Value, value: &Value, check: &str, path: &str) -> Result<()> 
             return Err(fault(check, path, "declared-range-mismatch"));
         }
     }
-    if let Some(fields) = rule.get("required").and_then(Value::as_array) {
-        for name in fields.iter().filter_map(Value::as_str) {
-            if value.get(name).is_none() {
-                return Err(fault(
-                    check,
-                    &format!("{path}.{name}"),
-                    "missing-frozen-kernel",
-                ));
+    if !value.is_null() {
+        if let Some(fields) = rule.get("required").and_then(Value::as_array) {
+            for name in fields.iter().filter_map(Value::as_str) {
+                if value.get(name).is_none() {
+                    return Err(fault(
+                        check,
+                        &format!("{path}.{name}"),
+                        "missing-frozen-kernel",
+                    ));
+                }
             }
         }
     }

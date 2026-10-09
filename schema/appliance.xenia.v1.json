@@ -1,6 +1,6 @@
 {
   "schema": "appliance.xenia.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "role": "Public Xenia manifest, entry and register envelope. Direct provider edges are face -> kit -> xenos, outside the beam; a xenos names only its direct xenia-kit lineage band. The kit is maud Rust emitting the exact crown UX/UI markup, with no CSS or JavaScript. The showcase is the executable specification. A disappeared primitive or author-face variable is a major change; an addition is minor; unchanged is patch.",
   "authority": {
     "owner": "caduceus",
@@ -215,6 +215,29 @@
       ],
       "description": "Direct xenia-kit release-lineage band; the band law owns its syntax. No transitive face band."
     },
+    "style": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "fields": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "extend",
+            "replace"
+          ]
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "sheet"
+      ],
+      "description": "Optional stylesheet declaration; absent or null selects the crown default."
+    },
     "content_inventory_digest": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$",
@@ -357,6 +380,7 @@
     "fault_recovery": "object",
     "capabilities": "array",
     "requires_kit": "string|null",
+    "style": "object|null",
     "content_inventory_digest": "string",
     "enabled": "boolean",
     "priority": "integer",
@@ -373,6 +397,7 @@
     "install",
     "fragment_path",
     "requires_kit",
+    "style",
     "installed",
     "discovered"
   ],
@@ -396,7 +421,8 @@
       "optional": [
         "install",
         "fragment_path",
-        "requires_kit"
+        "requires_kit",
+        "style"
       ],
       "forbidden": [
         "granted",
@@ -429,6 +455,7 @@
         "install",
         "fragment_path",
         "requires_kit",
+        "style",
         "installed",
         "discovered"
       ],
