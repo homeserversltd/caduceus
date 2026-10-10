@@ -321,16 +321,23 @@ where
             0
         }
         [domain, verb, server, rest @ ..] if domain == "cert" && verb == "trust-fetch" => {
-            cert_command("cert trust-fetch", "trust_fetch", &[], || {
-                if rest.iter().any(|arg| arg != "--renew") {
-                    return cert_print(Err("caduceus-cert-trust-fetch-option-invalid".to_string()));
-                }
-                cert_print(crate::routes::install_trust::trust_fetch_json(
-                    server,
-                    "linux",
-                    rest.iter().any(|arg| arg == "--renew"),
-                ))
-            })
+            cert_command(
+                "cert trust-fetch",
+                "trust_fetch",
+                &["cert trust-install"],
+                || {
+                    if rest.iter().any(|arg| arg != "--renew") {
+                        return cert_print(Err(
+                            "caduceus-cert-trust-fetch-option-invalid".to_string()
+                        ));
+                    }
+                    cert_print(crate::routes::install_trust::trust_fetch_json(
+                        server,
+                        "linux",
+                        rest.iter().any(|arg| arg == "--renew"),
+                    ))
+                },
+            )
         }
         [domain, verb, bundle, rest @ ..] if domain == "cert" && verb == "trust-install" => {
             cert_command("cert trust-install", "trust_install", &[], || {
@@ -902,7 +909,7 @@ fn print_help() {
     println!("  caduceus cert constituent-lock <portal> <lan-ip> [--dry-run]");
     println!("  caduceus cert apply-nginx <portal> <upstream> <certificate> <key> [--dry-run]");
     println!("  caduceus cert trust-install <bundle> [--platform linux] [--dry-run]");
-    println!("  caduceus cert trust-fetch <server-ip-or-host>");
+    println!("  caduceus cert trust-fetch <server-ip-or-host> [--renew]");
     println!(
         "  caduceus cert portal-admit <portal> <lan-ip> <upstream> [--aliases a,b] [--dry-run]"
     );
