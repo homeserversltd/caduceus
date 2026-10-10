@@ -28,11 +28,6 @@ const NETWORK_DNS_DOCUMENT_TARGETS: &[&str] = &[
     "/api/v1/network/dns/blocklist/update",
     "/api/v1/network/dns/upstream",
 ];
-const TRANSMISSION_KEYS_DOCUMENT_TARGETS: &[&str] = &[
-    "/api/v1/transmission/keys/replace",
-    "/api/v1/transmission/keys/rotate",
-];
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AttendanceOrigin {
     BrowserUnix,
@@ -48,7 +43,6 @@ enum DerivationScope {
     PortalService,
     FileIngress,
     NetworkDns,
-    TransmissionKeys,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -383,11 +377,6 @@ fn derivation_scope(document: &str) -> Option<DerivationScope> {
         .any(|candidate| *candidate == document)
     {
         Some(DerivationScope::NetworkDns)
-    } else if TRANSMISSION_KEYS_DOCUMENT_TARGETS
-        .iter()
-        .any(|candidate| *candidate == document)
-    {
-        Some(DerivationScope::TransmissionKeys)
     } else {
         None
     }
