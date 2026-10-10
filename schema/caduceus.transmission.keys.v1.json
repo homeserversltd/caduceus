@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema": "caduceus.transmission.keys.v1",
+  "schema_version": "1.0.0",
+  "role": "Caduceus Transmission keys receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.transmission.keys.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Only schema is required; absent optional receipt fields mean null."
+  },
+  "required": ["schema"],
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.transmission.keys.v1"},
+    "ok": {"type": ["boolean", "null"]},
+    "firstMissingSignal": {"type": ["string", "null"]},
+    "keys": {
+      "type": ["object", "null"],
+      "maxProperties": 64,
+      "propertyNames": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"},
+      "additionalProperties": {"type": "string", "enum": ["present", "absent"]}
+    },
+    "lengths": {
+      "type": ["object", "null"],
+      "properties": {
+        "username": {"type": ["integer", "null"], "minimum": 0, "maximum": 2097152},
+        "password": {"type": ["integer", "null"], "minimum": 0, "maximum": 2097152}
+      },
+      "additionalProperties": false
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean|null",
+    "firstMissingSignal": "string|null",
+    "keys": "object|null",
+    "lengths": "object|null"
+  },
+  "optional": ["ok", "firstMissingSignal", "keys", "lengths"],
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

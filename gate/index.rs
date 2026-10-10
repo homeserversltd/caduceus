@@ -236,6 +236,8 @@ const NAS_ATTACH_HTTP_PATH: &str = "/api/v1/storage/nas/attach";
 const NAS_DETACH_HTTP_PATH: &str = "/api/v1/storage/nas/detach";
 const TRANSMISSION_UP_HTTP_PATH: &str = "/api/v1/transmission/up";
 const TRANSMISSION_DOWN_HTTP_PATH: &str = "/api/v1/transmission/down";
+const TRANSMISSION_KEYS_REPLACE_HTTP_PATH: &str = "/api/v1/transmission/keys/replace";
+const TRANSMISSION_KEYS_ROTATE_HTTP_PATH: &str = "/api/v1/transmission/keys/rotate";
 const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "/api/v1/access/pin/mode",
     "/api/v1/access/sudo/mode",
@@ -263,6 +265,8 @@ const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "PUT /api/v1/network/dhcp/reservations/{reservation_id}",
     "DELETE /api/v1/network/dhcp/reservations/{reservation_id}",
     "POST /api/v1/network/dhcp/pool-boundary",
+    "POST /api/v1/transmission/keys/replace",
+    "POST /api/v1/transmission/keys/rotate",
 ];
 
 fn open_nofollow_shelf_file(path: &Path) -> io::Result<File> {
@@ -450,7 +454,9 @@ fn administrative_routes_match(
                 || path == NAS_ATTACH_HTTP_PATH
                 || path == NAS_DETACH_HTTP_PATH
                 || path == TRANSMISSION_UP_HTTP_PATH
-                || path == TRANSMISSION_DOWN_HTTP_PATH)
+                || path == TRANSMISSION_DOWN_HTTP_PATH
+                || path == TRANSMISSION_KEYS_REPLACE_HTTP_PATH
+                || path == TRANSMISSION_KEYS_ROTATE_HTTP_PATH)
     }) {
         return Ok(true);
     }

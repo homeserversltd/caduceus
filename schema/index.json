@@ -45,6 +45,7 @@
     "caduceus.transmission.up.v1": {"file": "schema/caduceus.transmission.up.v1.json", "schema_version": "1.0.0"},
     "caduceus.transmission.down.v1": {"file": "schema/caduceus.transmission.down.v1.json", "schema_version": "1.0.0"},
     "caduceus.transmission.status.v1": {"file": "schema/caduceus.transmission.status.v1.json", "schema_version": "1.0.0"},
+    "caduceus.transmission.keys.v1": {"file": "schema/caduceus.transmission.keys.v1.json", "schema_version": "1.0.0"},
     "appliance.crossings.v1": {"file": "schema/appliance.crossings.v1.json", "schema_version": "1.0.0"}
   }
 }

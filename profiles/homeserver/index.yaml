@@ -69,6 +69,9 @@ commands:
 - transmission up
 - transmission down
 - transmission status
+- transmission keys status
+- transmission keys replace
+- transmission keys rotate
 - exousia posture read
 - cert status
 - cert refresh-root
@@ -219,6 +222,9 @@ routes:
 - transmission/up
 - transmission/down
 - transmission/status
+- transmission/keys
+- transmission/keys/replace
+- transmission/keys/rotate
 - storage/vault/auto-decrypt
 - storage/vault/status
 - storage/vault/unlock

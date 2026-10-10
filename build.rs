@@ -321,6 +321,7 @@ fn main() {
         "caduceus.transmission.up.v1",
         "caduceus.transmission.down.v1",
         "caduceus.transmission.status.v1",
+        "caduceus.transmission.keys.v1",
         "appliance.crossings.v1",
     ]
     .map(|id| PathBuf::from(format!("schema/{id}.json")));
