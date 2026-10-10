@@ -386,7 +386,7 @@ fn trust_install_with_renew_receipt(
     dry_run: bool,
     renew: bool,
 ) -> Result<Value, Value> {
-    let mut args = vec![
+    let mut args: Vec<String> = vec![
         "trust-install".into(),
         bundle.into(),
         "--platform".into(),
