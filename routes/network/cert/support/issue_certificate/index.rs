@@ -383,6 +383,7 @@ pub fn trust_install_json(bundle: &str, platform: &str, dry_run: bool) -> Result
 fn trust_install_with_renew_receipt(
     bundle: &str,
     platform: &str,
+    fingerprint: &str,
     dry_run: bool,
     renew: bool,
 ) -> Result<Value, Value> {
@@ -391,6 +392,8 @@ fn trust_install_with_renew_receipt(
         bundle.into(),
         "--platform".into(),
         platform.into(),
+        "--fingerprint".into(),
+        fingerprint.into(),
     ];
     if dry_run {
         args.push("--dry-run".into());
@@ -502,9 +505,13 @@ pub fn trust_fetch_json(server: &str, platform: &str, renew: bool) -> Result<Val
     let path = fetched_bundle_path()?;
     let write_result = fs::write(&path, &bytes);
     let result = match write_result {
-        Ok(()) => {
-            trust_install_with_renew_receipt(path.to_str().unwrap_or(""), platform, false, renew)
-        }
+        Ok(()) => trust_install_with_renew_receipt(
+            path.to_str().unwrap_or(""),
+            platform,
+            &fingerprint,
+            false,
+            renew,
+        ),
         Err(_) => Err(Value::Null),
     };
     let _ = fs::remove_file(&path);

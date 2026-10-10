@@ -62,7 +62,9 @@
             "hard-stamp",
             "ruyi-bump",
             "dns-record",
-            "ruyi-perspective-seed"
+            "ruyi-perspective-seed",
+            "household-trust-renew",
+            "toolchain-ratchet"
           ]
         },
         "created_at": {
@@ -182,6 +184,9 @@
             },
             {
               "type_ref": "RuyiPerspectiveSeedEvidence"
+            },
+            {
+              "type_ref": "HouseholdTrustRenewEvidence"
             }
           ],
           "nullable": true
@@ -388,6 +393,42 @@
         "hostname",
         "perspective_path",
         "perspective_file_exists"
+      ]
+    },
+    "HouseholdTrustRenewEvidence": {
+      "fields": {
+        "recorded_fingerprint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "served_fingerprint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "gateway_seat": {
+          "type": "object"
+        },
+        "event": {
+          "type": [
+            "string",
+            "object"
+          ],
+          "description": "Permits a string or object because the pinned upstream event shape is unavailable at this seat."
+        },
+        "computed_at": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "recorded_fingerprint",
+        "served_fingerprint",
+        "gateway_seat",
+        "event",
+        "computed_at"
       ]
     }
   },

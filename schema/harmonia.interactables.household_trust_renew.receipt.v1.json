@@ -1,0 +1,63 @@
+{
+  "schema": "harmonia.interactables.household_trust_renew.receipt.v1",
+  "schema_version": "1.0.0",
+  "role": "Harmonia household trust renewal interactable receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/harmonia.interactables.household_trust_renew.receipt.v1.json",
+    "grant": "Operator-elected public seat for the Harmonia household trust renewal receipt"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "harmonia.interactables.household_trust_renew.receipt.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "state": {
+      "type": "string"
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "before_fingerprint": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "after_fingerprint": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "state": "string",
+    "reason": "string|null",
+    "before_fingerprint": "string|null",
+    "after_fingerprint": "string|null"
+  },
+  "required": [
+    "schema",
+    "ok",
+    "state",
+    "reason",
+    "before_fingerprint",
+    "after_fingerprint"
+  ],
+  "optional": [],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

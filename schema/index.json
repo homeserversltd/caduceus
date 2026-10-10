@@ -17,6 +17,7 @@
     "harmonia.ruyi-register.v1": {"file": "schema/harmonia.ruyi-register.v1.json", "schema_version": "1.0.0"},
     "harmonia.config_proposals.feed.v1": {"file": "schema/harmonia.config_proposals.feed.v1.json", "schema_version": "1.0.0"},
     "harmonia.interactables.ruyi_bump.receipt.v1": {"file": "schema/harmonia.interactables.ruyi_bump.receipt.v1.json", "schema_version": "1.0.0"},
+    "harmonia.interactables.household_trust_renew.receipt.v1": {"file": "schema/harmonia.interactables.household_trust_renew.receipt.v1.json", "schema_version": "1.0.0"},
     "harmonia.interactables.dns_record.receipt.v1": {"file": "schema/harmonia.interactables.dns_record.receipt.v1.json", "schema_version": "1.0.0"},
     "harmonia.interactables.ruyi_perspective_seed.receipt.v1": {"file": "schema/harmonia.interactables.ruyi_perspective_seed.receipt.v1.json", "schema_version": "1.0.0"},
     "harmonia.update-set.v1": {"file": "schema/harmonia.update-set.v1.json", "schema_version": "1.0.0"},
