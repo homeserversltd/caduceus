@@ -87,13 +87,15 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "nullable": true
         },
         "after_skin": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "nullable": true
         },
         "first_missing_signal": {
           "type": "string"
