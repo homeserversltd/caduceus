@@ -317,13 +317,18 @@ where
         [domain, verb, flag]
             if domain == "cert" && verb == "trust-fetch" && (flag == "--help" || flag == "-h") =>
         {
-            println!("caduceus cert trust-fetch <server-ip-or-host>");
+            println!("caduceus cert trust-fetch <server-ip-or-host> [--renew]");
             0
         }
-        [domain, verb, server] if domain == "cert" && verb == "trust-fetch" => {
+        [domain, verb, server, rest @ ..] if domain == "cert" && verb == "trust-fetch" => {
             cert_command("cert trust-fetch", "trust_fetch", &[], || {
+                if rest.iter().any(|arg| arg != "--renew") {
+                    return cert_print(Err("caduceus-cert-trust-fetch-option-invalid".to_string()));
+                }
                 cert_print(crate::routes::install_trust::trust_fetch_json(
-                    server, "linux",
+                    server,
+                    "linux",
+                    rest.iter().any(|arg| arg == "--renew"),
                 ))
             })
         }

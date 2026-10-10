@@ -6,6 +6,8 @@ pub(super) struct TrustFetchBody {
     server: String,
     #[serde(default = "default_platform")]
     platform: String,
+    #[serde(default)]
+    renew: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -34,7 +36,7 @@ pub(super) async fn trust_fetch(
     if !crate::shared::policy::allows_command("cert trust-install").unwrap_or(false) {
         return Err(crate::gate::api_error("cert trust-install"));
     }
-    trust_fetch_json(&body.server, &body.platform)
+    trust_fetch_json(&body.server, &body.platform, body.renew)
         .map(|value| (crate::gate::mutation_status(&value), axum::Json(value)))
         .map_err(|signal| crate::gate::api_error_signal("cert trust-fetch", &signal))
 }

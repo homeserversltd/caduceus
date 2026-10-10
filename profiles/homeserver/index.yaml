@@ -75,6 +75,7 @@ commands:
 - cert ensure-root
 - cert issue-leaf
 - cert bundle-export
+- cert bundle read
 - cert apply-nginx
 - cert portal-admit
 - cert constituent-lock
