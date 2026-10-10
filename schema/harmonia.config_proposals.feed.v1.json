@@ -466,13 +466,15 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "nullable": true
         },
         "skin_sha256": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "nullable": true
         }
       },
       "required": [
