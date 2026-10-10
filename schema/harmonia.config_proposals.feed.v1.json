@@ -1,6 +1,6 @@
 {
   "schema": "harmonia.config_proposals.feed.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.0.1",
   "role": "Harmonia configuration proposals feed and interactable receipts",
   "authority": {
     "owner": "caduceus",
@@ -64,7 +64,8 @@
             "dns-record",
             "ruyi-perspective-seed",
             "household-trust-renew",
-            "toolchain-ratchet"
+            "toolchain-ratchet",
+            "hermes-appearance"
           ]
         },
         "created_at": {
@@ -187,6 +188,9 @@
             },
             {
               "type_ref": "HouseholdTrustRenewEvidence"
+            },
+            {
+              "type_ref": "HermesAppearanceEvidence"
             }
           ],
           "nullable": true
@@ -429,6 +433,52 @@
         "gateway_seat",
         "event",
         "computed_at"
+      ]
+    },
+    "HermesAppearanceEvidence": {
+      "fields": {
+        "skin_name": {
+          "type": "string"
+        },
+        "skin_sha256": {
+          "type": "string",
+          "description": "SHA-256 of the offered reference bytes; not a version gate."
+        },
+        "homes": {
+          "type": "array",
+          "items": {
+            "type_ref": "HermesAppearanceHome"
+          }
+        }
+      },
+      "required": [
+        "skin_name",
+        "skin_sha256",
+        "homes"
+      ]
+    },
+    "HermesAppearanceHome": {
+      "fields": {
+        "home": {
+          "type": "string"
+        },
+        "selected_skin": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "skin_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "home",
+        "selected_skin",
+        "skin_sha256"
       ]
     }
   },

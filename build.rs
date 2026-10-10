@@ -299,6 +299,7 @@ fn main() {
         "harmonia.ruyi-perspective.v1",
         "harmonia.ruyi-register.v1",
         "harmonia.config_proposals.feed.v1",
+        "harmonia.interactables.hermes_appearance.receipt.v1",
         "harmonia.interactables.ruyi_bump.receipt.v1",
         "harmonia.interactables.household_trust_renew.receipt.v1",
         "harmonia.interactables.dns_record.receipt.v1",
