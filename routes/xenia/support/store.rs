@@ -1,13 +1,197 @@
 use super::{observation, seat, Refusal, Result, XENIA};
 use crate::shared::config;
 use serde_json::{json, Value};
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fs;
 use std::io::ErrorKind;
 use std::os::unix::fs::MetadataExt;
 
 pub const CONFIG: &str = "/etc/appliance/config.json";
 pub const REGISTER: &str = "/etc/appliance/xenia.json";
+
+const MAX_NSS_BUFFER_SIZE: usize = 1_048_576;
+
+fn nss_buffer(size_hint: libc::c_int) -> Vec<u8> {
+    let suggested = unsafe { libc::sysconf(size_hint) };
+    let size = if suggested > 0 {
+        usize::try_from(suggested).unwrap_or(16_384)
+    } else {
+        16_384
+    };
+    vec![0; size.min(MAX_NSS_BUFFER_SIZE)]
+}
+
+fn grow_nss_buffer(buffer: &mut Vec<u8>, component: &str, key: &str) -> Result<()> {
+    let next = buffer
+        .len()
+        .checked_mul(2)
+        .filter(|size| *size <= MAX_NSS_BUFFER_SIZE)
+        .ok_or_else(|| observation(component, key, "nss-lookup-buffer-exhausted"))?;
+    buffer.resize(next, 0);
+    Ok(())
+}
+
+fn passwd_ids_by_name(name: &CString, key: &str) -> Result<Option<(libc::uid_t, libc::gid_t)>> {
+    let mut buffer = nss_buffer(libc::_SC_GETPW_R_SIZE_MAX);
+    loop {
+        let mut record = std::mem::MaybeUninit::<libc::passwd>::uninit();
+        let mut found = std::ptr::null_mut();
+        let status = unsafe {
+            libc::getpwnam_r(
+                name.as_ptr(),
+                record.as_mut_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut found,
+            )
+        };
+        if status == libc::ERANGE {
+            grow_nss_buffer(&mut buffer, "G", key)?;
+            continue;
+        }
+        if status != 0 {
+            return Err(observation(
+                "G",
+                key,
+                format!(
+                    "passwd-lookup-failed: {}",
+                    std::io::Error::from_raw_os_error(status)
+                ),
+            ));
+        }
+        if found.is_null() {
+            return Ok(None);
+        }
+        let record = unsafe { record.assume_init() };
+        return Ok(Some((record.pw_uid, record.pw_gid)));
+    }
+}
+
+fn group_id_by_name(name: &CString, key: &str) -> Result<Option<libc::gid_t>> {
+    let mut buffer = nss_buffer(libc::_SC_GETGR_R_SIZE_MAX);
+    loop {
+        let mut record = std::mem::MaybeUninit::<libc::group>::uninit();
+        let mut found = std::ptr::null_mut();
+        let status = unsafe {
+            libc::getgrnam_r(
+                name.as_ptr(),
+                record.as_mut_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut found,
+            )
+        };
+        if status == libc::ERANGE {
+            grow_nss_buffer(&mut buffer, "G", key)?;
+            continue;
+        }
+        if status != 0 {
+            return Err(observation(
+                "G",
+                key,
+                format!(
+                    "group-lookup-failed: {}",
+                    std::io::Error::from_raw_os_error(status)
+                ),
+            ));
+        }
+        if found.is_null() {
+            return Ok(None);
+        }
+        let record = unsafe { record.assume_init() };
+        return Ok(Some(record.gr_gid));
+    }
+}
+
+fn passwd_name_by_uid(uid: libc::uid_t, key: &str) -> Result<String> {
+    let mut buffer = nss_buffer(libc::_SC_GETPW_R_SIZE_MAX);
+    loop {
+        let mut record = std::mem::MaybeUninit::<libc::passwd>::uninit();
+        let mut found = std::ptr::null_mut();
+        let status = unsafe {
+            libc::getpwuid_r(
+                uid,
+                record.as_mut_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut found,
+            )
+        };
+        if status == libc::ERANGE {
+            grow_nss_buffer(&mut buffer, "transaction", key)?;
+            continue;
+        }
+        if status != 0 {
+            return Err(observation(
+                "transaction",
+                key,
+                format!(
+                    "passwd-uid-lookup-failed: {}",
+                    std::io::Error::from_raw_os_error(status)
+                ),
+            ));
+        }
+        if found.is_null() {
+            return Err(observation(
+                "transaction",
+                key,
+                format!("passwd-uid-lookup-absent: {uid}"),
+            ));
+        }
+        let record = unsafe { record.assume_init() };
+        if record.pw_name.is_null() {
+            return Err(observation("transaction", key, "passwd-uid-name-absent"));
+        }
+        return Ok(unsafe { CStr::from_ptr(record.pw_name) }
+            .to_string_lossy()
+            .into_owned());
+    }
+}
+
+fn group_name_by_gid(gid: libc::gid_t, key: &str) -> Result<String> {
+    let mut buffer = nss_buffer(libc::_SC_GETGR_R_SIZE_MAX);
+    loop {
+        let mut record = std::mem::MaybeUninit::<libc::group>::uninit();
+        let mut found = std::ptr::null_mut();
+        let status = unsafe {
+            libc::getgrgid_r(
+                gid,
+                record.as_mut_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut found,
+            )
+        };
+        if status == libc::ERANGE {
+            grow_nss_buffer(&mut buffer, "transaction", key)?;
+            continue;
+        }
+        if status != 0 {
+            return Err(observation(
+                "transaction",
+                key,
+                format!(
+                    "group-gid-lookup-failed: {}",
+                    std::io::Error::from_raw_os_error(status)
+                ),
+            ));
+        }
+        if found.is_null() {
+            return Err(observation(
+                "transaction",
+                key,
+                format!("group-gid-lookup-absent: {gid}"),
+            ));
+        }
+        let record = unsafe { record.assume_init() };
+        if record.gr_name.is_null() {
+            return Err(observation("transaction", key, "group-gid-name-absent"));
+        }
+        return Ok(unsafe { CStr::from_ptr(record.gr_name) }
+            .to_string_lossy()
+            .into_owned());
+    }
+}
 
 fn owner_refusal(message: &str, suggestion: String) -> Refusal {
     Refusal::new("G", "manifest.install.owner", message, &suggestion)
@@ -26,54 +210,26 @@ pub fn owner_ids(owner: &str) -> Result<(libc::uid_t, libc::gid_t)> {
             format!("Create the passwd account '{owner}' before admission."),
         )
     })?;
-    let suggested = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
-    let mut buffer = vec![
-        0u8;
-        if suggested > 0 {
-            suggested as usize
-        } else {
-            16_384
-        }
-    ];
-    let mut record = std::mem::MaybeUninit::<libc::passwd>::uninit();
-    let mut found = std::ptr::null_mut();
-    let status = unsafe {
-        libc::getpwnam_r(
-            name.as_ptr(),
-            record.as_mut_ptr(),
-            buffer.as_mut_ptr().cast(),
-            buffer.len(),
-            &mut found,
-        )
-    };
-    if status != 0 {
-        return Err(observation(
-            "G",
-            "manifest.install.owner",
-            format!(
-                "passwd-lookup-failed: {}",
-                std::io::Error::from_raw_os_error(status)
-            ),
-        ));
-    }
-    if found.is_null() {
+    let Some((uid, primary_gid)) = passwd_ids_by_name(&name, "manifest.install.owner")? else {
         return Err(owner_refusal(
             "owner-absent",
             format!("Create the passwd account '{owner}' before admission."),
         ));
-    }
-    let record = unsafe { record.assume_init() };
-    if record.pw_uid == 0 {
+    };
+    if uid == 0 {
         return Err(owner_refusal(
             "owner-root-forbidden",
             format!("Choose a non-root passwd account instead of '{owner}'."),
         ));
     }
-    Ok((record.pw_uid, record.pw_gid))
+    let group = CString::new("xenia").unwrap();
+    let gid = group_id_by_name(&group, "manifest.install.owner")?.unwrap_or(primary_gid);
+    Ok((uid, gid))
 }
 
 struct Seat {
     value: Value,
+    observed: Value,
     changed: bool,
     attempt: &'static str,
 }
@@ -193,6 +349,9 @@ fn ensure_process_seat(proposed: &Value, id: &str) -> Result<Option<Seat>> {
             "seat-act-did-not-converge",
         ));
     }
+    let observed_owner = passwd_name_by_uid(metadata.uid(), &device_path)?;
+    let observed_group = group_name_by_gid(metadata.gid(), &device_path)?;
+    let observed_mode = format!("{:04o}", metadata.mode() & 0o7777);
     let created = !existed_before && changed;
     let attempt = if changed {
         if created {
@@ -205,6 +364,11 @@ fn ensure_process_seat(proposed: &Value, id: &str) -> Result<Option<Seat>> {
     };
     Ok(Some(Seat {
         value: json!({"path": device_path, "created": created}),
+        observed: json!({
+            "owner": observed_owner,
+            "group": observed_group,
+            "mode": observed_mode
+        }),
         changed,
         attempt,
     }))
@@ -371,6 +535,7 @@ pub fn admit(before: &House, proposed: &Value, row: &Value) -> Result<Value> {
         "final": {"entry_present": true, "row_present": true, "converged": true}});
     if let Some(seat) = seat {
         result["seat"] = seat.value;
+        result["observed"] = json!({"seat": seat.observed});
         result["attempt"]["seat"] = json!(seat.attempt);
     }
     Ok(result)
