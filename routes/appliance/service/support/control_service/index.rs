@@ -59,6 +59,10 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         Some(Value::Bool(_) | Value::Null) => receipt["active"].clone(),
         _ => return Err("caduceus-portal-service-receipt-invalid".to_string()),
     };
+    let enabled = match receipt.get("enabled") {
+        Some(Value::Bool(_) | Value::Null) => receipt["enabled"].clone(),
+        _ => Value::Null,
+    };
     let output = receipt
         .get("output")
         .and_then(Value::as_str)
@@ -80,6 +84,7 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         "message": if ok { format!("Service {action} completed for {service}") } else { format!("Service {action} failed for {service}") },
         "output": output,
         "active": active,
+        "enabled": enabled,
         "mutationPerformed": action != "status" && ok,
         "execution": "systemctl",
         "firstMissingSignal": first_missing_signal,

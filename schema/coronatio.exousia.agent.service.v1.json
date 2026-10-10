@@ -32,6 +32,12 @@
     "active": {
       "type": "boolean"
     },
+    "enabled": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "firstMissingSignal": {
       "type": "string"
     },
@@ -50,6 +56,7 @@
     "ok": "boolean",
     "success": "boolean",
     "active": "boolean",
+    "enabled": "boolean|null",
     "firstMissingSignal": "string",
     "service": "string",
     "action": "string",
@@ -58,7 +65,8 @@
   "optional": [
     "service",
     "action",
-    "receipt"
+    "receipt",
+    "enabled"
   ],
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }
