@@ -125,7 +125,7 @@ struct DnsAliasBody {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct DnsAdblockBody {
     pub(crate) enabled: bool,
     #[serde(default)]
@@ -133,7 +133,7 @@ struct DnsAdblockBody {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct DnsUpstreamBody {
     preset: Option<String>,
     custom: Option<Vec<String>>,

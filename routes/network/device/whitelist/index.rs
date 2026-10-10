@@ -35,14 +35,14 @@ use axum::{
 use serde::Deserialize;
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct FirewallChildBody {
     schema: String,
     mac: String,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct FirewallWhitelistBody {
     schema: String,
     mac: String,

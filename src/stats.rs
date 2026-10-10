@@ -2276,7 +2276,7 @@ pub fn request_model_lane_pulse() -> Result<Value, String> {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct HistoryQuery {
     pub tier: Option<String>,
     pub since: Option<i64>,

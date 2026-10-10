@@ -66,7 +66,7 @@ use crate::shared::policy;
 use crate::routes::network_identity;
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct NetworkDeviceClaimBody {
     mac: String,
     ip: Option<String>,

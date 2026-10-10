@@ -1,7 +1,7 @@
 pub use crate::routes::issue_certificate::{trust_fetch_json, trust_install_json};
 
 #[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct TrustFetchBody {
     server: String,
     #[serde(default = "default_platform")]
@@ -11,7 +11,7 @@ pub(super) struct TrustFetchBody {
 }
 
 #[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct TrustInstallBody {
     bundle: String,
     #[serde(default = "default_platform")]

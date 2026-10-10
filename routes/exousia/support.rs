@@ -14,7 +14,6 @@ use serde::Deserialize;
 use serde_json::Value;
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct VaultSupportUnlockBody {
     #[serde(default)]
     password: Option<String>,
@@ -23,7 +22,6 @@ struct VaultSupportUnlockBody {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct VaultSupportAutoBody {
     enabled: bool,
     #[serde(default)]

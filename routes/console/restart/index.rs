@@ -14,7 +14,6 @@ enum Degree {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct RestartBody {
     degree: Degree,
 }

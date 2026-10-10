@@ -10,7 +10,6 @@ use axum::{
 use serde::Deserialize;
 use serde_json::Value;
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct CartridgeRemoveBody {
     id: String,
 }

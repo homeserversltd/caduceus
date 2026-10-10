@@ -7,7 +7,6 @@ pub const NAMESPACE: &str = "update/modules/:id";
 const COMMAND: &str = "update modules toggle";
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct ToggleBody {
     enabled: bool,
 }

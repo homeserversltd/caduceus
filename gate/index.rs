@@ -161,13 +161,11 @@ pub(crate) fn mutation_status(value: &Value) -> StatusCode {
 pub(crate) const FIREWALL_DOCUMENT_TARGET: &str = "/api/v1/network/firewall/policies/{mac}";
 pub(crate) const VAULT_ATTENDANCE_COMMAND: &str = "staff intent";
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct VaultUnlockBody {
     #[serde(default)]
     pub(crate) password: Option<String>,
 }
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct VaultAutoBody {
     pub(crate) enabled: bool,
 }

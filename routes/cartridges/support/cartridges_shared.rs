@@ -44,7 +44,6 @@ impl CartridgeError {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct Cartridge {
     pub id: String,
     pub title: String,
@@ -54,7 +53,6 @@ pub struct Cartridge {
 }
 
 #[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 struct Registry {
     schema: String,
     cartridges: Vec<Cartridge>,

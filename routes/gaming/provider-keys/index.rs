@@ -36,7 +36,6 @@ fn bad_request() -> (StatusCode, Json<crate::gate::ApiErrorBody>) {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct ProviderKeysBody {
     steamgriddb_api_key: Option<String>,
     thegamesdb_api_key: Option<String>,

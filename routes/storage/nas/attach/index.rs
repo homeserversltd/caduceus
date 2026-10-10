@@ -23,7 +23,6 @@ impl NasRole {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct NasAttachBody {
     role: NasRole,
 }
