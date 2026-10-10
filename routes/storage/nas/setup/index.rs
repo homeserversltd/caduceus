@@ -23,7 +23,6 @@ impl NasRole {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct NasSetupBody {
     device: String,
     role: NasRole,
