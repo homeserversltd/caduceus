@@ -9,6 +9,8 @@ pub(crate) struct BeamBody {
     ok: bool,
     service: &'static str,
     profile: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) hostname: Option<String>,
     caduceus_sha: &'static str,
     env_sha: &'static str,
     rustc_version: &'static str,
@@ -46,6 +48,10 @@ pub(crate) async fn route() -> Result<Json<BeamBody>, (StatusCode, Json<crate::g
         ok: true,
         service: "caduceus",
         profile,
+        hostname: std::fs::read_to_string(crate::shared::config::path("etc/hostname"))
+            .ok()
+            .map(|hostname| hostname.trim().to_owned())
+            .filter(|hostname| !hostname.is_empty()),
         caduceus_sha: CADUCEUS_BUILD_SHA.unwrap_or("unset"),
         env_sha: env!("CADUCEUS_BUILD_ENV_SHA"),
         rustc_version: option_env!("CADUCEUS_BUILD_RUSTC_VERSION").unwrap_or("unset"),

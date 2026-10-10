@@ -132,6 +132,13 @@ impl RuyiStaff {
 
 }
 
+struct PeerReadback {
+    hostname: String,
+    canonical_name: String,
+    stats: Option<Value>,
+    stats_signal: Option<String>,
+}
+
 #[derive(Serialize)]
 struct RuyiListBody {
     schema: &'static str,
@@ -384,26 +391,42 @@ fn valid_peer_beam(response: &[u8]) -> bool {
         && value.get("service").and_then(Value::as_str) == Some("caduceus")
 }
 
-async fn probe_peer(row: RuyiRow, include_stats: bool) -> Option<(String, Option<Value>, Option<String>)> {
+async fn probe_peer(row: RuyiRow, include_stats: bool) -> Option<(String, PeerReadback)> {
     let host = if row.ipv4.parse::<Ipv4Addr>().is_ok() {
         row.ipv4.as_str()
     } else {
         row.canonical_name.as_str()
     };
     let port = row.caduceus_port.unwrap_or_else(peer_probe_port);
-    let answered = timeout(RUYI_PEER_TIMEOUT, async {
-        let response = fetch_peer(host, port, "/api/v1/beam").await?;
-        Ok::<_, std::io::Error>(valid_peer_beam(&response))
-    }).await.ok()?.ok()?;
-    if !answered {
+    let response = timeout(RUYI_PEER_TIMEOUT, fetch_peer(host, port, "/api/v1/beam"))
+        .await
+        .ok()?
+        .ok()?;
+    if !valid_peer_beam(&response) {
         return None;
     }
+    let beam = response_json_200(&response)?;
+    let hostname = beam
+        .get("hostname")
+        .and_then(Value::as_str)
+        .filter(|hostname| !hostname.trim().is_empty())
+        .unwrap_or(&row.hostname)
+        .to_owned();
+    let canonical_name = crate::shared::seat_identity::resolver_target(&hostname)?;
     let (stats, stats_signal) = if include_stats {
         fetch_peer_stats(host, port).await
     } else {
         (None, None)
     };
-    Some((row.mac, stats, stats_signal))
+    Some((
+        row.mac,
+        PeerReadback {
+            hostname,
+            canonical_name,
+            stats,
+            stats_signal,
+        },
+    ))
 }
 
 fn stats_requested(uri: &axum::http::Uri) -> bool {
@@ -493,28 +516,38 @@ async fn probe_candidate(
     .ok()?;
     if !valid_peer_beam(&beam_bytes) { return None; }
     let beam = response_json_200(&beam_bytes)?;
+    let beam_hostname = beam
+        .get("hostname")
+        .and_then(Value::as_str)
+        .filter(|hostname| !hostname.trim().is_empty())
+        .map(str::to_owned);
     // Peer roster enrichment is optional. A valid beam already establishes a candidate;
     // cap both requests together so this sweep cannot consume two full peer timeouts.
-    let seat_host = match deadline.checked_duration_since(Instant::now()) {
-        Some(remaining) if !remaining.is_zero() => timeout(
-            remaining,
-            fetch_peer(&host, peer_port, "/api/v1/ruyi"),
-        )
-            .await.ok().and_then(Result::ok).and_then(|bytes| response_json_200(&bytes))
-            .filter(|roster| {
-                crate::routes::leaf_schema::accepts_form(row_schema(), "roster", roster)
-                    && roster.get("ok").and_then(Value::as_bool) == Some(true)
-                    && roster.get("service").and_then(Value::as_str) == Some("caduceus")
-            })
-            .and_then(|roster| roster.get("seat").and_then(|seat| seat.get("hostname")).and_then(Value::as_str).map(str::to_owned)),
-        _ => None,
+    let seat_host = if beam_hostname.is_some() {
+        None
+    } else {
+        match deadline.checked_duration_since(Instant::now()) {
+            Some(remaining) if !remaining.is_zero() => timeout(
+                remaining,
+                fetch_peer(&host, peer_port, "/api/v1/ruyi"),
+            )
+                .await.ok().and_then(Result::ok).and_then(|bytes| response_json_200(&bytes))
+                .filter(|roster| {
+                    crate::routes::leaf_schema::accepts_form(row_schema(), "roster", roster)
+                        && roster.get("ok").and_then(Value::as_bool) == Some(true)
+                        && roster.get("service").and_then(Value::as_str) == Some("caduceus")
+                })
+                .and_then(|roster| roster.get("seat").and_then(|seat| seat.get("hostname")).and_then(Value::as_str).map(str::to_owned)),
+            _ => None,
+        }
     };
-    let hostname = seat_host.filter(|name| valid_hostname(name))
+    let hostname = beam_hostname
+        .or_else(|| seat_host.filter(|name| valid_hostname(name)))
         .or_else(|| valid_hostname(&candidate.hostname).then(|| candidate.hostname.clone()))
         .or_else(|| candidate.fallback_hostname.filter(|name| valid_hostname(name)))?;
-    if !valid_hostname(&hostname) { return None; }
     let canonical_name = crate::shared::seat_identity::resolver_target(&hostname)?;
-    let (ipv4, source) = unbound_ipv4_for_hostname(&dns, &hostname)
+    let dns_hostname = hostname.trim().to_ascii_lowercase();
+    let (ipv4, source) = unbound_ipv4_for_hostname(&dns, &dns_hostname)
         .map(|ip| (ip, "dns"))
         .unwrap_or((candidate.address, "declared"));
     let profile = beam.get("profile")?.as_str()?.to_owned();
@@ -631,6 +664,10 @@ async fn list(
     }
     let identity = current_identity();
     let self_mac = identity.mac.clone();
+    let Json(self_beam) = crate::routes::leaf_beam::route().await?;
+    let self_beam_hostname = self_beam
+        .hostname
+        .filter(|hostname| !hostname.trim().is_empty());
     let dns = unbound_records(&crate::shared::config::path("etc/unbound"));
     let mut candidates = BTreeMap::<String, KeaCandidate>::new();
     if let (Ok(leases), Ok(reservations)) = (crate::routes::native_kea_read::read_leases(), crate::routes::native_kea_read::read_reservations()) {
@@ -653,6 +690,19 @@ async fn list(
     let stored_macs: BTreeSet<_> = announced.iter().map(|row| row.mac.to_ascii_lowercase()).collect();
     candidates.retain(|mac, _| !stored_macs.contains(mac) && self_mac.as_deref() != Some(mac.as_str()));
     let mut staves: Vec<RuyiStaff> = announced.iter().cloned().map(RuyiStaff::Announced).collect();
+    let local_row = self_mac
+        .as_ref()
+        .and_then(|mac| announced.iter().find(|row| &row.mac == mac));
+    let local_seat_hostname = self_beam_hostname
+        .or_else(|| local_row.map(|row| row.hostname.clone()));
+    let mut live_names = BTreeMap::<String, (String, String)>::new();
+    let mut answered = BTreeSet::new();
+    if let (Some(row), Some(hostname)) = (local_row, local_seat_hostname.as_ref()) {
+        if let Some(canonical_name) = crate::shared::seat_identity::resolver_target(hostname) {
+            answered.insert(row.mac.clone());
+            live_names.insert(row.mac.clone(), (hostname.clone(), canonical_name));
+        }
+    }
     let mut probes = JoinSet::new();
     for row in announced.iter().filter(|row| self_mac.as_deref() != Some(row.mac.as_str())).cloned() {
         probes.spawn(async move { (probe_peer(row, include_stats).await, None) });
@@ -662,16 +712,23 @@ async fn list(
         let dns = dns.clone();
         probes.spawn(async move { (None, probe_candidate(candidate, dns, peer_port, include_stats).await) });
     }
-    let mut answered = BTreeSet::new();
     let mut peer_stats = BTreeMap::<String, (Option<Value>, Option<String>)>::new();
-    if let Some(mac) = self_mac.as_ref() { if announced.iter().any(|row| &row.mac == mac) { answered.insert(mac.clone()); } }
     while let Some(result) = probes.join_next().await {
         if let Ok((stored_result, discovered_result)) = result {
-            if let Some((mac, stats, stats_signal)) = stored_result {
+            if let Some((mac, peer)) = stored_result {
                 answered.insert(mac.clone());
-                peer_stats.insert(mac, (stats, stats_signal));
+                live_names.insert(mac.clone(), (peer.hostname, peer.canonical_name));
+                peer_stats.insert(mac, (peer.stats, peer.stats_signal));
             }
             if let Some(row) = discovered_result { answered.insert(row.mac.clone()); staves.push(RuyiStaff::Discovered(row)); }
+        }
+    }
+    for staff in &mut staves {
+        if let RuyiStaff::Announced(row) = staff {
+            if let Some((hostname, canonical_name)) = live_names.remove(&row.mac) {
+                row.hostname = hostname;
+                row.canonical_name = canonical_name;
+            }
         }
     }
     if include_stats {
@@ -722,7 +779,7 @@ async fn list(
     }).collect() } else { Vec::new() };
     let (seat_stats, seat_stats_signal) = if include_stats { local_stats() } else { (None, None) };
     Ok(Json(RuyiListBody { schema: row_schema(), ok: true, service: "caduceus", seat: RuyiSeat {
-        mac: identity.mac.unwrap_or_else(|| "unknown".to_owned()), hostname: crate::shared::seat_identity::local_hostname(),
+        mac: identity.mac.unwrap_or_else(|| "unknown".to_owned()), hostname: local_seat_hostname.unwrap_or_else(|| "unknown".to_owned()),
         ipv4: identity.ipv4.map(|ipv4| ipv4.to_string()).unwrap_or_else(|| "unknown".to_owned()), ipv4_source: identity.ipv4_source.map(str::to_owned),
         stats: include_stats.then_some(seat_stats), stats_signal: seat_stats_signal,
     }, staves, perspectives, trust, dns_unresolved }))
