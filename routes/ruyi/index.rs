@@ -1,4 +1,9 @@
-use axum::{http::StatusCode, Json};
+use axum::{
+    body::{Body, Bytes},
+    http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -7,13 +12,15 @@ use std::{
     fs,
     net::Ipv4Addr,
     path::Path as FsPath,
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
-    task::JoinSet,
-    time::{timeout, Duration, Instant},
+    sync::mpsc,
+    task::{JoinHandle, JoinSet},
+    time::{timeout, timeout_at, Duration, Instant},
 };
 
 use crate::routes::leaf_schema::row_schema;
@@ -21,6 +28,8 @@ const TEXT_MAX: usize = 64;
 const MAX_PROJECTION_BYTES: u64 = 1024 * 1024;
 const CADUCEUS_DEFAULT_PORT: u16 = 8787;
 const RUYI_PEER_TIMEOUT: Duration = Duration::from_millis(500);
+const RUYI_STREAM_SWEEP_TIMEOUT: Duration = Duration::from_secs(2);
+const RUYI_STREAM_SEND_TIMEOUT: Duration = Duration::from_millis(500);
 const MAX_PEER_RESPONSE_BYTES: usize = 64 * 1024;
 
 fn peer_probe_port() -> u16 {
@@ -77,7 +86,7 @@ struct RuyiRow {
     stats_signal: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct RuyiSeat {
     mac: String,
     hostname: String,
@@ -455,6 +464,44 @@ fn stats_requested(uri: &axum::http::Uri) -> bool {
         .is_some_and(|query| query.split('&').any(|part| part == "stats=1"))
 }
 
+fn stream_requested(uri: &axum::http::Uri) -> bool {
+    uri.query()
+        .is_some_and(|query| query.split('&').any(|part| part == "stream=1"))
+}
+
+const RUYI_STREAM_SCHEMA: &str = "caduceus.ruyi.stream.v1";
+
+fn stream_event_line(sequence: &mut u64, event: &str, payload: Value) -> std::io::Result<Vec<u8>> {
+    let sequence_value = *sequence;
+    let next_sequence = sequence_value
+        .checked_add(1)
+        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "ruyi stream sequence exhausted"))?;
+    let mut fields = payload.as_object().cloned().ok_or_else(|| {
+        Error::new(
+            ErrorKind::InvalidData,
+            "ruyi stream event payload is not an object",
+        )
+    })?;
+    fields.insert(
+        "schema".to_owned(),
+        Value::String(RUYI_STREAM_SCHEMA.to_owned()),
+    );
+    fields.insert("event".to_owned(), Value::String(event.to_owned()));
+    fields.insert("sequence".to_owned(), Value::from(sequence_value));
+    let mut line = serde_json::to_vec(&Value::Object(fields))
+        .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
+    line.push(b'\n');
+    *sequence = next_sequence;
+    Ok(line)
+}
+
+fn stream_member_payload(staff: RuyiStaff, perspective: Option<&Value>) -> Value {
+    json!({
+        "member": staff,
+        "perspective": perspective.cloned().unwrap_or(Value::Null),
+    })
+}
+
 fn response_status(response: &[u8]) -> Option<u16> {
     let split = response.windows(4).position(|window| window == b"\r\n\r\n")?;
     let headers = std::str::from_utf8(&response[..split]).ok()?;
@@ -670,8 +717,12 @@ async fn put(
 
 async fn list(
     OriginalUri(uri): OriginalUri,
-) -> Result<Json<RuyiListBody>, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
+) -> Result<Response, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
+    let stream_deadline = Instant::now() + RUYI_STREAM_SWEEP_TIMEOUT;
     let include_stats = stats_requested(&uri);
+    if include_stats && stream_requested(&uri) {
+        return stream_list(include_stats, stream_deadline).await;
+    }
     let (mut announced, mut perspectives, mut received, identity) =
         crate::gate::blocking_task("ruyi", || {
             let stored = crate::stats::ruyi_snapshot().map_err(|_| {
@@ -883,7 +934,495 @@ async fn list(
         mac: identity.mac.unwrap_or_else(|| "unknown".to_owned()), hostname: local_seat_hostname.unwrap_or_else(|| "unknown".to_owned()),
         ipv4: identity.ipv4.map(|ipv4| ipv4.to_string()).unwrap_or_else(|| "unknown".to_owned()), ipv4_source: identity.ipv4_source.map(str::to_owned),
         stats: include_stats.then_some(seat_stats), stats_signal: seat_stats_signal,
-    }, staves, perspectives, trust, dns_unresolved }))
+    }, staves, perspectives, trust, dns_unresolved }).into_response())
+}
+
+fn stream_terminal_frame(sequence: u64, signal: &'static str) -> Option<Vec<u8>> {
+    let mut sequence = sequence;
+    stream_event_line(&mut sequence, "failed", json!({"signal": signal})).ok()
+}
+
+struct AbortOnDrop(JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+enum StreamSendFailure {
+    Closed,
+    SweepTimeout,
+    BackpressureTimeout,
+}
+
+async fn send_stream_frame(
+    sender: &mpsc::Sender<Vec<u8>>,
+    frame: Vec<u8>,
+    deadline: Instant,
+) -> Result<(), StreamSendFailure> {
+    let permit = match sender.try_reserve() {
+        Ok(permit) => permit,
+        Err(mpsc::error::TrySendError::Closed(_)) => return Err(StreamSendFailure::Closed),
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            let send_deadline = std::cmp::min(deadline, Instant::now() + RUYI_STREAM_SEND_TIMEOUT);
+            match timeout_at(send_deadline, sender.reserve()).await {
+                Ok(Ok(permit)) => permit,
+                Ok(Err(_)) => return Err(StreamSendFailure::Closed),
+                Err(_) if Instant::now() >= deadline => {
+                    return Err(StreamSendFailure::SweepTimeout)
+                }
+                Err(_) => return Err(StreamSendFailure::BackpressureTimeout),
+            }
+        }
+    };
+    if Instant::now() >= deadline {
+        return Err(StreamSendFailure::SweepTimeout);
+    }
+    permit.send(frame);
+    Ok(())
+}
+
+fn store_stream_terminal(slot: &Arc<Mutex<Option<Vec<u8>>>>, sequence: u64, signal: &'static str) {
+    if let (Some(frame), Ok(mut terminal)) = (stream_terminal_frame(sequence, signal), slot.lock())
+    {
+        *terminal = Some(frame);
+    }
+}
+
+async fn stream_list(
+    include_stats: bool,
+    deadline: Instant,
+) -> Result<Response, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
+    let (announced, mut perspectives, mut received, identity) =
+        crate::gate::blocking_task("ruyi", || {
+            let stored = crate::stats::ruyi_snapshot().map_err(|_| {
+                error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "caduceus-ruyi-store-failed",
+                )
+            })?;
+            let mut announced = Vec::with_capacity(stored.rows.len());
+            for (_, row_json, last_seen) in stored.rows {
+                let value: Value = serde_json::from_str(&row_json).map_err(|_| {
+                    error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "caduceus-ruyi-row-invalid",
+                    )
+                })?;
+                if !crate::routes::leaf_schema::accepts_form(row_schema(), "row", &value) {
+                    return Err(error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "caduceus-ruyi-row-invalid",
+                    ));
+                }
+                let mut row: RuyiRow = serde_json::from_value(value).map_err(|_| {
+                    error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "caduceus-ruyi-row-invalid",
+                    )
+                })?;
+                row.last_seen = u64::try_from(last_seen).map_err(|_| {
+                    error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "caduceus-ruyi-row-invalid",
+                    )
+                })?;
+                announced.push(row);
+            }
+            let mut perspectives = BTreeMap::new();
+            let mut received = BTreeMap::new();
+            for (mac, bytes, received_at) in stored.perspectives {
+                let value = serde_json::from_str(&bytes).map_err(|_| {
+                    error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "caduceus-ruyi-row-invalid",
+                    )
+                })?;
+                received.insert(
+                    mac.clone(),
+                    u64::try_from(received_at).map_err(|_| {
+                        error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "caduceus-ruyi-row-invalid",
+                        )
+                    })?,
+                );
+                perspectives.insert(mac, value);
+            }
+            let identity = current_identity();
+            Ok::<_, (StatusCode, Json<crate::gate::ApiErrorBody>)>(
+                (announced, perspectives, received, identity),
+            )
+        })
+        .await??;
+    let self_mac = identity.mac.clone();
+    let Json(self_beam) = crate::routes::leaf_beam::route().await?;
+    let self_beam_hostname = self_beam
+        .hostname
+        .filter(|hostname| !hostname.trim().is_empty());
+    let (dns, mut candidates) = crate::gate::blocking_task("ruyi", || {
+        let dns = unbound_records(&crate::shared::config::path("etc/unbound"));
+        let mut candidates = BTreeMap::<String, KeaCandidate>::new();
+        if let (Ok(leases), Ok(reservations)) = (
+            crate::routes::native_kea_read::read_leases(),
+            crate::routes::native_kea_read::read_reservations(),
+        ) {
+            for lease in leases {
+                if let (Some(mac), Ok(address)) =
+                    (normalized_mac(&lease.mac), lease.ip.parse::<Ipv4Addr>())
+                {
+                    candidates.insert(
+                        mac.clone(),
+                        KeaCandidate {
+                            mac,
+                            address,
+                            hostname: lease.hostname,
+                            fallback_hostname: None,
+                        },
+                    );
+                }
+            }
+            for reservation in reservations {
+                if let (Some(mac), Ok(address)) = (
+                    normalized_mac(&reservation.mac),
+                    reservation.ip.parse::<Ipv4Addr>(),
+                ) {
+                    match candidates.entry(mac.clone()) {
+                        std::collections::btree_map::Entry::Vacant(entry) => {
+                            entry.insert(KeaCandidate {
+                                mac,
+                                address,
+                                hostname: reservation.hostname,
+                                fallback_hostname: None,
+                            });
+                        }
+                        std::collections::btree_map::Entry::Occupied(mut entry) => {
+                            if valid_hostname(&reservation.hostname) {
+                                entry.get_mut().fallback_hostname =
+                                    Some(reservation.hostname);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok::<_, (StatusCode, Json<crate::gate::ApiErrorBody>)>((dns, candidates))
+    })
+    .await??;
+    let stored_macs: BTreeSet<_> = announced
+        .iter()
+        .map(|row| row.mac.to_ascii_lowercase())
+        .collect();
+    candidates
+        .retain(|mac, _| !stored_macs.contains(mac) && self_mac.as_deref() != Some(mac.as_str()));
+    let candidates = candidates.into_values().collect::<Vec<_>>();
+    let local_row = self_mac
+        .as_ref()
+        .and_then(|mac| announced.iter().find(|row| &row.mac == mac));
+    let local_seat_hostname =
+        self_beam_hostname.or_else(|| local_row.map(|row| row.hostname.clone()));
+    let (seat_stats, seat_stats_signal) = if include_stats {
+        local_stats()
+    } else {
+        (None, None)
+    };
+    let seat = RuyiSeat {
+        mac: identity.mac.unwrap_or_else(|| "unknown".to_owned()),
+        hostname: local_seat_hostname
+            .clone()
+            .unwrap_or_else(|| "unknown".to_owned()),
+        ipv4: identity
+            .ipv4
+            .map(|ipv4| ipv4.to_string())
+            .unwrap_or_else(|| "unknown".to_owned()),
+        ipv4_source: identity.ipv4_source.map(str::to_owned),
+        stats: include_stats.then_some(seat_stats.clone()),
+        stats_signal: seat_stats_signal.clone(),
+    };
+    let mut begin_payload = json!({
+        "snapshot_at": server_now(),
+        "seat": seat.clone(),
+    });
+    if let Some(perspective) = self_mac.as_ref().and_then(|mac| perspectives.get(mac)) {
+        begin_payload["perspective"] = perspective.clone();
+    }
+
+    let (sender, mut receiver) = mpsc::channel(1);
+    let terminal = Arc::new(Mutex::new(None));
+    let producer_terminal = Arc::clone(&terminal);
+    let producer = tokio::spawn(async move {
+        let mut sequence = 0u64;
+        macro_rules! emit_failure {
+            ($signal:expr) => {{
+                let mut next_sequence = sequence;
+                if let Ok(frame) = stream_event_line(
+                    &mut next_sequence,
+                    "failed",
+                    json!({"signal": $signal}),
+                ) {
+                    match send_stream_frame(&sender, frame, deadline).await {
+                        Ok(()) => {},
+                        Err(StreamSendFailure::Closed) => return,
+                        Err(StreamSendFailure::SweepTimeout) => {
+                            store_stream_terminal(&producer_terminal, sequence, "sweep-timeout");
+                            return;
+                        }
+                        Err(StreamSendFailure::BackpressureTimeout) => {
+                            store_stream_terminal(
+                                &producer_terminal,
+                                sequence,
+                                "backpressure-timeout",
+                            );
+                            return;
+                        }
+                    }
+                }
+                return;
+            }};
+        }
+        macro_rules! emit_event {
+            ($event:expr, $payload:expr) => {{
+                let mut next_sequence = sequence;
+                match stream_event_line(&mut next_sequence, $event, $payload) {
+                    Ok(frame) => match send_stream_frame(&sender, frame, deadline).await {
+                        Ok(()) => sequence = next_sequence,
+                        Err(StreamSendFailure::Closed) => return,
+                        Err(StreamSendFailure::SweepTimeout) => {
+                            store_stream_terminal(&producer_terminal, sequence, "sweep-timeout");
+                            return;
+                        }
+                        Err(StreamSendFailure::BackpressureTimeout) => {
+                            store_stream_terminal(
+                                &producer_terminal,
+                                sequence,
+                                "backpressure-timeout",
+                            );
+                            return;
+                        }
+                    },
+                    Err(_) => emit_failure!("serialization-failed"),
+                }
+            }};
+        }
+
+        emit_event!("begin", begin_payload);
+
+        let mut staves: Vec<RuyiStaff> = announced
+            .iter()
+            .cloned()
+            .map(RuyiStaff::Announced)
+            .collect();
+        let mut live_names = BTreeMap::<String, (String, String)>::new();
+        let mut answered = BTreeSet::new();
+        if let (Some(row), Some(hostname)) = (
+            self_mac
+                .as_ref()
+                .and_then(|mac| announced.iter().find(|row| &row.mac == mac)),
+            local_seat_hostname.as_ref(),
+        ) {
+            if let Some(canonical_name) = crate::shared::seat_identity::resolver_target(hostname) {
+                answered.insert(row.mac.clone());
+                live_names.insert(row.mac.clone(), (hostname.clone(), canonical_name));
+            }
+        }
+
+        let mut probes = JoinSet::new();
+        for row in announced
+            .iter()
+            .filter(|row| self_mac.as_deref() != Some(row.mac.as_str()))
+            .cloned()
+        {
+            probes.spawn(async move { (probe_peer(row, include_stats).await, None) });
+        }
+        let peer_port = peer_probe_port();
+        for candidate in candidates {
+            let dns = dns.clone();
+            probes.spawn(async move {
+                (
+                    None,
+                    probe_candidate(candidate, dns, peer_port, include_stats).await,
+                )
+            });
+        }
+        let mut peer_stats = BTreeMap::<String, (Option<Value>, Option<String>)>::new();
+        loop {
+            let joined = match timeout_at(deadline, probes.join_next()).await {
+                Ok(joined) => joined,
+                Err(_) => {
+                    probes.abort_all();
+                    drop(probes);
+                    emit_failure!("sweep-timeout");
+                }
+            };
+            let Some(result) = joined else { break };
+            let (stored_result, discovered_result) = match result {
+                Ok(result) => result,
+                Err(_) => {
+                    probes.abort_all();
+                    drop(probes);
+                    emit_failure!("probe-task-failed");
+                }
+            };
+            if let Some((mac, peer)) = stored_result {
+                answered.insert(mac.clone());
+                peer_stats.insert(mac.clone(), (peer.stats.clone(), peer.stats_signal.clone()));
+                let Some(mut observed) = announced.iter().find(|row| row.mac == mac).cloned()
+                else {
+                    probes.abort_all();
+                    drop(probes);
+                    emit_failure!("probe-result-unmatched");
+                };
+                observed.hostname = peer.hostname.clone();
+                observed.canonical_name = peer.canonical_name.clone();
+                if include_stats {
+                    observed.stats = Some(peer.stats.clone());
+                    observed.stats_signal = peer.stats_signal.clone();
+                }
+                live_names.insert(mac.clone(), (peer.hostname, peer.canonical_name));
+                let payload =
+                    stream_member_payload(RuyiStaff::Announced(observed), perspectives.get(&mac));
+                emit_event!("member", payload);
+            }
+            if let Some(row) = discovered_result {
+                let mac = row.mac.clone();
+                answered.insert(mac.clone());
+                let payload = stream_member_payload(
+                    RuyiStaff::Discovered(row.clone()),
+                    perspectives.get(&mac),
+                );
+                emit_event!("member", payload);
+                staves.push(RuyiStaff::Discovered(row));
+            }
+        }
+
+        for staff in &mut staves {
+            if let RuyiStaff::Announced(row) = staff {
+                if let Some((hostname, canonical_name)) = live_names.remove(&row.mac) {
+                    row.hostname = hostname;
+                    row.canonical_name = canonical_name;
+                }
+            }
+        }
+        if include_stats {
+            for staff in &mut staves {
+                if let RuyiStaff::Announced(row) = staff {
+                    if let Some((stats, stats_signal)) = peer_stats.remove(&row.mac) {
+                        row.stats = Some(stats);
+                        row.stats_signal = stats_signal;
+                    }
+                }
+            }
+        }
+        staves
+            .retain(|row| matches!(row, RuyiStaff::Discovered(_)) || answered.contains(row.mac()));
+        perspectives.retain(|mac, _| answered.contains(mac));
+        received.retain(|mac, _| answered.contains(mac));
+        let discovered_macs: BTreeSet<_> = staves
+            .iter()
+            .filter_map(|staff| match staff {
+                RuyiStaff::Discovered(row) => Some(row.mac.clone()),
+                _ => None,
+            })
+            .collect();
+        let trust_rows: Vec<_> = staves
+            .iter()
+            .map(|staff| match staff {
+                RuyiStaff::Announced(row) => TrustRow {
+                    mac: row.mac.clone(),
+                    caduceus_sha: row.caduceus_sha.clone(),
+                    env_sha: row.env_sha.clone(),
+                    syzygy_sha: row.syzygy_sha.clone(),
+                    stamp_sha: row.stamp_sha.clone(),
+                    last_seen: row.last_seen,
+                },
+                RuyiStaff::Discovered(row) => TrustRow {
+                    mac: row.mac.clone(),
+                    caduceus_sha: row.caduceus_sha.clone(),
+                    env_sha: row.env_sha.clone(),
+                    syzygy_sha: row.syzygy_sha.clone(),
+                    stamp_sha: row.stamp_sha.clone(),
+                    last_seen: row.last_seen,
+                },
+            })
+            .collect();
+        let mut trust = derive_trust(&trust_rows, &perspectives, &received, &discovered_macs);
+        trust.extend(derive_stamp_trust(
+            &trust_rows,
+            &perspectives,
+            &received,
+            &discovered_macs,
+        ));
+        let dns_unresolved = if !dns.is_empty() {
+            staves
+                .iter()
+                .filter_map(|staff| {
+                    let value = match staff {
+                        RuyiStaff::Announced(row) => (
+                            row.mac.as_str(),
+                            row.hostname.as_str(),
+                            row.canonical_name.as_str(),
+                            row.ipv4.as_str(),
+                            row.ipv4_source.as_deref(),
+                        ),
+                        RuyiStaff::Discovered(row) => (
+                            row.mac.as_str(),
+                            row.hostname.as_str(),
+                            row.canonical_name.as_str(),
+                            row.ipv4.as_str(),
+                            Some(row.ipv4_source.as_str()),
+                        ),
+                    };
+                    (value.4 == Some("declared")).then(|| {
+                        json!({
+                            "mac": value.0,
+                            "hostname": value.1,
+                            "canonical_name": value.2,
+                            "ipv4": value.3,
+                        })
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut final_seat = seat;
+        if include_stats {
+            let (stats, stats_signal) = local_stats();
+            final_seat.stats = Some(stats);
+            final_seat.stats_signal = stats_signal;
+        }
+        let roster = match serde_json::to_value(RuyiListBody {
+            schema: row_schema(),
+            ok: true,
+            service: "caduceus",
+            seat: final_seat,
+            staves,
+            perspectives,
+            trust,
+            dns_unresolved,
+        }) {
+            Ok(roster) => roster,
+            Err(_) => emit_failure!("serialization-failed"),
+        };
+        emit_event!("complete", json!({"roster": roster}));
+    });
+    let producer_guard = AbortOnDrop(producer);
+    let stream = async_stream::stream! {
+        let _producer_guard = producer_guard;
+        while let Some(frame) = receiver.recv().await {
+            yield Ok::<Bytes, Error>(Bytes::from(frame));
+        }
+        if let Some(frame) = terminal.lock().ok().and_then(|mut slot| slot.take()) {
+            yield Ok::<Bytes, Error>(Bytes::from(frame));
+        }
+    };
+    let mut response = Response::new(Body::from_stream(stream));
+    response.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/x-ndjson"),
+    );
+    Ok(response)
 }
 
 struct TrustRow {

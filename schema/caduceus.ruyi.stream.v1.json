@@ -1,0 +1,113 @@
+{
+  "schema": "caduceus.ruyi.stream.v1",
+  "schema_version": "1.0.0",
+  "role": "Progressive Ruyi roll-call event stream",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.ruyi.stream.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true,
+    "sequence_semantics": "Contiguous request-local event sequence beginning at zero"
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.ruyi.stream.v1"
+    },
+    "event": {
+      "type": "string",
+      "enum": ["begin", "member", "complete", "failed"]
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "snapshot_at": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Unix seconds captured for this request's sweep before remote probes begin"
+    },
+    "seat": {
+      "type": "object",
+      "description": "The direct current seat projection from caduceus.ruyi.v1; this nested object has no row/envelope schema kernel."
+    },
+    "perspective": {
+      "schema_ref": "harmonia.ruyi-perspective.v1",
+      "nullable": true,
+      "description": "A stored raw published perspective, or null on member events when none is stored"
+    },
+    "member": {
+      "schema_ref": "caduceus.ruyi.v1",
+      "form": "roster-staff"
+    },
+    "roster": {
+      "schema_ref": "caduceus.ruyi.v1",
+      "form": "roster"
+    },
+    "signal": {
+      "type": "string",
+      "enum": [
+        "sweep-timeout",
+        "backpressure-timeout",
+        "probe-task-failed",
+        "probe-result-unmatched",
+        "serialization-failed"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "event",
+    "sequence"
+  ],
+  "optional": [
+    "snapshot_at",
+    "seat",
+    "perspective",
+    "member",
+    "roster",
+    "signal"
+  ],
+  "forms": {
+    "begin": {
+      "description": "event is begin; emitted before any remote probe starts",
+      "required": [
+        "event",
+        "snapshot_at",
+        "seat"
+      ],
+      "optional": [
+        "perspective"
+      ]
+    },
+    "member": {
+      "description": "event is member; member is a fully observed announced or discovered Ruyi staff row",
+      "required": [
+        "event",
+        "member",
+        "perspective"
+      ],
+      "optional": []
+    },
+    "complete": {
+      "description": "event is complete; roster is the ordinary full caduceus.ruyi.v1 response",
+      "required": [
+        "event",
+        "roster"
+      ],
+      "optional": []
+    },
+    "failed": {
+      "description": "event is failed; terminal for this stream, never a partial complete roster",
+      "required": [
+        "event",
+        "signal"
+      ],
+      "optional": []
+    }
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}
