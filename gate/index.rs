@@ -289,7 +289,6 @@ const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "/api/v1/access/pin/mode",
     "/api/v1/access/sudo/mode",
     STATS_ADMIN_HTTP_PATH,
-    "/api/v1/storage/vault/unlock",
     "/api/v1/storage/vault/auto-decrypt",
     "/api/v1/network/notes",
     "/api/v1/network/dns/adblock",
@@ -545,6 +544,16 @@ fn record_admission_refusal(method: &str, path: &str, signal: &str, started: Ins
 }
 
 fn administrative_routes_match(method: Option<&str>, path: &str) -> Result<bool, String> {
+    // Exact path precedence covers both middleware (Some(method)) and direct
+    // administrative admission (None); do not widen it to a vault namespace.
+    // Unlock stays password-only despite stale external shelves; auto-decrypt
+    // remains administrative regardless of their contents.
+    if path == "/api/v1/storage/vault/unlock" {
+        return Ok(false);
+    }
+    if path == "/api/v1/storage/vault/auto-decrypt" {
+        return Ok(true);
+    }
     // The compiled leaf owns its classification. An older staff mirror cannot
     // turn a newly declared administrative deed into an unattended request.
     if method.and_then(|method| declared_http_route(method, path))

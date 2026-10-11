@@ -276,8 +276,7 @@
       "/api/v1/settings/input",
       "/api/v1/settings/notifications",
       "/api/v1/settings/sound",
-      "/api/v1/storage/vault/auto-decrypt",
-      "/api/v1/storage/vault/unlock"
+      "/api/v1/storage/vault/auto-decrypt"
     ]
   }
 }
