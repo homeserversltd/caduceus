@@ -344,7 +344,7 @@
       "/api/v1/storage/nas/attach",
       "/api/v1/storage/nas/detach",
       "/api/v1/storage/nas/setup",
-      "/api/v1/storage/vault/unlock",
+      "/api/v1/storage/vault/auto-decrypt",
       "/api/v1/transmission/down",
       "/api/v1/transmission/keys/replace",
       "/api/v1/transmission/keys/rotate",
