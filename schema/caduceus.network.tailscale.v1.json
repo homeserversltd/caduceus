@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema": "caduceus.network.tailscale.v1",
+  "schema_version": "1.0.0",
+  "role": "Caduceus network Tailscale mutation receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.network.tailscale.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Only schema is required; absent optional receipt fields mean null."
+  },
+  "required": ["schema"],
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.network.tailscale.v1"},
+    "ok": {"type": ["boolean", "null"]},
+    "action": {"type": ["string", "null"], "enum": ["up", "down", "authkey", "tailnet", null]},
+    "firstMissingSignal": {"type": ["string", "null"]},
+    "mutationPerformed": {"type": ["boolean", "null"]},
+    "final": {
+      "type": ["object", "null"],
+      "properties": {
+        "status": {"type": ["string", "null"]},
+        "connected": {"type": ["boolean", "null"]},
+        "interface": {"type": ["string", "null"]},
+        "ip": {"type": ["string", "null"]},
+        "tailnet": {"type": ["string", "null"]},
+        "backendState": {"type": ["string", "null"]},
+        "declaredTailnet": {"type": ["string", "null"]},
+        "priorTailnet": {"type": ["string", "null"]},
+        "newTailnet": {"type": ["string", "null"]},
+        "backupComplete": {"type": ["boolean", "null"]},
+        "certificateRefreshed": {"type": ["boolean", "null"]},
+        "nginxReloaded": {"type": ["boolean", "null"]},
+        "tlsHostnameVerified": {"type": ["boolean", "null"]},
+        "rollbackComplete": {"type": ["boolean", "null"]},
+        "hostnameVerified": {"type": ["boolean", "null"]},
+        "changedFiles": {"type": ["array", "null"], "items": {"type": "string"}},
+        "subjectAltNames": {"type": ["array", "null"], "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "loginUrl": {"type": ["string", "null"]},
+    "priorTailnet": {"type": ["string", "null"]},
+    "newTailnet": {"type": ["string", "null"]},
+    "changedFiles": {"type": ["array", "null"], "items": {"type": "string"}},
+    "backupPath": {"type": ["string", "null"]},
+    "subjectAltNames": {"type": ["array", "null"], "items": {"type": "string"}}
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean|null",
+    "action": "string|null",
+    "firstMissingSignal": "string|null",
+    "mutationPerformed": "boolean|null",
+    "final": "object|null",
+    "loginUrl": "string|null",
+    "priorTailnet": "string|null",
+    "newTailnet": "string|null",
+    "changedFiles": "array|null",
+    "backupPath": "string|null",
+    "subjectAltNames": "array|null"
+  },
+  "optional": ["ok", "action", "firstMissingSignal", "mutationPerformed", "final", "loginUrl", "priorTailnet", "newTailnet", "changedFiles", "backupPath", "subjectAltNames"],
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

@@ -45,6 +45,7 @@
     "caduceus.nas.setup.v1": {"file": "schema/caduceus.nas.setup.v1.json", "schema_version": "1.0.0"},
     "caduceus.nas.attach.v1": {"file": "schema/caduceus.nas.attach.v1.json", "schema_version": "1.0.0"},
     "caduceus.nas.detach.v1": {"file": "schema/caduceus.nas.detach.v1.json", "schema_version": "1.0.0"},
+    "caduceus.network.tailscale.v1": {"file": "schema/caduceus.network.tailscale.v1.json", "schema_version": "1.0.0"},
     "caduceus.transmission.up.v1": {"file": "schema/caduceus.transmission.up.v1.json", "schema_version": "1.0.0"},
     "caduceus.transmission.down.v1": {"file": "schema/caduceus.transmission.down.v1.json", "schema_version": "1.0.0"},
     "caduceus.transmission.status.v1": {"file": "schema/caduceus.transmission.status.v1.json", "schema_version": "1.0.0"},

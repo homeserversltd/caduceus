@@ -23,6 +23,10 @@ commands:
 - legacy-sbin show
 - network status
 - tailscale status
+- network tailscale up
+- network tailscale down
+- network tailscale authkey
+- network tailscale tailnet
 - vpn status
 - network notes
 - network notes write
@@ -200,6 +204,10 @@ routes:
 - network/dns/status
 - network/status
 - network/tailnet
+- network/tailscale/up
+- network/tailscale/down
+- network/tailscale/authkey
+- network/tailscale/tailnet
 - network/vpn
 - portals/admit
 - portals/delete

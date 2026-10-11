@@ -21,6 +21,7 @@
     "network/firewall",
     "network/identity",
     "network/linker",
+    "network/tailscale",
     "network/wake-on-lan",
     "network/wifi",
     "settings/appearance",
@@ -108,6 +109,10 @@
     [
       "network",
       "linker"
+    ],
+    [
+      "network",
+      "tailscale"
     ],
     [
       "network",
@@ -230,6 +235,10 @@
     "/api/v1/network/firewall/children/:mac",
     "/api/v1/network/firewall/children/:mac/whitelist",
     "/api/v1/network/status",
+    "/api/v1/network/tailscale/authkey",
+    "/api/v1/network/tailscale/down",
+    "/api/v1/network/tailscale/tailnet",
+    "/api/v1/network/tailscale/up",
     "/api/v1/service/:service/disable",
     "/api/v1/service/:service/enable",
     "/api/v1/service/:service/restart",
@@ -328,6 +337,10 @@
       "/api/v1/network/dns/device-name/create",
       "/api/v1/network/dns/device-name/remove",
       "/api/v1/network/dns/upstream",
+      "/api/v1/network/tailscale/authkey",
+      "/api/v1/network/tailscale/down",
+      "/api/v1/network/tailscale/tailnet",
+      "/api/v1/network/tailscale/up",
       "/api/v1/service/:service/disable",
       "/api/v1/service/:service/enable",
       "/api/v1/service/:service/restart",

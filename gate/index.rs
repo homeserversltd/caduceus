@@ -236,6 +236,10 @@ const TRANSMISSION_UP_HTTP_PATH: &str = "/api/v1/transmission/up";
 const TRANSMISSION_DOWN_HTTP_PATH: &str = "/api/v1/transmission/down";
 const TRANSMISSION_KEYS_REPLACE_HTTP_PATH: &str = "/api/v1/transmission/keys/replace";
 const TRANSMISSION_KEYS_ROTATE_HTTP_PATH: &str = "/api/v1/transmission/keys/rotate";
+const TAILSCALE_UP_HTTP_PATH: &str = "/api/v1/network/tailscale/up";
+const TAILSCALE_DOWN_HTTP_PATH: &str = "/api/v1/network/tailscale/down";
+const TAILSCALE_AUTHKEY_HTTP_PATH: &str = "/api/v1/network/tailscale/authkey";
+const TAILSCALE_TAILNET_HTTP_PATH: &str = "/api/v1/network/tailscale/tailnet";
 const STATS_ADMIN_HTTP_PATH: &str = "/api/v1/appliance/stats/admin";
 const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "/api/v1/access/pin/mode",
@@ -267,6 +271,10 @@ const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "POST /api/v1/network/dhcp/pool-boundary",
     "POST /api/v1/transmission/keys/replace",
     "POST /api/v1/transmission/keys/rotate",
+    "POST /api/v1/network/tailscale/up",
+    "POST /api/v1/network/tailscale/down",
+    "POST /api/v1/network/tailscale/authkey",
+    "POST /api/v1/network/tailscale/tailnet",
 ];
 
 fn open_nofollow_shelf_file(path: &Path) -> io::Result<File> {
@@ -459,7 +467,11 @@ fn administrative_routes_match(
                 || path == TRANSMISSION_UP_HTTP_PATH
                 || path == TRANSMISSION_DOWN_HTTP_PATH
                 || path == TRANSMISSION_KEYS_REPLACE_HTTP_PATH
-                || path == TRANSMISSION_KEYS_ROTATE_HTTP_PATH)
+                || path == TRANSMISSION_KEYS_ROTATE_HTTP_PATH
+                || path == TAILSCALE_UP_HTTP_PATH
+                || path == TAILSCALE_DOWN_HTTP_PATH
+                || path == TAILSCALE_AUTHKEY_HTTP_PATH
+                || path == TAILSCALE_TAILNET_HTTP_PATH)
     }) {
         return Ok(true);
     }
