@@ -29,6 +29,7 @@
     "settings/display",
     "settings/input",
     "settings/notifications",
+    "settings/samba",
     "settings/sound",
     "settings/ssh",
     "storage/backup/forgejo/credential",
@@ -138,6 +139,10 @@
     ],
     [
       "settings",
+      "samba"
+    ],
+    [
+      "settings",
       "sound"
     ],
     [
@@ -238,6 +243,7 @@
     "/api/v1/settings/display",
     "/api/v1/settings/input",
     "/api/v1/settings/notifications",
+    "/api/v1/settings/samba/status",
     "/api/v1/settings/sound",
     "/api/v1/settings/ssh/status",
     "/api/v1/storage/nas/attach",

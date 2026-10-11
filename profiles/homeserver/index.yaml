@@ -69,6 +69,7 @@ commands:
 - transmission up
 - transmission down
 - transmission status
+- settings samba status
 - settings ssh status
 - transmission keys status
 - transmission keys replace
@@ -212,6 +213,7 @@ routes:
 - settings/input
 - settings/notifications
 - settings/pin
+- settings/samba/status
 - settings/sound
 - settings/ssh
 - settings/ssh/status
