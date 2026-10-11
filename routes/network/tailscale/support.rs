@@ -9,8 +9,8 @@ use serde_json::{json, Map, Value};
 use std::time::Duration;
 
 const SCHEMA: &str = "caduceus.network.tailscale.v1";
-const TIMEOUT_UP: Duration = Duration::from_secs(25);
-const TIMEOUT_DOWN: Duration = Duration::from_secs(25);
+const TIMEOUT_UP: Duration = Duration::from_secs(35);
+const TIMEOUT_DOWN: Duration = Duration::from_secs(35);
 const TIMEOUT_AUTHKEY: Duration = Duration::from_secs(30);
 const TIMEOUT_TAILNET: Duration = Duration::from_secs(360);
 const MAX_AUTHKEY_BYTES: usize = 1024;
@@ -303,12 +303,9 @@ async fn execute(action: &'static str, body: Result<Bytes, BytesRejection>) -> H
     let mut secret = None;
     let payload = match action {
         "up" | "down" => {
-            if !body.is_empty() {
-                return Err(bad_request(
-                    &command,
-                    "caduceus-network-tailscale-request-invalid",
-                ));
-            }
+            // The gate strips flags.exousia.pin and forwards what remains (often `{}`);
+            // these acts take no input, so the body is ignored and never forwarded.
+            let _ = &body;
             json!({"action": action})
         }
         "authkey" => {
