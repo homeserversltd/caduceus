@@ -38,7 +38,7 @@ struct StatsState {
     last_model_lane_pulse_unix: AtomicU64,
     model_lane_pulse_requested: AtomicBool,
     error: Option<String>,
-    gpu_cache: Option<Value>,
+    gpu_cache: Option<NvidiaGpuCache>,
     last_gpu_refresh: Option<Instant>,
 }
 static STATE: OnceLock<Arc<RwLock<StatsState>>> = OnceLock::new();
@@ -367,7 +367,10 @@ fn load() -> Value {
 }
 fn thermal_label(name: &str) -> &'static str {
     let name = name.trim().to_ascii_lowercase();
-    if matches!(name.as_str(), "coretemp" | "k10temp" | "zenpower") {
+    if matches!(
+        name.as_str(),
+        "coretemp" | "k10temp" | "zenpower" | "x86_pkg_temp" | "tcpu" | "tcpu_pci"
+    ) {
         "cpu"
     } else if name == "amdgpu" || name.starts_with("nvidia") {
         "gpu"
@@ -377,11 +380,426 @@ fn thermal_label(name: &str) -> &'static str {
         "other"
     }
 }
+
+#[derive(Clone)]
+struct SensorMetadata {
+    source: String,
+    name: Option<String>,
+    sensor_label: Option<String>,
+    channel: String,
+    label: &'static str,
+}
+
+impl SensorMetadata {
+    fn fields(&self) -> serde_json::Map<String, Value> {
+        let mut fields = serde_json::Map::new();
+        fields.insert("source".into(), json!(self.source));
+        if let Some(name) = &self.name {
+            fields.insert("name".into(), json!(name));
+        }
+        fields.insert(
+            "sensor".into(),
+            json!(self.sensor_label.as_deref().unwrap_or(&self.channel)),
+        );
+        fields.insert("channel".into(), json!(self.channel));
+        fields.insert("label".into(), json!(self.label));
+        fields
+    }
+}
+
+fn input_identity(path: &PathBuf) -> String {
+    // Canonicalization collapses aliases of the exact same sysfs input file;
+    // it does not infer that separate thermal/hwmon attributes are duplicates.
+    fs::canonicalize(path)
+        .unwrap_or_else(|_| path.clone())
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[derive(Clone)]
+struct TemperatureSource {
+    path: PathBuf,
+    validity_base: Option<PathBuf>,
+    metadata: SensorMetadata,
+    milli_celsius: bool,
+}
+
+#[derive(Clone)]
+struct TemperatureReading {
+    metadata: SensorMetadata,
+    celsius: f64,
+    sampled_at: i64,
+}
+
+#[derive(Clone)]
+struct UnavailableReading {
+    metadata: SensorMetadata,
+    reason: &'static str,
+    sampled_at: i64,
+}
+
+fn indexed_input(name: &str, prefix: &str) -> Option<String> {
+    let channel = name.strip_suffix("_input")?;
+    let number = channel.strip_prefix(prefix)?;
+    (!number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()))
+        .then(|| channel.to_owned())
+}
+
+fn clean_optional_text(path: &PathBuf) -> Option<String> {
+    read_text(&path.to_string_lossy())
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn temperature_unit_is_milli_celsius(name: Option<&str>, channel: &str) -> bool {
+    let driver = name.unwrap_or_default().trim().to_ascii_lowercase();
+    if driver == "vt1211" {
+        // The v6.12 driver scales temp2; temp1 needs board gain/offset and
+        // temp3-temp7 expose pin voltage/thermistor values, not Celsius.
+        channel == "temp2"
+    } else if driver == "sis5595" {
+        // Its one exported temp1_input is converted to milli-Celsius in the
+        // driver; voltage channels are inN_input, not tempN_input.
+        channel == "temp1"
+    } else {
+        true
+    }
+}
+
+struct ThermalZoneInfo {
+    directory: Option<PathBuf>,
+    path: PathBuf,
+    identity: Option<String>,
+    zone_type: Option<String>,
+    channel: String,
+}
+
+struct ThermalHwmonInfo {
+    directory: Option<PathBuf>,
+    driver: Option<String>,
+    device: Option<PathBuf>,
+    channels: BTreeSet<usize>,
+    canonical_channels: BTreeSet<usize>,
+    input_identities: BTreeSet<String>,
+}
+
+fn normalized_thermal_type(name: &str) -> String {
+    name.trim().replace('-', "_")
+}
+
+fn thermal_hwmon_aliases_covered(
+    zones: &[ThermalZoneInfo],
+    hwmon: &[ThermalHwmonInfo],
+) -> BTreeSet<String> {
+    // An unreadable zone/type prevents proving that the same-type group is
+    // complete. In that case retain every thermal-zone observation.
+    if zones.iter().any(|zone| {
+        zone.directory.is_none() || zone.identity.is_none() || zone.zone_type.is_none()
+    }) {
+        return BTreeSet::new();
+    }
+
+    let mut groups = BTreeMap::<String, Vec<&ThermalZoneInfo>>::new();
+    for zone in zones {
+        let zone_type = zone.zone_type.as_deref().unwrap_or_default();
+        groups
+            .entry(normalized_thermal_type(zone_type))
+            .or_default()
+            .push(zone);
+    }
+
+    let mut covered = BTreeSet::new();
+    for (normalized_type, group) in groups {
+        let member_directories = group
+            .iter()
+            .filter_map(|zone| zone.directory.as_ref())
+            .collect::<BTreeSet<_>>();
+        let expected_hwmon_name = normalized_type;
+
+        // Linux 6.12 thermal_hwmon groups zones by exact type, gives each
+        // zone its own tempN_input callback, increments one contiguous group
+        // count, and parents the sole hwmon shim to the first zone. Prove the
+        // whole topology before dropping any aliases; never infer tempN->zoneN.
+        let shims = hwmon
+            .iter()
+            .filter(|candidate| {
+                candidate.driver.as_deref().map_or(false, |driver| {
+                    normalized_thermal_type(driver) == expected_hwmon_name
+                })
+                    && candidate
+                        .device
+                        .as_ref()
+                        .map_or(false, |device| member_directories.contains(device))
+                    && candidate
+                        .directory
+                        .as_ref()
+                        .and_then(|directory| directory.parent())
+                        == candidate.device.as_deref()
+            })
+            .collect::<Vec<_>>();
+        if shims.len() != 1 {
+            continue;
+        }
+        let shim = shims[0];
+        let count = group.len();
+        if shim.channels.len() != count
+            || !(1..=count).all(|channel| shim.channels.contains(&channel))
+            || shim.canonical_channels.len() != count
+            || shim.input_identities.len() != count
+        {
+            continue;
+        }
+
+        // One-to-one coverage is the complete group, not a guessed mapping of
+        // channel numbers to zone numbers. Keep the hwmon entries and omit
+        // all thermal aliases only after every member has a canonical input.
+        covered.extend(group.iter().filter_map(|zone| zone.identity.clone()));
+    }
+    covered
+}
+
+fn discover_thermal_sources() -> Vec<TemperatureSource> {
+    let mut by_input = BTreeMap::<String, TemperatureSource>::new();
+    let mut hwmon_info = Vec::new();
+
+    // Prefer hwmon metadata if the very same input attribute is also exposed
+    // through a thermal-zone alias. Separate attributes remain separate.
+    if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
+        for entry in entries.flatten() {
+            let directory = entry.path();
+            let driver = clean_optional_text(&directory.join("name"));
+            let label = thermal_label(driver.as_deref().unwrap_or_default());
+            let mut channels = BTreeSet::new();
+            let mut canonical_channels = BTreeSet::new();
+            let mut input_identities = BTreeSet::new();
+            if let Ok(files) = fs::read_dir(&directory) {
+                for file in files.flatten() {
+                    let filename = file.file_name().to_string_lossy().to_string();
+                    let Some(channel) = indexed_input(&filename, "temp") else {
+                        continue;
+                    };
+                    let Some(channel_number) = channel
+                        .strip_prefix("temp")
+                        .and_then(|number| number.parse::<usize>().ok())
+                    else {
+                        continue;
+                    };
+                    channels.insert(channel_number);
+                    let path = file.path();
+                    if let Ok(canonical) = fs::canonicalize(&path) {
+                        canonical_channels.insert(channel_number);
+                        input_identities.insert(canonical.to_string_lossy().into_owned());
+                    }
+                    let sensor_label = clean_optional_text(
+                        &path.with_file_name(format!("{channel}_label")),
+                    );
+                    let metadata = SensorMetadata {
+                        source: input_identity(&path),
+                        name: driver.clone(),
+                        sensor_label,
+                        channel: channel.clone(),
+                        label,
+                    };
+                    let source = TemperatureSource {
+                        path,
+                        validity_base: Some(
+                            file.path().with_file_name(channel.clone()),
+                        ),
+                        milli_celsius: temperature_unit_is_milli_celsius(
+                            metadata.name.as_deref(),
+                            &channel,
+                        ),
+                        metadata,
+                    };
+                    by_input
+                        .entry(source.metadata.source.clone())
+                        .or_insert(source);
+                }
+            }
+            hwmon_info.push(ThermalHwmonInfo {
+                directory: fs::canonicalize(&directory).ok(),
+                driver,
+                device: fs::canonicalize(directory.join("device")).ok(),
+                channels,
+                canonical_channels,
+                input_identities,
+            });
+        }
+    }
+
+    let mut zones = Vec::new();
+    if let Ok(entries) = fs::read_dir("/sys/class/thermal") {
+        for entry in entries.flatten() {
+            let zone = entry.file_name().to_string_lossy().to_string();
+            if zone
+                .strip_prefix("thermal_zone")
+                .map_or(true, |number| {
+                    number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit())
+                })
+            {
+                continue;
+            }
+            let path = entry.path().join("temp");
+            let zone_type = clean_optional_text(&entry.path().join("type"));
+            let identity = fs::canonicalize(&path)
+                .ok()
+                .map(|path| path.to_string_lossy().into_owned());
+            zones.push(ThermalZoneInfo {
+                directory: fs::canonicalize(entry.path()).ok(),
+                path: path.clone(),
+                identity,
+                zone_type,
+                channel: zone,
+            });
+        }
+    }
+    let covered_aliases = thermal_hwmon_aliases_covered(&zones, &hwmon_info);
+    for zone in zones {
+        let zone_type = zone.zone_type.clone();
+        let source = zone.identity.unwrap_or_else(|| input_identity(&zone.path));
+        if covered_aliases.contains(&source) {
+            continue;
+        }
+        let metadata = SensorMetadata {
+            source: source.clone(),
+            name: zone_type.clone(),
+            sensor_label: None,
+            channel: zone.channel,
+            label: thermal_label(zone_type.as_deref().unwrap_or_default()),
+        };
+        let source = TemperatureSource {
+            path: zone.path,
+            validity_base: None,
+            metadata,
+            milli_celsius: true,
+        };
+        by_input
+            .entry(source.metadata.source.clone())
+            .or_insert(source);
+    }
+
+    by_input.into_values().collect()
+}
+
+fn optional_sensor_flag(base: &PathBuf, suffix: &str) -> Result<Option<i64>, &'static str> {
+    let base_name = base
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_default();
+    let path = base.with_file_name(format!(
+        "{}_{}",
+        base_name, suffix
+    ));
+    match fs::read_to_string(&path) {
+        Ok(value) => value
+            .trim()
+            .parse::<i64>()
+            .ok()
+            .filter(|value| matches!(value, 0 | 1))
+            .map(Some)
+            .ok_or("malformed"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match fs::symlink_metadata(&path) {
+                Err(metadata_error)
+                    if metadata_error.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    Ok(None)
+                }
+                _ => Err("unreadable"),
+            }
+        }
+        Err(_) => Err("unreadable"),
+    }
+}
+
+fn sensor_status(
+    validity_base: Option<&PathBuf>,
+) -> Result<(), &'static str> {
+    let Some(base) = validity_base else {
+        return Ok(());
+    };
+    let enable = optional_sensor_flag(base, "enable")?;
+    let fault = optional_sensor_flag(base, "fault")?;
+    if enable == Some(0) {
+        return Err("disabled");
+    }
+    if fault == Some(1) {
+        return Err("faulted");
+    }
+    Ok(())
+}
+
+fn read_numeric(path: &PathBuf) -> Result<f64, &'static str> {
+    let text = fs::read_to_string(path).map_err(|_| "unreadable")?;
+    let value = text.trim().parse::<f64>().map_err(|_| "malformed")?;
+    if !value.is_finite() {
+        return Err("non-finite");
+    }
+    Ok(value)
+}
+
+fn read_temperature_sources(
+    sources: &[TemperatureSource],
+    storage: bool,
+) -> (Vec<TemperatureReading>, Vec<UnavailableReading>) {
+    let mut accepted = Vec::new();
+    let mut unavailable = Vec::new();
+    for source in sources
+        .iter()
+        .filter(|source| (source.metadata.label == "storage") == storage)
+    {
+        let result = (|| {
+            sensor_status(source.validity_base.as_ref())?;
+            if !source.milli_celsius {
+                return Err("unknown-unit");
+            }
+            let celsius = read_numeric(&source.path)? / 1000.0;
+            if !celsius.is_finite() {
+                return Err("non-finite");
+            }
+            if !(-100.0..=250.0).contains(&celsius) {
+                return Err("implausible");
+            }
+            Ok(celsius)
+        })();
+        let sampled_at = now();
+        match result {
+            Ok(celsius) => accepted.push(TemperatureReading {
+                metadata: source.metadata.clone(),
+                celsius,
+                sampled_at,
+            }),
+            Err(reason) => unavailable.push(UnavailableReading {
+                metadata: source.metadata.clone(),
+                reason,
+                sampled_at,
+            }),
+        }
+    }
+    (accepted, unavailable)
+}
+
+fn temperature_reading_value(reading: &TemperatureReading) -> Value {
+    let mut fields = reading.metadata.fields();
+    fields.insert("celsius".into(), json!(reading.celsius));
+    fields.insert("sampledAt".into(), json!(reading.sampled_at));
+    Value::Object(fields)
+}
+
+fn unavailable_reading_value(reading: &UnavailableReading) -> Value {
+    let mut fields = reading.metadata.fields();
+    fields.insert("reason".into(), json!(reading.reason));
+    fields.insert("sampledAt".into(), json!(reading.sampled_at));
+    Value::Object(fields)
+}
+
 struct ThermalCache {
     discovered_at: Option<Instant>,
-    sources: Vec<(PathBuf, &'static str)>,
-    other_values: Vec<(f64, &'static str)>,
-    storage_values: Vec<(f64, &'static str)>,
+    sources: Vec<TemperatureSource>,
+    other_values: Vec<TemperatureReading>,
+    storage_values: Vec<TemperatureReading>,
+    other_unavailable: Vec<UnavailableReading>,
+    storage_unavailable: Vec<UnavailableReading>,
     other_sampled_at: i64,
     storage_sampled_at: i64,
     other_refreshed_at: Option<Instant>,
@@ -395,6 +813,8 @@ impl Default for ThermalCache {
             sources: Vec::new(),
             other_values: Vec::new(),
             storage_values: Vec::new(),
+            other_unavailable: Vec::new(),
+            storage_unavailable: Vec::new(),
             other_sampled_at: 0,
             storage_sampled_at: 0,
             other_refreshed_at: None,
@@ -403,52 +823,10 @@ impl Default for ThermalCache {
     }
 }
 
-fn discover_thermal_sources() -> Vec<(PathBuf, &'static str)> {
-    let mut sources = BTreeMap::new();
-    if let Ok(entries) = fs::read_dir("/sys/class/thermal") {
-        for entry in entries.flatten() {
-            if entry.file_name().to_string_lossy().starts_with("thermal_zone") {
-                let path = entry.path().join("temp");
-                let label = read_text(&entry.path().join("type").to_string_lossy())
-                    .map(|name| thermal_label(&name))
-                    .unwrap_or("other");
-                sources.insert(path, label);
-            }
-        }
-    }
-    if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
-        for entry in entries.flatten() {
-            let label = read_text(&entry.path().join("name").to_string_lossy())
-                .map(|name| thermal_label(&name))
-                .unwrap_or("other");
-            if let Ok(files) = fs::read_dir(entry.path()) {
-                for file in files.flatten() {
-                    let name = file.file_name().to_string_lossy().to_string();
-                    if name.starts_with("temp") && name.ends_with("_input") {
-                        sources.insert(file.path(), label);
-                    }
-                }
-            }
-        }
-    }
-    sources.into_iter().collect()
-}
-
-fn read_temperature_sources(
-    sources: &[(PathBuf, &'static str)],
-    storage: bool,
-) -> Vec<(f64, &'static str)> {
-    sources
-        .iter()
-        .filter(|(_, label)| (*label == "storage") == storage)
-        .filter_map(|(path, label)| {
-            let value = fs::read_to_string(path).ok()?.trim().parse::<f64>().ok()? / 1000.0;
-            value.is_finite().then_some((value, *label))
-        })
-        .collect()
-}
-
-fn temperatures(cache: &mut ThermalCache) -> (Value, i64, i64) {
+fn temperatures(
+    cache: &mut ThermalCache,
+    gpu_cache: Option<&NvidiaGpuCache>,
+) -> (Value, i64, i64, Option<f64>, bool) {
     let rediscovered = cache
         .discovered_at
         .map_or(true, |at| at.elapsed() >= Duration::from_secs(60));
@@ -462,7 +840,8 @@ fn temperatures(cache: &mut ThermalCache) -> (Value, i64, i64) {
         .other_refreshed_at
         .map_or(true, |at| at.elapsed() >= Duration::from_secs(1))
     {
-        cache.other_values = read_temperature_sources(&cache.sources, false);
+        (cache.other_values, cache.other_unavailable) =
+            read_temperature_sources(&cache.sources, false);
         cache.other_sampled_at = now();
         cache.other_refreshed_at = Some(Instant::now());
     }
@@ -470,71 +849,170 @@ fn temperatures(cache: &mut ThermalCache) -> (Value, i64, i64) {
         .storage_refreshed_at
         .map_or(true, |at| at.elapsed() >= Duration::from_secs(30))
     {
-        cache.storage_values = read_temperature_sources(&cache.sources, true);
+        (cache.storage_values, cache.storage_unavailable) =
+            read_temperature_sources(&cache.sources, true);
         cache.storage_sampled_at = now();
         cache.storage_refreshed_at = Some(Instant::now());
     }
-    let mut values = Vec::new();
-    let mut by_source = Vec::new();
-    for (value, label) in &cache.other_values {
-        values.push(*value);
-        by_source.push(json!({"label":label,"celsius":value,"sampledAt":cache.other_sampled_at}));
+
+    let mut accepted = cache
+        .other_values
+        .iter()
+        .chain(cache.storage_values.iter())
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut unavailable = cache
+        .other_unavailable
+        .iter()
+        .chain(cache.storage_unavailable.iter())
+        .cloned()
+        .collect::<Vec<_>>();
+    if let Some(gpu_cache) = gpu_cache {
+        accepted.extend(gpu_cache.temperatures.iter().cloned());
+        unavailable.extend(gpu_cache.temperature_unavailable.iter().cloned());
     }
-    for (value, label) in &cache.storage_values {
-        values.push(*value);
-        by_source.push(json!({"label":label,"celsius":value,"sampledAt":cache.storage_sampled_at}));
-    }
-    let value = if values.is_empty() {
+    accepted.sort_by(|left, right| left.metadata.source.cmp(&right.metadata.source));
+    unavailable.sort_by(|left, right| left.metadata.source.cmp(&right.metadata.source));
+
+    let gpu_temperature = accepted
+        .iter()
+        .filter(|reading| reading.metadata.label == "gpu")
+        .map(|reading| reading.celsius)
+        .reduce(f64::max);
+    let gpu_temperature_observed = accepted
+        .iter()
+        .any(|reading| reading.metadata.label == "gpu")
+        || unavailable
+            .iter()
+            .any(|reading| reading.metadata.label == "gpu");
+    let celsius = if accepted.is_empty() {
         Value::Null
     } else {
-        json!({"celsius": values.iter().sum::<f64>() / values.len() as f64, "sources": values.len(), "bySource": by_source})
+        json!(accepted.iter().map(|reading| reading.celsius).sum::<f64>()
+            / accepted.len() as f64)
     };
-    (value, cache.other_sampled_at, cache.storage_sampled_at)
+    let has_observations = !accepted.is_empty() || !unavailable.is_empty();
+    let value = has_observations.then(|| {
+        json!({
+            "celsius": celsius,
+            "sources": accepted.len(),
+            "bySource": accepted.iter().map(temperature_reading_value).collect::<Vec<_>>(),
+            "unavailableSources": unavailable.iter().map(unavailable_reading_value).collect::<Vec<_>>(),
+        })
+    }).unwrap_or(Value::Null);
+    (
+        value,
+        cache.other_sampled_at,
+        cache.storage_sampled_at,
+        gpu_temperature,
+        gpu_temperature_observed,
+    )
+}
+
+#[derive(Clone)]
+struct FanSource {
+    path: PathBuf,
+    validity_base: Option<PathBuf>,
+    metadata: SensorMetadata,
+}
+
+#[derive(Clone)]
+struct FanReading {
+    metadata: SensorMetadata,
+    value: f64,
+    sampled_at: i64,
+}
+
+fn fan_reading_value(reading: &FanReading) -> Value {
+    let mut fields = reading.metadata.fields();
+    if let Some(name) = &reading.metadata.name {
+        fields.insert("label".into(), json!(name));
+    } else {
+        fields.remove("label");
+    }
+    fields.insert("rpm".into(), json!(reading.value));
+    fields.insert("sampledAt".into(), json!(reading.sampled_at));
+    Value::Object(fields)
 }
 
 #[derive(Default)]
 struct FanCache {
     discovered_at: Option<Instant>,
-    paths: Vec<(String, PathBuf)>,
+    paths: Vec<FanSource>,
 }
 
-fn fans(cache: &mut FanCache) -> Value {
+fn discover_fan_sources() -> Vec<FanSource> {
+    let mut by_input = BTreeMap::<String, FanSource>::new();
+    if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
+        for entry in entries.flatten() {
+            let driver = clean_optional_text(&entry.path().join("name"));
+            if let Ok(files) = fs::read_dir(entry.path()) {
+                for file in files.flatten() {
+                    let filename = file.file_name().to_string_lossy().to_string();
+                    let Some(channel) = indexed_input(&filename, "fan") else {
+                        continue;
+                    };
+                    let path = file.path();
+                    let metadata = SensorMetadata {
+                        source: input_identity(&path),
+                        name: driver.clone(),
+                        sensor_label: clean_optional_text(
+                            &path.with_file_name(format!("{channel}_label")),
+                        ),
+                        channel: channel.clone(),
+                        label: "fan",
+                    };
+                    let source = FanSource {
+                        path,
+                        validity_base: Some(file.path().with_file_name(channel)),
+                        metadata,
+                    };
+                    by_input
+                        .entry(source.metadata.source.clone())
+                        .or_insert(source);
+                }
+            }
+        }
+    }
+    by_input.into_values().collect()
+}
+
+fn read_fan_source(source: &FanSource) -> Result<f64, &'static str> {
+    sensor_status(source.validity_base.as_ref())?;
+    let rpm = read_numeric(&source.path)?;
+    if rpm < 0.0 {
+        return Err("implausible");
+    }
+    Ok(rpm)
+}
+
+fn fans(cache: &mut FanCache) -> (Vec<Value>, Vec<Value>) {
     if cache
         .discovered_at
         .map_or(true, |at| at.elapsed() >= Duration::from_secs(60))
     {
-        let mut paths = Vec::new();
-        if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
-            for entry in entries.flatten() {
-                let Some(label) = read_text(&entry.path().join("name").to_string_lossy()) else {
-                    continue;
-                };
-                if let Ok(files) = fs::read_dir(entry.path()) {
-                    for file in files.flatten() {
-                        let name = file.file_name().to_string_lossy().to_string();
-                        if name.starts_with("fan") && name.ends_with("_input") {
-                            paths.push((label.trim().to_owned(), file.path()));
-                        }
-                    }
-                }
-            }
-        }
-        cache.paths = paths;
+        cache.paths = discover_fan_sources();
         cache.discovered_at = Some(Instant::now());
     }
-    let out = cache
-        .paths
-        .iter()
-        .filter_map(|(label, path)| {
-            let rpm = fs::read_to_string(path).ok()?.trim().parse::<f64>().ok()?;
-            rpm.is_finite().then(|| json!({"label":label,"rpm":rpm}))
-        })
-        .collect::<Vec<_>>();
-    if out.is_empty() {
-        Value::Null
-    } else {
-        json!(out)
+    let mut accepted = Vec::new();
+    let mut unavailable = Vec::new();
+    for source in &cache.paths {
+        let result = read_fan_source(source);
+        let sampled_at = now();
+        match result {
+            Ok(value) => accepted.push(fan_reading_value(&FanReading {
+                metadata: source.metadata.clone(),
+                value,
+                sampled_at,
+            })),
+            Err(reason) => unavailable.push(unavailable_reading_value(&UnavailableReading {
+                metadata: source.metadata.clone(),
+                reason,
+                sampled_at,
+            })),
+        }
     }
+    (accepted, unavailable)
 }
 #[derive(Default)]
 struct InterfaceCache {
@@ -678,8 +1156,12 @@ fn disk_io(usage: &Value) -> Value {
 }
 struct GpuSysfsDevice {
     metrics: Vec<(String, PathBuf)>,
-    temperatures: Vec<PathBuf>,
-    fans: Vec<(PathBuf, PathBuf)>,
+    fan_percent_sources: Vec<(SensorMetadata, PathBuf, PathBuf)>,
+}
+
+struct GpuSysfsSample {
+    metrics: serde_json::Map<String, Value>,
+    fans_unavailable: Vec<Value>,
 }
 
 #[derive(Default)]
@@ -724,20 +1206,30 @@ impl GpuSysfsCache {
                 .into_iter()
                 .map(|(file, key)| (key.to_owned(), device.join(file)))
                 .collect();
-                let mut temperatures = Vec::new();
-                let mut fans = Vec::new();
+                let mut fan_percent_sources = Vec::new();
                 if let Ok(hwmon) = fs::read_dir(device.join("hwmon")) {
                     for hwmon_entry in hwmon.flatten() {
+                        let hwmon_name = clean_optional_text(&hwmon_entry.path().join("name"));
                         if let Ok(files) = fs::read_dir(hwmon_entry.path()) {
                             for file in files.flatten() {
                                 let filename = file.file_name().to_string_lossy().to_string();
-                                if filename.starts_with("temp") && filename.ends_with("_input") {
-                                    temperatures.push(file.path());
-                                } else if filename.starts_with("pwm") && filename.ends_with("_max") {
-                                    fans.push((
-                                        file.path().with_file_name(filename.trim_end_matches("_max")),
-                                        file.path(),
-                                    ));
+                                if let Some(channel) = filename.strip_suffix("_max") {
+                                    if channel.strip_prefix("pwm").map_or(false, |number| {
+                                        !number.is_empty()
+                                            && number.bytes().all(|byte| byte.is_ascii_digit())
+                                    }) {
+                                        let pwm = file.path().with_file_name(channel);
+                                        let metadata = SensorMetadata {
+                                            source: input_identity(&pwm),
+                                            name: hwmon_name.clone(),
+                                            sensor_label: clean_optional_text(
+                                                &pwm.with_file_name(format!("{channel}_label")),
+                                            ),
+                                            channel: channel.to_owned(),
+                                            label: "fan",
+                                        };
+                                        fan_percent_sources.push((metadata, pwm, file.path()));
+                                    }
                                 }
                             }
                         }
@@ -745,8 +1237,7 @@ impl GpuSysfsCache {
                 }
                 devices.push(GpuSysfsDevice {
                     metrics,
-                    temperatures,
-                    fans,
+                    fan_percent_sources,
                 });
             }
         }
@@ -755,56 +1246,75 @@ impl GpuSysfsCache {
         self.discovered_at = Some(Instant::now());
     }
 
-    fn sample(&mut self) -> Value {
+    fn sample(&mut self) -> GpuSysfsSample {
         self.refresh_discovery_if_due();
-        let mut out = serde_json::Map::new();
-        let mut temperatures = Vec::new();
+        let mut sample = GpuSysfsSample {
+            metrics: serde_json::Map::new(),
+            fans_unavailable: Vec::new(),
+        };
         for device in &self.devices {
             for (key, path) in &device.metrics {
                 if let Some(value) = fs::read_to_string(path)
                     .ok()
                     .and_then(|value| value.trim().parse::<u64>().ok())
                 {
-                    out.insert(key.clone(), json!(value));
+                    sample.metrics.insert(key.clone(), json!(value));
                 }
             }
-            for path in &device.temperatures {
-                if let Some(value) = fs::read_to_string(path)
-                    .ok()
-                    .and_then(|value| value.trim().parse::<f64>().ok())
-                    .filter(|value| value.is_finite())
-                {
-                    temperatures.push(value / 1000.0);
-                }
-            }
-            for (pwm, maximum) in &device.fans {
-                let max = fs::read_to_string(maximum)
-                    .ok()
-                    .and_then(|value| value.trim().parse::<f64>().ok())
-                    .filter(|value| value.is_finite() && *value > 0.0);
-                let value = fs::read_to_string(pwm)
-                    .ok()
-                    .and_then(|value| value.trim().parse::<f64>().ok())
-                    .filter(|value| value.is_finite());
-                if let (Some(value), Some(max)) = (value, max) {
-                    out.insert("fanPercent".into(), json!(value * 100.0 / max));
+            for (metadata, pwm, maximum) in &device.fan_percent_sources {
+                // pwmN_enable describes PWM control mode, not sensor validity;
+                // fanN_enable is the separate hwmon sensor-enable ABI.
+                let result = (|| {
+                    let max = read_numeric(maximum)?;
+                    if max <= 0.0 {
+                        return Err("implausible");
+                    }
+                    let value = read_numeric(pwm)?;
+                    if value < 0.0 {
+                        return Err("implausible");
+                    }
+                    let percent = value * 100.0 / max;
+                    if !percent.is_finite() {
+                        return Err("non-finite");
+                    }
+                    if percent > 100.0 {
+                        return Err("implausible");
+                    }
+                    Ok(percent)
+                })();
+                let sampled_at = now();
+                match result {
+                    Ok(percent) => {
+                        sample.metrics.insert("fanPercent".into(), json!(percent));
+                    }
+                    Err(reason) => sample.fans_unavailable.push(unavailable_reading_value(
+                        &UnavailableReading {
+                            metadata: metadata.clone(),
+                            reason,
+                            sampled_at,
+                        },
+                    )),
                 }
             }
         }
-        if let Some(value) = temperatures.first() {
-            out.insert("temperatureCelsius".into(), json!(*value));
-        }
-        if out.is_empty() {
-            Value::Null
-        } else {
-            Value::Object(out)
-        }
+        sample
     }
 }
+
+#[derive(Clone, Default)]
+struct NvidiaGpuCache {
+    metrics: serde_json::Map<String, Value>,
+    temperatures: Vec<TemperatureReading>,
+    temperature_unavailable: Vec<UnavailableReading>,
+    fans_unavailable: Vec<Value>,
+    temperature_seen: bool,
+    sampled_at: i64,
+}
+
 fn refresh_nvidia_gpu_cache() -> Option<(bool, String)> {
     let mut c = Command::new("nvidia-smi");
     c.args([
-        "--query-gpu=utilization.gpu,temperature.gpu,fan.speed,memory.used,memory.total",
+        "--query-gpu=uuid,utilization.gpu,temperature.gpu,fan.speed,memory.used,memory.total",
         "--format=csv,noheader,nounits",
     ])
     .stdout(Stdio::piped())
@@ -823,41 +1333,150 @@ fn refresh_nvidia_gpu_cache() -> Option<(bool, String)> {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
-fn nvidia_gpu_output(output: &str) -> Value {
-    let f = match output.lines().find(|l| !l.trim().is_empty()) {
-        Some(l) => l.split(',').map(str::trim).collect::<Vec<_>>(),
-        None => return Value::Null,
+fn nvidia_gpu_output(output: &str) -> NvidiaGpuCache {
+    let mut cache = NvidiaGpuCache {
+        sampled_at: now(),
+        ..NvidiaGpuCache::default()
     };
-    if f.len() != 5 {
-        return Value::Null;
-    }
-    let n = |s: &str| s.parse::<f64>().ok().filter(|v| v.is_finite());
-    let (u, t, fan) = match (n(f[0]), n(f[1]), n(f[2])) {
-        (Some(a), Some(b), Some(c)) => (a, b, c),
-        _ => return Value::Null,
-    };
-    let m = |s: &str| s.parse::<u64>().ok()?.checked_mul(1024)?.checked_mul(1024);
-    let (used, total) = match (m(f[3]), m(f[4])) {
-        (Some(a), Some(b)) => (a, b),
-        _ => return Value::Null,
-    };
-    json!({"utilizationPercent":u,"temperatureCelsius":t,"fanPercent":fan,"memoryUsedBytes":used,"memoryTotalBytes":total})
-}
-fn gpu(cached: Option<&Value>, sysfs: &mut GpuSysfsCache) -> Value {
-    let mut out = match cached {
-        Some(Value::Object(metrics)) => metrics.clone(),
-        _ => serde_json::Map::new(),
-    };
-    if let Value::Object(metrics) = sysfs.sample() {
-        for (key, value) in metrics {
-            out.insert(key, value);
+    let sampled_at = cache.sampled_at;
+    for (row_index, line) in output.lines().filter(|line| !line.trim().is_empty()).enumerate() {
+        let fields = line.split(',').map(str::trim).collect::<Vec<_>>();
+        let uuid = fields.first().copied().filter(|value| {
+            !value.is_empty() && !value.eq_ignore_ascii_case("N/A")
+        });
+        let source_for = |channel: &str| {
+            let identity = uuid.map_or_else(
+                || format!("row/{row_index}"),
+                |uuid| format!("{uuid}"),
+            );
+            format!("nvidia-smi://{identity}/{channel}")
+        };
+        let metadata = |channel: &str, label: &'static str| SensorMetadata {
+            source: source_for(channel),
+            name: Some("nvidia-smi".to_owned()),
+            sensor_label: None,
+            channel: channel.to_owned(),
+            label,
+        };
+
+        cache.temperature_seen = true;
+        let temp_metadata = metadata("temperature.gpu", "gpu");
+        let temp_result = fields
+            .get(2)
+            .ok_or("malformed")
+            .and_then(|value| value.parse::<f64>().map_err(|_| "malformed"))
+            .and_then(|value| {
+                if !value.is_finite() {
+                    Err("non-finite")
+                } else if !(-100.0..=250.0).contains(&value) {
+                    Err("implausible")
+                } else {
+                    Ok(value)
+                }
+            });
+        match temp_result {
+            Ok(celsius) => cache.temperatures.push(TemperatureReading {
+                metadata: temp_metadata,
+                celsius,
+                sampled_at,
+            }),
+            Err(reason) => cache.temperature_unavailable.push(UnavailableReading {
+                metadata: temp_metadata,
+                reason,
+                sampled_at,
+            }),
+        }
+
+        let fan_metadata = metadata("fan.speed", "fan");
+        let fan_result = fields
+            .get(3)
+            .ok_or("malformed")
+            .and_then(|value| value.parse::<f64>().map_err(|_| "malformed"))
+            .and_then(|value| {
+                if !value.is_finite() {
+                    Err("non-finite")
+                } else if !(0.0..=100.0).contains(&value) {
+                    Err("implausible")
+                } else {
+                    Ok(value)
+                }
+            });
+        match fan_result {
+            Ok(_) => {}
+            Err(reason) => cache.fans_unavailable.push(unavailable_reading_value(
+                &UnavailableReading {
+                    metadata: fan_metadata,
+                    reason,
+                    sampled_at,
+                },
+            )),
+        }
+
+        // Preserve the pre-existing first-row metric projection, but each
+        // field is independent so N/A fan/temperature data cannot erase GPU
+        // utilization or memory.
+        if row_index == 0 {
+            if let Some(value) = fields
+                .get(1)
+                .and_then(|value| value.parse::<f64>().ok())
+                .filter(|value| value.is_finite())
+            {
+                cache.metrics.insert("utilizationPercent".into(), json!(value));
+            }
+            if let Some(value) = fields
+                .get(3)
+                .and_then(|value| value.parse::<f64>().ok())
+                .filter(|value| value.is_finite() && (0.0..=100.0).contains(value))
+            {
+                cache.metrics.insert("fanPercent".into(), json!(value));
+            }
+            let mib = |index: usize| {
+                fields
+                    .get(index)?
+                    .parse::<u64>()
+                    .ok()?
+                    .checked_mul(1024)?
+                    .checked_mul(1024)
+            };
+            if let Some(used) = mib(4) {
+                cache.metrics.insert("memoryUsedBytes".into(), json!(used));
+            }
+            if let Some(total) = mib(5) {
+                cache.metrics.insert("memoryTotalBytes".into(), json!(total));
+            }
         }
     }
-    if out.is_empty() {
+    cache
+}
+
+fn gpu(
+    cached: Option<&NvidiaGpuCache>,
+    sysfs: &mut GpuSysfsCache,
+    temperature: Option<f64>,
+    temperature_observed: bool,
+) -> (Value, Vec<Value>) {
+    let temperature_observed = temperature_observed
+        || cached.map_or(false, |cache| cache.temperature_seen);
+    let mut out = cached
+        .map(|cache| cache.metrics.clone())
+        .unwrap_or_default();
+    let sysfs_sample = sysfs.sample();
+    for (key, value) in sysfs_sample.metrics {
+        out.insert(key, value);
+    }
+    if let Some(temperature) = temperature {
+        out.insert("temperatureCelsius".into(), json!(temperature));
+    } else if temperature_observed {
+        out.insert("temperatureCelsius".into(), Value::Null);
+    }
+    let mut fans_unavailable = cached.map_or_else(Vec::new, |cache| cache.fans_unavailable.clone());
+    fans_unavailable.extend(sysfs_sample.fans_unavailable);
+    let value = if out.is_empty() {
         Value::Null
     } else {
         Value::Object(out)
-    }
+    };
+    (value, fans_unavailable)
 }
 fn statvfs_bytes(path: &str) -> Option<(u64, u64, u64)> {
     let path = CString::new(path).ok()?;
@@ -1403,7 +2022,7 @@ fn snapshot_with_state(
     interface_cache: &mut InterfaceCache,
     mount_cache: &mut MountCache,
     self_cache: &mut SelfMetricsCache,
-    gpu_cache: Option<&Value>,
+    gpu_cache: Option<&NvidiaGpuCache>,
     gpu_cache_ts: Option<i64>,
     doors: Value,
     tick_millis: u64,
@@ -1429,7 +2048,26 @@ fn snapshot_with_state(
         elapsed,
         self_cache,
     );
-    let (temperature, temperature_ts, storage_temperature_ts) = temperatures(thermal_cache);
+    let (
+        temperature,
+        temperature_ts,
+        storage_temperature_ts,
+        gpu_temperature,
+        gpu_temperature_observed,
+    ) = temperatures(thermal_cache, gpu_cache);
+    let (gpu, gpu_fans_unavailable) = gpu(
+        gpu_cache,
+        gpu_sysfs_cache,
+        gpu_temperature,
+        gpu_temperature_observed,
+    );
+    let (accepted_fans, mut unavailable_fans) = fans(fan_cache);
+    unavailable_fans.extend(gpu_fans_unavailable);
+    let fan_value = if accepted_fans.is_empty() {
+        Value::Null
+    } else {
+        json!(accepted_fans)
+    };
     let mut value = json!({
         "schema":"caduceus.appliance.stats.sample.v1",
         "ts":ts,
@@ -1440,8 +2078,8 @@ fn snapshot_with_state(
         "temperature":temperature,
         "temperatureTs":temperature_ts,
         "storageTemperatureTs":storage_temperature_ts,
-        "fans":fans(fan_cache),
-        "gpu":gpu(gpu_cache, gpu_sysfs_cache),
+        "fans":fan_value,
+        "gpu":gpu,
         "gpuCacheTs":gpu_cache_ts,
         "memory":meminfo(),
         "network":{"interfaces":net,"throughput":Value::Null},
@@ -1454,6 +2092,9 @@ fn snapshot_with_state(
         "selfFdTs":fd_ts,
         "self":self_value
     });
+    if !unavailable_fans.is_empty() {
+        value["fansUnavailable"] = json!(unavailable_fans);
+    }
     if let Some(prev) = previous {
         let dt = (ts - prev.get("ts").and_then(Value::as_i64).unwrap_or(ts)).max(1) as f64;
         let mut throughput = json!({});
@@ -2059,10 +2700,8 @@ fn collect_loop(
             if let Some((ok, output)) = refresh_nvidia_gpu_cache() {
                 if ok {
                     let value = nvidia_gpu_output(&output);
-                    if !value.is_null() {
-                        gpu_cache = Some(value);
-                        gpu_cache_ts = Some(now());
-                    }
+                    gpu_cache_ts = Some(value.sampled_at);
+                    gpu_cache = Some(value);
                 }
             }
             last_gpu_refresh = Some(instant);

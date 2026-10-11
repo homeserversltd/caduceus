@@ -9,7 +9,15 @@
   "evolution": {
     "law": "additive-only",
     "missing_field_semantics": "Absent optional metrics remain absent or null as emitted",
-    "unknown_fields_preserved": true
+    "unknown_fields_preserved": true,
+    "sensor_validity": {
+      "unavailable_reasons": ["unreadable", "malformed", "non-finite", "disabled", "faulted", "implausible", "unknown-unit"],
+      "temperature_sanity_range_celsius_inclusive": [-100, 250],
+      "temperature_range_is_policy_not_abi": true,
+      "identity": "source is the canonical sysfs input path where resolvable; command-backed GPU observations use the returned GPU UUID and metric channel",
+      "deduplication": "Collapse the same canonical input attribute. Thermal-zone aliases may be omitted only for a complete same-type Linux thermal_hwmon group with canonical parent-owned shim, all canonical zone inputs, a unique shim, and exactly the contiguous temp1_input through tempN_input group; never infer an individual tempN-to-zoneN mapping.",
+      "unit_exceptions": "vt1211 temp2_input is driver-scaled milli-Celsius; temp1_input and temp3_input through temp7_input require board/thermistor conversion and are unknown-unit. sis5595 temp1_input is driver-scaled milli-Celsius; voltage inputs are inN_input. hwmon type alone does not declare units."
+    }
   },
   "fields": {
     "schema": {"type": "string", "const": "caduceus.appliance.stats.sample.v1"},
@@ -18,9 +26,94 @@
     "cpu": {"type": "object"},
     "pressure": {"type": "object"},
     "load": {"type": ["object", "null"]},
-    "temperature": {"type": ["object", "null"]},
-    "fans": {"type": ["array", "null"]},
-    "gpu": {"type": ["object", "null"]},
+    "temperature": {
+      "type": ["object", "null"],
+      "properties": {
+        "celsius": {"type": ["number", "null"], "description": "Arithmetic mean of accepted, deduplicated source temperatures; null when none remain."},
+        "sources": {"type": "integer"},
+        "bySource": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source": {"type": "string", "description": "Canonical input attribute path or command-backed UUID/channel identity."},
+              "name": {"type": "string", "description": "hwmon driver name, thermal-zone type, or source adapter."},
+              "sensor": {"type": "string", "description": "Sysfs sensor label when present, otherwise the channel identifier."},
+              "channel": {"type": "string"},
+              "label": {"type": "string", "enum": ["cpu", "gpu", "storage", "other"]},
+              "celsius": {"type": "number", "minimum": -100, "maximum": 250},
+              "sampledAt": {"type": "integer", "description": "UNIX seconds when this input was sampled, not when the enclosing sample was assembled."}
+            },
+            "required": ["celsius", "sampledAt"],
+            "additionalProperties": true
+          }
+        },
+        "unavailableSources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source": {"type": "string"},
+              "name": {"type": "string"},
+              "sensor": {"type": "string", "description": "Sysfs sensor label when present, otherwise the channel identifier."},
+              "channel": {"type": "string"},
+              "label": {"type": "string", "enum": ["cpu", "gpu", "storage", "other"]},
+              "reason": {"type": "string", "enum": ["unreadable", "malformed", "non-finite", "disabled", "faulted", "implausible", "unknown-unit"]},
+              "sampledAt": {"type": "integer"}
+            },
+            "required": ["source", "reason"],
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "fans": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": {"type": "string"},
+          "name": {"type": "string"},
+          "sensor": {"type": "string", "description": "Sysfs sensor label when present, otherwise the channel identifier."},
+          "channel": {"type": "string"},
+          "label": {"type": "string", "description": "Legacy chip name when known."},
+          "unit": {"type": "string", "enum": ["rpm"]},
+          "rpm": {"type": "number", "minimum": 0},
+          "sampledAt": {"type": "integer"}
+        },
+        "required": ["rpm"],
+        "additionalProperties": true
+      }
+    },
+    "fansUnavailable": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": {"type": "string"},
+          "name": {"type": "string"},
+          "sensor": {"type": "string", "description": "Sysfs sensor label when present, otherwise the channel identifier."},
+          "channel": {"type": "string"},
+          "label": {"type": "string"},
+          "reason": {"type": "string", "enum": ["unreadable", "malformed", "non-finite", "disabled", "faulted", "implausible", "unknown-unit"]},
+          "sampledAt": {"type": "integer"}
+        },
+        "required": ["source", "reason"],
+        "additionalProperties": true
+      }
+    },
+    "gpu": {
+      "type": ["object", "null"],
+      "properties": {
+        "utilizationPercent": {"type": ["number", "null"]},
+        "temperatureCelsius": {"type": ["number", "null"], "minimum": -100, "maximum": 250},
+        "fanPercent": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+        "memoryUsedBytes": {"type": ["integer", "null"]},
+        "memoryTotalBytes": {"type": ["integer", "null"]}
+      },
+      "additionalProperties": true
+    },
     "memory": {"type": "object"},
     "network": {"type": "object"},
     "power": {"type": "object"},
@@ -50,6 +143,7 @@
     "load": "object|null",
     "temperature": "object|null",
     "fans": "array|null",
+    "fansUnavailable": "array|null",
     "gpu": "object|null",
     "memory": "object",
     "network": "object",
@@ -80,6 +174,7 @@
     "load",
     "temperature",
     "fans",
+    "fansUnavailable",
     "gpu",
     "memory",
     "network",
