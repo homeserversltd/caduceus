@@ -16,6 +16,7 @@ commands:
 - profile show
 - health
 - appliance stats read
+- appliance stats admin
 - logs read
 - logs clear
 - legacy-sbin list
@@ -149,6 +150,7 @@ routes:
 - appliance/report
 - appliance/stats
 - appliance/stats/history
+- appliance/stats/admin
 - appliance/model-lanes/pulse
 - appliance/service/:service/status
 - appliance/service/:service/start

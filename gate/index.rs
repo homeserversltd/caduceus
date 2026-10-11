@@ -236,9 +236,11 @@ const TRANSMISSION_UP_HTTP_PATH: &str = "/api/v1/transmission/up";
 const TRANSMISSION_DOWN_HTTP_PATH: &str = "/api/v1/transmission/down";
 const TRANSMISSION_KEYS_REPLACE_HTTP_PATH: &str = "/api/v1/transmission/keys/replace";
 const TRANSMISSION_KEYS_ROTATE_HTTP_PATH: &str = "/api/v1/transmission/keys/rotate";
+const STATS_ADMIN_HTTP_PATH: &str = "/api/v1/appliance/stats/admin";
 const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "/api/v1/access/pin/mode",
     "/api/v1/access/sudo/mode",
+    STATS_ADMIN_HTTP_PATH,
     "/api/v1/storage/vault/unlock",
     "/api/v1/storage/vault/auto-decrypt",
     "/api/v1/network/cors/allowed-origins/add",
@@ -444,6 +446,9 @@ fn administrative_routes_match(
     method: Option<&str>,
     path: &str,
 ) -> Result<bool, String> {
+    if path == STATS_ADMIN_HTTP_PATH {
+        return Ok(true);
+    }
     // These NAS mutations remain attended when an older configured administrative
     // shelf replaces the fallback list and omits either newer door.
     if method.is_some_and(|method| {

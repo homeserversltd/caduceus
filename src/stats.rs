@@ -32,6 +32,7 @@ const HISTORY_LIMIT_MAX: usize = 20_000;
 const UNAVAILABLE: &str = "collector unavailable";
 struct StatsState {
     latest: Option<Arc<str>>,
+    latest_admin: Option<Arc<str>>,
     latest_ts: i64,
     model_lanes: Vec<Value>,
     last_model_lane_pulse_unix: AtomicU64,
@@ -45,8 +46,38 @@ static DATABASE: OnceLock<Result<Mutex<Connection>, String>> = OnceLock::new();
 static RAW_PENDING: OnceLock<Mutex<VecDeque<PendingRaw>>> = OnceLock::new();
 static COLLECTOR: OnceLock<Mutex<Option<(Arc<AtomicBool>, JoinHandle<Result<(), String>>)>>> =
     OnceLock::new();
+static INDICATOR_POKE_MASK: AtomicU64 = AtomicU64::new(0);
 const MODEL_LANE_PULSE_INTERVAL: u64 = 86_400;
 const MODEL_LANE_TIMEOUT: Duration = Duration::from_millis(400);
+
+#[path = "stats/indicators.rs"]
+pub(crate) mod indicators;
+
+#[derive(Clone, Copy, Debug)]
+pub enum IndicatorBlock {
+    Power,
+    Tailscale,
+    Internet,
+    Services,
+    Vpn,
+}
+
+/// Request a block refresh; the stats collector consumes it on its next tick.
+pub fn poke(block: IndicatorBlock) -> Result<(), String> {
+    let name = match block {
+        IndicatorBlock::Power => "power",
+        IndicatorBlock::Tailscale => "tailscale",
+        IndicatorBlock::Internet => "internet",
+        IndicatorBlock::Services => "services",
+        IndicatorBlock::Vpn => "vpn",
+    };
+    let mask = indicators::poke_mask(name)?;
+    if STATE.get().is_none() {
+        return Err(format!("{UNAVAILABLE}: not started"));
+    }
+    INDICATOR_POKE_MASK.fetch_or(u64::from(mask), Ordering::Release);
+    Ok(())
+}
 
 #[derive(Clone)]
 struct PendingRaw {
@@ -562,7 +593,21 @@ fn network(cache: &mut InterfaceCache) -> Value {
     for (name, operstate) in &cache.paths {
         if let Some((rx, tx)) = counters.get(name) {
             let state = fs::read_to_string(operstate).ok().map(|value| value.trim().to_owned());
-            list.push(json!({"name":name,"rxBytes":rx,"txBytes":tx,"operstate":state}));
+            let interface_dir = operstate.parent();
+            let flags = interface_dir
+                .and_then(|directory| fs::read_to_string(directory.join("flags")).ok())
+                .and_then(|value| {
+                    u32::from_str_radix(value.trim().trim_start_matches("0x"), 16).ok()
+                });
+            let is_up = flags.map(|flags| flags & 0x1 != 0);
+            let lower_up = interface_dir
+                .and_then(|directory| fs::read_to_string(directory.join("carrier")).ok())
+                .and_then(|value| match value.trim() {
+                    "1" => Some(true),
+                    "0" => Some(false),
+                    _ => None,
+                });
+            list.push(json!({"name":name,"rxBytes":rx,"txBytes":tx,"operstate":state,"isUp":is_up,"lowerUp":lower_up}));
         }
     }
     list.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
@@ -1452,7 +1497,7 @@ fn snapshot_with_state(
     (value, self_ticks, self_rss, cpu_counters)
 }
 
-const AGGREGATE_SQL: &str = "SELECT COUNT(*), AVG(json_extract(data, '$.load.one')), AVG(json_extract(data, '$.load.five')), AVG(json_extract(data, '$.load.fifteen')), AVG(json_extract(data, '$.temperature.celsius')), AVG(json_extract(data, '$.gpu.utilizationPercent')), AVG(json_extract(data, '$.gpu.temperatureCelsius')), AVG(json_extract(data, '$.memory.usedBytes')), AVG(json_extract(data, '$.memory.usedBytesSwap')), AVG(json_extract(data, '$.network.throughput.rxBytesPerSecond')), AVG(json_extract(data, '$.network.throughput.txBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.readBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.writeBytesPerSecond')), AVG(json_extract(data, '$.self.rssBytes')), MAX(json_extract(data, '$.self.rssBytes')), AVG(json_extract(data, '$.self.tickMillis')), MAX(json_extract(data, '$.self.tickMillis')), AVG(json_extract(data, '$.cpu.usagePercent')), AVG(json_extract(data, '$.pressure.io.someAvg10')), AVG(json_extract(data, '$.pressure.io.fullAvg10')) FROM raw_samples WHERE ts >= ?1 AND ts < ?2";
+const AGGREGATE_SQL: &str = "SELECT COUNT(*), AVG(json_extract(data, '$.load.one')), AVG(json_extract(data, '$.load.five')), AVG(json_extract(data, '$.load.fifteen')), AVG(json_extract(data, '$.temperature.celsius')), AVG(json_extract(data, '$.gpu.utilizationPercent')), AVG(json_extract(data, '$.gpu.temperatureCelsius')), AVG(json_extract(data, '$.memory.usedBytes')), AVG(json_extract(data, '$.memory.usedBytesSwap')), AVG(json_extract(data, '$.network.throughput.rxBytesPerSecond')), AVG(json_extract(data, '$.network.throughput.txBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.readBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.writeBytesPerSecond')), AVG(json_extract(data, '$.self.rssBytes')), MAX(json_extract(data, '$.self.rssBytes')), AVG(json_extract(data, '$.self.tickMillis')), MAX(json_extract(data, '$.self.tickMillis')), AVG(json_extract(data, '$.cpu.usagePercent')), AVG(json_extract(data, '$.pressure.io.someAvg10')), AVG(json_extract(data, '$.pressure.io.fullAvg10')), AVG(json_extract(data, '$.power.watts')) FROM raw_samples WHERE ts >= ?1 AND ts < ?2";
 
 fn sql_value(value: Option<f64>) -> Value {
     value.map_or(Value::Null, |value| json!(value))
@@ -1484,6 +1529,7 @@ fn aggregate(c: &Connection, bucket: i64) -> Result<String, String> {
                 row.get::<_, Option<f64>>(17)?,
                 row.get::<_, Option<f64>>(18)?,
                 row.get::<_, Option<f64>>(19)?,
+                row.get::<_, Option<f64>>(20)?,
             ))
         })
         .map_err(|error| error.to_string())?;
@@ -1509,6 +1555,7 @@ fn aggregate(c: &Connection, bucket: i64) -> Result<String, String> {
         cpu_usage,
         io_some,
         io_full,
+        power_watts,
     ) = row;
     let result = json!({
         "schema": "caduceus.appliance.stats.minute.v1",
@@ -1534,6 +1581,7 @@ fn aggregate(c: &Connection, bucket: i64) -> Result<String, String> {
             "cpuUsagePercent": sql_value(cpu_usage),
             "ioPressureSomeAvg10": sql_value(io_some),
             "ioPressureFullAvg10": sql_value(io_full),
+            "powerWatts": sql_value(power_watts),
         },
     })
     .to_string();
@@ -1935,6 +1983,7 @@ fn collect_loop(
     let mut interface_cache = InterfaceCache::default();
     let mut mount_cache = MountCache::default();
     let mut self_cache = SelfMetricsCache::default();
+    let mut indicators = indicators::Collector::start();
     let mut gpu_cache = None;
     let mut gpu_cache_ts = None;
     let mut last_gpu_refresh: Option<Instant> = None;
@@ -1942,6 +1991,8 @@ fn collect_loop(
     let mut collector_healthy = true;
     loop {
         if stopping.load(Ordering::Acquire) {
+            // Flush pending samples even when an indicator worker failed to stop cleanly.
+            let indicators_stopped = indicators.stop();
             let flush = flush_rollover(
                 database,
                 pending,
@@ -1963,6 +2014,10 @@ fn collect_loop(
             if !flush.committed {
                 return Err("stats shutdown flush did not commit".to_owned());
             }
+            if let Err(error) = indicators_stopped {
+                collector_error(&state, error.clone());
+                return Err(error);
+            }
             clear_collector_error(&state);
             return Ok(());
         }
@@ -1978,6 +2033,10 @@ fn collect_loop(
         }
         if stopping.load(Ordering::Acquire) {
             continue;
+        }
+        let indicator_pokes = INDICATOR_POKE_MASK.swap(0, Ordering::AcqRel) as u32;
+        if indicator_pokes != 0 {
+            indicators.wake(indicator_pokes);
         }
         next += Duration::from_secs(1);
         let instant = Instant::now();
@@ -2084,6 +2143,17 @@ fn collect_loop(
             elapsed,
             previous_cpu,
         );
+        let interface_snapshot = value
+            .pointer("/network/interfaces")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let (indicator_blocks, admin_value) = indicators.sample(&interface_snapshot);
+        if let Some(blocks) = indicator_blocks.as_object() {
+            for (name, block) in blocks {
+                value[name] = block.clone();
+            }
+        }
+        let admin_data: Arc<str> = Arc::from(admin_value.to_string());
         let sample_millis = sample_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
         value["self"]["tickMillis"] = json!(sample_millis);
         let tick_bin = histogram_index(Duration::from_millis(sample_millis));
@@ -2124,6 +2194,7 @@ fn collect_loop(
                 .write()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             guard.latest = Some(Arc::clone(&data));
+            guard.latest_admin = Some(Arc::clone(&admin_data));
             guard.latest_ts = ts;
             guard.gpu_cache = gpu_cache.clone();
             guard.last_gpu_refresh = last_gpu_refresh;
@@ -2142,6 +2213,7 @@ pub fn start() {
     }
     let state = Arc::new(RwLock::new(StatsState {
         latest: None,
+        latest_admin: None,
         latest_ts: 0,
         model_lanes: Vec::new(),
         last_model_lane_pulse_unix: AtomicU64::new(0),
@@ -2262,6 +2334,21 @@ pub fn current() -> Result<String, String> {
         .as_deref()
         .ok_or_else(|| format!("{UNAVAILABLE}: no samples yet"))?;
     Ok(splice_model_lanes(latest, &guard.model_lanes))
+}
+
+pub fn current_admin() -> Result<String, String> {
+    let state = state()?;
+    let guard = state
+        .read()
+        .map_err(|_| format!("{UNAVAILABLE}: state lock"))?;
+    if let Some(error) = &guard.error {
+        return Err(error.clone());
+    }
+    guard
+        .latest_admin
+        .as_deref()
+        .map(str::to_owned)
+        .ok_or_else(|| format!("{UNAVAILABLE}: no admin samples yet"))
 }
 
 pub fn request_model_lane_pulse() -> Result<Value, String> {
@@ -2454,7 +2541,7 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
         "[]".to_owned()
     };
     Ok(format!(
-        "{{\"schema\":\"caduceus.appliance.stats.history.v1\",\"retention\":{{\"rawSeconds\":{RAW_RETENTION_SECONDS},\"rawMaxPoints\":{RAW_RETENTION_SECONDS},\"minuteSeconds\":{MINUTE_RETENTION_SECONDS},\"minuteMaxPoints\":{minute_points},\"selfSeconds\":{MINUTE_RETENTION_SECONDS},\"selfMaxPoints\":{minute_points}}},\"consolidation\":{{\"raw\":\"sqlite-backed one-second samples\",\"minute\":{{\"averages\":[\"load.one\",\"load.five\",\"load.fifteen\",\"temperature.celsius\",\"gpu.utilizationPercent\",\"gpu.temperatureCelsius\",\"memory.usedBytes\",\"memory.usedBytesSwap\",\"network.throughput\",\"disk.throughput\",\"self.rssBytes\",\"self.tickMillis\",\"cpu.usagePercent\",\"pressure.io.someAvg10\",\"pressure.io.fullAvg10\"]}}}},\"window\":{{\"tier\":{},\"since\":{},\"until\":{},\"limit\":{}}},\"tiers\":{{\"raw\":{},\"minute\":{},\"self\":{}}}}}",
+        "{{\"schema\":\"caduceus.appliance.stats.history.v1\",\"retention\":{{\"rawSeconds\":{RAW_RETENTION_SECONDS},\"rawMaxPoints\":{RAW_RETENTION_SECONDS},\"minuteSeconds\":{MINUTE_RETENTION_SECONDS},\"minuteMaxPoints\":{minute_points},\"selfSeconds\":{MINUTE_RETENTION_SECONDS},\"selfMaxPoints\":{minute_points}}},\"consolidation\":{{\"raw\":\"sqlite-backed one-second samples\",\"minute\":{{\"averages\":[\"load.one\",\"load.five\",\"load.fifteen\",\"temperature.celsius\",\"gpu.utilizationPercent\",\"gpu.temperatureCelsius\",\"memory.usedBytes\",\"memory.usedBytesSwap\",\"network.throughput\",\"disk.throughput\",\"self.rssBytes\",\"self.tickMillis\",\"cpu.usagePercent\",\"pressure.io.someAvg10\",\"pressure.io.fullAvg10\",\"power.watts\"]}}}},\"window\":{{\"tier\":{},\"since\":{},\"until\":{},\"limit\":{}}},\"tiers\":{{\"raw\":{},\"minute\":{},\"self\":{}}}}}",
         serde_json::to_string(tier).unwrap_or_else(|_| "\"both\"".to_owned()),
         since,
         until,

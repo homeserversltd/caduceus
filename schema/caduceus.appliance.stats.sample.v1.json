@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.appliance.stats.sample.v1",
-  "schema_version": "1.0.1",
+  "schema_version": "1.0.2",
   "role": "One emitted Caduceus appliance statistics sample",
   "authority": {
     "owner": "caduceus",
@@ -23,6 +23,11 @@
     "gpu": {"type": ["object", "null"]},
     "memory": {"type": "object"},
     "network": {"type": "object"},
+    "power": {"type": "object"},
+    "tailscale": {"type": "object"},
+    "internet": {"type": "object"},
+    "services": {"type": "object"},
+    "vpn": {"type": "object"},
     "tcp": {"type": "object"},
     "disk": {"type": "object"},
     "processes": {"type": ["array", "object", "null"]},
@@ -48,6 +53,11 @@
     "gpu": "object|null",
     "memory": "object",
     "network": "object",
+    "power": "object",
+    "tailscale": "object",
+    "internet": "object",
+    "services": "object",
+    "vpn": "object",
     "tcp": "object",
     "disk": "object",
     "processes": "array|object|null",
@@ -73,6 +83,11 @@
     "gpu",
     "memory",
     "network",
+    "power",
+    "tailscale",
+    "internet",
+    "services",
+    "vpn",
     "tcp",
     "disk",
     "processes",
@@ -86,5 +101,36 @@
     "selfMapsTs",
     "selfFdTs"
   ],
+  "block_shapes": {
+    "power": {
+      "watts": "number|null",
+      "sources": "array",
+      "ts": "integer",
+      "firstMissingSignal": "string|null"
+    },
+    "tailscale": {
+      "status": "string",
+      "interface": "boolean",
+      "ts": "integer",
+      "firstMissingSignal": "string|null"
+    },
+    "internet": {
+      "status": "string|null",
+      "ts": "integer",
+      "firstMissingSignal": "string|null"
+    },
+    "services": {
+      "rows": "array",
+      "counts": "object",
+      "ts": "integer",
+      "firstMissingSignal": "string|null"
+    },
+    "vpn": {
+      "vpnStatus": "string|null",
+      "transmissionStatus": "string|null",
+      "ts": "integer",
+      "firstMissingSignal": "string|null"
+    }
+  },
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }

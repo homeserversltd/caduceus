@@ -1,0 +1,85 @@
+{
+  "schema": "caduceus.appliance.stats.admin.v1",
+  "schema_version": "1.0.0",
+  "role": "One attended administrative Caduceus appliance statistics sample",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.appliance.stats.admin.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Optional readings may be null; each block reports its timestamp and first missing signal",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.appliance.stats.admin.v1"},
+    "ok": {"type": "boolean"},
+    "ts": {"type": "integer"},
+    "power": {"type": "object"},
+    "tailscale": {"type": "object"},
+    "internet": {"type": "object"},
+    "services": {"type": "object"},
+    "vpn": {"type": "object"}
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "ts": "integer",
+    "power": "object",
+    "tailscale": "object",
+    "internet": "object",
+    "services": "object",
+    "vpn": "object"
+  },
+  "blocks": {
+    "power": {
+      "fields": {
+        "watts": "number|null",
+        "sources": "array",
+        "ts": "integer",
+        "firstMissingSignal": "string|null"
+      }
+    },
+    "tailscale": {
+      "fields": {
+        "ip": "string|null",
+        "tailnet": "string|null",
+        "loginUrl": "string|null",
+        "isEnabled": "boolean|null",
+        "enabledFirstMissingSignal": "string|null",
+        "ts": "integer",
+        "firstMissingSignal": "string|null"
+      }
+    },
+    "internet": {
+      "fields": {
+        "publicIp": "string|null",
+        "ts": "integer",
+        "firstMissingSignal": "string|null"
+      }
+    },
+    "services": {
+      "fields": {
+        "units": "array",
+        "ts": "integer",
+        "firstMissingSignal": "string|null"
+      },
+      "unit_fields": {
+        "unit": "string",
+        "enabled": "boolean|null",
+        "firstMissingSignal": "string|null"
+      }
+    },
+    "vpn": {
+      "fields": {
+        "transmissionUnit": "string|null",
+        "enabled": "boolean|null",
+        "ts": "integer",
+        "firstMissingSignal": "string|null"
+      }
+    }
+  },
+  "required": ["schema", "ok", "ts", "power", "tailscale", "internet", "services", "vpn"],
+  "optional": [],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

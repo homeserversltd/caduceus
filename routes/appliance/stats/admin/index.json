@@ -1,0 +1,1 @@
+{"namespace":"appliance/stats/admin","admittance":"open","flags":{"posture":"admin-read"},"serve":[{"rust":"appliance_stats_read"}]}
