@@ -113,21 +113,20 @@ fn configured_auto_unlock(cfg: &Value) -> Option<bool> {
         })
 }
 
-fn vault_config() -> Result<VaultConfig, String> {
-    let cfg = config()?;
+fn vault_config_from(cfg: &Value) -> Result<Option<VaultConfig>, String> {
     let top_level_vault = cfg.get("mounts").and_then(|v| v.get("vault"));
     let global_vault = cfg
         .get("global")
         .and_then(|v| v.get("mounts"))
         .and_then(|v| v.get("vault"));
-    let mounts = top_level_vault
-        .or(global_vault)
-        .ok_or_else(|| "vault-mount-config-unavailable".to_string())?;
+    let Some(mounts) = top_level_vault.or(global_vault) else {
+        return Ok(None);
+    };
     let mapper = string_at(mounts, &["mapper"])
         .ok_or_else(|| "vault-mapper-unconfigured".to_string())?;
     let mountpoint = string_at(mounts, &["mountPoint", "mountpoint", "mount_point"])
         .ok_or_else(|| "vault-mountpoint-unconfigured".to_string())?;
-    let auto_unlock = configured_auto_unlock(&cfg);
+    let auto_unlock = configured_auto_unlock(cfg);
     let (device, keyfile) = if let Some(object) = mounts.as_object() {
         (
             object
@@ -142,7 +141,7 @@ fn vault_config() -> Result<VaultConfig, String> {
     } else {
         (mounts.as_str(), None)
     };
-    Ok(VaultConfig {
+    Ok(Some(VaultConfig {
         mapper: mapper.to_string(),
         mountpoint: mountpoint.to_string(),
         device: device
@@ -153,7 +152,13 @@ fn vault_config() -> Result<VaultConfig, String> {
             .unwrap_or(GOVERNING_KEYFILE)
             .to_string(),
         auto_unlock,
-    })
+    }))
+}
+
+fn vault_config() -> Result<VaultConfig, String> {
+    let cfg = config()?;
+    vault_config_from(&cfg)?
+        .ok_or_else(|| "vault-mount-config-unavailable".to_string())
 }
 
 fn safe_mapper(mapper: &str) -> bool {
@@ -166,18 +171,20 @@ fn safe_mapper(mapper: &str) -> bool {
 fn safe_mountpoint(path: &str) -> bool {
     path.starts_with('/') && !path.split('/').any(|p| p == "..")
 }
-fn mounted(cfg: &VaultConfig) -> bool {
+fn mounted_read(cfg: &VaultConfig) -> Result<bool, String> {
     if !safe_mapper(&cfg.mapper) || !safe_mountpoint(&cfg.mountpoint) {
-        return false;
+        return Err("vault-mount-config-invalid".to_string());
     }
-    if !mapper_path(cfg).exists() {
-        return false;
+    let mapper_present = mapper_path(cfg)
+        .try_exists()
+        .map_err(|_| "vault-mapper-observation-unavailable".to_string())?;
+    if !mapper_present {
+        return Ok(false);
     }
-    let Ok(text) = fs::read_to_string("/proc/self/mountinfo") else {
-        return false;
-    };
+    let text = fs::read_to_string("/proc/self/mountinfo")
+        .map_err(|_| "vault-mount-observation-unavailable".to_string())?;
     let physical_mountpoint = logical(&mountpoint_path(cfg));
-    text.lines().any(|line| {
+    Ok(text.lines().any(|line| {
         line.split(" - ")
             .next()
             .unwrap_or("")
@@ -185,7 +192,10 @@ fn mounted(cfg: &VaultConfig) -> bool {
             .nth(4)
             .map(decode_mountinfo)
             .is_some_and(|target| target == physical_mountpoint)
-    })
+    }))
+}
+fn mounted(cfg: &VaultConfig) -> bool {
+    mounted_read(cfg).unwrap_or(false)
 }
 fn decode_mountinfo(s: &str) -> String {
     s.replace("\\040", " ")
@@ -205,22 +215,21 @@ fn read_policy(cfg: &VaultConfig) -> Result<Value, String> {
     }
     Ok(receipt)
 }
-fn policy_marker_enabled(cfg: &VaultConfig) -> bool {
-    read_policy(cfg)
-        .ok()
-        .and_then(|receipt| {
-            receipt
+fn auto_unlock_state_read(cfg: &VaultConfig) -> Result<(bool, &'static str), String> {
+    match cfg.auto_unlock {
+        Some(enabled) => Ok((enabled, "config")),
+        None => {
+            let receipt = read_policy(cfg)?;
+            let unlock = receipt
                 .get("unlock")
                 .and_then(Value::as_str)
-                .map(|v| v == "crypttab_keyfile")
-        })
-        .unwrap_or(false)
+                .ok_or_else(|| "vault-policy-invalid".to_string())?;
+            Ok((unlock == "crypttab_keyfile", "policy-marker"))
+        }
+    }
 }
 fn auto_unlock_state(cfg: &VaultConfig) -> (bool, &'static str) {
-    match cfg.auto_unlock {
-        Some(enabled) => (enabled, "config"),
-        None => (policy_marker_enabled(cfg), "policy-marker"),
-    }
+    auto_unlock_state_read(cfg).unwrap_or((false, "policy-marker"))
 }
 fn auto_enabled(cfg: &VaultConfig) -> bool {
     auto_unlock_state(cfg).0
@@ -300,6 +309,27 @@ fn auto_decrypt_failure(rollback: Option<config::JsonSetRollback>) -> Value {
 fn result(success: bool, message: &str) -> Value {
     json!({"success": success, "message": message})
 }
+#[derive(Clone, Copy)]
+pub(crate) struct GateVaultPosture {
+    pub(crate) present: bool,
+    pub(crate) mounted: bool,
+    pub(crate) auto_decrypt_enabled: bool,
+}
+
+pub(crate) fn gate_posture_read() -> Result<Option<GateVaultPosture>, String> {
+    let document = config()?;
+    let Some(cfg) = vault_config_from(&document)? else {
+        return Ok(None);
+    };
+    let mounted = mounted_read(&cfg)?;
+    let (auto_decrypt_enabled, _) = auto_unlock_state_read(&cfg)?;
+    Ok(Some(GateVaultPosture {
+        present: true,
+        mounted,
+        auto_decrypt_enabled,
+    }))
+}
+
 pub fn status_json() -> Value {
     match vault_config() {
         Ok(cfg) => {

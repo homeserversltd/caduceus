@@ -138,6 +138,7 @@ routes:
 - network/cors/allowed-origins/add
 - exousia/change-pin
 - access/pin/mode
+- access/gate
 - exousia/invalidate
 - exousia/open
 - exousia/posture

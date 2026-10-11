@@ -94,11 +94,17 @@ fn envelope(ok: bool, code: &'static str) -> Value {
     })
 }
 
+pub(crate) fn pin_mode_read() -> Result<bool, String> {
+    let value = crate::shared::config::get_json("global.admin.pin_required")
+        .map_err(|_| "caduceus-access-pin-mode-unreadable".to_string())?;
+    value
+        .get("value")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "caduceus-access-pin-mode-invalid".to_string())
+}
+
 pub fn pin_mode_json() -> Value {
-    let pin_required = crate::shared::config::get_json("global.admin.pin_required")
-        .ok()
-        .and_then(|value| value.get("value").and_then(Value::as_bool))
-        .unwrap_or(false);
+    let pin_required = pin_mode_read().unwrap_or(false);
     json!({
         "schema": "caduceus.access.pin.mode.v1",
         "ok": true,

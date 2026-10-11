@@ -312,6 +312,7 @@ fn main() {
         "xenia.health.v1",
         "xenia.events.v1",
         "caduceus.xenia.verdict.v1",
+        "caduceus.access.gate.v1",
         "caduceus.exousia.posture.v1",
         "coronatio.exousia.agent.service.v1",
         "coronatio.exousia.agent.posture.v1",

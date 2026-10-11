@@ -80,6 +80,7 @@ routes:
 - exousia/touch
 - exousia/change-pin
 - access/pin/mode
+- access/gate
 - exousia/invalidate
 - network/status
 - network/tailnet

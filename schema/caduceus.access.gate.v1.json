@@ -1,0 +1,54 @@
+{
+  "schema": "caduceus.access.gate.v1",
+  "schema_version": "1.0.0",
+  "role": "Open Caduceus access gate posture readback",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.access.gate.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "The ok, vault, and pin fields are required; every nested posture field is required and typed. Unknown fields are additive and readers ignore them semantically."
+  },
+  "required": ["ok", "vault", "pin"],
+  "fields": {
+    "ok": {"type": "boolean"},
+    "vault": {
+      "type": "object",
+      "required": ["present", "mounted", "auto_decrypt_enabled", "unlock_required", "readable"],
+      "properties": {
+        "present": {"type": "boolean"},
+        "mounted": {"type": "boolean"},
+        "auto_decrypt_enabled": {"type": "boolean"},
+        "unlock_required": {"type": "boolean"},
+        "readable": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    },
+    "pin": {
+      "type": "object",
+      "required": ["pin_required", "readable"],
+      "properties": {
+        "pin_required": {"type": "boolean"},
+        "readable": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "field_types": {
+    "ok": "boolean",
+    "vault": "object",
+    "vault.present": "boolean",
+    "vault.mounted": "boolean",
+    "vault.auto_decrypt_enabled": "boolean",
+    "vault.unlock_required": "boolean",
+    "vault.readable": "boolean",
+    "pin": "object",
+    "pin.pin_required": "boolean",
+    "pin.readable": "boolean"
+  },
+  "optional": [],
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

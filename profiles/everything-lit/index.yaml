@@ -11,6 +11,7 @@ routes:
 - xenia/status
 - xenia/status/:id
 - exousia/change-pin
+- access/gate
 - exousia/invalidate
 - exousia/open
 - exousia/posture
