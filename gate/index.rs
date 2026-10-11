@@ -241,7 +241,6 @@ const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "/api/v1/access/pin/mode",
     "/api/v1/access/sudo/mode",
     STATS_ADMIN_HTTP_PATH,
-    "/api/v1/storage/vault/unlock",
     "/api/v1/storage/vault/auto-decrypt",
     "/api/v1/network/cors/allowed-origins/add",
     "/api/v1/network/notes",
@@ -447,6 +446,16 @@ fn administrative_routes_match(
     path: &str,
 ) -> Result<bool, String> {
     if path == STATS_ADMIN_HTTP_PATH {
+        return Ok(true);
+    }
+    // Exact path precedence covers both middleware (Some(method)) and direct
+    // administrative admission (None); do not widen it to a vault namespace.
+    // Unlock stays password-only despite stale external shelves; auto-decrypt
+    // remains administrative regardless of their contents.
+    if path == "/api/v1/storage/vault/unlock" {
+        return Ok(false);
+    }
+    if path == "/api/v1/storage/vault/auto-decrypt" {
         return Ok(true);
     }
     // These NAS mutations remain attended when an older configured administrative
