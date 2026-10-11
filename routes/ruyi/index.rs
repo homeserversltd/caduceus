@@ -1,6 +1,6 @@
 use axum::{
     body::{Body, Bytes},
-    http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
+    http::{header::CONTENT_TYPE, HeaderValue},
     response::{IntoResponse, Response},
     Json,
 };
@@ -918,7 +918,7 @@ async fn stream_list(
     let mut perspectives = BTreeMap::new();
     let mut received = BTreeMap::new();
     for (mac, bytes, received_at) in stored.perspectives {
-        let value = serde_json::from_str(&bytes)
+        let value: Value = serde_json::from_str(&bytes)
             .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-row-invalid"))?;
         received.insert(
             mac.clone(),
