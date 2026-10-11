@@ -239,7 +239,6 @@ const TRANSMISSION_KEYS_ROTATE_HTTP_PATH: &str = "/api/v1/transmission/keys/rota
 const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "/api/v1/access/pin/mode",
     "/api/v1/access/sudo/mode",
-    "/api/v1/storage/vault/unlock",
     "/api/v1/storage/vault/auto-decrypt",
     "/api/v1/network/cors/allowed-origins/add",
     "/api/v1/network/notes",
@@ -444,6 +443,16 @@ fn administrative_routes_match(
     method: Option<&str>,
     path: &str,
 ) -> Result<bool, String> {
+    // Exact path precedence covers both middleware (Some(method)) and direct
+    // administrative admission (None); do not widen it to a vault namespace.
+    // Unlock stays password-only despite stale external shelves; auto-decrypt
+    // remains administrative regardless of their contents.
+    if path == "/api/v1/storage/vault/unlock" {
+        return Ok(false);
+    }
+    if path == "/api/v1/storage/vault/auto-decrypt" {
+        return Ok(true);
+    }
     // These NAS mutations remain attended when an older configured administrative
     // shelf replaces the fallback list and omits either newer door.
     if method.is_some_and(|method| {
