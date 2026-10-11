@@ -69,6 +69,7 @@ commands:
 - transmission up
 - transmission down
 - transmission status
+- settings ssh status
 - transmission keys status
 - transmission keys replace
 - transmission keys rotate
@@ -213,6 +214,7 @@ routes:
 - settings/pin
 - settings/sound
 - settings/ssh
+- settings/ssh/status
 - storage/disk/census
 - storage/disk/test
 - storage/disk/wipe

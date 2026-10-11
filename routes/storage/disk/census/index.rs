@@ -4,7 +4,7 @@
 // mounts, formats, unlocks, or otherwise changes a block device.
 
 use serde_json::{json, Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
 
 const NAS_FILESYSTEMS: &[&str] = &["ext4", "xfs"];
@@ -62,6 +62,15 @@ pub(crate) fn collect_json() -> Result<Value, String> {
         if excluded_parent(device) {
             continue;
         }
+        if let Some(foreign) = foreign_filesystems(device) {
+            let mut candidate = receipt(device, device, None, &space);
+            candidate
+                .as_object_mut()
+                .expect("disk census receipt is an object")
+                .insert("foreign".to_string(), json!(foreign));
+            census.push(candidate);
+            continue;
+        }
         collect_candidates(device, device, &space, &mut census);
     }
     Ok(json!({
@@ -95,6 +104,29 @@ fn excluded_parent(device: &Value) -> bool {
                 .iter()
                 .any(|mount| SYSTEM_CRITICAL_MOUNTS.contains(&mount.as_str()))
         })
+}
+
+fn foreign_filesystems(device: &Value) -> Option<String> {
+    if string(device, "type") != Some("disk") {
+        return None;
+    }
+    let mut foreign = BTreeSet::new();
+    for (index, entry) in descendants(device).enumerate() {
+        if !mountpoints(entry).is_empty() || (index > 0 && string(entry, "type") != Some("part")) {
+            return None;
+        }
+        if let Some(fstype) = string(entry, "fstype") {
+            if NAS_FILESYSTEMS
+                .iter()
+                .any(|nas| fstype.eq_ignore_ascii_case(nas))
+                || fstype.eq_ignore_ascii_case("crypto_luks")
+            {
+                return None;
+            }
+            foreign.insert(fstype.to_owned());
+        }
+    }
+    (!foreign.is_empty()).then(|| foreign.into_iter().collect::<Vec<_>>().join(", "))
 }
 
 fn has_tmpfs(entry: &Value) -> bool {

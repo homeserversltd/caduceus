@@ -1,0 +1,65 @@
+{
+  "schema": "caduceus.disk.census.v1",
+  "schema_version": "1.0.0",
+  "role": "Caduceus disk census receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.disk.census.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Only schema is required; absent optional receipt fields mean null."
+  },
+  "required": ["schema"],
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.disk.census.v1"},
+    "ok": {"type": ["boolean", "null"]},
+    "readOnly": {"type": ["boolean", "null"]},
+    "devices": {
+      "type": ["array", "null"],
+      "items": {
+        "type": ["object", "null"],
+        "properties": {
+          "name": {"type": ["string", "null"]},
+          "partition": {"type": ["string", "null"]},
+          "label": {"type": ["string", "null"]},
+          "sizeBytes": {"type": ["integer", "null"]},
+          "fstype": {"type": ["string", "null"]},
+          "encryption": {
+            "type": ["object", "null"],
+            "properties": {
+              "state": {"type": ["string", "null"]},
+              "mapper": {"type": ["string", "null"]}
+            },
+            "additionalProperties": true
+          },
+          "mountpoint": {"type": ["string", "null"]},
+          "space": {
+            "type": ["object", "null"],
+            "properties": {
+              "sizeBytes": {"type": ["integer", "null"]},
+              "usedBytes": {"type": ["integer", "null"]},
+              "availableBytes": {"type": ["integer", "null"]}
+            },
+            "additionalProperties": true
+          },
+          "blank": {"type": ["boolean", "null"]},
+          "foreign": {"type": ["string", "null"]}
+        },
+        "additionalProperties": true
+      }
+    },
+    "firstMissingSignal": {"type": ["string", "null"]}
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean|null",
+    "readOnly": "boolean|null",
+    "devices": "array|null",
+    "firstMissingSignal": "string|null"
+  },
+  "optional": ["ok", "readOnly", "devices", "firstMissingSignal"],
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}
