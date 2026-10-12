@@ -1,7 +1,6 @@
 use axum::{
     extract::Json,
     http::{HeaderMap, StatusCode},
-    response::IntoResponse,
     routing::post,
     Json as ResponseJson, Router,
 };
@@ -84,25 +83,8 @@ async fn cross(headers: HeaderMap, payload: Value) -> DoorReply {
     }
 }
 
-async fn route(headers: HeaderMap, Json(payload): Json<Value>) -> impl IntoResponse {
-    match cross(headers, payload).await {
-        Ok((status, receipt)) => (status, receipt).into_response(),
-        Err((status, ResponseJson(error))) => {
-            let mut body = serde_json::Map::new();
-            body.insert("schema".into(), Value::String(error.schema.into()));
-            body.insert("ok".into(), Value::Bool(error.ok));
-            body.insert("command".into(), Value::String(error.command));
-            body.insert(
-                "firstMissingSignal".into(),
-                Value::String(error.first_missing_signal.clone()),
-            );
-            body.insert(
-                "first_missing_signal".into(),
-                Value::String(error.first_missing_signal),
-            );
-            (status, ResponseJson(Value::Object(body))).into_response()
-        }
-    }
+async fn route(headers: HeaderMap, Json(payload): Json<Value>) -> DoorReply {
+    cross(headers, payload).await
 }
 
 pub fn register(router: Router) -> Router {
