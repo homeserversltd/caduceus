@@ -175,6 +175,7 @@ routes:
 - settings/pin
 - settings/sound
 - settings/ssh
+- settings/ssh/status
 - storage/disk/census
 - storage/disk/test
 - storage/disk/wipe

@@ -218,6 +218,7 @@ routes:
 - settings/pin
 - settings/sound
 - settings/ssh
+- settings/ssh/status
 - storage/categories
 - storage/categories/scan
 - storage/disk/census

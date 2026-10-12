@@ -3,7 +3,6 @@ use axum::{
     extract::rejection::BytesRejection,
     extract::Json,
     http::StatusCode,
-    Router,
 };
 use serde_json::{json, Map, Value};
 use std::time::Duration;
@@ -422,40 +421,18 @@ async fn execute(action: &'static str, body: Result<Bytes, BytesRejection>) -> H
     Ok((crate::gate::mutation_status(&receipt), Json(receipt)))
 }
 
-async fn up_route(body: Result<Bytes, BytesRejection>) -> HttpResult {
+pub(super) async fn up_route(body: Result<Bytes, BytesRejection>) -> HttpResult {
     execute("up", body).await
 }
 
-async fn down_route(body: Result<Bytes, BytesRejection>) -> HttpResult {
+pub(super) async fn down_route(body: Result<Bytes, BytesRejection>) -> HttpResult {
     execute("down", body).await
 }
 
-async fn authkey_route(body: Result<Bytes, BytesRejection>) -> HttpResult {
+pub(super) async fn authkey_route(body: Result<Bytes, BytesRejection>) -> HttpResult {
     execute("authkey", body).await
 }
 
-async fn tailnet_route(body: Result<Bytes, BytesRejection>) -> HttpResult {
+pub(super) async fn tailnet_route(body: Result<Bytes, BytesRejection>) -> HttpResult {
     execute("tailnet", body).await
-}
-
-pub fn register(router: Router, action: &'static str) -> Router {
-    match action {
-        "up" => router.route(
-            "/api/v1/network/tailscale/up",
-            axum::routing::post(up_route),
-        ),
-        "down" => router.route(
-            "/api/v1/network/tailscale/down",
-            axum::routing::post(down_route),
-        ),
-        "authkey" => router.route(
-            "/api/v1/network/tailscale/authkey",
-            axum::routing::post(authkey_route),
-        ),
-        "tailnet" => router.route(
-            "/api/v1/network/tailscale/tailnet",
-            axum::routing::post(tailnet_route),
-        ),
-        _ => router,
-    }
 }
