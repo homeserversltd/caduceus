@@ -1,0 +1,26 @@
+{
+  "namespace": "linker/browse",
+  "admittance": "admitted",
+  "flags": {},
+  "commands": [
+    "linker browse"
+  ],
+  "serve": [
+    {
+      "snake": "linker/browse",
+      "verb": [
+        "linker",
+        "browse"
+      ],
+      "envelope": {
+        "stdin": "json",
+        "keys": [
+          "path"
+        ]
+      },
+      "payload": {
+        "path": "string"
+      }
+    }
+  ]
+}

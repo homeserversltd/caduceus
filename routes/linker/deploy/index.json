@@ -1,0 +1,30 @@
+{
+  "namespace": "linker/deploy",
+  "admittance": "admitted",
+  "flags": {},
+  "commands": [
+    "linker deploy"
+  ],
+  "serve": [
+    {
+      "snake": "linker/deploy",
+      "verb": [
+        "linker",
+        "deploy"
+      ],
+      "envelope": {
+        "stdin": "json",
+        "keys": [
+          "conflict_strategy",
+          "destination",
+          "sources"
+        ]
+      },
+      "payload": {
+        "sources": "array<string>",
+        "destination": "string",
+        "conflict_strategy": "string"
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "namespace": "keyman/admin-password",
+  "admittance": "admitted",
+  "flags": {},
+  "commands": [
+    "keyman admin-password"
+  ],
+  "serve": [
+    {
+      "snake": "keyman/admin-password",
+      "verb": [
+        "keyman",
+        "admin-password"
+      ],
+      "envelope": {
+        "stdin": "json",
+        "keys": [
+          "new_password",
+          "old_password",
+          "planned"
+        ]
+      },
+      "payload": {
+        "old_password": "string",
+        "new_password": "string",
+        "planned": "boolean"
+      }
+    }
+  ]
+}

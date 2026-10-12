@@ -1,0 +1,26 @@
+{
+  "namespace": "linker/delete",
+  "admittance": "admitted",
+  "flags": {},
+  "commands": [
+    "linker delete"
+  ],
+  "serve": [
+    {
+      "snake": "linker/delete",
+      "verb": [
+        "linker",
+        "delete"
+      ],
+      "envelope": {
+        "stdin": "json",
+        "keys": [
+          "path"
+        ]
+      },
+      "payload": {
+        "path": "string"
+      }
+    }
+  ]
+}

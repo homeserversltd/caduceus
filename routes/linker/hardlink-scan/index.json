@@ -1,0 +1,26 @@
+{
+  "namespace": "linker/hardlink-scan",
+  "admittance": "admitted",
+  "flags": {},
+  "commands": [
+    "linker hardlink-scan"
+  ],
+  "serve": [
+    {
+      "snake": "linker/hardlink-scan",
+      "verb": [
+        "linker",
+        "hardlink-scan"
+      ],
+      "envelope": {
+        "stdin": "json",
+        "keys": [
+          "path"
+        ]
+      },
+      "payload": {
+        "path": "string"
+      }
+    }
+  ]
+}

@@ -108,6 +108,16 @@ commands:
 - network device connect
 - network device disconnect
 - network device ipv4
+- keyman admin-password
+- keyman create-key
+- keyman key-status
+- keyman update-key
+- linker browse
+- linker delete
+- linker deploy
+- linker hardlink-scan
+- linker mkdir
+- linker rename
 harmonia_routes:
   interactable_list:
     bin: /usr/local/bin/harmonia
@@ -263,3 +273,13 @@ routes:
 - network/device/connect
 - network/device/disconnect
 - network/device/ipv4
+- keyman/admin-password
+- keyman/create-key
+- keyman/key-status
+- keyman/update-key
+- linker/browse
+- linker/delete
+- linker/deploy
+- linker/hardlink-scan
+- linker/mkdir
+- linker/rename

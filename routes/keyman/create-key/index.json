@@ -1,0 +1,32 @@
+{
+  "namespace": "keyman/create-key",
+  "admittance": "admitted",
+  "flags": {},
+  "commands": [
+    "keyman create-key"
+  ],
+  "serve": [
+    {
+      "snake": "keyman/create-key",
+      "verb": [
+        "keyman",
+        "create-key"
+      ],
+      "envelope": {
+        "stdin": "json",
+        "keys": [
+          "password",
+          "planned",
+          "strategy",
+          "target"
+        ]
+      },
+      "payload": {
+        "target": "string",
+        "strategy": "string",
+        "password": "string",
+        "planned": "boolean"
+      }
+    }
+  ]
+}

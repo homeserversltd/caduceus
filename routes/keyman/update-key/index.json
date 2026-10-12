@@ -1,0 +1,32 @@
+{
+  "namespace": "keyman/update-key",
+  "admittance": "admitted",
+  "flags": {},
+  "commands": [
+    "keyman update-key"
+  ],
+  "serve": [
+    {
+      "snake": "keyman/update-key",
+      "verb": [
+        "keyman",
+        "update-key"
+      ],
+      "envelope": {
+        "stdin": "json",
+        "keys": [
+          "current_password",
+          "device",
+          "planned",
+          "strategy"
+        ]
+      },
+      "payload": {
+        "device": "string",
+        "strategy": "string",
+        "current_password": "string",
+        "planned": "boolean"
+      }
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "namespace": "keyman/key-status",
+  "admittance": "admitted",
+  "flags": {},
+  "commands": [
+    "keyman key-status"
+  ],
+  "serve": [
+    {
+      "snake": "keyman/key-status",
+      "verb": [
+        "keyman",
+        "key-status"
+      ],
+      "envelope": {
+        "stdin": "json",
+        "keys": [
+          "planned"
+        ]
+      },
+      "payload": {
+        "planned": "boolean"
+      }
+    }
+  ]
+}
