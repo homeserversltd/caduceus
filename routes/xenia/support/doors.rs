@@ -3,7 +3,7 @@ use axum::extract::{rejection::JsonRejection, Path};
 use axum::http::StatusCode;
 use axum::Json;
 use serde_json::{json, Map, Value};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 type Reply = (StatusCode, Json<Value>);
 type Body = std::result::Result<Json<Value>, JsonRejection>;
@@ -44,11 +44,15 @@ fn result_value(result: Result<Value>, verb: &str) -> Value {
     }
 }
 
-/// Exactly one attempt to append the door outcome. This is also the sole
-/// emission path for malformed requests, policy refusals and worker failures.
-/// A ledger error cannot turn an already-written transaction into success or
-/// pretend to roll it back: the prior outcome is retained in the failure.
-fn finish(id: &str, door: &str, mut value: Value) -> Reply {
+/// Exactly one attempt to append the bounded outcome for a declared mutation.
+/// Read-classified runs leave no line.
+fn finish(
+    id: &str,
+    door: &str,
+    records_deed: bool,
+    duration_ms: u64,
+    mut value: Value,
+) -> Reply {
     let form = if value["ok"] == true && value["verdict"] == "admissible" {
         Some("admissible")
     } else if value["ok"] == true && value["verdict"] == "ran" {
@@ -63,19 +67,37 @@ fn finish(id: &str, door: &str, mut value: Value) -> Reply {
         value = error.value();
         value["observed"] = json!({"door_outcome": prior});
     }
-    let event = json!({"kind": "xenia", "organ": "caduceus", "correlation_id": id,
-        "ok": value["ok"], "level": if value["ok"] == true {"info"} else {"warn"},
-        "message": format!("xenia {door}: {}", value["verdict"].as_str().unwrap_or("refused")),
-        "attributes_redacted": value});
-    if let Err(error) = crate::shared::hyalos::reflect_json(event) {
-        let mut failure = observation(
-            "hyalos",
-            "event",
-            format!("hyalos-emission-failed: {error}"),
-        )
-        .value();
-        failure["observed"] = json!({"door_outcome": value});
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(failure));
+    if records_deed {
+        let ok = value["ok"] == true;
+        if let Err(error) = crate::shared::hyalos::reflect_json(json!({
+            "kind": "xenia",
+            "organ": "caduceus",
+            "correlation_id": id,
+            "ok": ok,
+            "level": if ok {"info"} else {"warn"},
+            "message": "xenia deed",
+            "attributes_redacted": {
+                "who": "caduceus",
+                "verb": door,
+                "target": "xenia",
+                "outcome": value["verdict"].as_str().unwrap_or("refused"),
+                "duration_ms": duration_ms,
+                "signal": value.get("firstMissingSignal").or_else(|| value.get("signal")).or_else(|| {
+                    if value["ok"] == false { value.get("message") } else { None }
+                }),
+                "first_missing_field": value.get("firstMissingField").or_else(|| value.get("field")),
+            }
+        })) {
+            let prior = value;
+            let mut failure = observation(
+                "hyalos",
+                "event",
+                format!("hyalos-emission-failed: {error}"),
+            )
+            .value();
+            failure["observed"] = json!({"door_outcome": prior});
+            return (StatusCode::SERVICE_UNAVAILABLE, Json(failure));
+        }
     }
     let status = if value["ok"] == true {
         StatusCode::OK
@@ -92,7 +114,40 @@ fn finish(id: &str, door: &str, mut value: Value) -> Reply {
     (status, Json(value))
 }
 
+fn run_records_deed(body: &Result<Value>) -> bool {
+    let envelope = body.as_ref().ok().and_then(|value| value.get("envelope"));
+    let Some(envelope) = envelope else {
+        return true;
+    };
+    if let Some(mutation_allowed) = envelope.get("mutation_allowed").and_then(Value::as_bool) {
+        return mutation_allowed;
+    }
+    let Some(transition) = envelope.get("transition").and_then(Value::as_str) else {
+        return true;
+    };
+    let verb = transition
+        .rsplit(|character| matches!(character, '.' | '/' | ':'))
+        .next()
+        .unwrap_or(transition);
+    !matches!(
+        verb,
+        "status"
+            | "list"
+            | "get"
+            | "poll"
+            | "observe"
+            | "health"
+            | "inspect"
+            | "validate"
+            | "query"
+            | "read"
+            | "show"
+            | "check"
+    )
+}
+
 async fn mutation_or_validation(body: Body, mutate: bool) -> Reply {
+    let started = Instant::now();
     let body = input(body);
     let id = body
         .as_ref()
@@ -112,6 +167,8 @@ async fn mutation_or_validation(body: Body, mutate: bool) -> Reply {
     finish(
         &id,
         if mutate { "admit" } else { "validate" },
+        mutate,
+        u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         result_value(result, verb),
     )
 }
@@ -124,6 +181,7 @@ pub async fn admit(body: Body) -> Reply {
 }
 
 pub async fn observe(Path(id): Path<String>, body: Body) -> Reply {
+    let started = Instant::now();
     let parsed = input(body);
     let worker_id = id.clone();
     let result = tokio::task::spawn_blocking(move || -> Result<Value> {
@@ -187,11 +245,19 @@ pub async fn observe(Path(id): Path<String>, body: Body) -> Reply {
     })
     .await
     .unwrap_or_else(|error| Err(observation("transaction", "worker", error.to_string())));
-    finish(&id, "observe", result_value(result, "admissible"))
+    finish(
+        &id,
+        "observe",
+        true,
+        u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        result_value(result, "admissible"),
+    )
 }
 
 pub async fn run(Path(id): Path<String>, body: Body) -> Reply {
+    let started = Instant::now();
     let parsed = input(body);
+    let records_deed = run_records_deed(&parsed);
     let worker_id = id.clone();
     let result = tokio::task::spawn_blocking(move || -> Result<Value> {
         seat::startup().map_err(|e| observation("schema", "startup", e))?;
@@ -293,10 +359,17 @@ pub async fn run(Path(id): Path<String>, body: Body) -> Reply {
     })
     .await
     .unwrap_or_else(|error| Err(observation("transaction", "worker", error.to_string())));
-    finish(&id, "run", result_value(result, "ran"))
+    finish(
+        &id,
+        "run",
+        records_deed,
+        u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        result_value(result, "ran"),
+    )
 }
 
 pub async fn remove(body: Body) -> Reply {
+    let started = Instant::now();
     let body = input(body);
     let id = body
         .as_ref()
@@ -314,7 +387,13 @@ pub async fn remove(body: Body) -> Reply {
     })
     .await
     .unwrap_or_else(|error| Err(observation("transaction", "worker", error.to_string())));
-    finish(&id, "remove", result_value(result, "removed"))
+    finish(
+        &id,
+        "remove",
+        true,
+        u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        result_value(result, "removed"),
+    )
 }
 
 fn read_status(id: Option<&str>) -> Result<Value> {
@@ -384,7 +463,13 @@ async fn status_call(id: Option<String>) -> Reply {
         value["suggestion"] =
             json!("Restore the named systemctl/proc observation and repeat status.");
     }
-    finish(&correlation, "status", value)
+    finish(
+        &correlation,
+        "status",
+        false,
+        0,
+        value,
+    )
 }
 
 pub async fn status() -> Reply {

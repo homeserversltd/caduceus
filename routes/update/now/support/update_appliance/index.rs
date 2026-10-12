@@ -1,5 +1,6 @@
 use crate::shared::{config, harmonia, receipts, systemd};
 use serde_json::{json, Value};
+use std::time::Instant;
 
 pub fn read_json() -> Result<Value, String> {
     let profile_ok = config::public_profile_present();
@@ -30,9 +31,13 @@ pub fn invoke_now_json(rest: &[String]) -> Value {
         .filter(|arg| *arg != "--dry-run")
         .cloned()
         .collect();
+    let started = Instant::now();
     let (code, body) = harmonia::invoke("update_now", &flags, dry_run);
     if !dry_run {
-        let _ = receipts::write_latest(&body);
+        let _ = receipts::write_latest_with_duration(
+            &body,
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        );
     }
     harmonia::invoke_body_to_json("update_now", code, &body)
 }
@@ -45,9 +50,6 @@ pub fn invoke_check_json(rest: &[String]) -> Value {
         .cloned()
         .collect();
     let (code, body) = harmonia::invoke("update_check", &flags, dry_run);
-    if !dry_run {
-        let _ = receipts::write_latest(&body);
-    }
     harmonia::invoke_body_to_json("update_check", code, &body)
 }
 
@@ -125,13 +127,17 @@ pub fn service_toggle_json(state: &str, rest: &[String]) -> Result<Value, String
         }));
     }
 
+    let started = Instant::now();
     let receipt = update_service_receipt(state)?;
     let mut response =
         update_service_response(receipt, "caduceus.update.service.toggle.v1", &timer);
     response["mutation"] = json!(true);
     response["requestedState"] = json!(state);
     let receipt_body = response.to_string();
-    let _ = receipts::write_latest(&receipt_body);
+    let _ = receipts::write_latest_with_duration(
+        &receipt_body,
+        u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+    );
     Ok(response)
 }
 

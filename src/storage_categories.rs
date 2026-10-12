@@ -6,9 +6,9 @@ use std::io::ErrorKind;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 const SCHEMA: &str = "caduceus.storage.categories.v1";
-const RECEIPT_SCHEMA: &str = "caduceus.storage.categories.scan.receipt.v1";
 const MAX_DIAGNOSTICS: usize = 64;
 const MAX_DIAGNOSTIC_BYTES: usize = 256;
 
@@ -330,9 +330,77 @@ fn run_id() -> String {
 fn state_path() -> PathBuf {
     crate::shared::config::path("var/lib/caduceus/state/storage-categories.json")
 }
-fn receipt_path(run_id: &str) -> PathBuf {
-    crate::shared::config::path(&format!("var/lib/caduceus/receipts/{run_id}/run.json"))
+fn latest_path() -> PathBuf {
+    crate::shared::config::path("var/lib/caduceus/receipts/latest/storage-categories.json")
 }
+
+fn is_storage_run_id(value: &str) -> bool {
+    let Some(value) = value.strip_prefix("storage-categories-") else {
+        return false;
+    };
+    let Some((stamp, pid)) = value.rsplit_once('-') else {
+        return false;
+    };
+    let bytes = stamp.as_bytes();
+    bytes.len() == 25
+        && bytes[..8].iter().all(u8::is_ascii_digit)
+        && bytes[8] == b'T'
+        && bytes[9..15].iter().all(u8::is_ascii_digit)
+        && bytes[15..24].iter().all(u8::is_ascii_digit)
+        && bytes[24] == b'Z'
+        && !pid.is_empty()
+        && pid.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn remove_legacy_run_directories() -> Result<(), String> {
+    let root = crate::shared::config::path("var/lib/caduceus/receipts");
+    let entries = match fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("caduceus-storage-categories-receipt-cleanup-failed".into()),
+    };
+    for entry in entries {
+        let entry = entry
+            .map_err(|_| "caduceus-storage-categories-receipt-cleanup-failed")?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !is_storage_run_id(name) {
+            continue;
+        }
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|_| "caduceus-storage-categories-receipt-cleanup-failed")?;
+        if metadata.file_type().is_dir() {
+            fs::remove_dir_all(path)
+                .map_err(|_| "caduceus-storage-categories-receipt-cleanup-failed")?;
+        }
+    }
+    Ok(())
+}
+
+fn record_scan_deed(run_id: &str, ok: bool, duration_ms: u64, signal: &str) -> Result<(), String> {
+    crate::shared::hyalos::reflect_json(json!({
+        "organ": "caduceus",
+        "kind": "storage-scan",
+        "correlation_id": run_id,
+        "ok": ok,
+        "level": if ok {"info"} else {"warn"},
+        "message": "storage categories scan",
+        "attributes_redacted": {
+            "who": "caduceus",
+            "verb": "scan",
+            "target": "storage-categories",
+            "outcome": if ok {"success"} else {"failure"},
+            "duration_ms": duration_ms,
+            "signal": signal
+        }
+    }))
+    .map(|_| ())
+    .map_err(|_| "caduceus-storage-categories-ledger-failed".to_string())
+}
+
 fn ensure_parent(path: &Path) -> Result<(), String> {
     let parent = path
         .parent()
@@ -463,46 +531,35 @@ fn build_snapshot(run_id: &str) -> Value {
     }
     json!({"schema":SCHEMA,"ok":true,"capturedAt":Utc::now().to_rfc3339(),"runId":run_id,"receiptPath":format!("/var/lib/caduceus/receipts/{run_id}/run.json"),"categoryCount":groups.len(),"rootCount":roots.len(),"totalBytes":total_bytes,"fileCount":file_count,"categories":groups,"syncManifest":{"available":manifest_path.is_some(),"path":manifest_path,"entries":manifest},"diagnostics":{"missingRoots":missing,"permissionErrors":permission,"scanErrors":errors},"firstMissingSignal":"none"})
 }
-fn receipt(
-    run_id: &str,
-    started: &str,
-    status: &str,
-    snapshot: Option<&Value>,
-    error: Option<&str>,
-) -> Value {
-    let summary=snapshot.map(|v|json!({"schema":v["schema"],"categoryCount":v["categoryCount"],"rootCount":v["rootCount"],"totalBytes":v["totalBytes"],"fileCount":v["fileCount"]})).unwrap_or(Value::Null);
-    json!({"schema":RECEIPT_SCHEMA,"ok":status=="completed","command":"storage categories scan","runId":run_id,"state":status,"startedAt":started,"finishedAt":if status=="started"{Value::Null}else{json!(Utc::now().to_rfc3339())},"receiptPath":format!("/var/lib/caduceus/receipts/{run_id}/run.json"),"snapshotPath":"/var/lib/caduceus/state/storage-categories.json","snapshotSchema":SCHEMA,"categoryCount":summary.get("categoryCount").cloned().unwrap_or(Value::Null),"rootCount":summary.get("rootCount").cloned().unwrap_or(Value::Null),"totalBytes":summary.get("totalBytes").cloned().unwrap_or(Value::Null),"fileCount":summary.get("fileCount").cloned().unwrap_or(Value::Null),"mutationPerformed":status=="completed","error":error,"firstMissingSignal":if status=="completed"{"none"}else{"caduceus-storage-categories-scan-failed"}})
-}
-
 pub fn scan_json() -> Result<Value, String> {
+    let started = Instant::now();
     let _guard = scan_lock()
         .lock()
         .map_err(|_| "caduceus-storage-categories-lock-poisoned".to_string())?;
     let run_id = run_id();
-    let receipt_file = receipt_path(&run_id);
-    let started_at = Utc::now().to_rfc3339();
-    write_json(
-        &receipt_file,
-        &receipt(&run_id, &started_at, "started", None, None),
-    )?;
     let snapshot = build_snapshot(&run_id);
-    if let Err(error) = write_json(&state_path(), &snapshot) {
-        let _ = write_json(
-            &receipt_file,
-            &receipt(
-                &run_id,
-                &started_at,
-                "failed",
-                Some(&snapshot),
-                Some(&error),
-            ),
-        );
-        return Err(error);
-    }
+    let snapshot_write = write_json(&state_path(), &snapshot);
+    let ok = snapshot_write.is_ok();
+    let state = if ok { "completed" } else { "failed" };
+    let signal = if ok {
+        "none"
+    } else {
+        "caduceus-storage-categories-scan-failed"
+    };
+    let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     write_json(
-        &receipt_file,
-        &receipt(&run_id, &started_at, "completed", Some(&snapshot), None),
+        &latest_path(),
+        &json!({
+            "runId": run_id.clone(),
+            "state": state,
+            "ok": ok,
+            "durationMs": duration_ms,
+            "signal": signal
+        }),
     )?;
+    remove_legacy_run_directories()?;
+    record_scan_deed(&run_id, ok, duration_ms, signal)?;
+    snapshot_write?;
     Ok(snapshot)
 }
 pub fn cached_json() -> Result<Value, String> {

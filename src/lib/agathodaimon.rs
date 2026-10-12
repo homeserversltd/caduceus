@@ -16,9 +16,17 @@ fn first_stderr_line(stderr: &[u8]) -> String {
         .collect()
 }
 
-fn reflect_failure(noun: &str, verb: &str, class: &str, exit: Option<i32>, stderr: &str) {
+fn reflect_failure(
+    noun: &str,
+    verb: &str,
+    outcome: &str,
+    signal: &str,
+    first_missing_field: Option<&str>,
+    duration_ms: u64,
+    record_failure: bool,
+) {
     // Public bundle reads are observational and must not emit Hyalos writes.
-    if noun == "cert" && verb == "house-ca" {
+    if !record_failure || (noun == "cert" && verb == "house-ca") {
         return;
     }
     // Reflection is deliberately best effort: it must never replace the crossing result.
@@ -27,13 +35,15 @@ fn reflect_failure(noun: &str, verb: &str, class: &str, exit: Option<i32>, stder
         "kind": "crossing-failure",
         "level": "error",
         "ok": false,
-        "message": format!("agathodaimon crossing failed: {noun} {verb}"),
+        "message": "agathodaimon crossing failed",
         "attributes_redacted": {
-            "noun": noun,
+            "who": "agathodaimon",
             "verb": verb,
-            "class": class,
-            "exit": exit,
-            "stderr": stderr,
+            "target": noun,
+            "outcome": outcome,
+            "duration_ms": duration_ms,
+            "signal": signal,
+            "first_missing_field": first_missing_field,
         }
     }));
 }
@@ -45,8 +55,18 @@ fn failure(
     exit: Option<i32>,
     stderr: &str,
     signal: &str,
+    duration_ms: u64,
+    record_failure: bool,
 ) -> Value {
-    reflect_failure(noun, verb, class, exit, stderr);
+    reflect_failure(
+        noun,
+        verb,
+        "failure",
+        signal,
+        None,
+        duration_ms,
+        record_failure,
+    );
     json!({
         "ok": false,
         "noun": noun,
@@ -65,8 +85,31 @@ fn failure_from_value(
     exit: Option<i32>,
     stderr: &str,
     mut value: Value,
+    duration_ms: u64,
+    record_failure: bool,
 ) -> Value {
-    reflect_failure(noun, verb, class, exit, stderr);
+    let signal = value
+        .get("firstMissingSignal")
+        .and_then(Value::as_str)
+        .unwrap_or(if noun == "cert" && verb == "house-ca" {
+            "caduceus-house-ca-refused"
+        } else {
+            "caduceus-agathodaimon-cli-refused"
+        });
+    let first_missing_field = value
+        .get("firstMissingField")
+        .or_else(|| value.get("field"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    reflect_failure(
+        noun,
+        verb,
+        "failure",
+        signal,
+        first_missing_field.as_deref(),
+        duration_ms,
+        record_failure,
+    );
     if let Some(object) = value.as_object_mut() {
         object.insert("class".into(), Value::String(class.to_string()));
         object.insert("exit".into(), exit.map_or(Value::Null, |code| json!(code)));
@@ -95,6 +138,10 @@ fn failure_from_value(
     })
 }
 
+fn elapsed_ms(started: &std::time::Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
 fn args(input: &Value) -> impl Iterator<Item = &str> {
     input
         .get("args")
@@ -110,7 +157,9 @@ fn run_command(
     verb: &str,
     input: &Value,
     write_input: bool,
+    record_failure: bool,
 ) -> Result<Value, Value> {
+    let started = std::time::Instant::now();
     let mut child = command
         .stdin(if write_input {
             Stdio::piped()
@@ -128,6 +177,8 @@ fn run_command(
                 None,
                 &err.to_string(),
                 "caduceus-agathodaimon-cli-unavailable",
+                elapsed_ms(&started),
+                record_failure,
             )
         })?;
     if write_input {
@@ -139,6 +190,8 @@ fn run_command(
                 None,
                 &err.to_string(),
                 "caduceus-agathodaimon-cli-input-serialization-failed",
+                elapsed_ms(&started),
+                record_failure,
             )
         })?;
         let mut stdin = child.stdin.take().ok_or_else(|| {
@@ -149,6 +202,8 @@ fn run_command(
                 None,
                 "",
                 "caduceus-agathodaimon-cli-stdin-unavailable",
+                elapsed_ms(&started),
+                record_failure,
             )
         })?;
         if let Err(err) = stdin.write_all(&payload) {
@@ -159,6 +214,8 @@ fn run_command(
                 None,
                 &err.to_string(),
                 "caduceus-agathodaimon-cli-stdin-write-failed",
+                elapsed_ms(&started),
+                record_failure,
             ));
         }
         drop(stdin);
@@ -171,6 +228,8 @@ fn run_command(
             None,
             &err.to_string(),
             "caduceus-agathodaimon-cli-wait-failed",
+            elapsed_ms(&started),
+            record_failure,
         )
     })?;
     let exit = output.status.code();
@@ -183,6 +242,8 @@ fn run_command(
             exit,
             &stderr,
             "firewall-staff-output-too-large",
+            elapsed_ms(&started),
+            record_failure,
         ));
     }
     let value: Value = serde_json::from_slice(&output.stdout).map_err(|_| {
@@ -194,6 +255,8 @@ fn run_command(
                 exit,
                 &stderr,
                 "caduceus-agathodaimon-cli-nonzero-output-invalid-json",
+                elapsed_ms(&started),
+                record_failure,
             )
         } else {
             failure(
@@ -203,21 +266,68 @@ fn run_command(
                 exit,
                 &stderr,
                 "caduceus-agathodaimon-cli-output-invalid-json",
+                elapsed_ms(&started),
+                record_failure,
             )
         }
     })?;
     if !output.status.success() {
-        return Err(failure_from_value(noun, verb, "exit", exit, &stderr, value));
+        return Err(failure_from_value(
+            noun,
+            verb,
+            "exit",
+            exit,
+            &stderr,
+            value,
+            elapsed_ms(&started),
+            record_failure,
+        ));
     }
     if value.get("ok").and_then(Value::as_bool) != Some(true) {
-        return Err(failure_from_value(noun, verb, "exit", exit, &stderr, value));
+        return Err(failure_from_value(
+            noun,
+            verb,
+            "exit",
+            exit,
+            &stderr,
+            value,
+            elapsed_ms(&started),
+            record_failure,
+        ));
     }
     Ok(value)
+}
+
+fn is_read_crossing(noun: &str, verb: &str, input: &Value) -> bool {
+    matches!(
+        verb,
+        "status"
+            | "list"
+            | "get"
+            | "poll"
+            | "observe"
+            | "health"
+            | "inspect"
+            | "validate"
+            | "query"
+            | "read"
+            | "show"
+            | "check"
+    ) || (noun == "settings" && args(input).next() == Some("get"))
 }
 
 /// Cross the privileged agathodaimon Python CLI using its noun/verb grammar.
 /// JSON is kept on stdin so the helper does not reinterpret command payloads.
 pub(crate) fn crossing_value(noun: &str, verb: &str, input: &Value) -> Result<Value, Value> {
+    crossing_value_with_record(noun, verb, input, !is_read_crossing(noun, verb, input))
+}
+
+pub(crate) fn crossing_value_with_record(
+    noun: &str,
+    verb: &str,
+    input: &Value,
+    record_failure: bool,
+) -> Result<Value, Value> {
     for (selector, variable) in [
         (noun == "time", "CADUCEUS_TIME_CMD"),
         (noun == "network" && verb == "dns", "CADUCEUS_DNS_CMD"),
@@ -235,7 +345,7 @@ pub(crate) fn crossing_value(noun: &str, verb: &str, input: &Value) -> Result<Va
                         command.arg(verb);
                     }
                     command.args(args(input));
-                    return run_command(command, noun, verb, input, false);
+                    return run_command(command, noun, verb, input, false, record_failure);
                 }
             }
         }
@@ -251,7 +361,7 @@ pub(crate) fn crossing_value(noun: &str, verb: &str, input: &Value) -> Result<Va
         command.args(["-n", &cli, noun, verb]);
         command
     };
-    run_command(command, noun, verb, input, true)
+    run_command(command, noun, verb, input, true, record_failure)
 }
 
 /// Cross the same membrane while preserving the staff refusal envelope.

@@ -8,6 +8,7 @@
 use crate::shared::agathodaimon;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::path::Path;
 
 pub const FAMILIES: &[&str] = &[
     "display",
@@ -19,6 +20,43 @@ pub const FAMILIES: &[&str] = &[
     "datetime",
 ];
 const RECEIPT_ROOT: &str = "/var/lib/caduceus/receipts/";
+
+fn discard_transient_receipt(value: &Value) {
+    let Some(path) = value.get("receiptPath").and_then(Value::as_str) else {
+        return;
+    };
+    let Some(relative) = path.strip_prefix(RECEIPT_ROOT) else {
+        return;
+    };
+    let mut components = Path::new(relative).components();
+    let Some(std::path::Component::Normal(run_id)) = components.next() else {
+        return;
+    };
+    if !matches!(components.next(), Some(std::path::Component::Normal(name)) if name.to_str() == Some("run.json"))
+        || components.next().is_some()
+    {
+        return;
+    }
+    let Some(run_id) = run_id.to_str() else {
+        return;
+    };
+    if run_id.is_empty() || run_id == "latest" || path != format!("{RECEIPT_ROOT}{run_id}/run.json") {
+        return;
+    }
+    let run_directory = crate::shared::config::path(&format!("{RECEIPT_ROOT}{run_id}"));
+    if !std::fs::symlink_metadata(&run_directory)
+        .is_ok_and(|metadata| metadata.file_type().is_dir())
+    {
+        return;
+    }
+    let receipt_file = crate::shared::config::path(path);
+    let is_regular_receipt = std::fs::symlink_metadata(&receipt_file)
+        .is_ok_and(|metadata| metadata.file_type().is_file());
+    if !is_regular_receipt || std::fs::remove_file(&receipt_file).is_err() {
+        return;
+    }
+    let _ = std::fs::remove_dir(run_directory);
+}
 
 fn fields(family: &str) -> Option<&'static [&'static str]> {
     match family {
@@ -93,7 +131,13 @@ pub fn mutate_command(family: &str) -> Option<String> {
 
 fn run(family: &str, args: &[String]) -> Result<Value, String> {
     let input = json!({"args": args, "receiptRoot": RECEIPT_ROOT});
-    agathodaimon::crossing_value("settings", family, &input).map_err(|value| {
+    agathodaimon::crossing_value_with_record(
+        "settings",
+        family,
+        &input,
+        args.first().map(String::as_str) != Some("get"),
+    )
+    .map_err(|value| {
         value
             .get("firstMissingSignal")
             .or_else(|| value.get("error"))
@@ -182,9 +226,9 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
         .and_then(Value::as_str)
         .filter(|path| path.starts_with(RECEIPT_ROOT) && path.ends_with("/run.json"))
         .ok_or_else(|| "caduceus-settings-receipt-path-invalid".to_string())?;
-    Ok(
-        json!({"schema":"caduceus.settings.mutation.v1","ok":true,"family":family,"changed":receipt.get("changed").and_then(Value::as_bool).unwrap_or(true),"fields":values.keys().collect::<Vec<_>>(),"receiptPath":receipt_path,"receipt":receipt,"firstMissingSignal":"none"}),
-    )
+    let result = json!({"schema":"caduceus.settings.mutation.v1","ok":true,"family":family,"changed":receipt.get("changed").and_then(Value::as_bool).unwrap_or(true),"fields":values.keys().collect::<Vec<_>>(),"receiptPath":receipt_path,"receipt":receipt,"firstMissingSignal":"none"});
+    discard_transient_receipt(&result);
+    Ok(result)
 }
 
 pub fn command(family: &str, args: &[String]) -> i32 {

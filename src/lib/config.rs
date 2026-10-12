@@ -10,6 +10,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Instant;
 
 pub fn root() -> PathBuf {
     std::env::var_os("CADUCEUS_ROOT")
@@ -256,6 +257,94 @@ fn get_dotted<'a>(document: &'a Value, path: &str) -> Option<&'a Value> {
         .try_fold(document, |value, key| value.get(key))
 }
 
+fn is_household_config_receipt_file(name: &str) -> bool {
+    let Some(stamp) = name
+        .strip_prefix("household-config-")
+        .and_then(|name| name.strip_suffix(".json"))
+    else {
+        return false;
+    };
+    let bytes = stamp.as_bytes();
+    bytes.len() == 25
+        && bytes[..8].iter().all(u8::is_ascii_digit)
+        && bytes[8] == b'T'
+        && bytes[9..15].iter().all(u8::is_ascii_digit)
+        && bytes[15..24].iter().all(u8::is_ascii_digit)
+        && bytes[24] == b'Z'
+}
+
+fn remove_legacy_household_config_receipts() -> Result<(), String> {
+    let root = paths::path("/var/lib/caduceus/receipts");
+    let entries = match fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("caduceus-household-config-receipt-failed".to_string()),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|_| "caduceus-household-config-receipt-failed")?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !is_household_config_receipt_file(&name) {
+            continue;
+        }
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|_| "caduceus-household-config-receipt-failed")?;
+        if metadata.file_type().is_file() {
+            fs::remove_file(path)
+                .map_err(|_| "caduceus-household-config-receipt-failed")?;
+        }
+    }
+    Ok(())
+}
+
+fn write_household_config_receipt(
+    op: &str,
+    run_id: &str,
+    duration_ms: u64,
+) -> Result<(), String> {
+    let latest = json!({
+        "runId": run_id,
+        "who": "caduceus",
+        "verb": op,
+        "target": "household-config",
+        "outcome": "success",
+        "ok": true,
+        "durationMs": duration_ms,
+        "signal": "none"
+    });
+    let mut bytes = serde_json::to_vec(&latest)
+        .map_err(|_| "caduceus-household-config-receipt-failed".to_string())?;
+    bytes.push(b'\n');
+    let path = paths::path("/var/lib/caduceus/receipts/latest/household-config.json");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|_| "caduceus-household-config-receipt-failed".to_string())?;
+    }
+    atomic_write_owned(&path, &bytes, 0o640)
+        .map_err(|_| "caduceus-household-config-receipt-failed".to_string())?;
+    remove_legacy_household_config_receipts()?;
+    crate::shared::hyalos::reflect_json(json!({
+        "organ": "caduceus",
+        "kind": "household-config",
+        "correlation_id": run_id,
+        "ok": true,
+        "level": "info",
+        "message": "household configuration changed",
+        "attributes_redacted": {
+            "who": "caduceus",
+            "verb": op,
+            "target": "household-config",
+            "outcome": "success",
+            "duration_ms": duration_ms,
+            "signal": "none"
+        }
+    }))
+    .map(|_| ())
+    .map_err(|_| "caduceus-household-config-receipt-failed".to_string())
+}
+
 /// A narrow rollback token for one dotted JSON set. It records only the old
 /// leaf and ancestors absent when that set ran; rollback never replaces a
 /// later whole-document snapshot.
@@ -420,6 +509,7 @@ fn mutate_with_rollback(
     capture_rollback: Option<&mut Option<JsonSetRollback>>,
     restore: Option<JsonSetRollback>,
 ) -> Result<Value, String> {
+    let started = Instant::now();
     let _guard = transaction_lock()?;
     let resolved = resolve()?;
     ensure_not_symlink_target(&resolved.fs_path)?;
@@ -504,16 +594,8 @@ fn mutate_with_rollback(
         "readWritePaths": [resolved.device_path, backup_device],
         "firstMissingSignal": "none",
     });
-    let receipt_device = format!("/var/lib/caduceus/receipts/household-config-{stamp}.json");
-    let receipt_fs = paths::path(&receipt_device);
-    if let Some(parent) = receipt_fs.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|_| "caduceus-household-config-receipt-failed".to_string())?;
-    }
-    let rendered_receipt = serde_json::to_vec_pretty(&receipt)
-        .map_err(|_| "caduceus-household-config-receipt-failed".to_string())?;
-    fs::write(&receipt_fs, rendered_receipt)
-        .map_err(|_| "caduceus-household-config-receipt-failed".to_string())?;
+    let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    write_household_config_receipt(op, &stamp, duration_ms)?;
     Ok(receipt)
 }
 

@@ -12,6 +12,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::Value;
+use std::time::Instant;
 
 #[derive(Deserialize)]
 struct VaultSupportUnlockBody {
@@ -180,6 +181,7 @@ pub(crate) async fn attendance_route(
         connect_info.as_ref(),
         Some(ConnectInfo(ConnectionInfo::Unix { .. }))
     );
+    let started = Instant::now();
     let result = match uri.path() {
         "/api/v1/exousia/open" | "/api/v1/attendance/open" => {
             attendance::open_request_json(&body, trusted_unix_carrier)
@@ -196,35 +198,35 @@ pub(crate) async fn attendance_route(
         }
         _ => Err("caduceus-attendance-route-invalid".to_string()),
     };
-    let signal = match &result {
-        Ok(value) => value.get("code").and_then(Value::as_str).unwrap_or("none"),
-        Err(error) => error.as_str(),
+    let verb = match uri.path() {
+        "/api/v1/exousia/open" | "/api/v1/attendance/open" => "open",
+        "/api/v1/exousia/touch" | "/api/v1/attendance/touch" => "touch",
+        "/api/v1/exousia/change-pin" | "/api/v1/access/pin/change" | "/api/v1/attendance/change-pin" => "change-pin",
+        "/api/v1/exousia/invalidate" | "/api/v1/attendance/invalidate" => "invalidate",
+        _ => "unknown",
     };
-    let attendance_id = body.get("attendance").and_then(Value::as_str).or_else(|| {
-        result
-            .as_ref()
-            .ok()
-            .and_then(|value| value.get("attendance"))
-            .and_then(Value::as_str)
-    });
-    eprintln!(
-        "{}",
-        serde_json::json!({
-            "event": "caduceus-access-request",
-            "route": uri.path(),
-            "firstMissingSignal": signal,
-            "documentId": body.get("documentId").and_then(Value::as_str),
-            "attendanceId": attendance_id,
-            "peer": connect_info.map(|ConnectInfo(peer)| peer.to_string()).unwrap_or_else(|| "unknown".to_string()),
-        })
-    );
-    let _ = hyalos::reflect_json(serde_json::json!({
-        "organ": "caduceus-attendance",
-        "kind": "admin-admission",
-        "ok": signal == "none",
-        "message": if signal == "none" { "attendance-admitted" } else { "attendance-refused" },
-        "attributes_redacted": { "route": uri.path(), "first_missing_signal": signal }
-    }));
+    if verb != "unknown" {
+        let signal = match &result {
+            Ok(value) => value.get("code").and_then(Value::as_str).unwrap_or("none"),
+            Err(error) => error.as_str(),
+        };
+        let ok = signal == "none";
+        let _ = hyalos::reflect_json(serde_json::json!({
+            "organ": "caduceus-attendance",
+            "kind": "admin-admission",
+            "ok": ok,
+            "level": if ok {"info"} else {"warn"},
+            "message": "attendance deed",
+            "attributes_redacted": {
+                "who": "caduceus-attendance",
+                "verb": verb,
+                "target": uri.path(),
+                "outcome": if ok {"success"} else {"failure"},
+                "duration_ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                "signal": if ok {Value::Null} else {Value::String(signal.to_string())},
+            }
+        }));
+    }
     match result {
         Ok(value) if value.get("ok").and_then(Value::as_bool) == Some(true) => Ok(Json(value)),
         Ok(value) => Err(api_error_signal(

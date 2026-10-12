@@ -9,7 +9,7 @@ pub fn invoke_update_now_json(rest: &[String]) -> Value {
         .cloned()
         .collect();
     let input = serde_json::json!({"args": flags, "dryRun": dry_run});
-    match agathodaimon::crossing_value("gui", "update", &input) {
+    match agathodaimon::crossing_value_with_record("gui", "update", &input, !dry_run) {
         Ok(value) => value,
         Err(value) => value,
     }

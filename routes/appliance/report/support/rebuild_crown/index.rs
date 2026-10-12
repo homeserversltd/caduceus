@@ -1,24 +1,10 @@
-use crate::shared::hyalos;
 use base64::Engine;
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const SCHEMA: &str = "caduceus.coronatio.source_currency.v1";
-const SOURCE_CURRENCY_CACHE_TTL: Duration = Duration::from_secs(60);
-
-struct SourceCurrencyCacheEntry {
-    read_at: Instant,
-    body: Value,
-}
-
-fn source_currency_cache() -> &'static Mutex<HashMap<String, SourceCurrencyCacheEntry>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, SourceCurrencyCacheEntry>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
 const DEFAULT_FORGEJO: &str = "http://127.0.0.1:3000";
 const REPOSITORY: &str = "HOMESERVERSLTD/coronatio";
 fn valid_sha(v: &str) -> bool {
@@ -130,17 +116,6 @@ pub fn source_currency_json(build: &str) -> Value {
             "unknown",
             Some("caduceus-build-sha-malformed"),
         );
-        reflect(&body);
-        return body;
-    }
-    if let Some(body) = source_currency_cache()
-        .lock()
-        .expect("source-currency cache locked")
-        .get(build)
-        .filter(|entry| entry.read_at.elapsed() < SOURCE_CURRENCY_CACHE_TTL)
-        .map(|entry| entry.body.clone())
-    {
-        reflect(&body);
         return body;
     }
     let result: Result<Value, String> = (|| -> Result<Value, String> {
@@ -195,31 +170,7 @@ pub fn source_currency_json(build: &str) -> Value {
         Ok(v) => v,
         Err(s) => response(build, false, None, "unknown", Some(&s)),
     };
-    source_currency_cache()
-        .lock()
-        .expect("source-currency cache locked")
-        .insert(
-            build.into(),
-            SourceCurrencyCacheEntry {
-                read_at: Instant::now(),
-                body: body.clone(),
-            },
-        );
-    reflect(&body);
     body
-}
-
-fn reflect(body: &Value) {
-    let ok = body.get("ok").and_then(Value::as_bool).unwrap_or(false);
-    let _ = hyalos::reflect_json(json!({
-        "organ": "coronatio-source-currency", "kind": "source-currency-check", "ok": ok,
-        "message": if ok { "source-currency-checked" } else { "source-currency-check-failed" },
-        "attributes_redacted": {
-            "buildSha": body.get("buildSha").cloned().unwrap_or(Value::Null),
-            "originMainSha": body.get("originMainSha").cloned().unwrap_or(Value::Null),
-            "relation": body.get("relation").cloned().unwrap_or(Value::Null)
-        }
-    }));
 }
 
 #[cfg(test)]

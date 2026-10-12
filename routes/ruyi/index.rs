@@ -2,7 +2,7 @@ use axum::{http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{Error, ErrorKind, Write};
+use std::io::{Error, ErrorKind};
 use std::{
     fs,
     net::Ipv4Addr,
@@ -969,12 +969,12 @@ pub(crate) fn local_stamp_sha() -> Result<Option<String>, String> {
 async fn remove(
     Path(mac): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
+    let started = Instant::now();
     if !valid_mac(&mac) {
         return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"));
     }
-    // The native log records actual removals only; an absent row writes no line.
-    let log_path = crate::shared::config::path("var/log/appliance/appliance.log");
-    let hostname = crate::stats::ruyi_delete(&mac)
+    // The ledger records actual removals only; an absent row writes no line.
+    crate::stats::ruyi_delete(&mac)
         .map_err(|_| {
             error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -982,23 +982,23 @@ async fn remove(
             )
         })?
         .ok_or_else(|| error(StatusCode::NOT_FOUND, "caduceus-ruyi-row-absent"))?;
-    let append = || -> std::io::Result<()> {
-        if let Some(parent) = log_path.parent() {
-            fs::create_dir_all(parent)?;
+    let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    crate::shared::hyalos::reflect_json(json!({
+        "organ": "ruyi",
+        "kind": "deed",
+        "correlation_id": mac.clone(),
+        "ok": true,
+        "message": "ruyi removal",
+        "attributes_redacted": {
+            "who": "caduceus",
+            "verb": "remove",
+            "target": "ruyi",
+            "outcome": "success",
+            "duration_ms": duration_ms,
+            "signal": "none"
         }
-        let mut log = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_path)?;
-        writeln!(
-            log,
-            "ruyi removed mac={} hostname={}",
-            mac,
-            serde_json::to_string(&hostname).unwrap()
-        )
-    };
-    // A log failure is reported as partial failure, never as a successful deletion receipt.
-    append().map_err(|_| {
+    }))
+    .map_err(|_| {
         error(
             StatusCode::SERVICE_UNAVAILABLE,
             "caduceus-ruyi-removed-log-failed",

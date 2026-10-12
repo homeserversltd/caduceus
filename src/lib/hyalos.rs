@@ -10,6 +10,87 @@ pub const EVENT_SCHEMA: &str = "hyalos.channel.event.v2";
 pub const CHANNEL_PATH: &str = "/var/log/appliance/appliance.log";
 
 const LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error", "fatal"];
+const MAX_LINE_BYTES: usize = 1024;
+
+fn metadata_text(value: Option<&Value>, limit: usize) -> Option<String> {
+    let value = value?.as_str()?;
+    let text: String = value
+        .chars()
+        .filter(|character| {
+            character.is_ascii_alphanumeric() || "_-. :/".contains(*character)
+        })
+        .take(limit)
+        .collect();
+    (!text.is_empty()).then_some(text)
+}
+
+fn metadata_alias(value: &Value, names: &[&str], limit: usize) -> Option<String> {
+    names
+        .iter()
+        .find_map(|name| metadata_text(value.get(*name), limit))
+}
+
+fn safe_id(value: Option<String>) -> Option<String> {
+    value.filter(|text| {
+        text.len() <= 64
+            && !text.is_empty()
+            && text.chars().all(|character| {
+                character.is_ascii_alphanumeric() || "_-. :/".contains(character)
+            })
+    })
+}
+
+fn bounded_label(value: &str, limit: usize, fallback: &str) -> String {
+    metadata_text(Some(&Value::String(value.to_string())), limit)
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn project_attributes(event: &ChannelEvent) -> Value {
+    let source = &event.attributes_redacted;
+    json!({
+        "who": metadata_alias(source, &["who"], 24)
+            .unwrap_or_else(|| bounded_label(&event.organ, 24, "caduceus")),
+        "verb": metadata_alias(source, &["verb"], 32)
+            .unwrap_or_else(|| bounded_label(&event.kind, 32, "deed")),
+        "target": metadata_alias(source, &["target", "route", "noun", "check"], 48),
+        "outcome": metadata_alias(source, &["outcome"], 16)
+            .unwrap_or_else(|| if event.ok { "success".into() } else { "failure".into() }),
+        "duration_ms": source.get("duration_ms")
+            .or_else(|| source.get("durationMs"))
+            .and_then(Value::as_u64),
+        "signal": metadata_alias(source, &["signal", "firstMissingSignal", "first_missing_signal"], 40),
+        "first_missing_field": metadata_alias(source, &["first_missing_field", "firstMissingField", "field"], 32),
+    })
+}
+
+fn project_event(mut event: ChannelEvent) -> Result<ChannelEvent, String> {
+    event.timestamp = if event.timestamp.len() <= 40
+        && event.timestamp.chars().all(|character| {
+            character.is_ascii_alphanumeric() || ":+-.".contains(character)
+        })
+    {
+        event.timestamp
+    } else {
+        now_timestamp()
+    };
+    event.body_id = bounded_label(&event.body_id, 24, "unknown-body");
+    event.level = normalize_level(Some(event.level))?;
+    event.organ = bounded_label(&event.organ, 24, "caduceus");
+    event.kind = bounded_label(&event.kind, 32, "deed");
+    event.world = if matches!(event.world.as_str(), "appliance" | "monad") {
+        event.world
+    } else {
+        "appliance".into()
+    };
+    event.message = "deed recorded".into();
+    event.correlation_id = safe_id(event.correlation_id);
+    event.session_id = safe_id(event.session_id);
+    event.work_id = safe_id(event.work_id);
+    event.review_id = safe_id(event.review_id);
+    event.strike_id = safe_id(event.strike_id);
+    event.attributes_redacted = project_attributes(&event);
+    Ok(event)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelEvent {
@@ -99,6 +180,38 @@ fn default_ok() -> bool {
     true
 }
 
+fn redact(value: Value) -> Value {
+    match value {
+        Value::Object(values) => Value::Object(
+            values
+                .into_iter()
+                .map(|(key, value)| {
+                    let lowered = key.to_ascii_lowercase();
+                    let value = if [
+                        "password",
+                        "passwd",
+                        "token",
+                        "secret",
+                        "capability",
+                        "private_key",
+                        "privatekey",
+                    ]
+                    .iter()
+                    .any(|needle| lowered.contains(needle))
+                    {
+                        Value::String("[REDACTED]".to_string())
+                    } else {
+                        redact(value)
+                    };
+                    (key, value)
+                })
+                .collect::<Map<_, _>>(),
+        ),
+        Value::Array(values) => Value::Array(values.into_iter().map(redact).collect()),
+        other => other,
+    }
+}
+
 fn now_timestamp() -> String {
     Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
@@ -158,7 +271,7 @@ fn profile_defaults() -> (String, String) {
     (body_id, world)
 }
 
-pub fn reflect(input: Reflection) -> Result<ChannelEvent, String> {
+fn reflection_event(input: Reflection) -> Result<ChannelEvent, String> {
     if input.organ.trim().is_empty()
         || input.kind.trim().is_empty()
         || input.message.trim().is_empty()
@@ -183,6 +296,11 @@ pub fn reflect(input: Reflection) -> Result<ChannelEvent, String> {
         message: input.message,
         attributes_redacted: redact(input.attributes_redacted),
     };
+    Ok(event)
+}
+
+pub fn reflect(input: Reflection) -> Result<ChannelEvent, String> {
+    let event = reflection_event(input)?;
     append(&event)?;
     Ok(event)
 }
@@ -191,6 +309,19 @@ pub fn reflect_json(input: Value) -> Result<Value, String> {
     let reflection: Reflection =
         serde_json::from_value(input).map_err(|err| format!("hyalos-reflection-invalid: {err}"))?;
     let event = reflect(reflection)?;
+    Ok(json!({
+        "schema": "caduceus.hyalos.reflect.v1",
+        "ok": true,
+        "channelPath": config::path(CHANNEL_PATH),
+        "event": event,
+        "firstMissingSignal": "none"
+    }))
+}
+
+pub fn project_json(input: Value) -> Result<Value, String> {
+    let reflection: Reflection =
+        serde_json::from_value(input).map_err(|err| format!("hyalos-reflection-invalid: {err}"))?;
+    let event = reflection_event(reflection)?;
     Ok(json!({
         "schema": "caduceus.hyalos.reflect.v1",
         "ok": true,
@@ -234,14 +365,19 @@ fn append(event: &ChannelEvent) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
     }
+    let disk_event = project_event(event.clone())?;
+    let mut line = serde_json::to_vec(&disk_event)
+        .map_err(|_| "hyalos-channel-serialize-failed".to_string())?;
+    line.push(b'\n');
+    if line.len() >= MAX_LINE_BYTES {
+        return Err("hyalos-channel-event-too-large".to_string());
+    }
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
         .map_err(|err| format!("{}: {err}", path.display()))?;
-    serde_json::to_writer(&mut file, event)
-        .map_err(|err| format!("hyalos-channel-serialize-failed: {err}"))?;
-    file.write_all(b"\n")
+    file.write_all(&line)
         .map_err(|err| format!("{}: {err}", path.display()))
 }
 
@@ -318,34 +454,4 @@ pub fn tail_json(filters: TailFilters) -> Result<Value, String> {
     }))
 }
 
-fn redact(value: Value) -> Value {
-    match value {
-        Value::Object(values) => Value::Object(
-            values
-                .into_iter()
-                .map(|(key, value)| {
-                    let lowered = key.to_ascii_lowercase();
-                    let value = if [
-                        "password",
-                        "passwd",
-                        "token",
-                        "secret",
-                        "capability",
-                        "private_key",
-                        "privatekey",
-                    ]
-                    .iter()
-                    .any(|needle| lowered.contains(needle))
-                    {
-                        Value::String("[REDACTED]".to_string())
-                    } else {
-                        redact(value)
-                    };
-                    (key, value)
-                })
-                .collect::<Map<_, _>>(),
-        ),
-        Value::Array(values) => Value::Array(values.into_iter().map(redact).collect()),
-        other => other,
-    }
-}
+

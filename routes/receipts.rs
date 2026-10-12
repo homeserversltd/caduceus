@@ -239,7 +239,7 @@ pub fn crossings_json() -> Result<Value, String> {
         }
         observed.push(step);
     }
-    let summary = hyalos::reflect_json(json!({
+    let summary = hyalos::project_json(json!({
         "organ":"agathodaimon",
         "kind":"crossings-self-check",
         "level": if all_ok { "info" } else { "error" },
