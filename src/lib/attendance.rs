@@ -1,5 +1,5 @@
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -35,6 +35,7 @@ enum AttendanceOrigin {
     DirectPin,
     AgentPin,
     DerivedChild,
+    TelemetryReadChild,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +44,7 @@ enum DerivationScope {
     PortalService,
     FileIngress,
     NetworkDns,
+    TelemetryRead,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,6 +53,7 @@ struct Attendance {
     document_incarnation: String,
     origin: AttendanceOrigin,
     derivation_scope: Option<DerivationScope>,
+    parent_attendance: Option<String>,
     created_at: Instant,
     last_touch: Instant,
 }
@@ -73,7 +76,25 @@ fn expired(attendance: &Attendance, now: Instant) -> bool {
 }
 
 fn evict_expired(current: &mut HashMap<String, Attendance>, now: Instant) {
-    current.retain(|_, attendance| !expired(attendance, now));
+    // A telemetry child is live only while its BrowserUnix parent remains live;
+    // its own timestamps never give it a separate inactivity window.
+    let live_browser_parents = current
+        .iter()
+        .filter(|(_, attendance)| {
+            attendance.origin == AttendanceOrigin::BrowserUnix && !expired(attendance, now)
+        })
+        .map(|(key, _)| key.clone())
+        .collect::<HashSet<_>>();
+    current.retain(|_, attendance| {
+        if attendance.origin == AttendanceOrigin::TelemetryReadChild {
+            attendance
+                .parent_attendance
+                .as_ref()
+                .is_some_and(|parent| live_browser_parents.contains(parent))
+        } else {
+            !expired(attendance, now)
+        }
+    });
 }
 
 pub(crate) fn text(body: &Value, field: &str) -> Result<String, String> {
@@ -307,6 +328,7 @@ fn open_verified_json(body: &Value, origin: AttendanceOrigin) -> Result<Value, S
             document_incarnation: document_incarnation.clone(),
             origin,
             derivation_scope: None,
+            parent_attendance: None,
             created_at: now,
             last_touch: now,
         },
@@ -383,6 +405,8 @@ fn derivation_scope(document: &str) -> Option<DerivationScope> {
         .any(|candidate| *candidate == document)
     {
         Some(DerivationScope::NetworkDns)
+    } else if document == "/api/v1/appliance/stats/admin" {
+        Some(DerivationScope::TelemetryRead)
     } else {
         None
     }
@@ -411,15 +435,17 @@ fn derive_browser_child_json(
     {
         return Ok(envelope(false, "caduceus-attendance-not-current"));
     }
-    if let Some(bound_scope) = parent_attendance.derivation_scope {
-        if bound_scope != scope {
-            return Ok(envelope(
-                false,
-                "caduceus-attendance-derivation-scope-mismatch",
-            ));
+    if scope != DerivationScope::TelemetryRead {
+        if let Some(bound_scope) = parent_attendance.derivation_scope {
+            if bound_scope != scope {
+                return Ok(envelope(
+                    false,
+                    "caduceus-attendance-derivation-scope-mismatch",
+                ));
+            }
+        } else {
+            parent_attendance.derivation_scope = Some(scope);
         }
-    } else {
-        parent_attendance.derivation_scope = Some(scope);
     }
     let attendance = format!("attendance-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     guard.current.insert(
@@ -427,8 +453,14 @@ fn derive_browser_child_json(
         Attendance {
             document_id: target_document.to_string(),
             document_incarnation: target_document.to_string(),
-            origin: AttendanceOrigin::DerivedChild,
-            derivation_scope: None,
+            origin: if scope == DerivationScope::TelemetryRead {
+                AttendanceOrigin::TelemetryReadChild
+            } else {
+                AttendanceOrigin::DerivedChild
+            },
+            derivation_scope: (scope == DerivationScope::TelemetryRead).then_some(scope),
+            parent_attendance: (scope == DerivationScope::TelemetryRead)
+                .then(|| parent.to_string()),
             created_at: now,
             last_touch: now,
         },
@@ -489,6 +521,7 @@ pub fn open_request_json(body: &Value, trusted_unix_carrier: bool) -> Result<Val
                     document_incarnation: document.clone(),
                     origin: AttendanceOrigin::AgentPin,
                     derivation_scope: None,
+                    parent_attendance: None,
                     created_at: now,
                     last_touch: now,
                 },
@@ -552,7 +585,9 @@ pub fn touch_json(body: &Value) -> Result<Value, String> {
             "caduceus-attendance-document-incarnation-mismatch",
         ));
     }
-    current.last_touch = now;
+    if current.origin != AttendanceOrigin::TelemetryReadChild {
+        current.last_touch = now;
+    }
     Ok(envelope(true, "none"))
 }
 
@@ -575,6 +610,9 @@ pub fn change_pin_json(body: &Value) -> Result<Value, String> {
             false,
             "caduceus-attendance-document-incarnation-mismatch",
         ));
+    }
+    if current.origin == AttendanceOrigin::TelemetryReadChild {
+        return Ok(envelope(false, "caduceus-attendance-not-current"));
     }
     if !pin_matches(&current_pin)? {
         return Ok(envelope(false, "caduceus-attendance-pin-wrong"));
@@ -640,7 +678,8 @@ pub fn admits(attendance: &str, document_id: &str, document_incarnation: &str) -
     state().lock().ok().is_some_and(|mut guard| {
         evict_expired(&mut guard.current, Instant::now());
         guard.current.get(attendance).is_some_and(|current| {
-            current.document_id == document_id
+            current.origin != AttendanceOrigin::TelemetryReadChild
+                && current.document_id == document_id
                 && current.document_incarnation == document_incarnation
         })
     })
@@ -654,7 +693,45 @@ pub fn admits_target(attendance: &str, document_id: &str) -> bool {
         guard
             .current
             .get(attendance)
-            .is_some_and(|current| current.document_id == document_id)
+            .is_some_and(|current| {
+                current.origin != AttendanceOrigin::TelemetryReadChild
+                    && current.document_id == document_id
+            })
+    })
+}
+
+pub fn is_telemetry_read_child(attendance: &str) -> bool {
+    state().lock().ok().is_some_and(|guard| {
+        guard.current.get(attendance).is_some_and(|current| {
+            current.origin == AttendanceOrigin::TelemetryReadChild
+                && current.derivation_scope == Some(DerivationScope::TelemetryRead)
+                && current.parent_attendance.is_some()
+        })
+    })
+}
+
+pub fn admits_telemetry_read(
+    attendance: &str,
+    document_id: &str,
+    document_incarnation: &str,
+) -> bool {
+    state().lock().ok().is_some_and(|mut guard| {
+        let now = Instant::now();
+        evict_expired(&mut guard.current, now);
+        let Some(current) = guard.current.get(attendance) else {
+            return false;
+        };
+        let parent_is_current = current.parent_attendance.as_ref().is_some_and(|parent| {
+            guard.current.get(parent).is_some_and(|parent_attendance| {
+                parent_attendance.origin == AttendanceOrigin::BrowserUnix
+                    && !expired(parent_attendance, now)
+            })
+        });
+        current.origin == AttendanceOrigin::TelemetryReadChild
+            && current.derivation_scope == Some(DerivationScope::TelemetryRead)
+            && current.document_id == document_id
+            && current.document_incarnation == document_incarnation
+            && parent_is_current
     })
 }
 

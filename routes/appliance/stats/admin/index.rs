@@ -13,18 +13,12 @@ fn json_response(body: String) -> axum::response::Response {
 }
 
 async fn current_admin_http(
+    method: axum::http::Method,
+    uri: axum::http::Uri,
     headers: axum::http::HeaderMap,
 ) -> Result<axum::response::Response, (axum::http::StatusCode, axum::Json<ApiErrorBody>)> {
-    crate::gate::attendance_admits(
-        "/api/v1/appliance/stats/admin",
-        headers
-            .get("X-Caduceus-Document")
-            .and_then(|value| value.to_str().ok()),
-        headers
-            .get("X-Caduceus-Attendance")
-            .and_then(|value| value.to_str().ok()),
-    )
-    .map_err(|signal| crate::gate::api_error_signal(STATS_COMMAND, &signal))?;
+    crate::gate::stats_admin_attendance_admits(method.as_str(), uri.path(), &headers)
+        .map_err(|signal| crate::gate::api_error_signal(STATS_COMMAND, &signal))?;
     gated_body(STATS_COMMAND, crate::stats::current_admin)
         .await
         .map(json_response)

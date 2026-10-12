@@ -227,6 +227,56 @@ pub(crate) fn document_attendance_admits(
         Err("caduceus-attendance-not-current".into())
     }
 }
+
+fn telemetry_read_request_admits(
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+) -> Option<Result<(), String>> {
+    let token = headers
+        .get("x-caduceus-attendance")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())?;
+    if !attendance::is_telemetry_read_child(token) {
+        return None;
+    }
+    if method != "GET" || path != STATS_ADMIN_HTTP_PATH {
+        return Some(Err("caduceus-attendance-not-current".to_string()));
+    }
+    let document = headers
+        .get("x-caduceus-document")
+        .and_then(|value| value.to_str().ok());
+    if document != Some(STATS_ADMIN_HTTP_PATH)
+        || !attendance::admits_telemetry_read(
+            token,
+            STATS_ADMIN_HTTP_PATH,
+            STATS_ADMIN_HTTP_PATH,
+        )
+    {
+        return Some(Err("caduceus-attendance-not-current".to_string()));
+    }
+    Some(Ok(()))
+}
+
+pub(crate) fn stats_admin_attendance_admits(
+    method: &str,
+    path: &str,
+    headers: &HeaderMap,
+) -> Result<(), String> {
+    if let Some(admission) = telemetry_read_request_admits(headers, method, path) {
+        return admission;
+    }
+    attendance_admits(
+        STATS_ADMIN_HTTP_PATH,
+        headers
+            .get("x-caduceus-document")
+            .and_then(|value| value.to_str().ok()),
+        headers
+            .get("x-caduceus-attendance")
+            .and_then(|value| value.to_str().ok()),
+    )
+}
+
 const ADMINISTRATIVE_PROFILE_MAX_BYTES: usize = 16 * 1024;
 const ADMINISTRATIVE_ROUTES_MAX_BYTES: usize = 64 * 1024;
 const NAS_SETUP_HTTP_PATH: &str = "/api/v1/storage/nas/setup";
@@ -617,8 +667,16 @@ async fn administrative_route_gate(
     let parsed_body = serde_json::from_slice::<Value>(&bytes).ok();
     let empty_body = Value::Null;
     let admission_body = parsed_body.as_ref().unwrap_or(&empty_body);
-    if let Err(signal) = administrative_credentials_admit(&parts.headers, admission_body) {
-        return api_error_signal("administrative route gate", &signal).into_response();
+    match telemetry_read_request_admits(&parts.headers, &method, &path) {
+        Some(Ok(())) => {}
+        Some(Err(signal)) => {
+            return api_error_signal("administrative route gate", &signal).into_response();
+        }
+        None => {
+            if let Err(signal) = administrative_credentials_admit(&parts.headers, admission_body) {
+                return api_error_signal("administrative route gate", &signal).into_response();
+            }
+        }
     }
 
     let mut stripped_pin = false;
