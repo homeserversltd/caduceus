@@ -40,7 +40,7 @@ pub(crate) async fn route() -> Result<Json<BeamBody>, (StatusCode, Json<crate::g
     let gui_face = match profile.as_str() {
         "homeserver" => Some("Coronatio"),
         "homeconsole" => Some("Arcadia"),
-        "tv" => Some("Hyprland"),
+        "tv" => Some("Sway"),
         _ => None,
     };
     let body = BeamBody {

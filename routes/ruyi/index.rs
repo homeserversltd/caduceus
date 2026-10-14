@@ -211,7 +211,7 @@ fn valid_row(row: &RuyiRow, path_mac: &str) -> bool {
         && valid_hostname(&row.profile)
         && matches!(
             row.gui_face.as_deref(),
-            None | Some("Hyprland") | Some("Arcadia") | Some("Coronatio")
+            None | Some("Hyprland") | Some("Arcadia") | Some("Coronatio") | Some("Sway")
         )
         && valid_hex(&row.caduceus_sha, 40)
         && valid_hex(&row.env_sha, 64)
