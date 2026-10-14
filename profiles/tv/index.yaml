@@ -102,6 +102,15 @@ routes:
 - exousia/posture
 - exousia/touch
 - exousia/validate
+- face/app
+- face/badge
+- face/bar
+- face/fetch
+- face/focus
+- face/launch
+- face/launcher-cache
+- face/meter
+- face/volume
 - appliance/claim
 - appliance/name
 - appliance/report

@@ -138,6 +138,33 @@ fn failure_from_value(
     })
 }
 
+fn record_staff_refusal(
+    noun: &str,
+    verb: &str,
+    value: &Value,
+    duration_ms: u64,
+    record_failure: bool,
+) {
+    let signal = value
+        .get("firstMissingSignal")
+        .or_else(|| value.get("first_missing_signal"))
+        .and_then(Value::as_str)
+        .unwrap_or("caduceus-agathodaimon-cli-refused");
+    let first_missing_field = value
+        .get("firstMissingField")
+        .or_else(|| value.get("field"))
+        .and_then(Value::as_str);
+    reflect_failure(
+        noun,
+        verb,
+        "failure",
+        signal,
+        first_missing_field,
+        duration_ms,
+        record_failure,
+    );
+}
+
 fn elapsed_ms(started: &std::time::Instant) -> u64 {
     u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
@@ -158,6 +185,7 @@ fn run_command(
     input: &Value,
     write_input: bool,
     record_failure: bool,
+    preserve_staff_receipt: bool,
 ) -> Result<Value, Value> {
     let started = std::time::Instant::now();
     let mut child = command
@@ -272,6 +300,16 @@ fn run_command(
         }
     })?;
     if !output.status.success() {
+        if preserve_staff_receipt {
+            record_staff_refusal(
+                noun,
+                verb,
+                &value,
+                elapsed_ms(&started),
+                record_failure,
+            );
+            return Ok(value);
+        }
         return Err(failure_from_value(
             noun,
             verb,
@@ -284,6 +322,16 @@ fn run_command(
         ));
     }
     if value.get("ok").and_then(Value::as_bool) != Some(true) {
+        if preserve_staff_receipt {
+            record_staff_refusal(
+                noun,
+                verb,
+                &value,
+                elapsed_ms(&started),
+                record_failure,
+            );
+            return Ok(value);
+        }
         return Err(failure_from_value(
             noun,
             verb,
@@ -328,6 +376,26 @@ pub(crate) fn crossing_value_with_record(
     input: &Value,
     record_failure: bool,
 ) -> Result<Value, Value> {
+    crossing_value_mode(noun, verb, input, record_failure, false)
+}
+
+/// Cross while returning parsed staff refusals without changing their receipt body.
+pub(crate) fn crossing_value_preserving_receipt(
+    noun: &str,
+    verb: &str,
+    input: &Value,
+    record_failure: bool,
+) -> Result<Value, Value> {
+    crossing_value_mode(noun, verb, input, record_failure, true)
+}
+
+fn crossing_value_mode(
+    noun: &str,
+    verb: &str,
+    input: &Value,
+    record_failure: bool,
+    preserve_staff_receipt: bool,
+) -> Result<Value, Value> {
     for (selector, variable) in [
         (noun == "time", "CADUCEUS_TIME_CMD"),
         (noun == "network" && verb == "dns", "CADUCEUS_DNS_CMD"),
@@ -345,7 +413,15 @@ pub(crate) fn crossing_value_with_record(
                         command.arg(verb);
                     }
                     command.args(args(input));
-                    return run_command(command, noun, verb, input, false, record_failure);
+                    return run_command(
+                        command,
+                        noun,
+                        verb,
+                        input,
+                        false,
+                        record_failure,
+                        preserve_staff_receipt,
+                    );
                 }
             }
         }
@@ -361,7 +437,15 @@ pub(crate) fn crossing_value_with_record(
         command.args(["-n", &cli, noun, verb]);
         command
     };
-    run_command(command, noun, verb, input, true, record_failure)
+    run_command(
+        command,
+        noun,
+        verb,
+        input,
+        true,
+        record_failure,
+        preserve_staff_receipt,
+    )
 }
 
 /// Cross the same membrane while preserving the staff refusal envelope.
