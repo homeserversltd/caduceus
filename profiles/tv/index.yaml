@@ -15,6 +15,7 @@ commands:
 - hyalos append
 - hyalos tail
 - appliance stats read
+- doors read
 - pjlink devices
 - pjlink power status
 - pjlink power set
