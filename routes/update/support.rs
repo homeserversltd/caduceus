@@ -28,9 +28,26 @@ pub(crate) async fn update_status_route() -> Result<Json<Value>, (StatusCode, Js
 }
 
 pub(crate) async fn update_now_route(
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    gated_mutation("update now", || update::invoke_now_json(&[])).await
+    match policy::allows_command("update now") {
+        Ok(true) => {
+            let value = blocking_task("update now", || update::invoke_now_json(&[])).await?;
+            let status = match value.get("state").and_then(Value::as_str) {
+                Some("started") => StatusCode::ACCEPTED,
+                Some("busy") => StatusCode::CONFLICT,
+                Some("unknown") if value.get("ok").and_then(Value::as_bool) == Some(true) => {
+                    StatusCode::ACCEPTED
+                }
+                Some("unknown" | "failed") => StatusCode::SERVICE_UNAVAILABLE,
+                _ if value.get("ok").and_then(Value::as_bool) == Some(true) => StatusCode::OK,
+                _ => StatusCode::SERVICE_UNAVAILABLE,
+            };
+            Ok((status, Json(value)))
+        }
+        Ok(false) => Err(api_error("update now")),
+        Err(_) => Err(api_error_signal("update now", "caduceus-profile-missing")),
+    }
 }
 
 pub(crate) async fn sync_now_route(

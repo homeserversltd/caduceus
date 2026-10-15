@@ -26,20 +26,44 @@ pub fn read_json() -> Result<Value, String> {
 
 pub fn invoke_now_json(rest: &[String]) -> Value {
     let dry_run = rest.iter().any(|arg| arg == "--dry-run");
-    let flags: Vec<String> = rest
-        .iter()
-        .filter(|arg| *arg != "--dry-run")
-        .cloned()
-        .collect();
-    let started = Instant::now();
-    let (code, body) = harmonia::invoke("update_now", &flags, dry_run);
-    if !dry_run {
-        let _ = receipts::write_latest_with_duration(
-            &body,
-            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-        );
+    if dry_run {
+        let flags: Vec<String> = rest
+            .iter()
+            .filter(|arg| *arg != "--dry-run")
+            .cloned()
+            .collect();
+        let (code, body) = harmonia::invoke("update_now", &flags, true);
+        return harmonia::invoke_body_to_json("update_now", code, &body);
     }
-    harmonia::invoke_body_to_json("update_now", code, &body)
+
+    let started = Instant::now();
+    let response = harmonia::start_update_now_json();
+    let receipt_body = match (
+        response.get("state").and_then(Value::as_str),
+        response.get("ok").and_then(Value::as_bool),
+    ) {
+        (Some("started"), _) | (Some("unknown"), Some(true)) => {
+            let mut body =
+                "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute=update_now\n".to_string();
+            if let Some(invocation_id) = response.get("invocationId").and_then(Value::as_str) {
+                body.push_str(&format!("correlation_id={invocation_id}\n"));
+            }
+            if let Some(signal) = response.get("firstMissingSignal").and_then(Value::as_str) {
+                body.push_str(&format!("first_missing_signal={signal}\n"));
+            }
+            body
+        }
+        _ => response
+            .get("body")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+    };
+    let _ = receipts::write_latest_with_duration(
+        &receipt_body,
+        u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+    );
+    response
 }
 
 pub fn invoke_check_json(rest: &[String]) -> Value {
@@ -317,39 +341,4 @@ fn invoke_exit_code(value: &Value) -> i32 {
     } else {
         1
     }
-}
-
-// Bounded asynchronous press of Harmonia update invocation membrane.
-
-use std::sync::{Mutex, OnceLock};
-
-const RUN_LOCK: &str = "harmonia-update-in-flight";
-
-fn run_active() -> &'static Mutex<bool> {
-    static RUN_ACTIVE: OnceLock<Mutex<bool>> = OnceLock::new();
-    RUN_ACTIVE.get_or_init(|| Mutex::new(false))
-}
-
-pub fn start_json() -> Result<Value, &'static str> {
-    let mut active = run_active()
-        .lock()
-        .map_err(|_| "caduceus-harmonia-update-lock-unavailable")?;
-    if *active {
-        return Err(RUN_LOCK);
-    }
-
-    *active = true;
-    std::thread::spawn(move || {
-        let _ = invoke_now_json(&[]);
-        if let Ok(mut active) = run_active().lock() {
-            *active = false;
-        }
-    });
-
-    Ok(json!({
-        "ok": true,
-        "action": "harmonia-update",
-        "state": "started",
-        "runLock": RUN_LOCK
-    }))
 }

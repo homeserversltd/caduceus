@@ -2,7 +2,10 @@ use crate::shared::config;
 use serde_json::{json, Value};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
 
 pub const DEFAULT_HARMONIA_BIN: &str = "/usr/local/bin/harmonia";
 const HARMONIA_PRESS_BAND: &str = "appliance/harmonia-press";
@@ -335,6 +338,435 @@ pub fn invoke_update_module(module_id: &str, apply: bool) -> (i32, String) {
         args.push("--apply".to_string());
     }
     invoke_with_args("update_module", &args)
+}
+
+const HARMONIA_ENGINE_LOCK: &str = "var/lib/harmonia/engine-run.lock";
+const UPDATE_NOW_HANDOFF_LOCK: &str = "run/caduceus/harmonia-update-now-launch.lock";
+const UPDATE_NOW_HISTORY: &str = "/api/v1/update/history";
+const UPDATE_NOW_HANDOFF_WAIT: Duration = Duration::from_millis(1_000);
+const UPDATE_NOW_START_WAIT: Duration = Duration::from_millis(1_800);
+const UPDATE_NOW_SYSTEMCTL_WAIT: Duration = Duration::from_millis(150);
+const UPDATE_NOW_POLL: Duration = Duration::from_millis(25);
+const HARMONIA_EXIT_MARKER: &str = "__CADUCEUS_HARMONIA_EXIT_V1_";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EngineLockObservation {
+    Idle,
+    Live(u32),
+}
+
+fn live_harmonia_engine_pid() -> Result<EngineLockObservation, &'static str> {
+    let path = config::path(HARMONIA_ENGINE_LOCK);
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    let file = match options.open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(EngineLockObservation::Idle);
+        }
+        Err(_) => return Err("harmonia-update-lock-unreadable"),
+    };
+    if !file
+        .metadata()
+        .map_err(|_| "harmonia-update-lock-unreadable")?
+        .is_file()
+    {
+        return Err("harmonia-update-lock-invalid");
+    }
+    let mut contents = String::new();
+    file.take(128)
+        .read_to_string(&mut contents)
+        .map_err(|_| "harmonia-update-lock-unreadable")?;
+    let pid = contents
+        .trim()
+        .strip_prefix("pid=")
+        .ok_or("harmonia-update-lock-invalid")?
+        .parse::<u32>()
+        .map_err(|_| "harmonia-update-lock-invalid")?;
+    if pid == 0 || pid > i32::MAX as u32 {
+        return Err("harmonia-update-lock-invalid");
+    }
+    let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if result == 0 {
+        return Ok(EngineLockObservation::Live(pid));
+    }
+    match io::Error::last_os_error().raw_os_error() {
+        Some(libc::ESRCH) => Ok(EngineLockObservation::Idle),
+        Some(libc::EPERM) => Ok(EngineLockObservation::Live(pid)),
+        _ => Err("harmonia-update-lock-pid-unavailable"),
+    }
+}
+
+fn try_update_now_handoff_lock() -> Result<Option<File>, &'static str> {
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    let file = options
+        .open(config::path(UPDATE_NOW_HANDOFF_LOCK))
+        .map_err(|_| "caduceus-update-handoff-lock-unavailable")?;
+    if !file
+        .metadata()
+        .map_err(|_| "caduceus-update-handoff-lock-unavailable")?
+        .is_file()
+    {
+        return Err("caduceus-update-handoff-lock-invalid");
+    }
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if result == 0 {
+        return Ok(Some(file));
+    }
+    let error = io::Error::last_os_error();
+    if error.kind() == io::ErrorKind::WouldBlock
+        || error.raw_os_error() == Some(libc::EWOULDBLOCK)
+        || error.raw_os_error() == Some(libc::EAGAIN)
+    {
+        Ok(None)
+    } else {
+        Err("caduceus-update-handoff-lock-unavailable")
+    }
+}
+
+fn cgroup_for_process(pid: Option<u32>) -> Result<String, &'static str> {
+    let path = match pid {
+        Some(pid) => format!("/proc/{pid}/cgroup"),
+        None => "/proc/self/cgroup".to_string(),
+    };
+    let contents = fs::read_to_string(path).map_err(|_| "caduceus-update-cgroup-unavailable")?;
+    let cgroup = contents.lines().find_map(|line| {
+        if let Some((_, path)) = line.split_once("::") {
+            return Some(path);
+        }
+        let mut fields = line.splitn(3, ':');
+        let _hierarchy = fields.next()?;
+        let controllers = fields.next()?;
+        let path = fields.next()?;
+        controllers
+            .split(',')
+            .any(|controller| controller == "name=systemd")
+            .then_some(path)
+    });
+    cgroup
+        .filter(|path| path.starts_with('/') && !path.contains('\0'))
+        .map(str::to_owned)
+        .ok_or("caduceus-update-cgroup-unavailable")
+}
+
+fn transient_unit(cgroup: &str) -> Option<&str> {
+    let unit = cgroup.rsplit('/').next()?;
+    (unit.starts_with("run-")
+        && unit.ends_with(".service")
+        && unit.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'@' | b'.')
+        }))
+    .then_some(unit)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TransientOwner {
+    ThisInvocation,
+    OtherInvocation,
+    Unproven,
+}
+
+fn marker_invocation_id(text: &str) -> Option<String> {
+    let remainder = text.split_once(HARMONIA_EXIT_MARKER)?.1;
+    let candidate = remainder.split_once("__|")?.0;
+    uuid::Uuid::parse_str(candidate)
+        .ok()
+        .map(|value| value.to_string())
+}
+
+// This is a read-only manager readback. Launch remains exclusively on the
+// existing harmonia-press staff crossing above.
+fn transient_owner(
+    unit: &str,
+    expected_cgroup: &str,
+    invocation_id: &str,
+) -> TransientOwner {
+    let mut child = match Command::new("/usr/bin/systemctl")
+        .arg("show")
+        .arg("--no-pager")
+        .arg("--property=ControlGroup")
+        .arg("--property=ExecStopPost")
+        .arg(unit)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => return TransientOwner::Unproven,
+    };
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() < UPDATE_NOW_SYSTEMCTL_WAIT => {
+                std::thread::sleep(UPDATE_NOW_POLL);
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return TransientOwner::Unproven;
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return TransientOwner::Unproven;
+            }
+        }
+    };
+    if !status.success() {
+        return TransientOwner::Unproven;
+    }
+    let Some(stdout) = child.stdout.take() else {
+        return TransientOwner::Unproven;
+    };
+    let mut properties = String::new();
+    if stdout
+        .take(16 * 1024)
+        .read_to_string(&mut properties)
+        .is_err()
+    {
+        return TransientOwner::Unproven;
+    }
+    let observed_cgroup = properties
+        .lines()
+        .find_map(|line| line.strip_prefix("ControlGroup="));
+    if observed_cgroup != Some(expected_cgroup) {
+        return TransientOwner::Unproven;
+    }
+    match marker_invocation_id(&properties).as_deref() {
+        Some(owner) if owner == invocation_id => TransientOwner::ThisInvocation,
+        Some(_) => TransientOwner::OtherInvocation,
+        None => TransientOwner::Unproven,
+    }
+}
+
+fn update_engine_owner(
+    pid: u32,
+    caduceus_cgroup: &str,
+    invocation_id: &str,
+) -> TransientOwner {
+    let Ok(engine_cgroup) = cgroup_for_process(Some(pid)) else {
+        return TransientOwner::Unproven;
+    };
+    let within_caduceus = engine_cgroup == caduceus_cgroup
+        || engine_cgroup.starts_with(&format!("{caduceus_cgroup}/"));
+    if within_caduceus {
+        return TransientOwner::Unproven;
+    }
+    let Some(unit) = transient_unit(&engine_cgroup) else {
+        return TransientOwner::Unproven;
+    };
+    let owner = transient_owner(unit, &engine_cgroup, invocation_id);
+    match (owner, live_harmonia_engine_pid()) {
+        (TransientOwner::ThisInvocation, Ok(EngineLockObservation::Live(current)))
+            if current == pid => TransientOwner::ThisInvocation,
+        (TransientOwner::OtherInvocation, Ok(EngineLockObservation::Live(current)))
+            if current == pid => TransientOwner::OtherInvocation,
+        _ => TransientOwner::Unproven,
+    }
+}
+
+fn update_now_response(
+    code: i32,
+    ok: bool,
+    state: &str,
+    signal: &str,
+    started_at: Option<&str>,
+    invocation_id: Option<&str>,
+) -> Value {
+    let dispatch = match (state, ok, invocation_id.is_some()) {
+        ("started", _, _) => "initiated",
+        ("unknown", true, _) => "accepted",
+        ("busy", _, true) => "refused-busy",
+        ("busy", _, false) => "not-dispatched",
+        (_, true, _) => "accepted",
+        _ => "not-dispatched",
+    };
+    let mut body = format!(
+        "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute=update_now\nok={ok}\nexit_code={code}\nstate={state}\ndispatch={dispatch}\noutcome=null\nfirst_missing_signal={signal}\n"
+    );
+    if let Some(started_at) = started_at {
+        body.push_str(&format!("started_at={started_at}\n"));
+    }
+    if let Some(invocation_id) = invocation_id {
+        body.push_str(&format!("invocation_id={invocation_id}\ncorrelation_id={invocation_id}\n"));
+    }
+    body.push_str(&format!("history={UPDATE_NOW_HISTORY}\n"));
+    let mut response = invoke_body_to_json("update_now", code, &body);
+    response["state"] = json!(state);
+    response["outcome"] = Value::Null;
+    response["startedAt"] = json!(started_at);
+    response["runId"] = Value::Null;
+    response["invocationId"] = json!(invocation_id);
+    response["history"] = json!(UPDATE_NOW_HISTORY);
+    response
+}
+
+fn reap_harmonia_waiter(child: Child) {
+    let _ = std::thread::Builder::new()
+        .name("caduceus-harmonia-waiter".to_string())
+        .spawn(move || {
+            let mut child = child;
+            let _ = child.wait();
+        });
+}
+
+pub fn start_update_now_json() -> Value {
+    let route_value = match route("update_now") {
+        Ok(value) => value,
+        Err(error) => {
+            let signal = error.replace('\n', " ").replace('\r', " ");
+            return update_now_response(1, false, "failed", &signal, None, None);
+        }
+    };
+    let argv = match build_argv(&route_value, &[]) {
+        Ok(argv) => argv,
+        Err(error) => {
+            let signal = error.replace('\n', " ").replace('\r', " ");
+            return update_now_response(1, false, "failed", &signal, None, None);
+        }
+    };
+    if argv.len() != 3
+        || argv[0] != DEFAULT_HARMONIA_BIN
+        || argv[1] != "update"
+        || argv[2] != "--apply"
+    {
+        return update_now_response(
+            1,
+            false,
+            "failed",
+            "caduceus-harmonia-update-argv-invalid",
+            None,
+            None,
+        );
+    }
+    let caduceus_cgroup = match cgroup_for_process(None) {
+        Ok(cgroup) => cgroup,
+        Err(signal) => return update_now_response(1, false, "failed", signal, None, None),
+    };
+
+    let handoff_deadline = Instant::now() + UPDATE_NOW_HANDOFF_WAIT;
+    let handoff_guard = loop {
+        match try_update_now_handoff_lock() {
+            Ok(Some(guard)) => break guard,
+            Ok(None) => match live_harmonia_engine_pid() {
+                Ok(EngineLockObservation::Live(_)) => {
+                    return update_now_response(
+                        1,
+                        false,
+                        "busy",
+                        "harmonia-update-busy",
+                        None,
+                        None,
+                    );
+                }
+                Err(signal) => {
+                    return update_now_response(1, false, "unknown", signal, None, None);
+                }
+                Ok(EngineLockObservation::Idle) => {
+                    if Instant::now() >= handoff_deadline {
+                        return update_now_response(
+                            1,
+                            false,
+                            "unknown",
+                            "caduceus-update-launch-handoff-unconfirmed",
+                            None,
+                            None,
+                        );
+                    }
+                    std::thread::sleep(UPDATE_NOW_POLL);
+                }
+            },
+            Err(signal) => return update_now_response(1, false, "failed", signal, None, None),
+        }
+    };
+
+    match live_harmonia_engine_pid() {
+        Ok(EngineLockObservation::Live(_)) => {
+            return update_now_response(
+                1,
+                false,
+                "busy",
+                "harmonia-update-busy",
+                None,
+                None,
+            );
+        }
+        Err(signal) => return update_now_response(1, false, "unknown", signal, None, None),
+        Ok(EngineLockObservation::Idle) => {}
+    }
+
+    let invocation_id = uuid::Uuid::new_v4().to_string();
+    let payload = json!({"argv": argv, "invocation_id": invocation_id});
+    let started_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let child = match crate::gate::snake::crossing_spawn(HARMONIA_PRESS_BAND, &payload) {
+        Ok(child) => child,
+        Err(signal) => {
+            return update_now_response(
+                1,
+                false,
+                "failed",
+                &signal.replace('\n', " ").replace('\r', " "),
+                None,
+                None,
+            );
+        }
+    };
+    reap_harmonia_waiter(child);
+
+    let start_deadline = Instant::now() + UPDATE_NOW_START_WAIT;
+    loop {
+        match live_harmonia_engine_pid() {
+            Ok(EngineLockObservation::Live(pid)) => {
+                match update_engine_owner(pid, &caduceus_cgroup, &invocation_id) {
+                    TransientOwner::ThisInvocation => {
+                        drop(handoff_guard);
+                        return update_now_response(
+                            0,
+                            true,
+                            "started",
+                            "none",
+                            Some(&started_at),
+                            Some(&invocation_id),
+                        );
+                    }
+                    TransientOwner::OtherInvocation => {
+                        drop(handoff_guard);
+                        return update_now_response(
+                            1,
+                            false,
+                            "busy",
+                            "harmonia-update-busy",
+                            None,
+                            Some(&invocation_id),
+                        );
+                    }
+                    TransientOwner::Unproven => {}
+                }
+            }
+            Ok(EngineLockObservation::Idle) | Err(_) => {}
+        }
+        if Instant::now() >= start_deadline {
+            drop(handoff_guard);
+            return update_now_response(
+                0,
+                true,
+                "unknown",
+                "harmonia-update-start-unconfirmed",
+                Some(&started_at),
+                Some(&invocation_id),
+            );
+        }
+        std::thread::sleep(UPDATE_NOW_POLL);
+    }
 }
 
 #[cfg(test)]
