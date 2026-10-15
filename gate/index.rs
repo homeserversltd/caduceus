@@ -72,11 +72,12 @@ pub(crate) struct ServiceToggleBody {
 }
 
 pub(crate) fn roster_allows(method: &str, path: &str) -> Result<bool, String> {
-    let profile = crate::shared::config::read_public_profile_value()?;
+    let mut profile = crate::shared::config::read_public_profile_value()?;
+    crate::shared::config::overlay_birth_profile_fields(&mut profile)?;
     let name = profile
         .get("profile")
         .and_then(Value::as_str)
-        .unwrap_or("homeserver");
+        .ok_or_else(|| "caduceus-public-profile-invalid".to_string())?;
     let routes = crate::routes::profile_routes::routes_for(name)
         .ok_or_else(|| "caduceus-public-profile-invalid".to_string())?;
     let key = format!("{method} {path}");
