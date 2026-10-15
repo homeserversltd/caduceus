@@ -3,6 +3,8 @@ profile: everything-lit
 mode: everything-lit
 commands:
 - exousia posture read
+- update status
+- update history
 routes:
 - xenia/validate
 - xenia/admit
@@ -100,5 +102,6 @@ routes:
 - update/check
 - update/now
 - update/status
+- update/history
 - update/modules
 - update/modules/:id

@@ -1,8 +1,11 @@
 use crate::gate::{api_error, api_error_signal, ApiErrorBody};
-use crate::shared::{harmonia, policy};
+use crate::shared::{config, harmonia, policy};
 use axum::{http::StatusCode, Json};
 use serde_json::{json, Value};
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+};
 
 pub const NAMESPACE: &str = "update/modules";
 const COMMAND: &str = "update modules list";
@@ -21,7 +24,8 @@ fn modules_json() -> Result<Value, String> {
         .get("harmonia_profile")
         .and_then(Value::as_str)
         .ok_or_else(|| "caduceus-harmonia-profile-missing".to_string())?;
-    let text = fs::read_to_string(profile_path)
+    let profile_path = config::path(profile_path);
+    let text = fs::read_to_string(&profile_path)
         .map_err(|_| "caduceus-harmonia-profile-unreadable".to_string())?;
     let profile: Value =
         serde_json::from_str(&text).map_err(|_| "caduceus-harmonia-profile-invalid".to_string())?;
@@ -38,10 +42,11 @@ fn modules_json() -> Result<Value, String> {
         .iter()
         .map(|id| (*id).to_string())
         .collect::<BTreeSet<_>>();
-    let modules_dir = Path::new(profile_path)
+    let modules_dir = profile_path
         .parent()
         .ok_or_else(|| "caduceus-harmonia-profile-directory-missing".to_string())?
         .join("modules");
+    let mut metadata = BTreeMap::new();
     for entry in fs::read_dir(modules_dir)
         .map_err(|_| "caduceus-harmonia-modules-directory-unreadable".to_string())?
     {
@@ -60,6 +65,19 @@ fn modules_json() -> Result<Value, String> {
         if let Some(id) = manifest.get("id").and_then(Value::as_str) {
             if valid_module_id(id) {
                 ids.insert(id.to_string());
+                metadata.insert(
+                    id.to_string(),
+                    (
+                        manifest
+                            .get("title")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        manifest
+                            .get("summary")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    ),
+                );
             }
         }
     }
@@ -68,7 +86,11 @@ fn modules_json() -> Result<Value, String> {
         "ok": true,
         "modules": ids
             .into_iter()
-            .map(|id| json!({"id":id,"enabled":enabled_ids.contains(id.as_str())}))
+            .map(|id| {
+                let enabled = enabled_ids.contains(id.as_str());
+                let (title, summary) = metadata.get(&id).cloned().unwrap_or((None, None));
+                json!({"id":id,"enabled":enabled,"title":title,"summary":summary})
+            })
             .collect::<Vec<_>>(),
         "firstMissingSignal": "none"
     }))

@@ -6,6 +6,8 @@ commands:
 - update modules toggle
 - update now
 - update check
+- update status
+- update history
 - update service status
 - update service toggle
 - hyalos reflect
@@ -258,6 +260,7 @@ routes:
 - update/service/toggle
 - update/now
 - update/status
+- update/history
 - update/modules
 - update/modules/:id
 - interactables

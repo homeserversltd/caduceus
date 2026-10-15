@@ -59,6 +59,7 @@ commands:
 - interactable list
 - interactable run
 - update status
+- update history
 - update check
 - update now
 routes:
@@ -124,6 +125,7 @@ routes:
 - interactables
 - interactables/:id/run
 - update/status
+- update/history
 - update/modules
 - update/modules/:id
 - update/module

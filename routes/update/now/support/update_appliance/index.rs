@@ -1,4 +1,4 @@
-use crate::shared::{config, harmonia, receipts, systemd};
+use crate::shared::{config, harmonia, receipts};
 use serde_json::{json, Value};
 use std::time::Instant;
 
@@ -94,12 +94,72 @@ fn update_service_response(receipt: Value, schema: &str, timer: &str) -> Value {
     Value::Object(response)
 }
 
+fn enabled_state(receipt: &Value) -> Option<bool> {
+    let enabled = receipt.get("enabled")?;
+    if let Some(enabled) = enabled.as_bool() {
+        return Some(enabled);
+    }
+    let state = enabled.as_str()?.trim().to_ascii_lowercase();
+    match state.as_str() {
+        "enabled" | "enabled-runtime" => Some(true),
+        "disabled" | "masked" | "masked-runtime" | "linked" | "linked-runtime" | "static"
+        | "alias" | "indirect" | "generated" | "transient" => Some(false),
+        _ => None,
+    }
+}
+
+fn known_active_state(state: &str) -> bool {
+    matches!(
+        state,
+        "active"
+            | "reloading"
+            | "inactive"
+            | "failed"
+            | "activating"
+            | "deactivating"
+            | "maintenance"
+            | "refreshing"
+    )
+}
+
+fn active_state_from_output(output: &str) -> Option<String> {
+    output.lines().find_map(|line| {
+        let state = line.strip_prefix("is-active stdout:")?.trim();
+        let token = state.split_whitespace().next()?;
+        known_active_state(token).then(|| token.to_string())
+    })
+}
+
+fn timer_state(receipt: &Value) -> Option<String> {
+    if let Some(state) = receipt.get("timerState").and_then(Value::as_str) {
+        if known_active_state(state.trim()) {
+            return Some(state.to_string());
+        }
+    }
+    receipt
+        .get("output")
+        .and_then(Value::as_str)
+        .and_then(active_state_from_output)
+}
+
 pub fn service_status_json() -> Result<Value, String> {
     let timer = update_timer_name()?;
     let receipt = update_service_receipt("status")?;
     let mut response =
-        update_service_response(receipt, "caduceus.update.service.status.v1", &timer);
-    response["timerState"] = json!(systemd::timer_status(&timer));
+        update_service_response(receipt.clone(), "caduceus.update.service.status.v1", &timer);
+    let enabled = enabled_state(&receipt);
+    let timer_state = timer_state(&receipt);
+    response["enabled"] = json!(enabled);
+    response["timerState"] = json!(timer_state);
+    let first_missing_signal = if enabled.is_none() {
+        "caduceus-update-service-enabled-state-unobserved"
+    } else if timer_state.is_none() {
+        "caduceus-update-service-timer-state-unobserved"
+    } else {
+        "none"
+    };
+    response["firstMissingSignal"] = json!(first_missing_signal);
+    response["ok"] = json!(first_missing_signal == "none");
     Ok(response)
 }
 

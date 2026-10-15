@@ -36,6 +36,7 @@ commands:
 - sync status
 - sync now
 - update status
+- update history
 - update check
 - update now
 - gaming sync
@@ -232,6 +233,7 @@ routes:
 - update/service/toggle
 - update/now
 - update/status
+- update/history
 - update/modules
 - update/modules/:id
 - update/module
