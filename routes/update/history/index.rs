@@ -15,6 +15,7 @@ const MAX_RUNS: usize = 10;
 const SCHEMA: &str = "caduceus.update.history.v1";
 
 fn is_run_profile_kind(kind: &str) -> bool {
+    let kind = kind.strip_prefix("schema=").unwrap_or(kind);
     matches!(kind, "harmonia.run_profile" | "schemaharmonia.run_profile")
         || ["harmonia.run_profile.v", "schemaharmonia.run_profile.v"]
             .iter()
@@ -87,6 +88,7 @@ fn project_run(record: &Value) -> Option<Value> {
         .collect::<Vec<_>>();
     Some(json!({
         "run_id": run_id,
+        "profile": string_field(record, attributes, "profile"),
         "finished_at": finished_at,
         "outcome": outcome,
         "duration_ms": integer_field(record, attributes, "duration_ms"),

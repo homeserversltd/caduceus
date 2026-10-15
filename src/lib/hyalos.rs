@@ -11,6 +11,7 @@ pub const CHANNEL_PATH: &str = "/var/log/appliance/appliance.log";
 
 const LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error", "fatal"];
 const MAX_LINE_BYTES: usize = 1024;
+const MAX_PROJECTED_FAILURES: usize = 32;
 
 fn metadata_text(value: Option<&Value>, limit: usize) -> Option<String> {
     let value = value?.as_str()?;
@@ -45,9 +46,45 @@ fn bounded_label(value: &str, limit: usize, fallback: &str) -> String {
         .unwrap_or_else(|| fallback.to_string())
 }
 
-fn project_attributes(event: &ChannelEvent) -> Value {
+fn is_run_profile_kind(kind: &str) -> bool {
+    let kind = kind.strip_prefix("schema=").unwrap_or(kind);
+    matches!(kind, "harmonia.run_profile" | "schemaharmonia.run_profile")
+        || ["harmonia.run_profile.v", "schemaharmonia.run_profile.v"]
+            .iter()
+            .any(|prefix| {
+                kind.strip_prefix(prefix).is_some_and(|version| {
+                    !version.is_empty() && version.bytes().all(|byte| byte.is_ascii_digit())
+                })
+            })
+}
+
+fn project_failures(source: &Value) -> (Vec<Value>, usize) {
+    let mut failures = Vec::new();
+    let mut omitted = 0;
+    for failure in source
+        .get("failures")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(module) = metadata_text(failure.get("module"), 48) else {
+            continue;
+        };
+        let Some(signal) = metadata_text(failure.get("signal"), 40) else {
+            continue;
+        };
+        if failures.len() < MAX_PROJECTED_FAILURES {
+            failures.push(json!({"module": module, "signal": signal}));
+        } else {
+            omitted += 1;
+        }
+    }
+    (failures, omitted)
+}
+
+fn project_attributes(event: &ChannelEvent, run_profile: bool) -> Result<Value, String> {
     let source = &event.attributes_redacted;
-    json!({
+    let mut attributes = json!({
         "who": metadata_alias(source, &["who"], 24)
             .unwrap_or_else(|| bounded_label(&event.organ, 24, "caduceus")),
         "verb": metadata_alias(source, &["verb"], 32)
@@ -60,10 +97,36 @@ fn project_attributes(event: &ChannelEvent) -> Value {
             .and_then(Value::as_u64),
         "signal": metadata_alias(source, &["signal", "firstMissingSignal", "first_missing_signal"], 40),
         "first_missing_field": metadata_alias(source, &["first_missing_field", "firstMissingField", "field"], 32),
-    })
+    });
+    if run_profile {
+        let run_id = metadata_alias(source, &["run_id", "correlation_id"], 64)
+            .or_else(|| event.correlation_id.clone())
+            .ok_or_else(|| "hyalos-run-profile-run-id-missing".to_string())?;
+        let outcome = metadata_alias(source, &["outcome"], 16)
+            .filter(|value| {
+                matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "ok" | "success" | "failed" | "failure"
+                )
+            })
+            .unwrap_or_else(|| if event.ok { "success".into() } else { "failure".into() });
+        attributes["outcome"] = json!(outcome);
+        attributes["run_id"] = json!(run_id);
+        attributes["profile"] = json!(metadata_alias(source, &["profile"], 32));
+        attributes["finished_at"] = json!(metadata_alias(source, &["finished_at"], 40));
+        attributes["module_count"] = json!(source.get("module_count").and_then(Value::as_u64));
+        attributes["updated_count"] = json!(source.get("updated_count").and_then(Value::as_u64));
+        let (failures, failures_more) = project_failures(source);
+        attributes["failures"] = json!(failures);
+        if failures_more > 0 {
+            attributes["failures_more"] = json!(failures_more);
+        }
+    }
+    Ok(attributes)
 }
 
 fn project_event(mut event: ChannelEvent) -> Result<ChannelEvent, String> {
+    let run_profile = is_run_profile_kind(&event.kind);
     event.timestamp = if event.timestamp.len() <= 40
         && event.timestamp.chars().all(|character| {
             character.is_ascii_alphanumeric() || ":+-.".contains(character)
@@ -88,7 +151,7 @@ fn project_event(mut event: ChannelEvent) -> Result<ChannelEvent, String> {
     event.work_id = safe_id(event.work_id);
     event.review_id = safe_id(event.review_id);
     event.strike_id = safe_id(event.strike_id);
-    event.attributes_redacted = project_attributes(&event);
+    event.attributes_redacted = project_attributes(&event, run_profile)?;
     Ok(event)
 }
 
@@ -355,6 +418,66 @@ pub fn append_json(input: Value) -> Result<Value, String> {
     }))
 }
 
+fn serialize_line(event: &ChannelEvent) -> Result<Vec<u8>, String> {
+    let mut line = serde_json::to_vec(event)
+        .map_err(|_| "hyalos-channel-serialize-failed".to_string())?;
+    line.push(b'\n');
+    Ok(line)
+}
+
+fn projected_failures(event: &ChannelEvent) -> Vec<Value> {
+    event
+        .attributes_redacted
+        .get("failures")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn projected_failures_more(event: &ChannelEvent) -> usize {
+    event
+        .attributes_redacted
+        .get("failures_more")
+        .and_then(Value::as_u64)
+        .and_then(|count| usize::try_from(count).ok())
+        .unwrap_or_default()
+}
+
+fn set_projected_failures(event: &mut ChannelEvent, failures: &[Value], omitted: usize) {
+    if let Some(attributes) = event.attributes_redacted.as_object_mut() {
+        attributes.insert("failures".to_string(), Value::Array(failures.to_vec()));
+        if omitted == 0 {
+            attributes.remove("failures_more");
+        } else {
+            attributes.insert("failures_more".to_string(), json!(omitted));
+        }
+    }
+}
+
+fn compact_duplicate_id(slot: &mut Option<String>, seen: &mut Vec<String>) {
+    if let Some(value) = slot.clone() {
+        if seen.contains(&value) {
+            *slot = None;
+        } else {
+            seen.push(value);
+        }
+    }
+}
+
+fn compact_duplicate_run_ids(event: &mut ChannelEvent) {
+    let mut seen = event
+        .attributes_redacted
+        .get("run_id")
+        .and_then(Value::as_str)
+        .map(|value| vec![value.to_string()])
+        .unwrap_or_default();
+    compact_duplicate_id(&mut event.correlation_id, &mut seen);
+    compact_duplicate_id(&mut event.session_id, &mut seen);
+    compact_duplicate_id(&mut event.work_id, &mut seen);
+    compact_duplicate_id(&mut event.review_id, &mut seen);
+    compact_duplicate_id(&mut event.strike_id, &mut seen);
+}
+
 fn append(event: &ChannelEvent) -> Result<(), String> {
     static APPEND_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     let _guard = APPEND_LOCK
@@ -365,12 +488,28 @@ fn append(event: &ChannelEvent) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
     }
+    let run_profile = is_run_profile_kind(&event.kind);
     let disk_event = project_event(event.clone())?;
-    let mut line = serde_json::to_vec(&disk_event)
-        .map_err(|_| "hyalos-channel-serialize-failed".to_string())?;
-    line.push(b'\n');
+    let mut disk_event = disk_event;
+    let mut line = serialize_line(&disk_event)?;
     if line.len() >= MAX_LINE_BYTES {
-        return Err("hyalos-channel-event-too-large".to_string());
+        if !run_profile {
+            return Err("hyalos-channel-event-too-large".to_string());
+        }
+        compact_duplicate_run_ids(&mut disk_event);
+        let mut failures = projected_failures(&disk_event);
+        let mut omitted = projected_failures_more(&disk_event);
+        loop {
+            line = serialize_line(&disk_event)?;
+            if line.len() < MAX_LINE_BYTES {
+                break;
+            }
+            if failures.pop().is_none() {
+                return Err("hyalos-channel-event-too-large".to_string());
+            }
+            omitted += 1;
+            set_projected_failures(&mut disk_event, &failures, omitted);
+        }
     }
     let mut file = OpenOptions::new()
         .create(true)
