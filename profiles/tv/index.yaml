@@ -108,6 +108,7 @@ routes:
 - face/bar
 - face/fetch
 - face/focus
+- face/workspace
 - face/launch
 - face/launcher-cache
 - face/meter

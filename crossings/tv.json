@@ -15,6 +15,7 @@
     "face/bar",
     "face/fetch",
     "face/focus",
+    "face/workspace",
     "face/launch",
     "face/launcher-cache",
     "face/meter",
@@ -87,6 +88,10 @@
     [
       "face",
       "focus"
+    ],
+    [
+      "face",
+      "workspace"
     ],
     [
       "face",
@@ -200,6 +205,7 @@
     "/api/v1/face/bar",
     "/api/v1/face/fetch",
     "/api/v1/face/focus",
+    "/api/v1/face/workspace",
     "/api/v1/face/launch",
     "/api/v1/face/launcher-cache",
     "/api/v1/face/meter",
