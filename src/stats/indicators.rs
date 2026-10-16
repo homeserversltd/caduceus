@@ -24,6 +24,7 @@ const TAILSCALE_CADENCE: Duration = Duration::from_secs(5);
 const INTERNET_CADENCE: Duration = Duration::from_secs(7);
 const SERVICES_CADENCE: Duration = Duration::from_secs(5);
 const VPN_CADENCE: Duration = Duration::from_secs(5);
+const TRANSMISSION_STATUS_TIMEOUT: Duration = VPN_CADENCE;
 const PUBLIC_IP_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const PUBLIC_IP_RETRY: Duration = Duration::from_secs(300);
 const CONFIG_MAX_BYTES: u64 = 1024 * 1024;
@@ -543,6 +544,9 @@ struct VpnObservation {
     ts: i64,
     vpn_status: Option<String>,
     transmission_status: Option<String>,
+    on: Option<bool>,
+    protocol: Option<String>,
+    forward_port: Value,
     first_missing_signal: Option<String>,
 }
 
@@ -550,94 +554,105 @@ impl VpnObservation {
     fn unavailable(signal: &str) -> Self {
         Self {
             ts: now_ts(),
-            vpn_status: None,
-            transmission_status: None,
+            vpn_status: Some("unavailable".to_owned()),
+            transmission_status: Some("unavailable".to_owned()),
+            on: None,
+            protocol: None,
+            forward_port: Value::Null,
             first_missing_signal: named_signal(signal),
         }
     }
 }
 
 fn read_vpn() -> VpnObservation {
-    match named_processes() {
-        Ok((openvpn, transmission)) => VpnObservation {
-            ts: now_ts(),
-            vpn_status: Some(if openvpn { "running" } else { "stopped" }.to_owned()),
-            transmission_status: Some(
-                if transmission { "running" } else { "stopped" }.to_owned(),
-            ),
-            first_missing_signal: None,
-        },
-        Err(signal) => VpnObservation::unavailable(signal),
+    if crate::routes::profile_routes::ACTIVE_PROFILE != "homeserver" {
+        return VpnObservation::unavailable("caduceus-stats-vpn-profile-not-homeserver");
     }
-}
 
-fn named_processes() -> Result<(bool, bool), &'static str> {
-    let entries = fs::read_dir("/proc").map_err(|_| {
-        "caduceus-stats-vpn-proc-census-unavailable"
-    })?;
-    let mut openvpn = false;
-    let mut transmission = false;
-    let mut unreadable = false;
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_digit()) {
-            continue;
+    match crate::shared::policy::allows_command("transmission status") {
+        Ok(true) => {}
+        Ok(false) => {
+            return VpnObservation::unavailable("caduceus-stats-vpn-command-not-allowed");
         }
-        let directory = entry.path();
-        let comm = match fs::read_to_string(directory.join("comm")) {
-            Ok(comm) => comm.trim().to_owned(),
-            Err(error)
-                if error.kind() == io::ErrorKind::NotFound
-                    || error.raw_os_error() == Some(libc::ESRCH) =>
-            {
-                continue
-            }
-            Err(_) => {
-                unreadable = true;
-                continue;
-            }
-        };
-        if comm == "openvpn" {
-            openvpn = true;
-        }
-        if comm.starts_with("transmission-da") || comm == "transmission-daemon" {
-            let exe = fs::read_link(directory.join("exe")).ok();
-            let exe_name = exe
-                .as_ref()
-                .and_then(|path| path.file_name())
-                .and_then(|name| name.to_str());
-            let cmdline = read_bounded(&directory.join("cmdline"), 4096).ok();
-            let argv0_name = cmdline
-                .as_ref()
-                .and_then(|bytes| bytes.split(|byte| *byte == 0).next())
-                .and_then(|bytes| std::str::from_utf8(bytes).ok())
-                .and_then(|arg| Path::new(arg).file_name())
-                .and_then(|name| name.to_str());
-            if exe_name == Some("transmission-daemon")
-                || argv0_name == Some("transmission-daemon")
-                || comm == "transmission-daemon"
-            {
-                transmission = true;
-            }
-        }
-        if openvpn && transmission {
-            break;
-        }
+        Err(_) => return VpnObservation::unavailable("caduceus-profile-missing"),
     }
-    if unreadable && !(openvpn && transmission) {
-        return Err("caduceus-stats-vpn-proc-census-incomplete");
-    }
-    Ok((openvpn, transmission))
-}
 
-fn read_bounded(path: &Path, max: usize) -> io::Result<Vec<u8>> {
-    let mut file = fs::File::open(path)?;
-    let mut bytes = Vec::with_capacity(max.min(4096));
-    file.take(max.saturating_add(1) as u64).read_to_end(&mut bytes)?;
-    if bytes.len() > max {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "input too large"));
+    let crossing = match crate::gate::snake::crossing_path_with_timeout(
+        "transmission/status",
+        &Value::Null,
+        TRANSMISSION_STATUS_TIMEOUT,
+    ) {
+        Ok(crossing) => crossing,
+        Err(signal) => return VpnObservation::unavailable(&signal),
+    };
+    let Some(receipt) = crossing.get("receiptPayload") else {
+        return VpnObservation::unavailable("caduceus-transmission-status-receipt-missing");
+    };
+    if crossing.get("ok").and_then(Value::as_bool) != Some(true) {
+        let signal = receipt
+            .get("firstMissingSignal")
+            .and_then(Value::as_str)
+            .filter(|signal| !signal.is_empty() && *signal != "none")
+            .or_else(|| {
+                crossing
+                    .get("firstMissingSignal")
+                    .and_then(Value::as_str)
+                    .filter(|signal| !signal.is_empty() && *signal != "none")
+            })
+            .unwrap_or("caduceus-agathodaimon-refused");
+        return VpnObservation::unavailable(signal);
     }
-    Ok(bytes)
+    if !crate::routes::leaf_schema::accepts("caduceus.transmission.status.v1", receipt) {
+        return VpnObservation::unavailable("caduceus-schema-desync");
+    }
+    if receipt.get("ok").and_then(Value::as_bool) == Some(false) {
+        let signal = receipt
+            .get("firstMissingSignal")
+            .and_then(Value::as_str)
+            .filter(|signal| !signal.is_empty() && *signal != "none")
+            .unwrap_or("caduceus-transmission-status-not-ok");
+        return VpnObservation::unavailable(signal);
+    }
+
+    let conditions = receipt.get("conditions");
+    let vpn_running = ["namespace", "tunnel", "forward"].into_iter().all(|name| {
+        conditions
+            .and_then(|conditions| conditions.get(name))
+            .and_then(Value::as_bool)
+            == Some(true)
+    });
+    let daemon_running = conditions
+        .and_then(|conditions| conditions.get("daemon"))
+        .and_then(Value::as_bool)
+        == Some(true);
+    let on = receipt.get("on").and_then(Value::as_bool);
+    let first_missing_signal = if on == Some(true) {
+        None
+    } else {
+        receipt
+            .get("firstMissingSignal")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    let forward_port = receipt
+        .get("forwardPort")
+        .filter(|value| value.as_i64().is_some() || value.as_u64().is_some())
+        .cloned()
+        .unwrap_or(Value::Null);
+    VpnObservation {
+        ts: now_ts(),
+        vpn_status: Some(if vpn_running { "running" } else { "stopped" }.to_owned()),
+        transmission_status: Some(
+            if daemon_running { "running" } else { "stopped" }.to_owned(),
+        ),
+        on,
+        protocol: receipt
+            .get("protocol")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        forward_port,
+        first_missing_signal,
+    }
 }
 
 pub(crate) struct Collector {
@@ -841,6 +856,9 @@ impl Collector {
         let vpn_guest = json!({
             "vpnStatus": caches.vpn.vpn_status,
             "transmissionStatus": caches.vpn.transmission_status,
+            "on": caches.vpn.on,
+            "protocol": caches.vpn.protocol,
+            "forwardPort": caches.vpn.forward_port,
             "ts": caches.vpn.ts,
             "firstMissingSignal": signal_value(&caches.vpn.first_missing_signal)
         });
