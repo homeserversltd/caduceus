@@ -189,6 +189,70 @@ fn validated_fields(family: &str, body: Value) -> Result<BTreeMap<String, Value>
     Ok(values)
 }
 
+fn valid_display_resolution(value: &str) -> bool {
+    if value == "auto" {
+        return true;
+    }
+    let Some((width, height)) = value.split_once('x') else {
+        return false;
+    };
+    (3..=5).contains(&width.len())
+        && (3..=5).contains(&height.len())
+        && width.bytes().all(|byte| byte.is_ascii_digit())
+        && height.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn validate_display_config_fields(
+    family: &str,
+    values: &BTreeMap<String, Value>,
+) -> Result<(), String> {
+    if family != "display" {
+        return Ok(());
+    }
+    if let Some(value) = values.get("resolution") {
+        if !value.as_str().is_some_and(valid_display_resolution) {
+            return Err("caduceus-settings-value-invalid:resolution".to_string());
+        }
+    }
+    if let Some(value) = values.get("refresh_rate") {
+        if !value
+            .as_f64()
+            .is_some_and(|rate| rate.is_finite() && rate > 0.0 && rate <= 500.0)
+        {
+            return Err("caduceus-settings-value-invalid:refresh_rate".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn restore_display_config(
+    rollbacks: Vec<crate::shared::config::JsonSetRollback>,
+) -> Result<(), String> {
+    let mut failures = Vec::new();
+    for rollback in rollbacks.into_iter().rev() {
+        if let Err(error) = crate::shared::config::restore_json_set(rollback) {
+            failures.push(error);
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join(";"))
+    }
+}
+
+fn display_mutation_error(
+    signal: String,
+    rollbacks: Vec<crate::shared::config::JsonSetRollback>,
+) -> String {
+    match restore_display_config(rollbacks) {
+        Ok(()) => signal,
+        Err(rollback) => {
+            format!("{signal};caduceus-settings-display-rollback-failed:{rollback}")
+        }
+    }
+}
+
 pub fn read_json(family: &str) -> Result<Value, String> {
     fields(family).ok_or_else(|| "caduceus-settings-family-invalid".to_string())?;
     let receipt = run(family, &["get".into(), "--json".into()])?;
@@ -210,6 +274,7 @@ pub fn read_json(family: &str) -> Result<Value, String> {
 
 pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
     let values = validated_fields(family, body)?;
+    validate_display_config_fields(family, &values)?;
     let mut args = vec!["set".to_string()];
     for (field, value) in &values {
         args.extend([
@@ -220,13 +285,76 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
                 .map_err(|_| "caduceus-settings-value-invalid".to_string())?,
         ]);
     }
-    let receipt = run(family, &args)?;
+    let writes_display_config = family == "display"
+        && ["resolution", "refresh_rate"]
+            .iter()
+            .any(|field| values.contains_key(*field));
+    let mut rollbacks = Vec::new();
+    if writes_display_config {
+        for field in ["resolution", "refresh_rate"] {
+            let Some(value) = values.get(field) else {
+                continue;
+            };
+            let mut rollback = None;
+            let write = crate::shared::config::set_json_with_rollback(
+                &format!("display.{field}"),
+                value.clone(),
+                &mut rollback,
+            );
+            if let Some(rollback) = rollback {
+                rollbacks.push(rollback);
+            }
+            if let Err(error) = write {
+                return Err(display_mutation_error(error, rollbacks));
+            }
+        }
+    }
+    let receipt = match run(family, &args) {
+        Ok(receipt) => receipt,
+        Err(error) if writes_display_config => {
+            return Err(display_mutation_error(error, rollbacks));
+        }
+        Err(error) => return Err(error),
+    };
     let receipt_path = receipt
         .get("receiptPath")
         .and_then(Value::as_str)
         .filter(|path| path.starts_with(RECEIPT_ROOT) && path.ends_with("/run.json"))
-        .ok_or_else(|| "caduceus-settings-receipt-path-invalid".to_string())?;
-    let result = json!({"schema":"caduceus.settings.mutation.v1","ok":true,"family":family,"changed":receipt.get("changed").and_then(Value::as_bool).unwrap_or(true),"fields":values.keys().collect::<Vec<_>>(),"receiptPath":receipt_path,"receipt":receipt,"firstMissingSignal":"none"});
+        .map(str::to_string);
+    let Some(receipt_path) = receipt_path else {
+        let signal = "caduceus-settings-receipt-path-invalid".to_string();
+        return if writes_display_config {
+            Err(display_mutation_error(signal, rollbacks))
+        } else {
+            Err(signal)
+        };
+    };
+    let display = if writes_display_config {
+        let shown = match crate::shared::config::show_json() {
+            Ok(shown) => shown,
+            Err(error) => return Err(display_mutation_error(error, rollbacks)),
+        };
+        match shown
+            .get("document")
+            .and_then(|document| document.get("display"))
+            .filter(|display| display.is_object())
+            .cloned()
+        {
+            Some(display) => Some(display),
+            None => {
+                return Err(display_mutation_error(
+                    "caduceus-settings-display-config-unobserved".to_string(),
+                    rollbacks,
+                ));
+            }
+        }
+    } else {
+        None
+    };
+    let mut result = json!({"schema":"caduceus.settings.mutation.v1","ok":true,"family":family,"changed":receipt.get("changed").and_then(Value::as_bool).unwrap_or(true),"fields":values.keys().collect::<Vec<_>>(),"receiptPath":receipt_path,"receipt":receipt,"firstMissingSignal":"none"});
+    if let Some(display) = display {
+        result["display"] = display;
+    }
     discard_transient_receipt(&result);
     Ok(result)
 }
