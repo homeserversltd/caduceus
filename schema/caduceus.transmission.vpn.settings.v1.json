@@ -1,0 +1,45 @@
+{
+  "schema": "caduceus.transmission.vpn.settings.v1",
+  "schema_version": "1.0.0",
+  "role": "Caduceus Transmission VPN settings response and configuration domain",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.transmission.vpn.settings.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Absent configuration values use the declared null default."
+  },
+  "required": ["schema", "ok", "vpn", "rescan", "firstMissingSignal"],
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.transmission.vpn.settings.v1"},
+    "ok": {"type": "boolean"},
+    "vpn": {
+      "type": "object",
+      "required": ["provider", "protocol", "region", "dip", "dns"],
+      "properties": {
+        "provider": {"type": ["string", "null"], "default": null},
+        "protocol": {"type": ["string", "null"], "enum": ["openvpn", "wireguard", null], "default": null},
+        "region": {"type": ["string", "null"], "default": null},
+        "dip": {"type": ["boolean", "null"], "default": null},
+        "dns": {"type": ["string", "null"], "enum": ["provider", null], "default": null}
+      },
+      "additionalProperties": true
+    },
+    "rescan": {"type": ["boolean", "null"], "default": null},
+    "firstMissingSignal": {"type": "string"},
+    "changed": {"type": ["boolean", "null"]},
+    "appliesOnNextStart": {"type": ["boolean", "null"]}
+  },
+  "forms": {
+    "post": {
+      "required": [],
+      "accepted_shapes": ["nested vpn object plus sibling rescan", "flat vpn setting fields plus sibling rescan", "vpn null to reset declared VPN defaults"],
+      "conflicts": ["A known VPN setting may appear in only one location; duplicate flat and nested settings are rejected.", "vpn null cannot be combined with flat known VPN settings."],
+      "unknown_fields": "ignored"
+    }
+  },
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

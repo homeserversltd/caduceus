@@ -287,6 +287,7 @@ const TRANSMISSION_UP_HTTP_PATH: &str = "/api/v1/transmission/up";
 const TRANSMISSION_DOWN_HTTP_PATH: &str = "/api/v1/transmission/down";
 const TRANSMISSION_KEYS_REPLACE_HTTP_PATH: &str = "/api/v1/transmission/keys/replace";
 const TRANSMISSION_KEYS_ROTATE_HTTP_PATH: &str = "/api/v1/transmission/keys/rotate";
+const TRANSMISSION_VPN_SETTINGS_HTTP_PATH: &str = "/api/v1/transmission/vpn/settings";
 const TAILSCALE_UP_HTTP_PATH: &str = "/api/v1/network/tailscale/up";
 const TAILSCALE_DOWN_HTTP_PATH: &str = "/api/v1/network/tailscale/down";
 const TAILSCALE_AUTHKEY_HTTP_PATH: &str = "/api/v1/network/tailscale/authkey";
@@ -322,6 +323,7 @@ const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "POST /api/v1/network/dhcp/pool-boundary",
     "POST /api/v1/transmission/keys/replace",
     "POST /api/v1/transmission/keys/rotate",
+    "POST /api/v1/transmission/vpn/settings",
     "POST /api/v1/network/tailscale/up",
     "POST /api/v1/network/tailscale/down",
     "POST /api/v1/network/tailscale/authkey",
@@ -519,6 +521,7 @@ fn administrative_routes_match(
                 || path == TRANSMISSION_DOWN_HTTP_PATH
                 || path == TRANSMISSION_KEYS_REPLACE_HTTP_PATH
                 || path == TRANSMISSION_KEYS_ROTATE_HTTP_PATH
+                || path == TRANSMISSION_VPN_SETTINGS_HTTP_PATH
                 || path == TAILSCALE_UP_HTTP_PATH
                 || path == TAILSCALE_DOWN_HTTP_PATH
                 || path == TAILSCALE_AUTHKEY_HTTP_PATH

@@ -30,6 +30,7 @@ commands:
 - network tailscale authkey
 - network tailscale tailnet
 - vpn status
+- transmission vpn settings
 - network notes
 - network notes write
 - network dhcp status
@@ -229,6 +230,7 @@ routes:
 - transmission/up
 - transmission/down
 - transmission/status
+- transmission/vpn/settings
 - transmission/keys
 - transmission/keys/replace
 - transmission/keys/rotate

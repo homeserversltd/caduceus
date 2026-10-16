@@ -324,6 +324,7 @@ fn main() {
         "caduceus.transmission.down.v1",
         "caduceus.transmission.status.v1",
         "caduceus.transmission.keys.v1",
+        "caduceus.transmission.vpn.settings.v1",
         "caduceus.network.tailscale.v1",
         "caduceus.disk.census.v1",
         "appliance.crossings.v1",
