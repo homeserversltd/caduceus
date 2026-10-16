@@ -10,7 +10,7 @@ fn invoke(args: &[String]) -> Result<Value, String> {
     if args.is_empty() {
         return Err("caduceus-household-time-command-missing".to_string());
     }
-    crate::gate::snake::crossing_path("settings/datetime", &json!({"args": args}))
+    crate::gate::snake::crossing_path("settings/datetime/household-time", &json!({"args": args}))
 }
 
 pub fn state_json() -> Result<Value, String> {

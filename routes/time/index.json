@@ -1,1 +1,1 @@
-{"namespace":"time","admittance":"open","flags":{},"serve":[{"snake":"settings/datetime","verb":["settings","datetime"]}]}
+{"namespace":"time","admittance":"open","flags":{},"serve":[{"snake":"settings/datetime/household-time","verb":["time","household-time"]}]}
