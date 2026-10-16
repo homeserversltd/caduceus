@@ -141,8 +141,8 @@ pub mod report_links;
 pub mod report_profile;
 #[path = "appliance/report/support/report_sources/index.rs"]
 pub mod report_sources;
-#[cfg(leaf_settings_datetime)]
-#[path = "settings/datetime/support/household_time.rs"]
+#[cfg(leaf_time)]
+#[path = "time/support/household_time.rs"]
 pub mod set_time;
 #[cfg(leaf_storage_disk_test)]
 pub use leaf_storage_disk_test as test_drive;

@@ -229,6 +229,7 @@ routes:
 - storage/vault/auto-decrypt
 - storage/vault/status
 - storage/vault/unlock
+- time
 - update/check
 - update/service/status
 - update/service/toggle

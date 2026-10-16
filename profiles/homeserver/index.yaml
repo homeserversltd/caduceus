@@ -77,6 +77,8 @@ commands:
 - transmission status
 - settings samba status
 - settings ssh status
+- time resolve
+- time state
 - transmission keys status
 - transmission keys replace
 - transmission keys rotate
@@ -238,6 +240,7 @@ routes:
 - storage/vault/auto-decrypt
 - storage/vault/status
 - storage/vault/unlock
+- time
 - update/check
 - update/service/status
 - update/service/toggle

@@ -499,23 +499,23 @@ where
                 public_action_not_allowed()
             }
         }
-        #[cfg(leaf_settings_datetime)]
+        #[cfg(leaf_time)]
         [domain, verb] if domain == "time" && verb == "state" => time_command("time state", || {
             crate::routes::set_time::command(&["state".into()])
         }),
-        #[cfg(leaf_settings_datetime)]
+        #[cfg(leaf_time)]
         [domain, verb] if domain == "time" && verb == "resolve" => {
             time_command("time resolve", || {
                 crate::routes::set_time::command(&["resolve".into()])
             })
         }
-        #[cfg(leaf_settings_datetime)]
+        #[cfg(leaf_time)]
         [domain, verb] if domain == "time" && verb == "ensure-ntp" => {
             time_command("time ensure-ntp", || {
                 crate::routes::set_time::command(&["ensure-ntp".into()])
             })
         }
-        #[cfg(leaf_settings_datetime)]
+        #[cfg(leaf_time)]
         [domain, verb, timezone] if domain == "time" && verb == "set-timezone" => {
             time_command("time set-timezone", || {
                 crate::routes::set_time::command(&["set-timezone".into(), timezone.clone()])
