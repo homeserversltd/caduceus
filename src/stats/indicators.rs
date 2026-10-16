@@ -24,6 +24,7 @@ const TAILSCALE_CADENCE: Duration = Duration::from_secs(5);
 const INTERNET_CADENCE: Duration = Duration::from_secs(7);
 const SERVICES_CADENCE: Duration = Duration::from_secs(5);
 const VPN_CADENCE: Duration = Duration::from_secs(5);
+#[cfg(leaf_transmission_status)]
 const TRANSMISSION_STATUS_TIMEOUT: Duration = VPN_CADENCE;
 const PUBLIC_IP_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const PUBLIC_IP_RETRY: Duration = Duration::from_secs(300);
@@ -564,6 +565,7 @@ impl VpnObservation {
     }
 }
 
+#[cfg(leaf_transmission_status)]
 fn read_vpn() -> VpnObservation {
     if crate::routes::profile_routes::ACTIVE_PROFILE != "homeserver" {
         return VpnObservation::unavailable("caduceus-stats-vpn-profile-not-homeserver");
@@ -577,42 +579,11 @@ fn read_vpn() -> VpnObservation {
         Err(_) => return VpnObservation::unavailable("caduceus-profile-missing"),
     }
 
-    let crossing = match crate::gate::snake::crossing_path_with_timeout(
-        "transmission/status",
-        &Value::Null,
-        TRANSMISSION_STATUS_TIMEOUT,
-    ) {
-        Ok(crossing) => crossing,
-        Err(signal) => return VpnObservation::unavailable(&signal),
-    };
-    let Some(receipt) = crossing.get("receiptPayload") else {
-        return VpnObservation::unavailable("caduceus-transmission-status-receipt-missing");
-    };
-    if crossing.get("ok").and_then(Value::as_bool) != Some(true) {
-        let signal = receipt
-            .get("firstMissingSignal")
-            .and_then(Value::as_str)
-            .filter(|signal| !signal.is_empty() && *signal != "none")
-            .or_else(|| {
-                crossing
-                    .get("firstMissingSignal")
-                    .and_then(Value::as_str)
-                    .filter(|signal| !signal.is_empty() && *signal != "none")
-            })
-            .unwrap_or("caduceus-agathodaimon-refused");
-        return VpnObservation::unavailable(signal);
-    }
-    if !crate::routes::leaf_schema::accepts("caduceus.transmission.status.v1", receipt) {
-        return VpnObservation::unavailable("caduceus-schema-desync");
-    }
-    if receipt.get("ok").and_then(Value::as_bool) == Some(false) {
-        let signal = receipt
-            .get("firstMissingSignal")
-            .and_then(Value::as_str)
-            .filter(|signal| !signal.is_empty() && *signal != "none")
-            .unwrap_or("caduceus-transmission-status-not-ok");
-        return VpnObservation::unavailable(signal);
-    }
+    let receipt =
+        match crate::routes::transmission_status_onness::read(TRANSMISSION_STATUS_TIMEOUT) {
+            Ok(receipt) => receipt,
+            Err(signal) => return VpnObservation::unavailable(&signal),
+        };
 
     let conditions = receipt.get("conditions");
     let vpn_running = ["namespace", "tunnel", "forward"].into_iter().all(|name| {
@@ -653,6 +624,11 @@ fn read_vpn() -> VpnObservation {
         forward_port,
         first_missing_signal,
     }
+}
+
+#[cfg(not(leaf_transmission_status))]
+fn read_vpn() -> VpnObservation {
+    VpnObservation::unavailable("caduceus-stats-vpn-profile-not-homeserver")
 }
 
 pub(crate) struct Collector {

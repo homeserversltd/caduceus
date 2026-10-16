@@ -98,6 +98,9 @@ pub use leaf_network_device_list as list_network_devices;
 pub use leaf_network_tailnet as manage_tailnet;
 #[cfg(leaf_network_vpn)]
 pub use leaf_network_vpn as manage_vpn;
+#[cfg(leaf_transmission_status)]
+#[path = "transmission/status/support/onness.rs"]
+pub(crate) mod transmission_status_onness;
 #[cfg(leaf_settings_child_device)]
 pub use leaf_settings_child_device as manage_child_device;
 #[cfg(any(
