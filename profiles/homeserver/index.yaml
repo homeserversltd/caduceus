@@ -133,6 +133,7 @@ harmonia_routes:
     args:
     - update
 routes:
+- config
 - xenia/validate
 - xenia/admit
 - xenia/:id/observe

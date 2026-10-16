@@ -67,7 +67,7 @@ pub(crate) mod cartridges_route_support;
 #[path = "exousia/support.rs"]
 pub(crate) mod exousia_support;
 pub use crate::gate;
-#[cfg(leaf_settings_appearance)]
+#[cfg(leaf_config)]
 #[path = "settings/support/config.rs"]
 pub(crate) mod config_support;
 #[path = "receipts.rs"]
@@ -141,8 +141,9 @@ pub mod report_links;
 pub mod report_profile;
 #[path = "appliance/report/support/report_sources/index.rs"]
 pub mod report_sources;
-#[cfg(leaf_network_status)]
-pub use leaf_network_status as set_time;
+#[cfg(leaf_settings_datetime)]
+#[path = "settings/datetime/support/household_time.rs"]
+pub mod set_time;
 #[cfg(leaf_storage_disk_test)]
 pub use leaf_storage_disk_test as test_drive;
 #[cfg(leaf_update_module)]
