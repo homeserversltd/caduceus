@@ -1,0 +1,97 @@
+{
+  "schema": "caduceus.docs.seal.v1",
+  "schema_version": "1.0.0",
+  "role": "Public-safe documentation and local fire-seal perspective",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.docs.seal.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional observations mean no evidence; an absent or invalid perspective returns null observations with its named signal",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.docs.seal.v1"
+    },
+    "profile": {
+      "type": "string",
+      "description": "Compiled Caduceus profile"
+    },
+    "stamp_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "fire_seal": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "fields": {
+        "band": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "licensee": {
+          "type": "string"
+        },
+        "issued": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "band",
+        "licensee",
+        "issued"
+      ],
+      "description": "Fire-seal fields are projected unchanged, including unknown additive fields"
+    },
+    "documentation_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Documentation member release-flag source_sha"
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Observation time in RFC3339 UTC"
+    },
+    "signal": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "ruyi-perspective-absent when the local perspective is absent, unreadable, or invalid"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "profile": "string",
+    "stamp_sha": "string|null",
+    "fire_seal": "object|null",
+    "documentation_sha": "string|null",
+    "observed_at": "string",
+    "signal": "string|null"
+  },
+  "required": [
+    "schema",
+    "profile",
+    "stamp_sha",
+    "fire_seal",
+    "documentation_sha",
+    "observed_at"
+  ],
+  "optional": [
+    "signal"
+  ],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

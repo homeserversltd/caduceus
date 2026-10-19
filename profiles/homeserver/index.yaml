@@ -261,3 +261,4 @@ routes:
 - linker/hardlink-scan
 - linker/mkdir
 - linker/rename
+- docs

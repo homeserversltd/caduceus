@@ -65,6 +65,9 @@ struct RuyiRow {
     syzygy_sha: Option<String>,
     #[serde(default)]
     stamp_sha: Option<String>,
+    // Keep the complete seal projection; unknown additive fields cross unchanged.
+    #[serde(default)]
+    fire_seal: Option<Value>,
     #[serde(default)]
     last_seen: u64,
     last_update: RuyiLastUpdate,
@@ -106,6 +109,7 @@ struct DiscoveredRuyiRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     syzygy_sha: Option<String>,
     stamp_sha: Option<String>,
+    fire_seal: Option<Value>,
     last_seen: u64,
     last_update: Option<RuyiLastUpdate>,
     discovered_via: String,
@@ -185,6 +189,22 @@ fn valid_hex(value: &str, length: usize) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+fn valid_fire_seal(value: &Value) -> bool {
+    let Some(seal) = value.as_object() else {
+        return false;
+    };
+    let Some(band) = seal.get("band").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(_licensee) = seal.get("licensee").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(issued) = seal.get("issued").and_then(Value::as_str) else {
+        return false;
+    };
+    valid_hex(band, 64) && chrono::DateTime::parse_from_rfc3339(issued).is_ok()
+}
+
 fn valid_hostname(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 63
@@ -224,6 +244,7 @@ fn valid_row(row: &RuyiRow, path_mac: &str) -> bool {
             .stamp_sha
             .as_deref()
             .map_or(true, |sha| valid_hex(sha, 64))
+        && row.fire_seal.as_ref().map_or(true, valid_fire_seal)
         && valid_bounded_text(&row.last_update.run_id)
 }
 
@@ -562,7 +583,7 @@ async fn probe_candidate(
     } else {
         (None, None)
     };
-    Some(DiscoveredRuyiRow { schema: row_schema().to_owned(), mac: candidate.mac, hostname, canonical_name, ipv4: ipv4.to_string(), ipv4_source: source.to_owned(), profile, gui_face, caduceus_sha, env_sha, rustc_version, harmonia_sha: None, syzygy_sha, stamp_sha, last_seen: server_now(), last_update: None, discovered_via: "lease-sweep".to_owned(), stats: include_stats.then_some(stats), stats_signal })
+    Some(DiscoveredRuyiRow { schema: row_schema().to_owned(), mac: candidate.mac, hostname, canonical_name, ipv4: ipv4.to_string(), ipv4_source: source.to_owned(), profile, gui_face, caduceus_sha, env_sha, rustc_version, harmonia_sha: None, syzygy_sha, stamp_sha, fire_seal: None, last_seen: server_now(), last_update: None, discovered_via: "lease-sweep".to_owned(), stats: include_stats.then_some(stats), stats_signal })
 }
 
 fn response_json_200(response: &[u8]) -> Option<Value> {

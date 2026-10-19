@@ -207,3 +207,4 @@ routes:
 - update/modules/:id
 - interactables
 - interactables/:id/run
+- docs
