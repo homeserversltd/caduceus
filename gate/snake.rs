@@ -491,6 +491,59 @@ pub fn run(band: &str, envelope: &Value) -> Result<Value, String> {
     let band = safe_band_path(band)?;
     execute(&band, envelope)
 }
+
+/// Execute a declaration's ordered snake serve chord against one raw envelope.
+/// Each step gets a fresh execution stamp; prior stamps never enter the next hop.
+pub fn execute_ordered_serve(route_set: &[Value], base_envelope: &Value) -> Result<Value, String> {
+    let steps = crate::gate::discovery::walk_compiled_route_set(route_set)?;
+    if steps.is_empty() {
+        return Err("gate-route-set-empty".into());
+    }
+
+    let bands = steps
+        .into_iter()
+        .map(|step| {
+            let band = step
+                .snake
+                .ok_or_else(|| "caduceus-serve-rust-step-unavailable".to_string())?;
+            safe_band_path(&band)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut step_receipts = Vec::with_capacity(bands.len());
+    let mut receipt_payload = None;
+    let mut all_ok = true;
+    for band in bands {
+        let result = execute(&band, base_envelope)?;
+        let stamp = result
+            .get("envelope")
+            .and_then(|envelope| envelope.get("caduceusReceipt"))
+            .cloned()
+            .ok_or_else(|| "caduceus-snake-step-stamp-missing".to_string())?;
+        let payload = result
+            .get("receiptPayload")
+            .cloned()
+            .ok_or_else(|| "caduceus-snake-step-receipt-missing".to_string())?;
+        let child_ok = stamp.get("ok").and_then(Value::as_bool) == Some(true);
+        let staff_ok = payload.get("ok").and_then(Value::as_bool) == Some(true);
+        all_ok &= child_ok && staff_ok;
+        step_receipts.push(stamp);
+        receipt_payload = Some(payload);
+        if !child_ok || !staff_ok {
+            break;
+        }
+    }
+
+    let receipt_payload =
+        receipt_payload.ok_or_else(|| "caduceus-snake-step-receipt-missing".to_string())?;
+    Ok(json!({
+        "ok": all_ok,
+        "receiptPayload": receipt_payload,
+        "stepReceipts": step_receipts,
+        "rawEnvelope": base_envelope,
+    }))
+}
+
 fn crossing_envelope(path: &str, input: &Value) -> Value {
     json!({"schema":crate::protocol::SCHEMA_ID,"intent_id":format!("caduceus-{path}"),"transition":path,"origin_of_intent":"near","payload":input})
 }

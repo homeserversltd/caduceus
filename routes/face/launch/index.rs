@@ -9,7 +9,7 @@ async fn route(
         axum::Json<crate::gate::ApiErrorBody>,
     ),
 > {
-    face_post("launch", body).await
+    face_post(include_str!("index.json"), body).await
 }
 
 pub fn register(router: axum::Router) -> axum::Router {
