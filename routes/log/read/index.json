@@ -1,1 +1,1 @@
-{"namespace":"log/read","admittance":"open","flags":{},"serve":[]}
+{"namespace":"log/read","admittance":"open","flags":{},"serve":[],"commands":["logs read"],"needs":["all"]}

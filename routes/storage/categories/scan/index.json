@@ -1,1 +1,1 @@
-{"namespace":"storage/categories/scan","admittance":"open","flags":{},"serve":[]}
+{"namespace":"storage/categories/scan","admittance":"open","flags":{},"serve":[],"commands":[{"name":"storage categories scan","needs":["steam"]}],"needs":["steam"]}

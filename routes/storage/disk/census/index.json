@@ -1,1 +1,1 @@
-{"namespace":"storage/disk/census","admittance":"open","flags":{},"serve":[]}
+{"namespace":"storage/disk/census","admittance":"open","flags":{},"serve":[],"commands":["disk census","disk mount"],"needs":["all"]}

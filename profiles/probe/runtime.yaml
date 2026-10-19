@@ -1,0 +1,3 @@
+schema: caduceus.profile.v1
+profile: probe
+mode: probe

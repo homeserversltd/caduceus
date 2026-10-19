@@ -1,1 +1,1 @@
-{"namespace":"network/cert/status","admittance":"open","flags":{},"serve":[]}
+{"namespace":"network/cert/status","admittance":"open","flags":{},"serve":[],"commands":["cert status"],"needs":["all"]}

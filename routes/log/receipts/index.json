@@ -1,1 +1,1 @@
-{"namespace":"log/receipts","admittance":"open","flags":{},"serve":[{"rust":"log_receipts_read"}]}
+{"namespace":"log/receipts","admittance":"open","flags":{},"serve":[{"rust":"log_receipts_read"}],"commands":["receipts latest","receipts ledger"],"needs":["all"]}

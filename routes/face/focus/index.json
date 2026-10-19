@@ -1,1 +1,1 @@
-{"namespace":"face/focus","admittance":"open","flags":{},"serve":[{"snake":"face/focus","verb":["face","focus"]}]}
+{"namespace":"face/focus","admittance":"open","flags":{},"serve":[{"snake":"face/focus","verb":["face","focus"]}],"commands":[],"needs":["gtk4"]}

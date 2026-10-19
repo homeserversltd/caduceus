@@ -1,1 +1,1 @@
-{"namespace":"network/cert/trust","admittance":"open","flags":{},"serve":[]}
+{"namespace":"network/cert/trust","admittance":"open","flags":{},"serve":[],"commands":[{"name":"cert trust-install","needs":["desktop"]}],"needs":["all"]}

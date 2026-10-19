@@ -1,1 +1,1 @@
-{"namespace":"interactables","admittance":"open","flags":{},"serve":[]}
+{"namespace":"interactables","admittance":"open","flags":{},"serve":[],"commands":["interactable list"],"needs":["all"]}

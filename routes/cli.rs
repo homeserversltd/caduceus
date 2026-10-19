@@ -41,9 +41,11 @@ use crate::routes::open_settings_pane as gui;
 #[cfg(leaf_update_module)]
 use crate::routes::update_module;
 use crate::routes::{
-    dhcp, disk, dns, drive_test, health, help, homeserver_sbin, hyalos, identity, legacy_sbin,
-    logs, network, network_identity, network_read, profile, receipts, serve, source_map, staff,
+    disk, dns, drive_test, health, help, homeserver_sbin, hyalos, identity, legacy_sbin, logs,
+    network, network_read, profile, receipts, serve, source_map, staff,
 };
+#[cfg(carapace_feature_kea)]
+use crate::routes::{dhcp, network_identity};
 use crate::routes::{
     sync_sources as sync, toggle_harmonia_module as profile_module, update_appliance as update,
 };
@@ -111,6 +113,9 @@ where
         [flag] if flag == "--help" || flag == "-h" => {
             print_help();
             0
+        }
+        [domain, profile, flag] if domain == "carapace" && flag == "--tree" => {
+            crate::routes::profile_routes::show_tree(profile)
         }
         [domain] if domain == "help" => help::show(),
         [domain, verb] if domain == "identity" && verb == "show" => identity::show(),
@@ -460,7 +465,16 @@ where
             let command = format!("network dhcp {}", rest.join(" "));
             match network_read::named(&command) {
                 Some(read) => read_command(read),
-                None => dhcp::command(rest),
+                None => {
+                    #[cfg(carapace_feature_kea)]
+                    {
+                        dhcp::command(rest)
+                    }
+                    #[cfg(not(carapace_feature_kea))]
+                    {
+                        public_action_not_allowed()
+                    }
+                }
             }
         }
         [domain, object, rest @ ..]
@@ -469,6 +483,7 @@ where
             let command = format!("network device {}", rest.join(" "));
             match network_read::named(&command) {
                 Some(read) => read_command(read),
+                #[cfg(carapace_feature_kea)]
                 None if command == "network device claim"
                     || rest.first().is_some_and(|v| v == "claim") =>
                 {
@@ -896,6 +911,7 @@ fn print_help() {
     println!();
     println!("commands:");
     println!("  caduceus help");
+    println!("  caduceus carapace <profile> --tree");
     println!("  caduceus identity show");
     println!("  caduceus profile show");
     println!("  caduceus profile sources reseed");

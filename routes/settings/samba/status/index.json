@@ -1,1 +1,1 @@
-{"namespace":"settings/samba/status","admittance":"open","flags":{"receiptSchema":"caduceus.staff.v1"},"serve":[{"snake":"settings/samba","verb":["settings","samba"]}]}
+{"namespace":"settings/samba/status","admittance":"open","flags":{"receiptSchema":"caduceus.staff.v1"},"serve":[{"snake":"settings/samba","verb":["settings","samba"]}],"commands":["settings samba status"],"needs":["all"]}

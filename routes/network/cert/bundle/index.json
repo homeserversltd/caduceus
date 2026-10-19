@@ -1,1 +1,1 @@
-{"namespace":"network/cert/bundle","admittance":"open","flags":{},"serve":[]}
+{"namespace":"network/cert/bundle","admittance":"open","flags":{},"serve":[],"commands":[{"name":"cert bundle-export","needs":["nas"]},{"name":"cert bundle read","needs":["nas"]}],"needs":["all"]}

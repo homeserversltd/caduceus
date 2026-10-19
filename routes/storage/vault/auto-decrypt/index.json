@@ -1,1 +1,1 @@
-{"namespace":"storage/vault/auto-decrypt","admittance":"open","flags":{},"serve":[]}
+{"namespace":"storage/vault/auto-decrypt","admittance":"open","flags":{},"serve":[],"commands":["vault auto-decrypt"],"needs":[]}

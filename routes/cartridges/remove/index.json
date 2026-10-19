@@ -1,1 +1,1 @@
-{"namespace":"cartridges/remove","admittance":"open","flags":{},"serve":[]}
+{"namespace":"cartridges/remove","admittance":"open","flags":{},"serve":[],"commands":[{"name":"cartridges mutate","needs":["nas"]}],"needs":["nas"]}

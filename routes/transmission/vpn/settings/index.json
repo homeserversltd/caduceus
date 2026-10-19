@@ -1,1 +1,1 @@
-{"namespace":"transmission/vpn/settings","admittance":"open","flags":{},"serve":[]}
+{"namespace":"transmission/vpn/settings","admittance":"open","flags":{},"serve":[],"commands":["transmission vpn settings"],"needs":["transmission"]}

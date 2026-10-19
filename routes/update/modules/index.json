@@ -1,1 +1,1 @@
-{"namespace":"update/modules","admittance":"open","flags":{},"serve":[]}
+{"namespace":"update/modules","admittance":"open","flags":{},"serve":[],"commands":["update modules list","profile module toggle","update modules toggle"],"needs":["all"]}

@@ -1,1 +1,1 @@
-{"namespace":"update/history","admittance":"open","flags":{},"serve":[]}
+{"namespace":"update/history","admittance":"open","flags":{},"serve":[],"commands":["update history"],"needs":["all"]}

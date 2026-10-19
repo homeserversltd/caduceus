@@ -1,1 +1,1 @@
-{"namespace":"network/cert/issue-leaf","admittance":"open","flags":{},"serve":[{"snake":"network/cert/house-ca","verb":["cert","house-ca"]},{"snake":"appliance/service"},{"snake":"network/cert/refresh"}]}
+{"namespace":"network/cert/issue-leaf","admittance":"open","flags":{},"serve":[{"snake":"network/cert/house-ca","verb":["cert","house-ca"]},{"snake":"appliance/service"},{"snake":"network/cert/refresh"}],"commands":[{"name":"cert issue-leaf","needs":["nas"]},{"name":"cert csr sign","needs":["nas"]}],"needs":["all"]}

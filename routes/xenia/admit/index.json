@@ -1,1 +1,1 @@
-{"namespace": "xenia/admit", "admittance": "open", "flags": {}, "serve": []}
+{"namespace":"xenia/admit","admittance":"open","flags":{},"serve":[],"commands":[{"name":"xenia mutate","needs":["nas"]}],"needs":["all"]}

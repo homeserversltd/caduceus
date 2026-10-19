@@ -1,1 +1,1 @@
-{"namespace":"face/volume","admittance":"open","flags":{},"serve":[{"snake":"face/volume","verb":["face","volume"]}]}
+{"namespace":"face/volume","admittance":"open","flags":{},"serve":[{"snake":"face/volume","verb":["face","volume"]}],"commands":[],"needs":["gtk4"]}

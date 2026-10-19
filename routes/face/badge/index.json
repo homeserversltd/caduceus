@@ -1,1 +1,1 @@
-{"namespace":"face/badge","admittance":"open","flags":{},"serve":[{"snake":"face/badge","verb":["face","badge"]}]}
+{"namespace":"face/badge","admittance":"open","flags":{},"serve":[{"snake":"face/badge","verb":["face","badge"]}],"commands":[],"needs":["gtk4"]}

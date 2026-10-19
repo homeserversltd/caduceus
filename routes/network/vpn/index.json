@@ -1,1 +1,1 @@
-{"namespace":"network/vpn","admittance":"open","flags":{},"serve":[]}
+{"namespace":"network/vpn","admittance":"open","flags":{},"serve":[],"commands":["vpn status"],"needs":["all"]}

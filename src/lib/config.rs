@@ -44,7 +44,43 @@ pub fn read_public_profile_text() -> Result<String, String> {
 
 pub fn read_public_profile_value() -> Result<serde_json::Value, String> {
     let text = read_public_profile_text()?;
-    serde_yaml::from_str(&text).map_err(|err| format!("caduceus-profile-invalid: {err}"))
+    let value: Value = serde_yaml::from_str(&text)
+        .map_err(|err| format!("caduceus-profile-invalid: {err}"))?;
+    if value.get("sclerites").map_or(true, Value::is_null) {
+        return Ok(value);
+    }
+    resolve_short_public_profile(value)
+}
+
+fn resolve_short_public_profile(defconfig: Value) -> Result<Value, String> {
+    let supplied_profile = defconfig
+        .get("profile")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-profile-defconfig-profile-missing".to_string())?;
+    let policy: Value = serde_yaml::from_str(
+        crate::routes::profile_routes::ACTIVE_RUNTIME_POLICY_YAML,
+    )
+    .map_err(|err| format!("caduceus-profile-runtime-policy-invalid: {err}"))?;
+    let policy_profile = policy
+        .get("profile")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-profile-runtime-policy-profile-missing".to_string())?;
+    if supplied_profile != crate::routes::profile_routes::ACTIVE_PROFILE
+        || policy_profile != supplied_profile
+    {
+        return Err("caduceus-profile-runtime-policy-profile-mismatch".to_string());
+    }
+    let mut resolved = policy;
+    let defaults = resolved
+        .as_object_mut()
+        .ok_or_else(|| "caduceus-profile-runtime-policy-invalid".to_string())?;
+    let overrides = defconfig
+        .as_object()
+        .ok_or_else(|| "caduceus-profile-defconfig-invalid".to_string())?;
+    for (field, value) in overrides {
+        defaults.insert(field.clone(), value.clone());
+    }
+    Ok(resolved)
 }
 
 pub fn overlay_birth_profile_fields(value: &mut serde_json::Value) -> Result<(), String> {

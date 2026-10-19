@@ -1,1 +1,1 @@
-{"namespace":"network/dhcp/statistics","admittance":"open","flags":{},"serve":[]}
+{"namespace":"network/dhcp/statistics","admittance":"open","flags":{},"serve":[],"commands":["network dhcp statistics"],"needs":["all"]}

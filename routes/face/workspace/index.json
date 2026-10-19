@@ -1,1 +1,1 @@
-{"namespace":"face/workspace","admittance":"open","flags":{},"serve":[{"snake":"face/workspace","verb":["face","workspace"]}]}
+{"namespace":"face/workspace","admittance":"open","flags":{},"serve":[{"snake":"face/workspace","verb":["face","workspace"]}],"commands":[],"needs":["gtk4"]}

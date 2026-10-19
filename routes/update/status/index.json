@@ -1,1 +1,1 @@
-{"namespace":"update/status","admittance":"open","flags":{},"serve":[]}
+{"namespace":"update/status","admittance":"open","flags":{},"serve":[],"commands":["update status"],"needs":["all"]}

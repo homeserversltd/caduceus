@@ -2,7 +2,9 @@
 
 use serde_json::{json, Value};
 
+#[cfg(carapace_feature_unbound)]
 const DNS_INTENT_METHOD: &str = "POST";
+#[cfg(carapace_feature_unbound)]
 const DNS_INTENT_ROUTE: &str = "/api/dns/unbound/drop-in";
 
 fn public_receipt(value: Value) -> Value {
@@ -30,6 +32,7 @@ pub fn read_json() -> Result<Value, String> {
     invoke(&["read".into()])
 }
 
+#[cfg(carapace_feature_unbound)]
 pub fn resolver_json(action: &str, metadata: Option<Value>) -> Result<Value, String> {
     if !["adblock", "blocklist-update", "upstream"].contains(&action) {
         return Err("caduceus-network-dns-resolver-action-invalid".into());
@@ -45,6 +48,7 @@ pub fn resolver_json(action: &str, metadata: Option<Value>) -> Result<Value, Str
     invoke(&args)
 }
 
+#[cfg(carapace_feature_unbound)]
 pub fn intent_json(method: &str, route: &str, metadata: Value) -> Result<Value, String> {
     if method != DNS_INTENT_METHOD || route != DNS_INTENT_ROUTE {
         return Err("caduceus-network-dns-intent-route-refused".into());
@@ -100,12 +104,20 @@ mod tests {
 }
 
 
-use axum::{extract::Json, http::{HeaderMap, StatusCode}, Router};
+use axum::{extract::Json, http::StatusCode, Router};
+#[cfg(carapace_feature_unbound)]
+use axum::http::{HeaderMap};
+#[cfg(carapace_feature_unbound)]
 use serde::Deserialize;
-use crate::gate::{administrative_admits, api_error, api_error_signal, mutation_status, ApiErrorBody};
+use crate::gate::{api_error, api_error_signal, ApiErrorBody};
+#[cfg(carapace_feature_unbound)]
+use crate::gate::{administrative_admits, mutation_status};
+#[cfg(carapace_feature_unbound)]
 use crate::shared::policy;
+#[cfg(carapace_feature_unbound)]
 use crate::routes::{dns_control, dns};
 
+#[cfg(carapace_feature_unbound)]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DnsDeviceNameBody {
@@ -115,6 +127,7 @@ struct DnsDeviceNameBody {
     flags: Option<Value>,
 }
 
+#[cfg(carapace_feature_unbound)]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DnsAliasBody {
@@ -124,6 +137,7 @@ struct DnsAliasBody {
     flags: Option<Value>,
 }
 
+#[cfg(carapace_feature_unbound)]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DnsAdblockBody {
@@ -132,6 +146,7 @@ struct DnsAdblockBody {
     flags: Option<Value>,
 }
 
+#[cfg(carapace_feature_unbound)]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DnsUpstreamBody {
@@ -142,6 +157,7 @@ struct DnsUpstreamBody {
     flags: Option<Value>,
 }
 
+#[cfg(carapace_feature_unbound)]
 fn dns_mutation_admits(
     command: &'static str,
     route: &'static str,
@@ -157,6 +173,7 @@ fn dns_mutation_admits(
         .map_err(|signal| api_error_signal(command, &signal))
 }
 
+#[cfg(carapace_feature_unbound)]
 fn dns_mutation_response(
     command: &'static str,
     result: Result<Value, String>,
@@ -184,6 +201,7 @@ async fn dns_resolver_status_route() -> Result<Json<Value>, (StatusCode, Json<Ap
     network_read_route("network dns resolver status").await
 }
 
+#[cfg(carapace_feature_unbound)]
 async fn dns_resolver_adblock_route(
     headers: HeaderMap,
     Json(body): Json<DnsAdblockBody>,
@@ -201,6 +219,7 @@ async fn dns_resolver_adblock_route(
     )
 }
 
+#[cfg(carapace_feature_unbound)]
 async fn dns_resolver_blocklist_update_route(
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
@@ -217,6 +236,7 @@ async fn dns_resolver_blocklist_update_route(
     )
 }
 
+#[cfg(carapace_feature_unbound)]
 async fn dns_resolver_upstream_route(
     headers: HeaderMap,
     Json(body): Json<DnsUpstreamBody>,
@@ -237,6 +257,7 @@ async fn dns_resolver_upstream_route(
     )
 }
 
+#[cfg(carapace_feature_unbound)]
 async fn dns_device_name_create_route(
     headers: HeaderMap,
     Json(body): Json<DnsDeviceNameBody>,
@@ -254,6 +275,7 @@ async fn dns_device_name_create_route(
     )
 }
 
+#[cfg(carapace_feature_unbound)]
 async fn dns_device_name_remove_route(
     headers: HeaderMap,
     Json(body): Json<DnsDeviceNameBody>,
@@ -271,6 +293,7 @@ async fn dns_device_name_remove_route(
     )
 }
 
+#[cfg(carapace_feature_unbound)]
 async fn dns_alias_create_route(
     headers: HeaderMap,
     Json(body): Json<DnsAliasBody>,
@@ -288,6 +311,7 @@ async fn dns_alias_create_route(
     )
 }
 
+#[cfg(carapace_feature_unbound)]
 async fn dns_alias_remove_route(
     headers: HeaderMap,
     Json(body): Json<DnsAliasBody>,
@@ -305,6 +329,7 @@ async fn dns_alias_remove_route(
     )
 }
 
+#[cfg(carapace_feature_unbound)]
 async fn network_dns_route(
     headers: HeaderMap,
     Json(metadata): Json<Value>,
@@ -324,7 +349,7 @@ async fn network_dns_route(
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: Router) -> Router {
-    router
+    let router = router
         .route(
             "/api/v1/network/dns/status",
             axum::routing::get(dns_status_read_route),
@@ -332,7 +357,9 @@ pub fn register(router: Router) -> Router {
         .route(
             "/api/v1/network/dns/resolver/status",
             axum::routing::get(dns_resolver_status_route),
-        )
+        );
+    #[cfg(carapace_feature_unbound)]
+    let router = router
         .route(
             "/api/v1/network/dns/adblock",
             axum::routing::post(dns_resolver_adblock_route),
@@ -361,5 +388,6 @@ pub fn register(router: Router) -> Router {
             "/api/v1/network/dns/alias/remove",
             axum::routing::post(dns_alias_remove_route),
         )
-        .route("/api/v1/network/dns", axum::routing::post(network_dns_route))
+        .route("/api/v1/network/dns", axum::routing::post(network_dns_route));
+    router
 }

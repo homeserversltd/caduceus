@@ -1,1 +1,1 @@
-{"namespace":"update/modules/:id","admittance":"open","flags":{},"serve":[]}
+{"namespace":"update/modules/:id","admittance":"open","flags":{},"serve":[],"commands":["update modules toggle","profile module toggle"],"needs":["all"]}

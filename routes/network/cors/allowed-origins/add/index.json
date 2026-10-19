@@ -1,1 +1,1 @@
-{"namespace":"network/cors/allowed-origins/add","admittance":"open","flags":{},"serve":[{"rust":"network_cors_allowed_origins_add"}]}
+{"namespace":"network/cors/allowed-origins/add","admittance":"open","flags":{},"serve":[{"rust":"network_cors_allowed_origins_add"}],"commands":[{"name":"network cors allowed-origins add","needs":["firewall"]}],"needs":["firewall"]}

@@ -1,1 +1,1 @@
-{"namespace":"transmission/up","admittance":"open","flags":{},"serve":[{"snake":"transmission/up","verb":["transmission","up"]}]}
+{"namespace":"transmission/up","admittance":"open","flags":{},"serve":[{"snake":"transmission/up","verb":["transmission","up"]}],"commands":["transmission up"],"needs":["transmission"]}

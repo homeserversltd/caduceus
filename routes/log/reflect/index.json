@@ -1,1 +1,1 @@
-{"namespace":"log/reflect","admittance":"open","flags":{},"serve":[{"rust":"log_reflect_mutate"}]}
+{"namespace":"log/reflect","admittance":"open","flags":{},"serve":[{"rust":"log_reflect_mutate"}],"commands":["hyalos reflect"],"needs":["all"]}

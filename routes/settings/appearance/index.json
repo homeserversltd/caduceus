@@ -1,1 +1,1 @@
-{"namespace":"settings/appearance","admittance":"open","flags":{},"serve":[{"rust":"settings_appearance_read_mutate"},{"snake":"settings/appearance","verb":["settings","appearance"]}]}
+{"namespace":"settings/appearance","admittance":"open","flags":{},"serve":[{"rust":"settings_appearance_read_mutate"},{"snake":"settings/appearance","verb":["settings","appearance"]}],"commands":["settings appearance read","settings appearance mutate"],"needs":["desktop"]}

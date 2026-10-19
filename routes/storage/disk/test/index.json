@@ -1,1 +1,1 @@
-{"namespace":"storage/disk/test","admittance":"open","flags":{},"serve":[{"snake":"storage/disk/test"}]}
+{"namespace":"storage/disk/test","admittance":"open","flags":{},"serve":[{"snake":"storage/disk/test"}],"commands":["disk test progress","disk test results",{"name":"disk test start","needs":["nas"]},"disk test"],"needs":["all"]}

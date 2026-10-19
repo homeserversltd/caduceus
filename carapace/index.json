@@ -1,0 +1,231 @@
+{
+  "schema": "caduceus.carapace.model.v1",
+  "roots": [
+    "all",
+    "kea",
+    "unbound",
+    "sway",
+    "pactl",
+    "desktop",
+    "nmcli",
+    "keyman",
+    "transmission",
+    "tailscale",
+    "steam",
+    "gtk4"
+  ],
+  "features": {
+    "all": {
+      "mandatory": true,
+      "description": "Kernel, presence observers, Samba, PJLink and benchmark capability.",
+      "children": [
+        "benchmark"
+      ],
+      "commands": [
+        "help",
+        "identity show",
+        "profile show",
+        "health",
+        "doors read",
+        "staff status",
+        "staff actuators",
+        "staff intent"
+      ]
+    },
+    "benchmark": {
+      "mandatory": true,
+      "parent": "all",
+      "description": "Native Caduceus benchmark flag, receive/serve timings and reply report."
+    },
+    "kea": {
+      "description": "Gateway DHCP service.",
+      "children": [
+        "nft"
+      ],
+      "select": [
+        "nft"
+      ]
+    },
+    "unbound": {
+      "description": "Gateway Unbound DNS service.",
+      "children": [
+        "firewall"
+      ]
+    },
+    "nft": {
+      "description": "nftables support required by firewall policy.",
+      "parent": "kea"
+    },
+    "firewall": {
+      "description": "Gateway firewall policy requiring Kea, Unbound and nftables.",
+      "parent": "unbound",
+      "requires": [
+        "kea",
+        "unbound",
+        "nft"
+      ]
+    },
+    "sway": {
+      "description": "Sway display and input controls."
+    },
+    "pactl": {
+      "description": "PulseAudio/PipeWire sound controls."
+    },
+    "desktop": {
+      "description": "Desktop settings and desktop-facing facilities.",
+      "commands": []
+    },
+    "nmcli": {
+      "description": "NetworkManager client controls."
+    },
+    "keyman": {
+      "description": "Keyman credential facility.",
+      "children": [
+        "nas"
+      ]
+    },
+    "nas": {
+      "description": "NAS capability requiring Keyman and selecting its LUKS/XFS prerequisites.",
+      "parent": "keyman",
+      "requires": [
+        "keyman",
+        "luks",
+        "xfs"
+      ],
+      "select": [
+        "luks",
+        "xfs"
+      ],
+      "children": [
+        "luks",
+        "xfs",
+        "linker"
+      ]
+    },
+    "luks": {
+      "description": "LUKS prerequisite selected by NAS.",
+      "parent": "nas"
+    },
+    "xfs": {
+      "description": "XFS prerequisite selected by NAS.",
+      "parent": "nas"
+    },
+    "linker": {
+      "description": "Portal/linker facility requiring NAS.",
+      "parent": "nas",
+      "requires": [
+        "nas"
+      ]
+    },
+    "transmission": {
+      "description": "Transmission service.",
+      "children": [
+        "vpn"
+      ],
+      "select": [
+        "vpn"
+      ]
+    },
+    "vpn": {
+      "description": "VPN namespace selected by Transmission.",
+      "parent": "transmission",
+      "select": [
+        "pia"
+      ],
+      "children": [
+        "pia"
+      ]
+    },
+    "pia": {
+      "description": "PIA provider with exactly one VPN implementation.",
+      "parent": "vpn",
+      "children": [
+        "openvpn",
+        "wireguard"
+      ]
+    },
+    "openvpn": {
+      "description": "Default PIA implementation.",
+      "parent": "pia"
+    },
+    "wireguard": {
+      "description": "Selectable PIA implementation.",
+      "parent": "pia"
+    },
+    "tailscale": {
+      "description": "Tailscale service and controls."
+    },
+    "steam": {
+      "description": "Console and Steam family root; software choices are declared by child features.",
+      "children": [
+        "console-restart-policy",
+        "steam-client",
+        "sunshine",
+        "sddm"
+      ],
+      "commands": [
+        "sync status",
+        "sync now"
+      ]
+    },
+    "console-restart-policy": {
+      "description": "Defaulted elective console-controls feature for the declared cold restart leaves.",
+      "default_if": [
+        "steam"
+      ],
+      "parent": "steam"
+    },
+    "steam-client": {
+      "description": "Steam client software choice (the selectable Steam alias).",
+      "parent": "steam"
+    },
+    "sunshine": {
+      "description": "Sunshine software alternative.",
+      "parent": "steam"
+    },
+    "sddm": {
+      "description": "SDDM software alternative.",
+      "parent": "steam"
+    },
+    "gtk4": {
+      "description": "GTK4 face and unfinished HomeTV Updates screen debt.",
+      "commands": [
+        "gui update now"
+      ]
+    }
+  },
+  "relations": [
+    {
+      "kind": "default_if",
+      "feature": "firewall",
+      "all": [
+        "kea",
+        "unbound",
+        "nft"
+      ]
+    }
+  ],
+  "choices": [
+    {
+      "id": "pia-implementation",
+      "owner": "pia",
+      "kind": "xor",
+      "features": [
+        "openvpn",
+        "wireguard"
+      ],
+      "default": "openvpn"
+    },
+    {
+      "id": "steam-alternative",
+      "owner": "steam",
+      "kind": "or",
+      "features": [
+        "steam-client",
+        "sunshine",
+        "sddm"
+      ],
+      "default": "steam-client"
+    }
+  ]
+}

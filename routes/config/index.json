@@ -1,1 +1,1 @@
-{"namespace":"config","admittance":"open","flags":{},"serve":[]}
+{"namespace":"config","admittance":"open","flags":{},"serve":[],"commands":["config path","config show","config get","config set","config patch"],"needs":["all"]}

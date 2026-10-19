@@ -1,1 +1,1 @@
-{"namespace":"network/device/claim","admittance":"open","flags":{},"serve":[{"rust":"network_device_claim_witness"},{"snake":"network/identity","verb":["network","identity"]},{"rust":"network_device_claim_public_shape"}]}
+{"namespace":"network/device/claim","admittance":"open","flags":{},"serve":[{"rust":"network_device_claim_witness"},{"snake":"network/identity","verb":["network","identity"]},{"rust":"network_device_claim_public_shape"}],"commands":[{"name":"network device claim","needs":["kea"]}],"needs":["kea"]}

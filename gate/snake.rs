@@ -513,8 +513,14 @@ pub fn execute_ordered_serve(route_set: &[Value], base_envelope: &Value) -> Resu
     let mut step_receipts = Vec::with_capacity(bands.len());
     let mut receipt_payload = None;
     let mut all_ok = true;
-    for band in bands {
-        let result = execute(&band, base_envelope)?;
+    let benchmark = crate::protocol::benchmark_enabled(base_envelope);
+    let mut benchmark_timings = if benchmark { Some(Vec::new()) } else { None };
+    let mut staff_reports = if benchmark { Some(Vec::new()) } else { None };
+    for (ordinal, band) in bands.into_iter().enumerate() {
+        let started = if benchmark { Some(Instant::now()) } else { None };
+        let execution = execute(&band, base_envelope);
+        let elapsed = started.map(|started| started.elapsed());
+        let result = execution?;
         let stamp = result
             .get("envelope")
             .and_then(|envelope| envelope.get("caduceusReceipt"))
@@ -527,6 +533,20 @@ pub fn execute_ordered_serve(route_set: &[Value], base_envelope: &Value) -> Resu
         let child_ok = stamp.get("ok").and_then(Value::as_bool) == Some(true);
         let staff_ok = payload.get("ok").and_then(Value::as_bool) == Some(true);
         all_ok &= child_ok && staff_ok;
+        if let (Some(elapsed), Some(timings)) = (elapsed, benchmark_timings.as_mut()) {
+            timings.push(crate::protocol::benchmark_timing_row(
+                crate::protocol::benchmark_serve_locus(ordinal, &band),
+                elapsed,
+                child_ok && staff_ok,
+            ));
+        }
+        if let Some(reports) = staff_reports.as_mut() {
+            for field in ["benchmark", "benchmarkStamp"] {
+                if let Some(report) = payload.get(field) {
+                    reports.push(report.clone());
+                }
+            }
+        }
         step_receipts.push(stamp);
         receipt_payload = Some(payload);
         if !child_ok || !staff_ok {
@@ -536,12 +556,23 @@ pub fn execute_ordered_serve(route_set: &[Value], base_envelope: &Value) -> Resu
 
     let receipt_payload =
         receipt_payload.ok_or_else(|| "caduceus-snake-step-receipt-missing".to_string())?;
-    Ok(json!({
+    let mut aggregate = json!({
         "ok": all_ok,
         "receiptPayload": receipt_payload,
         "stepReceipts": step_receipts,
         "rawEnvelope": base_envelope,
-    }))
+    });
+    if let Some(timings) = benchmark_timings {
+        let mut stamp = json!({
+            "schema": crate::protocol::BENCHMARK_REPORT_SCHEMA,
+            "timings": timings
+        });
+        if let Some(reports) = staff_reports.filter(|reports| !reports.is_empty()) {
+            stamp["staff_reports"] = json!(reports);
+        }
+        aggregate["benchmarkStamp"] = stamp;
+    }
+    Ok(aggregate)
 }
 
 fn crossing_envelope(path: &str, input: &Value) -> Value {
@@ -550,7 +581,22 @@ fn crossing_envelope(path: &str, input: &Value) -> Value {
 
 /// Produce the shared public route envelope for a caller-owned transition.
 pub fn route_envelope(path: &str, input: &Value) -> Value {
-    crossing_envelope(path, input)
+    let Some(flags) = input
+        .as_object()
+        .and_then(|object| object.get("flags"))
+        .cloned()
+    else {
+        return crossing_envelope(path, input);
+    };
+    let mut payload = input.clone();
+    if let Some(object) = payload.as_object_mut() {
+        object.remove("flags");
+    }
+    let mut envelope = crossing_envelope(path, &payload);
+    if let Some(object) = envelope.as_object_mut() {
+        object.insert("flags".into(), flags);
+    }
+    envelope
 }
 
 /// Spawn a staff crossing and return its running child after forwarding the envelope.

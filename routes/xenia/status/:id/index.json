@@ -1,1 +1,1 @@
-{"namespace": "xenia/status/:id", "admittance": "open", "flags": {}, "serve": []}
+{"namespace":"xenia/status/:id","admittance":"open","flags":{},"serve":[],"commands":[],"needs":["all"]}

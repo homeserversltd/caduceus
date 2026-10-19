@@ -1,1 +1,1 @@
-{"namespace":"settings/input","admittance":"open","flags":{},"serve":[{"snake":"settings/input","verb":["settings","input"]}]}
+{"namespace":"settings/input","admittance":"open","flags":{},"serve":[{"snake":"settings/input","verb":["settings","input"]}],"commands":["settings input read","settings input set"],"needs":["sway"]}

@@ -1,1 +1,1 @@
-{"namespace":"display/projector/power","admittance":"open","flags":{},"serve":[{"rust":"projector_power_mutate"}]}
+{"namespace":"display/projector/power","admittance":"open","flags":{},"serve":[{"rust":"projector_power_mutate"}],"commands":["pjlink power status","pjlink power set"],"needs":["all"]}

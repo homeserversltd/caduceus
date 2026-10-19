@@ -1,1 +1,1 @@
-{"namespace":"exousia/invalidate","admittance":"open","flags":{},"serve":[]}
+{"namespace":"exousia/invalidate","admittance":"open","flags":{},"serve":[],"commands":["admin admittance invalidate"],"needs":["all"]}

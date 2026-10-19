@@ -1,1 +1,1 @@
-{"namespace":"interactables/:id/run","admittance":"open","flags":{},"serve":[]}
+{"namespace":"interactables/:id/run","admittance":"open","flags":{},"serve":[],"commands":["interactable run"],"needs":["all"]}

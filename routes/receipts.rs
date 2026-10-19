@@ -7,7 +7,10 @@ use std::time::Duration;
 
 #[cfg(leaf_portals_deploy)]
 use crate::routes::linker;
-use crate::routes::{dhcp, dns_control};
+#[cfg(leaf_network_device_pin_address)]
+use crate::routes::dhcp;
+#[cfg(all(leaf_network_dns_status, carapace_feature_unbound))]
+use crate::routes::dns_control;
 use crate::shared::hyalos;
 
 pub fn status_json() -> Result<Value, String> {
@@ -314,11 +317,21 @@ pub fn intent_json(
     } else {
         "readback"
     });
+    #[cfg(leaf_network_device_pin_address)]
     if route.starts_with("/api/dhcp/") || route == "/api/dhcp" {
         return dhcp::intent_json(method, route, metadata.unwrap_or_else(|| json!({})));
     }
+    #[cfg(not(leaf_network_device_pin_address))]
+    if route.starts_with("/api/dhcp/") || route == "/api/dhcp" {
+        return Err("caduceus-network-dhcp-intent-not-found".into());
+    }
+    #[cfg(all(leaf_network_dns_status, carapace_feature_unbound))]
     if route.starts_with("/api/dns/") || route == "/api/dns" {
         return dns_control::intent_json(method, route, metadata.unwrap_or_else(|| json!({})));
+    }
+    #[cfg(not(all(leaf_network_dns_status, carapace_feature_unbound)))]
+    if route.starts_with("/api/dns/") || route == "/api/dns" {
+        return Err("caduceus-network-dns-intent-not-found".into());
     }
     if route == "/api/upload/force-permissions" && method == "POST" {
         return execute_force_permissions(metadata.unwrap_or_else(|| json!({})));
@@ -361,7 +374,10 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
     match actuator_id {
         "storage/upload/ingress" => execute_file_ingress(metadata),
         "storage/upload/force-permissions" => execute_force_permissions(metadata),
+        #[cfg(leaf_network_device_pin_address)]
         "network-dhcp" => dhcp::intent_json("POST", "/api/dhcp/reservations", metadata),
+        #[cfg(not(leaf_network_device_pin_address))]
+        "network-dhcp" => Err("caduceus-network-dhcp-actuator-not-found".into()),
         #[cfg(leaf_portals_deploy)]
         "linker" => linker::intent_json(metadata),
         "backblaze-b2-recover" => staff_actuator_receipt(

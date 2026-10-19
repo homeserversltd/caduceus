@@ -1,1 +1,1 @@
-{"namespace":"network/dns/read","admittance":"open","flags":{},"serve":[]}
+{"namespace":"network/dns/read","admittance":"open","flags":{},"serve":[],"commands":["network dns read"],"needs":["all"]}

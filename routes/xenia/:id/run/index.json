@@ -1,1 +1,1 @@
-{"namespace": "xenia/:id/run", "admittance": "open", "flags": {}, "serve": []}
+{"namespace":"xenia/:id/run","admittance":"open","flags":{},"serve":[],"commands":[{"name":"xenia mutate","needs":["nas"]}],"needs":["nas"]}

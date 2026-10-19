@@ -1,1 +1,1 @@
-{"namespace":"access/gate","admittance":"open","flags":{},"serve":[]}
+{"namespace":"access/gate","admittance":"open","flags":{},"serve":[],"commands":[],"needs":["all"]}

@@ -1,1 +1,1 @@
-{"namespace":"display/projector/scan","admittance":"open","flags":{},"serve":[{"rust":"projector_scan_mutate"}]}
+{"namespace":"display/projector/scan","admittance":"open","flags":{},"serve":[{"rust":"projector_scan_mutate"}],"commands":["pjlink scan"],"needs":["all"]}

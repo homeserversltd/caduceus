@@ -1,1 +1,1 @@
-{"namespace":"time","admittance":"open","flags":{},"serve":[{"snake":"settings/datetime/household-time","verb":["time","household-time"]}]}
+{"namespace":"time","admittance":"open","flags":{},"serve":[{"snake":"settings/datetime/household-time","verb":["time","household-time"]}],"commands":["time resolve","time state","time ensure-ntp","time set-timezone"],"needs":["all"]}

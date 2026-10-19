@@ -1,1 +1,1 @@
-{"namespace":"network/bandwidth/measure","admittance":"open","flags":{},"serve":[{"rust":"bandwidth_measure_read"}]}
+{"namespace":"network/bandwidth/measure","admittance":"open","flags":{},"serve":[{"rust":"bandwidth_measure_read"}],"commands":[{"name":"network speedtest","needs":["all"]}],"needs":["all"]}

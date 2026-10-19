@@ -1,1 +1,1 @@
-{"namespace":"settings/notifications","admittance":"open","flags":{},"serve":[{"rust":"settings_notifications_read_mutate"},{"snake":"settings/notifications","verb":["settings","notifications"]}]}
+{"namespace":"settings/notifications","admittance":"open","flags":{},"serve":[{"rust":"settings_notifications_read_mutate"},{"snake":"settings/notifications","verb":["settings","notifications"]}],"commands":["settings notifications read","settings notifications mutate"],"needs":["desktop"]}

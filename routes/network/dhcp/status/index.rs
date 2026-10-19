@@ -3,11 +3,13 @@ pub const NAMESPACE: &str = "network/dhcp/status";
 
 use crate::gate::{api_error, api_error_signal, ApiErrorBody};
 use crate::shared::policy;
-use axum::{
-    extract::Json,
-    http::{HeaderMap, StatusCode},
-    Router,
-};
+use axum::{extract::Json, http::StatusCode, Router};
+#[cfg(carapace_feature_kea)]
+use axum::extract::OriginalUri;
+#[cfg(carapace_feature_kea)]
+use axum::extract::Path;
+#[cfg(carapace_feature_kea)]
+use axum::http::{HeaderMap, Method};
 use serde_json::Value;
 
 pub(crate) async fn network_read_route(
@@ -64,6 +66,7 @@ async fn dhcp_reservations_read_route() -> Result<Json<Value>, (StatusCode, Json
     }
 }
 
+#[cfg(carapace_feature_kea)]
 async fn dhcp_staff_actuator_route(
     headers: HeaderMap,
     OriginalUri(uri): OriginalUri,
@@ -89,6 +92,7 @@ async fn dhcp_staff_actuator_route(
     }
 }
 
+#[cfg(carapace_feature_kea)]
 async fn dhcp_reservation_staff_actuator_route(
     method: axum::http::Method,
     Path(reservation_id): Path<String>,
@@ -119,18 +123,20 @@ async fn dhcp_reservation_staff_actuator_route(
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: Router) -> Router {
-    router
+    let reservations_route = axum::routing::get(dhcp_reservations_read_route);
+    #[cfg(carapace_feature_kea)]
+    let reservations_route = reservations_route.post(dhcp_staff_actuator_route);
+    let router = router
         .route(
             "/api/v1/network/dhcp/status",
             axum::routing::get(dhcp_status_route),
         )
+        .route("/api/v1/network/dhcp/reservations", reservations_route);
+    #[cfg(carapace_feature_kea)]
+    let router = router
         .route(
             "/api/v1/network/dhcp",
             axum::routing::post(dhcp_staff_actuator_route),
-        )
-        .route(
-            "/api/v1/network/dhcp/reservations",
-            axum::routing::get(dhcp_reservations_read_route).post(dhcp_staff_actuator_route),
         )
         .route(
             "/api/v1/network/dhcp/reservations/:reservation_id",
@@ -140,5 +146,6 @@ pub fn register(router: Router) -> Router {
         .route(
             "/api/v1/network/dhcp/pool-boundary",
             axum::routing::post(dhcp_staff_actuator_route),
-        )
+        );
+    router
 }

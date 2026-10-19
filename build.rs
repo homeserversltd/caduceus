@@ -1,9 +1,13 @@
 use std::{
+    collections::{BTreeMap, BTreeSet},
     env, fs,
     io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
+
+#[path = "carapace/index.rs"]
+mod carapace;
 
 fn local_build_env_sha() -> Option<String> {
     fn command_stdout(program: &str, args: &[&str]) -> Option<Vec<u8>> {
@@ -140,6 +144,17 @@ fn module_ident(namespace: &str) -> String {
     ident
 }
 
+fn feature_cfg_ident(feature: &str) -> String {
+    let mut ident = String::from("carapace_feature_");
+    for byte in feature.bytes() {
+        match byte {
+            97..=122 | 48..=57 => ident.push(byte as char),
+            _ => ident.push('_'),
+        }
+    }
+    ident
+}
+
 fn walk_json_leaves(root: &Path) -> Vec<serde_json::Value> {
     let mut out = Vec::new();
     let Ok(entries) = fs::read_dir(root) else {
@@ -161,19 +176,65 @@ fn walk_json_leaves(root: &Path) -> Vec<serde_json::Value> {
     out
 }
 
-fn yaml_for_profile(profile: &str) -> Vec<String> {
-    let text = fs::read_to_string(format!("profiles/{profile}/index.yaml"))
-        .expect("selected profile index readable");
-    let value: serde_yaml::Value =
-        serde_yaml::from_str(&text).expect("selected profile index valid YAML");
+fn defconfig_for_profile(profile: &str) -> Vec<String> {
+    let path = format!("profiles/{profile}/index.yaml");
+    let text = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("carapace-defconfig-unreadable:{path}:{error}"));
+    let value: serde_yaml::Value = serde_yaml::from_str(&text)
+        .unwrap_or_else(|error| panic!("carapace-defconfig-invalid:{path}:{error}"));
+    let declared = value
+        .get("profile")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+    assert_eq!(declared, profile, "carapace-defconfig-profile-mismatch:{path}");
     value
-        .get("routes")
+        .get("sclerites")
         .and_then(serde_yaml::Value::as_sequence)
-        .expect("selected profile routes list present")
+        .unwrap_or_else(|| panic!("carapace-defconfig-sclerites-missing:{path}"))
         .iter()
-        .filter_map(serde_yaml::Value::as_str)
-        .map(str::to_owned)
+        .map(|feature| {
+            feature
+                .as_str()
+                .unwrap_or_else(|| panic!("carapace-defconfig-answer-invalid:{path}"))
+                .to_owned()
+        })
         .collect()
+}
+
+fn runtime_policy_for_profile(profile: &str) -> String {
+    let path = format!("profiles/{profile}/runtime.yaml");
+    println!("cargo:rerun-if-changed={path}");
+    let text = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("caduceus-runtime-policy-unreadable:{path}:{error}"));
+    let value: serde_yaml::Value = serde_yaml::from_str(&text)
+        .unwrap_or_else(|error| panic!("caduceus-runtime-policy-invalid:{path}:{error}"));
+    assert!(
+        value.is_mapping(),
+        "caduceus-runtime-policy-invalid:{path}:top-level-mapping-required"
+    );
+    let observed_schema = value
+        .get("schema")
+        .and_then(serde_yaml::Value::as_str);
+    assert_eq!(
+        observed_schema,
+        Some("caduceus.profile.v1"),
+        "caduceus-runtime-policy-schema-mismatch:{path}: expected caduceus.profile.v1, observed {observed_schema:?}"
+    );
+    let declared = value
+        .get("profile")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+    assert_eq!(
+        declared, profile,
+        "caduceus-runtime-policy-profile-mismatch:{path}"
+    );
+    for field in ["commands", "routes"] {
+        assert!(
+            value.get(field).is_none(),
+            "caduceus-runtime-policy-invalid:{path}:top-level-{field}-excluded"
+        );
+    }
+    text
 }
 
 fn shelf_band_is_indexed(sbin: &Path, wanted: &str) -> bool {
@@ -282,8 +343,45 @@ fn main() {
     let flags_version_compared = seat["flags"]["version_compared"]
         .as_bool()
         .expect("protocol seat flags.version_compared must be boolean");
+    let benchmark_families = seat["flags"]["families"]
+        .as_object()
+        .expect("protocol seat flags.families must be an object");
+    let mut benchmark_declaration = None;
+    for (name, family) in benchmark_families {
+        if let Some(native) = family.get("native_benchmark") {
+            assert!(
+                benchmark_declaration.is_none(),
+                "protocol seat must declare one native benchmark flag family"
+            );
+            benchmark_declaration = Some((name.as_str(), family, native));
+        }
+    }
+    let (benchmark_flag_name, benchmark_family, native_benchmark) = benchmark_declaration
+        .expect("protocol seat native benchmark flag family must be declared");
+    assert_eq!(
+        benchmark_family.get("shape").and_then(serde_json::Value::as_str),
+        Some("boolean"),
+        "protocol seat benchmark flag shape must be boolean"
+    );
+    assert_eq!(
+        benchmark_family.get("absent").and_then(serde_json::Value::as_str),
+        Some("primitive"),
+        "protocol seat absent benchmark flag must select the primitive path"
+    );
+    let benchmark_schema = native_benchmark["schema"]
+        .as_str()
+        .expect("protocol seat benchmark schema must be a string");
+    let benchmark_receive_locus = native_benchmark["receive_locus"]
+        .as_str()
+        .expect("protocol seat benchmark receive locus must be a string");
+    let benchmark_serve_locus = native_benchmark["serve_locus"]
+        .as_str()
+        .expect("protocol seat benchmark serve locus must be a string");
+    let benchmark_serve_ordinal_base = native_benchmark["serve_ordinal_base"]
+        .as_u64()
+        .expect("protocol seat benchmark serve ordinal base must be an unsigned integer");
 
-    let generated = format!("pub const SEAT_JSON: &str = {source};\n         pub const SCHEMA_ID: &str = {schema};\n         pub const KERNEL_FIELDS: &[&str] = &[{fields}];\n         pub const SERPENTS_SHELF_PATH: &str = {serpents_shelf_path};\n         pub const FLAGS_PRESENCE_GATED: bool = {flags_presence_gated};\n         pub const FLAGS_VERSION_COMPARED: bool = {flags_version_compared};\n", source = rust_string(source.trim()), schema = rust_string(schema), fields = kernel_fields.iter().map(|field| rust_string(field)).collect::<Vec<_>>().join(", "), serpents_shelf_path = rust_string(serpents_shelf_path));
+    let generated = format!("pub const SEAT_JSON: &str = {source};\n         pub const SCHEMA_ID: &str = {schema};\n         pub const KERNEL_FIELDS: &[&str] = &[{fields}];\n         pub const SERPENTS_SHELF_PATH: &str = {serpents_shelf_path};\n         pub const FLAGS_PRESENCE_GATED: bool = {flags_presence_gated};\n         pub const FLAGS_VERSION_COMPARED: bool = {flags_version_compared};\n         pub const BENCHMARK_FLAG_NAME: &str = {benchmark_flag_name};\n         pub const BENCHMARK_REPORT_SCHEMA: &str = {benchmark_schema};\n         pub const BENCHMARK_RECEIVE_LOCUS: &str = {benchmark_receive_locus};\n         pub const BENCHMARK_SERVE_LOCUS: &str = {benchmark_serve_locus};\n         pub const BENCHMARK_SERVE_ORDINAL_BASE: u64 = {benchmark_serve_ordinal_base};\n", source = rust_string(source.trim()), schema = rust_string(schema), fields = kernel_fields.iter().map(|field| rust_string(field)).collect::<Vec<_>>().join(", "), serpents_shelf_path = rust_string(serpents_shelf_path), benchmark_flag_name = rust_string(benchmark_flag_name), benchmark_schema = rust_string(benchmark_schema), benchmark_receive_locus = rust_string(benchmark_receive_locus), benchmark_serve_locus = rust_string(benchmark_serve_locus));
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR must be set");
     fs::write(Path::new(&out_dir).join("protocol_seat.rs"), generated)
         .expect("generated protocol metadata must be writable");
@@ -419,115 +517,261 @@ fn main() {
         local_rustc_version().unwrap_or_else(|| "unset".to_owned())
     );
 
-    // C2 compile-time canopy selection: YAML is the profile authority.
+    // The feature model is the sole capability authority. Defconfigs answer the
+    // model; the same resolution derives code, /doors, commands, and the inspectable tree.
     let profiles = [
         "homeserver",
-        "tv",
         "homeconsole",
+        "tv",
+        "probe",
         "bench",
         "everything-lit",
-        "probe",
     ];
     assert!(
         profiles.contains(&requested.as_str()),
         "unknown CADUCEUS_PROFILE: {requested}"
     );
+    println!("cargo:rerun-if-changed=carapace/index.json");
+    println!("cargo:rerun-if-changed=carapace/index.rs");
+    println!("cargo:rerun-if-changed=profiles");
+    let model_source = fs::read_to_string("carapace/index.json")
+        .expect("carapace feature model must be readable");
+    let model: serde_json::Value = serde_json::from_str(&model_source)
+        .expect("carapace feature model must be valid JSON");
+    assert_eq!(
+        model.get("schema").and_then(serde_json::Value::as_str),
+        Some("caduceus.carapace.model.v1"),
+        "carapace feature model schema must be caduceus.carapace.model.v1"
+    );
+    let features = model
+        .get("features")
+        .and_then(serde_json::Value::as_object)
+        .expect("carapace model features must be an object");
+    let feature_ids = features.keys().cloned().collect::<BTreeSet<_>>();
+    let validate_needs = |entry: &serde_json::Value, label: &str| -> Result<(), String> {
+        for field in ["needs", "needs_any"] {
+            if field == "needs" && entry.get(field).is_none() {
+                return Err(format!("{label}:carapace-needs-missing"));
+            }
+            let Some(value) = entry.get(field) else {
+                continue;
+            };
+            let values = value
+                .as_array()
+                .ok_or_else(|| format!("{label}:carapace-{field}-invalid"))?;
+            for value in values {
+                let id = value
+                    .as_str()
+                    .ok_or_else(|| format!("{label}:carapace-{field}-invalid"))?;
+                if !feature_ids.contains(id) {
+                    return Err(format!("{label}:carapace-feature-unknown:{id}"));
+                }
+            }
+        }
+        Ok(())
+    };
+
+    let leaf_entries = walk_json_leaves(Path::new("routes"));
+    let mut namespace_set = BTreeSet::new();
+    for entry in &leaf_entries {
+        let namespace = entry
+            .get("namespace")
+            .and_then(serde_json::Value::as_str)
+            .expect("every route leaf declares namespace");
+        assert!(
+            namespace_set.insert(namespace.to_owned()),
+            "duplicate route namespace: {namespace}"
+        );
+        validate_needs(entry, namespace)
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            entry.get("commands").and_then(serde_json::Value::as_array).is_some(),
+            "{namespace}:carapace-commands-missing"
+        );
+        if let Some(operations) = entry.get("operations").and_then(serde_json::Value::as_array) {
+            for (index, operation) in operations.iter().enumerate() {
+                let label = format!("{namespace}:operation:{index}");
+                validate_needs(operation, &label)
+                    .unwrap_or_else(|error| panic!("{error}"));
+                assert!(
+                    operation.get("commands").and_then(serde_json::Value::as_array).is_some(),
+                    "{label}:carapace-commands-missing"
+                );
+            }
+        }
+    }
+    assert!(
+        !namespace_set.is_empty(),
+        "carapace canopy contains no route namespaces"
+    );
+
     let mut generated = String::from("pub const ACTIVE_PROFILE: &str = ");
     generated.push_str(&rust_string(&requested));
     generated.push_str(";\n");
+    let runtime_policy = runtime_policy_for_profile(&requested);
+    generated.push_str(&format!(
+        "pub const ACTIVE_RUNTIME_POLICY_YAML: &str = {};\n",
+        rust_string(&runtime_policy)
+    ));
+    let mut resolved_profiles = BTreeMap::<
+        String,
+        (Vec<String>, Vec<String>, Vec<String>, String),
+    >::new();
     for profile in profiles {
         let path = format!("profiles/{profile}/index.yaml");
         println!("cargo:rerun-if-changed={path}");
-        let yaml = if profile == "everything-lit" || profile == "bench" {
-            let mut routes = Vec::<String>::new();
-            for name in ["homeserver", "tv", "homeconsole", "bench"] {
-                let text = fs::read_to_string(format!("profiles/{name}/index.yaml"))
-                    .expect("profile index readable");
-                let value: serde_yaml::Value =
-                    serde_yaml::from_str(&text).expect("profile index valid YAML");
-                if let Some(items) = value.get("routes").and_then(serde_yaml::Value::as_sequence) {
-                    for item in items {
-                        if let Some(route) = item.as_str() {
-                            routes.push(route.to_string());
-                        }
-                    }
+        let answers = defconfig_for_profile(profile);
+        let resolution = carapace::resolve(&model, &answers)
+            .unwrap_or_else(|error| panic!("{profile}:carapace-resolution-failed:{error}"));
+        let mut routes = BTreeSet::new();
+        let mut commands = BTreeSet::new();
+        for id in &resolution.lit {
+            let feature = features
+                .get(id)
+                .unwrap_or_else(|| panic!("carapace-feature-unknown:{id}"));
+            if let Some(values) = feature.get("commands") {
+                let values = values
+                    .as_array()
+                    .unwrap_or_else(|| panic!("{id}:carapace-feature-commands-invalid"));
+                for command in values {
+                    let command = command
+                        .as_str()
+                        .unwrap_or_else(|| panic!("{id}:carapace-feature-command-invalid"));
+                    commands.insert(command.to_owned());
                 }
             }
-            routes.sort();
-            routes.dedup();
-            routes
-        } else {
-            let text = fs::read_to_string(&path).expect("profile index readable");
-            let value: serde_yaml::Value =
-                serde_yaml::from_str(&text).expect("profile index valid YAML");
-            if profile == "probe" {
-                let commands = value
-                    .get("commands")
-                    .and_then(serde_yaml::Value::as_sequence)
-                    .expect("probe commands list present")
-                    .iter()
-                    .map(|command| {
-                        command
-                            .as_str()
-                            .expect("every probe command must be a string")
-                            .to_owned()
-                    })
-                    .collect::<Vec<_>>();
-                generated.push_str(&format!(
-                    "pub static PROBE_COMMANDS: &[&str] = &[{}];\n",
-                    commands
-                        .iter()
-                        .map(|command| rust_string(command))
-                        .collect::<Vec<_>>()
-                        .join(",")
-                ));
+        }
+        for entry in &leaf_entries {
+            if carapace::route_is_lit(entry, &resolution)
+                .unwrap_or_else(|error| panic!("{profile}:carapace-route-resolution-failed:{error}"))
+            {
+                let namespace = entry["namespace"]
+                    .as_str()
+                    .expect("validated route namespace");
+                routes.insert(namespace.to_owned());
+                commands.extend(
+                    carapace::commands_for_leaf(entry, &resolution)
+                        .unwrap_or_else(|error| panic!("{namespace}:carapace-command-resolution-failed:{error}")),
+                );
             }
-            value
-                .get("routes")
-                .and_then(serde_yaml::Value::as_sequence)
-                .expect("profile routes list present")
-                .iter()
-                .filter_map(serde_yaml::Value::as_str)
-                .map(str::to_owned)
-                .collect()
-        };
-        let leaf_entries = walk_json_leaves(Path::new("routes"));
-        let leaf_namespaces = leaf_entries
-            .iter()
-            .filter_map(|entry| entry.get("namespace").and_then(serde_json::Value::as_str))
-            .collect::<std::collections::HashSet<_>>();
-        for route in &yaml {
+        }
+        for mandatory in ["beam", "ruyi", "schema"] {
             assert!(
-                leaf_namespaces.contains(route.as_str()),
-                "profile-lit route is not a root canopy leaf: {route}"
+                routes.contains(mandatory),
+                "{profile}:mandatory carapace door missing: {mandatory}"
             );
         }
+        let routes = routes.into_iter().collect::<Vec<_>>();
+        let commands = commands.into_iter().collect::<Vec<_>>();
+        let sclerites = resolution.lit.iter().cloned().collect::<Vec<_>>();
+        let mut profile_model = model.clone();
+        profile_model["profile"] = serde_json::Value::String(profile.to_owned());
+        let tree = carapace::render_tree(&profile_model, &resolution, &leaf_entries)
+            .unwrap_or_else(|error| panic!("{profile}:carapace-tree-render-failed:{error}"));
         let ident = profile.replace('-', "_").to_uppercase();
-        generated.push_str(&format!(
-            "pub static {ident}_ROUTES: &[&str] = &[{}];\n",
-            yaml.iter()
-                .map(|route| rust_string(route))
+        let rust_values = |values: &[String]| {
+            values
+                .iter()
+                .map(|value| rust_string(value))
                 .collect::<Vec<_>>()
                 .join(",")
+        };
+        generated.push_str(&format!(
+            "pub static {ident}_ROUTES: &[&str] = &[{}];\n",
+            rust_values(&routes)
+        ));
+        generated.push_str(&format!(
+            "pub static {ident}_COMMANDS: &[&str] = &[{}];\n",
+            rust_values(&commands)
+        ));
+        generated.push_str(&format!(
+            "pub static {ident}_SCLERITES: &[&str] = &[{}];\n",
+            rust_values(&sclerites)
+        ));
+        generated.push_str(&format!(
+            "pub static {ident}_TREE: &str = {};\n",
+            rust_string(&tree)
+        ));
+        resolved_profiles.insert(profile.to_owned(), (routes, commands, sclerites, tree));
+    }
+    generated.push_str("pub static SCLERITES: &[&str] = &[\n");
+    for id in &feature_ids {
+        generated.push_str(&format!("{},\n", rust_string(id)));
+        println!("cargo:rustc-check-cfg=cfg({})", feature_cfg_ident(id));
+    }
+    generated.push_str("];\n");
+    generated.push_str("pub fn routes_for(profile: &str) -> Option<&'static [&'static str]> { match profile {\n");
+    for profile in profiles {
+        let ident = profile.replace('-', "_").to_uppercase();
+        generated.push_str(&format!(
+            "    {} => Some({ident}_ROUTES),\n",
+            rust_string(profile)
         ));
     }
-    generated.push_str("pub fn routes_for(profile: &str) -> Option<&'static [&'static str]> { match profile { \"homeserver\" => Some(HOMESERVER_ROUTES), \"tv\" => Some(TV_ROUTES), \"homeconsole\" => Some(HOMECONSOLE_ROUTES), \"bench\" => Some(BENCH_ROUTES), \"everything-lit\" => Some(EVERYTHING_LIT_ROUTES), \"probe\" => Some(PROBE_ROUTES), _ => None } }\n");
+    generated.push_str("    _ => None,\n} }\n");
+    generated.push_str("pub fn commands_for(profile: &str) -> Option<&'static [&'static str]> { match profile {\n");
+    for profile in profiles {
+        let ident = profile.replace('-', "_").to_uppercase();
+        generated.push_str(&format!(
+            "    {} => Some({ident}_COMMANDS),\n",
+            rust_string(profile)
+        ));
+    }
+    generated.push_str("    _ => None,\n} }\n");
+    generated.push_str("pub fn sclerites_for(profile: &str) -> Option<&'static [&'static str]> { match profile {\n");
+    for profile in profiles {
+        let ident = profile.replace('-', "_").to_uppercase();
+        generated.push_str(&format!(
+            "    {} => Some({ident}_SCLERITES),\n",
+            rust_string(profile)
+        ));
+    }
+    generated.push_str("    _ => None,\n} }\n");
+    generated.push_str("pub fn tree_for(profile: &str) -> Option<&'static str> { match profile {\n");
+    for profile in profiles {
+        let ident = profile.replace('-', "_").to_uppercase();
+        generated.push_str(&format!(
+            "    {} => Some({ident}_TREE),\n",
+            rust_string(profile)
+        ));
+    }
+    generated.push_str("    _ => None,\n} }\n");
     generated.push_str("pub fn compiled_route_leaves(profile: &str) -> Option<&'static [&'static str]> { routes_for(profile) }\n");
-    // Emit the selected leaf module set and canonical registrations. The routes module
-    // includes only this generated set, so an unlit leaf is never compiled.
-    let mut selected = yaml_for_profile(&requested);
-    if !selected.iter().any(|route| route == "beam") {
-        selected.push("beam".to_owned());
+    generated.push_str("pub fn show_tree(profile: &str) -> i32 { match tree_for(profile) { Some(tree) => { print!(\"{tree}\"); 0 }, None => { eprintln!(\"caduceus-profile-unknown:{profile}\"); 2 } } }\n");
+    generated.push_str("pub static COMMANDS: &[&str] = &[");
+    let active = resolved_profiles
+        .get(&requested)
+        .unwrap_or_else(|| panic!("resolved profile missing: {requested}"));
+    generated.push_str(
+        &active
+            .1
+            .iter()
+            .map(|command| rust_string(command))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+    generated.push_str("];\n");
+    generated.push_str("pub static ACTIVE_SCLERITES: &[&str] = &[");
+    generated.push_str(
+        &active
+            .2
+            .iter()
+            .map(|feature| rust_string(feature))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+    generated.push_str("];\n");
+    generated.push_str("pub fn feature_lit(feature: &str) -> bool { ACTIVE_SCLERITES.contains(&feature) }\n");
+
+    for feature in &feature_ids {
+        let cfg = feature_cfg_ident(feature);
+        if active.2.contains(feature) {
+            println!("cargo:rustc-cfg={cfg}");
+        }
     }
-    if !selected.iter().any(|route| route == "ruyi") {
-        selected.push("ruyi".to_owned());
-    }
-    if !selected.iter().any(|route| route == "schema") {
-        selected.push("schema".to_owned());
-    }
-    selected.sort();
-    selected.dedup();
-    let selected_leaf_entries = walk_json_leaves(Path::new("routes"));
+    let selected = active.0.clone();
+    let selected_leaf_entries = leaf_entries.clone();
+    // The generated module set is the active resolved carapace closure.
     for entry in walk_json_leaves(Path::new("routes")) {
         if let Some(namespace) = entry.get("namespace").and_then(serde_json::Value::as_str) {
             let cfg = module_ident(namespace);

@@ -1,1 +1,1 @@
-{"namespace":"face/fetch","admittance":"open","flags":{},"serve":[{"snake":"face/fetch","verb":["face","fetch"]}]}
+{"namespace":"face/fetch","admittance":"open","flags":{},"serve":[{"snake":"face/fetch","verb":["face","fetch"]}],"commands":[],"needs":["gtk4"]}

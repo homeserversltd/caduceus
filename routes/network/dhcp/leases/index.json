@@ -1,1 +1,1 @@
-{"namespace":"network/dhcp/leases","admittance":"open","flags":{},"serve":[]}
+{"namespace":"network/dhcp/leases","admittance":"open","flags":{},"serve":[],"commands":["network dhcp leases"],"needs":["all"]}

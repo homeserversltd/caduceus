@@ -1,1 +1,1 @@
-{"namespace":"exousia/posture","admittance":"open","flags":{"posture":"admin-read"},"serve":[]}
+{"namespace":"exousia/posture","admittance":"open","flags":{"posture":"admin-read"},"serve":[],"commands":["exousia posture read"],"needs":["all"]}

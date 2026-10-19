@@ -1,1 +1,1 @@
-{"namespace":"network/device/wifi/disconnect","admittance":"open","flags":{},"serve":[{"rust":"network_wifi_disconnect_mutate"},{"snake":"network/wifi"}]}
+{"namespace":"network/device/wifi/disconnect","admittance":"open","flags":{},"serve":[{"rust":"network_wifi_disconnect_mutate"},{"snake":"network/wifi"}],"commands":["network device wifi disconnect"],"needs":["nmcli"]}

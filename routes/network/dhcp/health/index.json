@@ -1,1 +1,1 @@
-{"namespace":"network/dhcp/health","admittance":"open","flags":{},"serve":[]}
+{"namespace":"network/dhcp/health","admittance":"open","flags":{},"serve":[],"commands":["network dhcp health"],"needs":["all"]}

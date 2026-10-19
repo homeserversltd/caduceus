@@ -1,1 +1,1 @@
-{"namespace":"appliance/claim","admittance":"open","flags":{},"serve":[]}
+{"namespace":"appliance/claim","admittance":"open","flags":{},"serve":[],"commands":["appliance claim"],"needs":["all"]}

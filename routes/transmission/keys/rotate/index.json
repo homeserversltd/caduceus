@@ -1,1 +1,1 @@
-{"namespace":"transmission/keys/rotate","admittance":"open","flags":{},"serve":[{"snake":"transmission/keys","verb":["transmission","keys"]}]}
+{"namespace":"transmission/keys/rotate","admittance":"open","flags":{},"serve":[{"snake":"transmission/keys","verb":["transmission","keys"]}],"commands":["transmission keys rotate"],"needs":["transmission"]}

@@ -1,1 +1,1 @@
-{"namespace":"network/cert/ensure-root","admittance":"open","flags":{},"serve":[{"snake":"network/cert/house-ca"}]}
+{"namespace":"network/cert/ensure-root","admittance":"open","flags":{},"serve":[{"snake":"network/cert/house-ca"}],"commands":[{"name":"cert refresh-root","needs":["nas"]},{"name":"cert ensure-root","needs":["nas"]}],"needs":["all"]}

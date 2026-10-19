@@ -1,1 +1,1 @@
-{"namespace":"python/list","admittance":"open","flags":{},"serve":[{"rust":"python_library_list"}]}
+{"namespace":"python/list","admittance":"open","flags":{},"serve":[{"rust":"python_library_list"}],"commands":["python list"],"needs":["all"]}

@@ -51,18 +51,38 @@ pub(crate) async fn face_post(
             let crossed = crate::gate::blocking_task("staff intent", move || {
                 let started = std::time::Instant::now();
                 let envelope = crate::gate::snake::route_envelope(&namespace_for_run, &body);
+                let benchmark_started = if crate::protocol::benchmark_enabled(&envelope) {
+                    Some(std::time::Instant::now())
+                } else {
+                    None
+                };
                 let result: Result<serde_json::Value, String> = (|| {
-                    crate::gate::receive(envelope.clone(), &route_set, &declaration, false)
-                        .map_err(|signal| signal)?;
+                    let receive = crate::gate::receive(
+                        envelope.clone(),
+                        &route_set,
+                        &declaration,
+                        false,
+                    )?;
                     let aggregate =
                         crate::gate::snake::execute_ordered_serve(&route_set, &envelope)?;
-                    let payload = aggregate
+                    let mut payload = aggregate
                         .get("receiptPayload")
                         .filter(|value| value.is_object())
                         .cloned()
                         .ok_or_else(|| {
                             "caduceus-agathodaimon-cli-response-not-object".to_string()
                         })?;
+                    if let Some(started) = benchmark_started {
+                        crate::protocol::append_benchmark_reply(
+                            &mut payload,
+                            started.elapsed(),
+                            &[&receive, &aggregate],
+                        );
+                    } else if let Some(object) = payload.as_object_mut() {
+                        for key in ["intent_id", "raw_envelope", "envelope", "staff", "stamps"] {
+                            object.remove(key);
+                        }
+                    }
                     let child_failed = aggregate
                         .get("stepReceipts")
                         .and_then(serde_json::Value::as_array)

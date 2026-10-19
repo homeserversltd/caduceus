@@ -1,1 +1,1 @@
-{"namespace":"network/device/pin-address","admittance":"open","flags":{},"serve":[{"snake":"network/dhcp","verb":["network","dhcp"]}]}
+{"namespace":"network/device/pin-address","admittance":"open","flags":{},"serve":[{"snake":"network/dhcp","verb":["network","dhcp"]}],"commands":[{"name":"network device pin-address","needs":["kea"]}],"needs":["kea"]}

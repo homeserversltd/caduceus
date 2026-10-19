@@ -1,1 +1,1 @@
-{"namespace":"exousia/touch","admittance":"open","flags":{},"serve":[]}
+{"namespace":"exousia/touch","admittance":"open","flags":{},"serve":[],"commands":["admin admittance touch"],"needs":["all"]}

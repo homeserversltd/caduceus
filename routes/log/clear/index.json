@@ -1,1 +1,1 @@
-{"namespace":"log/clear","admittance":"open","flags":{},"serve":[{"rust":"log_clear_mutate"}]}
+{"namespace":"log/clear","admittance":"open","flags":{},"serve":[{"rust":"log_clear_mutate"}],"commands":["logs clear"],"needs":["all"]}

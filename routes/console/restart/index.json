@@ -1,1 +1,1 @@
-{"namespace":"console/restart","admittance":"open","flags":{},"serve":[{"snake":"console/restart","verb":["console","restart"]}]}
+{"namespace":"console/restart","admittance":"open","flags":{},"serve":[{"snake":"console/restart","verb":["console","restart"]}],"commands":["console restart"],"needs":["steam"]}

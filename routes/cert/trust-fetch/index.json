@@ -1,1 +1,1 @@
-{"namespace":"cert/trust-fetch","admittance":"open","flags":{},"serve":[]}
+{"namespace":"cert/trust-fetch","admittance":"open","flags":{},"serve":[],"commands":["cert trust-fetch"],"needs":["all"]}

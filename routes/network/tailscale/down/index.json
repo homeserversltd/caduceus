@@ -1,1 +1,1 @@
-{"namespace":"network/tailscale/down","admittance":"open","flags":{},"serve":[{"snake":"network/tailscale","verb":["network","tailscale"]}]}
+{"namespace":"network/tailscale/down","admittance":"open","flags":{},"serve":[{"snake":"network/tailscale","verb":["network","tailscale"]}],"commands":[{"name":"network tailscale down","needs":["tailscale"]}],"needs":["tailscale"]}

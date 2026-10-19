@@ -1255,15 +1255,31 @@ pub fn receive(
     declaration: &Value,
     attendance_witness: bool,
 ) -> Result<Value, String> {
+    let benchmark_started = if crate::protocol::benchmark_enabled(&raw) {
+        Some(Instant::now())
+    } else {
+        None
+    };
     let envelope = crate::protocol::Envelope::parse(raw)?;
     let admittance = admittance::check_declared_admittance(declaration)?;
     let _ = discovery::walk_compiled_route_set(route_set)?;
-    Ok(receipts::append_stamp(
+    let mut receipt = receipts::append_stamp(
         &envelope,
         admittance,
         attendance_witness,
         true,
         true,
         None,
-    ))
+    );
+    if let Some(started) = benchmark_started {
+        receipt["benchmarkStamp"] = serde_json::json!({
+            "schema": crate::protocol::BENCHMARK_REPORT_SCHEMA,
+            "timings": [crate::protocol::benchmark_timing_row(
+                crate::protocol::BENCHMARK_RECEIVE_LOCUS.to_owned(),
+                started.elapsed(),
+                true
+            )]
+        });
+    }
+    Ok(receipt)
 }

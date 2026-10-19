@@ -1,1 +1,1 @@
-{"namespace":"portals/admit","admittance":"open","flags":{},"serve":[]}
+{"namespace":"portals/admit","admittance":"open","flags":{},"serve":[],"commands":[{"name":"cert portal-admit","needs":["nas"]},{"name":"cert constituent-lock","needs":["nas"]}],"needs":[]}

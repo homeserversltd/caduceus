@@ -1,1 +1,1 @@
-{"namespace":"python/status","admittance":"open","flags":{},"serve":[{"rust":"python_library_status"}]}
+{"namespace":"python/status","admittance":"open","flags":{},"serve":[{"rust":"python_library_status"}],"commands":["python status"],"needs":["all"]}

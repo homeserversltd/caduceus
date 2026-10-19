@@ -1,1 +1,1 @@
-{"namespace":"appliance/stats/admin","admittance":"open","flags":{"posture":"admin-read"},"serve":[{"rust":"appliance_stats_read"}]}
+{"namespace":"appliance/stats/admin","admittance":"open","flags":{"posture":"admin-read"},"serve":[{"rust":"appliance_stats_read"}],"commands":[{"name":"appliance stats admin","needs":["nas"]}],"needs":["nas"]}

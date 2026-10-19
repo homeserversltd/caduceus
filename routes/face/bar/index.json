@@ -1,1 +1,1 @@
-{"namespace":"face/bar","admittance":"open","flags":{},"serve":[{"snake":"face/bar","verb":["face","bar"]}]}
+{"namespace":"face/bar","admittance":"open","flags":{},"serve":[{"snake":"face/bar","verb":["face","bar"]}],"commands":[],"needs":["gtk4"]}

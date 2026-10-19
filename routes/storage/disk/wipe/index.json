@@ -1,1 +1,1 @@
-{"namespace":"storage/disk/wipe","admittance":"open","flags":{},"serve":[]}
+{"namespace":"storage/disk/wipe","admittance":"open","flags":{},"serve":[],"commands":["disk format","disk wipe"],"needs":["all"]}
