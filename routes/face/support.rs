@@ -72,16 +72,17 @@ pub(crate) async fn face_post(
                         .ok_or_else(|| {
                             "caduceus-agathodaimon-cli-response-not-object".to_string()
                         })?;
+                    if let Some(object) = payload.as_object_mut() {
+                        for key in ["intent_id", "raw_envelope", "envelope", "staff", "stamps"] {
+                            object.remove(key);
+                        }
+                    }
                     if let Some(started) = benchmark_started {
                         crate::protocol::append_benchmark_reply(
                             &mut payload,
                             started.elapsed(),
                             &[&receive, &aggregate],
                         );
-                    } else if let Some(object) = payload.as_object_mut() {
-                        for key in ["intent_id", "raw_envelope", "envelope", "staff", "stamps"] {
-                            object.remove(key);
-                        }
                     }
                     let child_failed = aggregate
                         .get("stepReceipts")

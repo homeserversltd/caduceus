@@ -1,3 +1,5 @@
+schema: caduceus.profile.v1
 profile: bench
+mode: everything-lit
 sclerites:
 - '*'

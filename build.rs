@@ -201,42 +201,6 @@ fn defconfig_for_profile(profile: &str) -> Vec<String> {
         .collect()
 }
 
-fn runtime_policy_for_profile(profile: &str) -> String {
-    let path = format!("profiles/{profile}/runtime.yaml");
-    println!("cargo:rerun-if-changed={path}");
-    let text = fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("caduceus-runtime-policy-unreadable:{path}:{error}"));
-    let value: serde_yaml::Value = serde_yaml::from_str(&text)
-        .unwrap_or_else(|error| panic!("caduceus-runtime-policy-invalid:{path}:{error}"));
-    assert!(
-        value.is_mapping(),
-        "caduceus-runtime-policy-invalid:{path}:top-level-mapping-required"
-    );
-    let observed_schema = value
-        .get("schema")
-        .and_then(serde_yaml::Value::as_str);
-    assert_eq!(
-        observed_schema,
-        Some("caduceus.profile.v1"),
-        "caduceus-runtime-policy-schema-mismatch:{path}: expected caduceus.profile.v1, observed {observed_schema:?}"
-    );
-    let declared = value
-        .get("profile")
-        .and_then(serde_yaml::Value::as_str)
-        .unwrap_or_default();
-    assert_eq!(
-        declared, profile,
-        "caduceus-runtime-policy-profile-mismatch:{path}"
-    );
-    for field in ["commands", "routes"] {
-        assert!(
-            value.get(field).is_none(),
-            "caduceus-runtime-policy-invalid:{path}:top-level-{field}-excluded"
-        );
-    }
-    text
-}
-
 fn shelf_band_is_indexed(sbin: &Path, wanted: &str) -> bool {
     let root = sbin.join("agathodaimon");
     let read = |path: &Path| -> Option<serde_json::Value> {
@@ -608,11 +572,6 @@ fn main() {
     let mut generated = String::from("pub const ACTIVE_PROFILE: &str = ");
     generated.push_str(&rust_string(&requested));
     generated.push_str(";\n");
-    let runtime_policy = runtime_policy_for_profile(&requested);
-    generated.push_str(&format!(
-        "pub const ACTIVE_RUNTIME_POLICY_YAML: &str = {};\n",
-        rust_string(&runtime_policy)
-    ));
     let mut resolved_profiles = BTreeMap::<
         String,
         (Vec<String>, Vec<String>, Vec<String>, String),
