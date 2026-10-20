@@ -99,7 +99,7 @@ fn normalize(value: &str) -> Option<String> {
         "homeserver" => Some("homeserver".to_string()),
         "homeconsole" => Some("homeconsole".to_string()),
         "tv" => Some("tv".to_string()),
-        _ => Some("probe".to_string()),
+        _ => Some("specula".to_string()),
     }
 }
 

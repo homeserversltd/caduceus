@@ -1,5 +1,5 @@
 schema: caduceus.profile.v1
-profile: probe
-mode: probe
+profile: specula
+mode: specula
 sclerites:
 - '*'

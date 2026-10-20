@@ -108,7 +108,7 @@ roots and `profiles/<name>/index.yaml` in this repository. The `commands` list
 is the authority for which CLI and HTTP routes each appliance may call.
 
 The shipped appliance profile names are `homeserver`, `homeconsole`, `tv`, and
-`probe`. The HomeConsole profile lives at `profiles/homeconsole/index.yaml`;
+`specula`. The HomeConsole profile lives at `profiles/homeconsole/index.yaml`;
 `CADUCEUS_PROFILE=homeconsole` builds its `caduceus-homeconsole-x86_64` Release
 asset. Appliance profile names do not rename verb namespaces such as
 `console/restart`.

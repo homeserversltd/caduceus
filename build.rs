@@ -123,7 +123,7 @@ pub(crate) fn resolve_build_profile(explicit: Option<&str>, root: &Path) -> Stri
         Some("homeserver") => "homeserver".to_owned(),
         Some("homeconsole") => "homeconsole".to_owned(),
         Some("tv") => "tv".to_owned(),
-        _ => "probe".to_owned(),
+        _ => "specula".to_owned(),
     }
 }
 
@@ -511,7 +511,7 @@ fn main() {
         "homeserver",
         "homeconsole",
         "tv",
-        "probe",
+        "specula",
         "bench",
         "everything-lit",
     ];
