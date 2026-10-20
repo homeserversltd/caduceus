@@ -1,0 +1,1 @@
+{"namespace":"face/screenshot","admittance":"open","flags":{},"serve":[{"snake":"face/screenshot","verb":["face","screenshot"]}],"commands":[],"needs":["gtk4"]}

@@ -19,6 +19,7 @@
     "face/launch",
     "face/launcher-cache",
     "face/meter",
+    "face/screenshot",
     "face/volume",
     "gui/update",
     "network/cert/house-ca",
@@ -105,6 +106,10 @@
     [
       "face",
       "meter"
+    ],
+    [
+      "face",
+      "screenshot"
     ],
     [
       "face",
@@ -214,6 +219,7 @@
     "/api/v1/face/launch",
     "/api/v1/face/launcher-cache",
     "/api/v1/face/meter",
+    "/api/v1/face/screenshot",
     "/api/v1/face/volume",
     "/api/v1/file/ingress",
     "/api/v1/file/ingress/:upload_id/complete",
