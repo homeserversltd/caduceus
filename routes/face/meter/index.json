@@ -1,1 +1,1 @@
-{"namespace":"face/meter","admittance":"open","flags":{},"serve":[{"snake":"face/meter","verb":["face","meter"]}],"commands":[],"needs":["gtk4"]}
+{"namespace":"face/meter","admittance":"open","flags":{},"serve":[{"rust":"face_meter_read"}],"commands":[],"needs":["gtk4"]}

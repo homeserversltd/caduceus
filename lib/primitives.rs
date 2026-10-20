@@ -1,6 +1,7 @@
 //! Enumerable C2 Rust serve primitive registry.
 // Names are concrete leaf operations, never generic router façades.
 pub static RUST_PRIMITIVES: &[&str] = &[
+    "face_meter_read",
     "health",
     "identity",
     "profile",
@@ -52,4 +53,12 @@ pub static RUST_PRIMITIVES: &[&str] = &[
 ];
 pub fn contains(name: &str) -> bool {
     RUST_PRIMITIVES.contains(&name)
+}
+
+pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_json::Value, String> {
+    match name {
+        #[cfg(leaf_face_meter)]
+        "face_meter_read" => Ok(crate::shared::face_meter_native::read_meter(envelope).await),
+        _ => Err("caduceus-serve-rust-primitive-unavailable".to_string()),
+    }
 }

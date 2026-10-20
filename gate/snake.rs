@@ -492,50 +492,87 @@ pub fn run(band: &str, envelope: &Value) -> Result<Value, String> {
     execute(&band, envelope)
 }
 
-/// Execute a declaration's ordered snake serve chord against one raw envelope.
+fn rust_step_stamp(
+    base_envelope: &Value,
+    primitive: &str,
+    payload: &Value,
+) -> Result<Value, String> {
+    let mut stamped = base_envelope.clone();
+    let object = stamped
+        .as_object_mut()
+        .ok_or_else(|| "protocol-envelope-not-object".to_string())?;
+    if object.contains_key("caduceusReceipt") {
+        return Err("caduceus-envelope-stamp-collision".into());
+    }
+    let ok = payload.get("ok").and_then(Value::as_bool) == Some(true);
+    let first_missing = payload
+        .get("firstMissingSignal")
+        .and_then(Value::as_str)
+        .unwrap_or(if ok { "none" } else { "caduceus-rust-primitive-refused" });
+    let stamp = json!({
+        "schema":"caduceus.staff.v1",
+        "stepReceipt":payload,
+        "ok":ok,
+        "primitive":primitive,
+        "firstMissingSignal":first_missing
+    });
+    object.insert("caduceusReceipt".into(), stamp);
+    stamped
+        .get("caduceusReceipt")
+        .cloned()
+        .ok_or_else(|| "caduceus-snake-step-stamp-missing".to_string())
+}
+
+/// Execute an ordered snake/Rust serve chord against one raw envelope.
 /// Each step gets a fresh execution stamp; prior stamps never enter the next hop.
-pub fn execute_ordered_serve(route_set: &[Value], base_envelope: &Value) -> Result<Value, String> {
+pub async fn execute_ordered_serve(
+    route_set: &[Value],
+    base_envelope: &Value,
+) -> Result<Value, String> {
     let steps = crate::gate::discovery::walk_compiled_route_set(route_set)?;
     if steps.is_empty() {
         return Err("gate-route-set-empty".into());
     }
 
-    let bands = steps
-        .into_iter()
-        .map(|step| {
-            let band = step
-                .snake
-                .ok_or_else(|| "caduceus-serve-rust-step-unavailable".to_string())?;
-            safe_band_path(&band)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let mut step_receipts = Vec::with_capacity(bands.len());
+    let mut step_receipts = Vec::with_capacity(steps.len());
     let mut receipt_payload = None;
     let mut all_ok = true;
     let benchmark = crate::protocol::benchmark_enabled(base_envelope);
     let mut benchmark_timings = if benchmark { Some(Vec::new()) } else { None };
     let mut staff_reports = if benchmark { Some(Vec::new()) } else { None };
-    for (ordinal, band) in bands.into_iter().enumerate() {
-        let started = if benchmark { Some(Instant::now()) } else { None };
-        let execution = execute(&band, base_envelope);
+    for (ordinal, step) in steps.into_iter().enumerate() {
+        let started = benchmark.then(Instant::now);
+        let (label, stamp, payload) = if let Some(band) = step.snake {
+            let band = safe_band_path(&band)?;
+            let execution_band = band.clone();
+            let envelope = base_envelope.clone();
+            let result = tokio::task::spawn_blocking(move || execute(&execution_band, &envelope))
+                .await
+                .map_err(|_| "caduceus-blocking-task-join-failed".to_string())??;
+            let stamp = result
+                .get("envelope")
+                .and_then(|envelope| envelope.get("caduceusReceipt"))
+                .cloned()
+                .ok_or_else(|| "caduceus-snake-step-stamp-missing".to_string())?;
+            let payload = result
+                .get("receiptPayload")
+                .cloned()
+                .ok_or_else(|| "caduceus-snake-step-receipt-missing".to_string())?;
+            (band, stamp, payload)
+        } else if let Some(primitive) = step.rust {
+            let payload = crate::shared::primitives::execute(&primitive, base_envelope).await?;
+            let stamp = rust_step_stamp(base_envelope, &primitive, &payload)?;
+            (primitive, stamp, payload)
+        } else {
+            return Err("gate-route-step-must-name-one-band".into());
+        };
         let elapsed = started.map(|started| started.elapsed());
-        let result = execution?;
-        let stamp = result
-            .get("envelope")
-            .and_then(|envelope| envelope.get("caduceusReceipt"))
-            .cloned()
-            .ok_or_else(|| "caduceus-snake-step-stamp-missing".to_string())?;
-        let payload = result
-            .get("receiptPayload")
-            .cloned()
-            .ok_or_else(|| "caduceus-snake-step-receipt-missing".to_string())?;
         let child_ok = stamp.get("ok").and_then(Value::as_bool) == Some(true);
         let staff_ok = payload.get("ok").and_then(Value::as_bool) == Some(true);
         all_ok &= child_ok && staff_ok;
         if let (Some(elapsed), Some(timings)) = (elapsed, benchmark_timings.as_mut()) {
             timings.push(crate::protocol::benchmark_timing_row(
-                crate::protocol::benchmark_serve_locus(ordinal, &band),
+                crate::protocol::benchmark_serve_locus(ordinal, &label),
                 elapsed,
                 child_ok && staff_ok,
             ));

@@ -10,3 +10,8 @@ pub mod receipts;
 pub mod seat_identity;
 pub mod settings;
 pub mod systemd;
+#[cfg(leaf_face_meter)]
+#[path = "../../routes/face/meter/native.rs"]
+pub mod face_meter_native;
+#[path = "../../lib/primitives.rs"]
+pub mod primitives;

@@ -47,77 +47,74 @@ pub(crate) async fn face_post(
                 }
                 _ => true,
             };
-            let namespace_for_run = namespace.clone();
-            let crossed = crate::gate::blocking_task("staff intent", move || {
-                let started = std::time::Instant::now();
-                let envelope = crate::gate::snake::route_envelope(&namespace_for_run, &body);
-                let benchmark_started = if crate::protocol::benchmark_enabled(&envelope) {
-                    Some(std::time::Instant::now())
-                } else {
-                    None
-                };
-                let result: Result<serde_json::Value, String> = (|| {
-                    let receive = crate::gate::receive(
-                        envelope.clone(),
-                        &route_set,
-                        &declaration,
-                        false,
-                    )?;
-                    let aggregate =
-                        crate::gate::snake::execute_ordered_serve(&route_set, &envelope)?;
-                    let mut payload = aggregate
-                        .get("receiptPayload")
-                        .filter(|value| value.is_object())
-                        .cloned()
-                        .ok_or_else(|| {
-                            "caduceus-agathodaimon-cli-response-not-object".to_string()
-                        })?;
-                    if let Some(object) = payload.as_object_mut() {
-                        for key in ["intent_id", "raw_envelope", "envelope", "staff", "stamps"] {
-                            object.remove(key);
-                        }
+            let started = record_failure.then(std::time::Instant::now);
+            let envelope = crate::gate::snake::route_envelope(&namespace, &body);
+            let benchmark_started = if crate::protocol::benchmark_enabled(&envelope) {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
+            let result: Result<serde_json::Value, String> = async {
+                let receive = crate::gate::receive(
+                    envelope.clone(),
+                    &route_set,
+                    &declaration,
+                    false,
+                )?;
+                let aggregate =
+                    crate::gate::snake::execute_ordered_serve(&route_set, &envelope).await?;
+                let mut payload = aggregate
+                    .get("receiptPayload")
+                    .filter(|value| value.is_object())
+                    .cloned()
+                    .ok_or_else(|| "caduceus-agathodaimon-cli-response-not-object".to_string())?;
+                if let Some(object) = payload.as_object_mut() {
+                    for key in ["intent_id", "raw_envelope", "envelope", "staff", "stamps"] {
+                        object.remove(key);
                     }
-                    if let Some(started) = benchmark_started {
-                        crate::protocol::append_benchmark_reply(
-                            &mut payload,
-                            started.elapsed(),
-                            &[&receive, &aggregate],
-                        );
-                    }
-                    let child_failed = aggregate
-                        .get("stepReceipts")
-                        .and_then(serde_json::Value::as_array)
-                        .is_some_and(|receipts| {
-                            receipts.iter().any(|receipt| {
-                                receipt.get("ok").and_then(serde_json::Value::as_bool) != Some(true)
-                            })
-                        });
-                    if child_failed
-                        || payload.get("ok").and_then(serde_json::Value::as_bool) != Some(true)
-                    {
-                        face_reflect_failure(
-                            &verb,
-                            Some(&payload),
-                            "caduceus-agathodaimon-cli-refused",
-                            started.elapsed().as_millis(),
-                            record_failure,
-                        );
-                    }
-                    Ok(payload)
-                })();
-                if let Err(signal) = &result {
-                    face_reflect_failure(
-                        &verb,
-                        None,
-                        signal,
-                        started.elapsed().as_millis(),
-                        record_failure,
+                }
+                if let Some(started) = benchmark_started {
+                    crate::protocol::append_benchmark_reply(
+                        &mut payload,
+                        started.elapsed(),
+                        &[&receive, &aggregate],
                     );
                 }
-                result
-            })
-            .await?;
-            match crossed {
+                let child_failed = aggregate
+                    .get("stepReceipts")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|receipts| {
+                        receipts.iter().any(|receipt| {
+                            receipt.get("ok").and_then(serde_json::Value::as_bool) != Some(true)
+                        })
+                    });
+                if child_failed
+                    || payload.get("ok").and_then(serde_json::Value::as_bool) != Some(true)
+                {
+                    face_reflect_failure_async(
+                        &verb,
+                        Some(payload.clone()),
+                        "caduceus-agathodaimon-cli-refused",
+                        started.map(|started| started.elapsed().as_millis()).unwrap_or_default(),
+                        record_failure,
+                    )
+                    .await?;
+                }
+                Ok(payload)
+            }
+            .await;
+            if let Err(signal) = &result {
+                face_reflect_failure_async(
+                    &verb,
+                    None,
+                    signal,
+                    started.map(|started| started.elapsed().as_millis()).unwrap_or_default(),
+                    record_failure,
+                )
+                .await
+                .map_err(|signal| crate::gate::api_error_signal("staff intent", &signal))?;
+            }
+            match result {
                 Ok(receipt) => Ok((crate::gate::mutation_status(&receipt), axum::Json(receipt))),
                 Err(signal) => Err(crate::gate::api_error_signal("staff intent", &signal)),
             }
@@ -170,4 +167,29 @@ fn face_reflect_failure(
             "first_missing_field": first_missing_field,
         }
     }));
+}
+
+async fn face_reflect_failure_async(
+    verb: &str,
+    receipt: Option<serde_json::Value>,
+    fallback_signal: &str,
+    duration_ms: u128,
+    record_failure: bool,
+) -> Result<(), String> {
+    if !record_failure {
+        return Ok(());
+    }
+    let verb = verb.to_owned();
+    let fallback_signal = fallback_signal.to_owned();
+    crate::gate::blocking_task("staff intent", move || {
+        face_reflect_failure(
+            &verb,
+            receipt.as_ref(),
+            &fallback_signal,
+            duration_ms,
+            true,
+        )
+    })
+    .await
+    .map_err(|_| "caduceus-blocking-task-join-failed".to_string())
 }
