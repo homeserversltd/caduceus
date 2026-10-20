@@ -8,6 +8,20 @@ pub(crate) async fn face_post(
         axum::Json<crate::gate::ApiErrorBody>,
     ),
 > {
+    face_post_with_timeout(declaration_source, body, None).await
+}
+
+pub(crate) async fn face_post_with_timeout(
+    declaration_source: &'static str,
+    body: serde_json::Value,
+    crossing_timeout: Option<std::time::Duration>,
+) -> Result<
+    (axum::http::StatusCode, axum::Json<serde_json::Value>),
+    (
+        axum::http::StatusCode,
+        axum::Json<crate::gate::ApiErrorBody>,
+    ),
+> {
     let declaration =
         serde_json::from_str::<serde_json::Value>(declaration_source).map_err(|_| {
             crate::gate::api_error_signal("staff intent", "caduceus-route-declaration-invalid")
@@ -61,8 +75,12 @@ pub(crate) async fn face_post(
                     &declaration,
                     false,
                 )?;
-                let aggregate =
-                    crate::gate::snake::execute_ordered_serve(&route_set, &envelope).await?;
+                let aggregate = crate::gate::snake::execute_ordered_serve_with_timeout(
+                    &route_set,
+                    &envelope,
+                    crossing_timeout,
+                )
+                .await?;
                 let mut payload = aggregate
                     .get("receiptPayload")
                     .filter(|value| value.is_object())

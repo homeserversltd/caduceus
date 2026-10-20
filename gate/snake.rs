@@ -529,6 +529,17 @@ pub async fn execute_ordered_serve(
     route_set: &[Value],
     base_envelope: &Value,
 ) -> Result<Value, String> {
+    execute_ordered_serve_with_timeout(route_set, base_envelope, None).await
+}
+
+pub async fn execute_ordered_serve_with_timeout(
+    route_set: &[Value],
+    base_envelope: &Value,
+    timeout: Option<Duration>,
+) -> Result<Value, String> {
+    if timeout.is_some_and(|timeout| timeout.is_zero() || timeout > MAX_CROSSING_TIMEOUT) {
+        return Err("caduceus-snake-timeout-out-of-range".to_string());
+    }
     let steps = crate::gate::discovery::walk_compiled_route_set(route_set)?;
     if steps.is_empty() {
         return Err("gate-route-set-empty".into());
@@ -546,9 +557,12 @@ pub async fn execute_ordered_serve(
             let band = safe_band_path(&band)?;
             let execution_band = band.clone();
             let envelope = base_envelope.clone();
-            let result = tokio::task::spawn_blocking(move || execute(&execution_band, &envelope))
-                .await
-                .map_err(|_| "caduceus-blocking-task-join-failed".to_string())??;
+            let result = tokio::task::spawn_blocking(move || match timeout {
+                Some(timeout) => execute_with_timeout(&execution_band, &envelope, timeout),
+                None => execute(&execution_band, &envelope),
+            })
+            .await
+            .map_err(|_| "caduceus-blocking-task-join-failed".to_string())??;
             let stamp = result
                 .get("envelope")
                 .and_then(|envelope| envelope.get("caduceusReceipt"))

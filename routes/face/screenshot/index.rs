@@ -9,7 +9,12 @@ async fn route(
         axum::Json<crate::gate::ApiErrorBody>,
     ),
 > {
-    face_post(include_str!("index.json"), body).await
+    face_post_with_timeout(
+        include_str!("index.json"),
+        body,
+        Some(std::time::Duration::from_secs(110)),
+    )
+    .await
 }
 
 pub fn register(router: axum::Router) -> axum::Router {
