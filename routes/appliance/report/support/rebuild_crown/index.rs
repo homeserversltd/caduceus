@@ -69,7 +69,29 @@ struct Http {
     status: u16,
     body: String,
 }
-fn get(url: &str, user: &str, token: &str) -> Result<Http, String> {
+fn get(url: &str, user: &str, token: &str, operation: &str) -> Result<Http, String> {
+    let context = crate::shared::load_trace::current();
+    let invocation = context
+        .as_ref()
+        .map(crate::shared::load_trace::begin_invocation);
+    let result = get_untraced(url, user, token);
+    if let (Some(context), Some(invocation)) = (context, invocation) {
+        crate::shared::load_trace::finish_invocation(
+            &context,
+            invocation,
+            operation,
+            "native",
+            "forgejo-http-response",
+            "not-applicable",
+            if result.is_ok() { "ok" } else { "failed" },
+            None,
+            false,
+        );
+    }
+    result
+}
+
+fn get_untraced(url: &str, user: &str, token: &str) -> Result<Http, String> {
     let rest = url
         .strip_prefix("http://")
         .ok_or_else(|| "caduceus-forgejo-api-failure".to_string())?;
@@ -125,6 +147,7 @@ pub fn source_currency_json(build: &str) -> Value {
             &format!("{b}/api/v1/repos/{REPOSITORY}/branches/main"),
             &u,
             &k,
+            "caduceus.coronatio.source_currency.branch",
         )?;
         if branch.status != 200 {
             return Err("caduceus-forgejo-api-failure".into());
@@ -144,6 +167,7 @@ pub fn source_currency_json(build: &str) -> Value {
                 &format!("{b}/api/v1/repos/{REPOSITORY}/compare/{build}...main"),
                 &u,
                 &k,
+                "caduceus.coronatio.source_currency.compare",
             )?;
             if c.status == 404 {
                 "diverged"

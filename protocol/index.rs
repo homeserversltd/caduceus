@@ -7,6 +7,14 @@ pub fn seat() -> Result<Value, String> {
     serde_json::from_str(SEAT_JSON).map_err(|error| format!("protocol-seat-invalid:{error}"))
 }
 
+pub const fn hyalos_event_schema() -> &'static str {
+    HYALOS_EVENT_SCHEMA
+}
+
+pub fn benchmark_report_schema() -> &'static str {
+    BENCHMARK_REPORT_SCHEMA
+}
+
 pub fn benchmark_enabled(envelope: &Value) -> bool {
     envelope
         .get("flags")

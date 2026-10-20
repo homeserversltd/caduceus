@@ -1,0 +1,37 @@
+{
+  "schema": "caduceus.benchmark.v1",
+  "schema_version": "1.0.0",
+  "role": "Canonical Caduceus benchmark timing report; top-level reports are flag-gated and trace stamps carry a minimal row",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.benchmark.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Top-level benchmark reports remain absent unless the existing benchmark flag is present and true. Every valid load-context invocation carries a minimal one-row timing report in its trace stamp; the flag may request additional detail."
+  },
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.benchmark.v1"},
+    "total_elapsed_ms": {"type": "number", "minimum": 0},
+    "detail_requested": {"type": "boolean"},
+    "timings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "locus": {"type": "string"},
+          "elapsed_ms": {"type": "number", "minimum": 0},
+          "ok": {"type": "boolean"}
+        },
+        "required": ["locus", "elapsed_ms", "ok"],
+        "additionalProperties": true
+      }
+    },
+    "staff_reports": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+  },
+  "required": ["schema", "timings"],
+  "optional": ["total_elapsed_ms", "detail_requested", "staff_reports"],
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

@@ -209,6 +209,9 @@ pub fn status(band: Option<&str>) -> Value {
 }
 fn prepare_envelope(outer_envelope: &Value) -> Result<(Value, String), String> {
     let mut forwarded = outer_envelope.clone();
+    if let Some(context) = crate::shared::load_trace::current() {
+        crate::shared::load_trace::attach_to_envelope(&mut forwarded, &context, None);
+    }
     let fields = forwarded
         .as_object_mut()
         .ok_or_else(|| "protocol-envelope-not-object".to_string())?;
@@ -228,11 +231,77 @@ fn prepare_envelope(outer_envelope: &Value) -> Result<(Value, String), String> {
 fn execute_command(
     band: &str,
     outer_envelope: &Value,
+    command: Command,
+    timeout: Duration,
+    face_path: Value,
+    timeout_error: &str,
+    spawn_error: &str,
+) -> Result<Value, String> {
+    let Some(context) = crate::shared::load_trace::current() else {
+        let mut appended_staff_stamps = 0;
+        return execute_command_raw(
+            band,
+            outer_envelope,
+            command,
+            timeout,
+            face_path,
+            timeout_error,
+            spawn_error,
+            None,
+            &mut appended_staff_stamps,
+        );
+    };
+    let invocation = crate::shared::load_trace::begin_invocation(&context);
+    let mut forwarded = outer_envelope.clone();
+    crate::shared::load_trace::attach_to_envelope(
+        &mut forwarded,
+        &context,
+        Some(crate::shared::load_trace::invocation_id(&invocation)),
+    );
+    let mut appended_staff_stamps = 0;
+    let result = execute_command_raw(
+        band,
+        &forwarded,
+        command,
+        timeout,
+        face_path,
+        timeout_error,
+        spawn_error,
+        Some(&context),
+        &mut appended_staff_stamps,
+    );
+    let staff_instrumented = appended_staff_stamps > 0;
+    let outcome = match result.as_ref() {
+        Err(_) => "failed",
+        Ok(value) if value.get("ok").and_then(Value::as_bool) == Some(true) => "ok",
+        Ok(_) => "refused",
+    };
+    let operation = format!("caduceus.staff.{}", band.replace('/', "."));
+    let detailed = crate::protocol::benchmark_enabled(&forwarded);
+    crate::shared::load_trace::finish_invocation(
+        &context,
+        invocation,
+        &operation,
+        "staff",
+        "agathodaimon-crossing",
+        "not-applicable",
+        outcome,
+        Some(staff_instrumented),
+        detailed,
+    );
+    result
+}
+
+fn execute_command_raw(
+    band: &str,
+    outer_envelope: &Value,
     mut command: Command,
     timeout: Duration,
     face_path: Value,
     timeout_error: &str,
     spawn_error: &str,
+    trace_context: Option<&crate::shared::load_trace::ContextHandle>,
+    appended_staff_stamps: &mut usize,
 ) -> Result<Value, String> {
     let (forwarded, raw) = prepare_envelope(outer_envelope)?;
     let mut child = command
@@ -308,6 +377,16 @@ fn execute_command(
     let status = status.expect("checked above");
     let payload = serde_json::from_str::<Value>(stdout.trim())
         .unwrap_or_else(|_| Value::String(stdout.clone()));
+    *appended_staff_stamps = trace_context.map_or(0, |context| {
+        let mut appended = 0;
+        if let Some(returned) = payload.get("load_context") {
+            appended += crate::shared::load_trace::merge_returned_context(context, returned);
+        }
+        if let Some(returned) = payload.pointer("/envelope/flags/load_context") {
+            appended += crate::shared::load_trace::merge_returned_context(context, returned);
+        }
+        appended
+    });
     let ok = status.success();
     #[cfg(leaf_storage_disk_census)]
     let disk_action = (band == "storage/disk"
@@ -557,9 +636,12 @@ pub async fn execute_ordered_serve_with_timeout(
             let band = safe_band_path(&band)?;
             let execution_band = band.clone();
             let envelope = base_envelope.clone();
-            let result = tokio::task::spawn_blocking(move || match timeout {
-                Some(timeout) => execute_with_timeout(&execution_band, &envelope, timeout),
-                None => execute(&execution_band, &envelope),
+            let context = crate::shared::load_trace::current();
+            let result = tokio::task::spawn_blocking(move || {
+                crate::shared::load_trace::with_blocking_context(context, || match timeout {
+                    Some(timeout) => execute_with_timeout(&execution_band, &envelope, timeout),
+                    None => execute(&execution_band, &envelope),
+                })
             })
             .await
             .map_err(|_| "caduceus-blocking-task-join-failed".to_string())??;
@@ -627,7 +709,23 @@ pub async fn execute_ordered_serve_with_timeout(
 }
 
 fn crossing_envelope(path: &str, input: &Value) -> Value {
-    json!({"schema":crate::protocol::SCHEMA_ID,"intent_id":format!("caduceus-{path}"),"transition":path,"origin_of_intent":"near","payload":input})
+    let context = crate::shared::load_trace::current();
+    let mut payload = input.clone();
+    let flags = if context.is_some() {
+        payload
+            .as_object_mut()
+            .and_then(|object| object.remove("flags"))
+    } else {
+        None
+    };
+    let mut envelope = json!({"schema":crate::protocol::SCHEMA_ID,"intent_id":format!("caduceus-{path}"),"transition":path,"origin_of_intent":"near","payload":payload});
+    if let Some(flags) = flags {
+        envelope["flags"] = flags;
+    }
+    if let Some(context) = context {
+        crate::shared::load_trace::attach_to_envelope(&mut envelope, &context, None);
+    }
+    envelope
 }
 
 /// Produce the shared public route envelope for a caller-owned transition.
@@ -646,6 +744,9 @@ pub fn route_envelope(path: &str, input: &Value) -> Value {
     let mut envelope = crossing_envelope(path, &payload);
     if let Some(object) = envelope.as_object_mut() {
         object.insert("flags".into(), flags);
+    }
+    if let Some(context) = crate::shared::load_trace::current() {
+        crate::shared::load_trace::attach_to_envelope(&mut envelope, &context, None);
     }
     envelope
 }

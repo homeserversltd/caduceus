@@ -127,6 +127,7 @@ pub(crate) fn snapshot_and_reset() -> DoorSnapshot {
 }
 
 fn json_response(body: String) -> axum::response::Response {
+    let body = crate::shared::load_trace::enrich_json_text(body);
     axum::response::IntoResponse::into_response((
         [(axum::http::header::CONTENT_TYPE, "application/json")],
         axum::body::Body::from(body),
@@ -152,7 +153,26 @@ pub(super) async fn history_http(
                         return axum::response::IntoResponse::into_response(rejection);
                     }
                 };
-            match tokio::task::spawn_blocking(move || crate::stats::history(query)).await {
+            let context = crate::shared::load_trace::current();
+            let invocation = context
+                .as_ref()
+                .map(crate::shared::load_trace::begin_invocation);
+            let result = crate::gate::blocking_task("appliance stats history", move || {
+                crate::stats::history(query)
+            })
+            .await;
+            if let (Some(context), Some(invocation)) = (context, invocation) {
+                let ok = result
+                    .as_ref()
+                    .is_ok_and(|value| crate::shared::load_trace::outcome_for_result(value));
+                crate::shared::load_trace::record_native_completion(
+                    &context,
+                    "appliance stats history",
+                    invocation,
+                    ok,
+                );
+            }
+            match result {
                 Ok(Ok(body)) => json_response(body),
                 Ok(Err(error)) => {
                     axum::response::IntoResponse::into_response(crate::gate::service_unavailable(
@@ -160,10 +180,10 @@ pub(super) async fn history_http(
                         crate::gate::missing_signal(&error),
                     ))
                 }
-                Err(error) => {
+                Err(_) => {
                     axum::response::IntoResponse::into_response(crate::gate::service_unavailable(
                         STATS_COMMAND,
-                        crate::gate::missing_signal(&error.to_string()),
+                        "caduceus-blocking-task-join-failed",
                     ))
                 }
             }

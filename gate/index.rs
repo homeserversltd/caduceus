@@ -40,13 +40,28 @@ use tower::ServiceExt;
 #[path = "../gate/snake.rs"]
 pub mod snake;
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct ApiErrorBody {
     pub(crate) schema: &'static str,
     pub(crate) ok: bool,
     pub(crate) command: String,
     pub(crate) first_missing_signal: String,
+}
+
+impl Serialize for ApiErrorBody {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        crate::shared::load_trace::serialize_api_error(
+            crate::shared::load_trace::ApiErrorBodyFields {
+                schema: self.schema,
+                ok: self.ok,
+                command: &self.command,
+                first_missing_signal: &self.first_missing_signal,
+            },
+            serializer,
+        )
+    }
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -129,9 +144,32 @@ pub(crate) async fn gated_json(
     read: fn() -> Result<Value, String>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
-        Ok(true) => blocking_task(command, read).await?
-            .map(Json)
-            .map_err(|err| service_unavailable(command, missing_signal(&err))),
+        Ok(true) => {
+            let context = crate::shared::load_trace::current();
+            let invocation = context
+                .as_ref()
+                .map(crate::shared::load_trace::begin_invocation);
+            let result = blocking_task(command, read).await;
+            if let (Some(context), Some(invocation)) = (context, invocation) {
+                let ok = result
+                    .as_ref()
+                    .is_ok_and(|value| crate::shared::load_trace::outcome_for_result(value));
+                crate::shared::load_trace::record_native_completion(
+                    &context,
+                    command,
+                    invocation,
+                    ok,
+                );
+            }
+            match result {
+                Ok(Ok(mut value)) => {
+                    crate::shared::load_trace::enrich_json(&mut value);
+                    Ok(Json(value))
+                }
+                Ok(Err(error)) => Err(service_unavailable(command, missing_signal(&error))),
+                Err(error) => Err(error),
+            }
+        }
         Ok(false) => Err(api_error(command)),
         Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
     }
@@ -141,8 +179,29 @@ pub(crate) async fn gated_body(
     read: fn() -> Result<String, String>,
 ) -> Result<String, (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
-        Ok(true) => blocking_task(command, read).await?
-            .map_err(|err| service_unavailable(command, missing_signal(&err))),
+        Ok(true) => {
+            let context = crate::shared::load_trace::current();
+            let invocation = context
+                .as_ref()
+                .map(crate::shared::load_trace::begin_invocation);
+            let result = blocking_task(command, read).await;
+            if let (Some(context), Some(invocation)) = (context, invocation) {
+                let ok = result
+                    .as_ref()
+                    .is_ok_and(|value| crate::shared::load_trace::outcome_for_result(value));
+                crate::shared::load_trace::record_native_completion(
+                    &context,
+                    command,
+                    invocation,
+                    ok,
+                );
+            }
+            match result {
+                Ok(Ok(body)) => Ok(crate::shared::load_trace::enrich_json_text(body)),
+                Ok(Err(error)) => Err(service_unavailable(command, missing_signal(&error))),
+                Err(error) => Err(error),
+            }
+        }
         Ok(false) => Err(api_error(command)),
         Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
     }
@@ -173,11 +232,17 @@ where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
 {
-    tokio::task::spawn_blocking(run)
-        .await
-        .map_err(|_error: tokio::task::JoinError| {
-            service_unavailable(command, "caduceus-blocking-task-join-failed")
+    let context = crate::shared::load_trace::current();
+    let task = if let Some(context) = context {
+        tokio::task::spawn_blocking(move || {
+            crate::shared::load_trace::with_blocking_context(Some(context), run)
         })
+    } else {
+        tokio::task::spawn_blocking(run)
+    };
+    task.await.map_err(|_error: tokio::task::JoinError| {
+        service_unavailable(command, "caduceus-blocking-task-join-failed")
+    })
 }
 
 pub(crate) async fn gated_mutation(
@@ -786,6 +851,7 @@ pub fn router() -> Router {
     router
         .layer(middleware::from_fn(administrative_route_gate))
         .layer(middleware::from_fn(self_telemetry_route))
+        .layer(middleware::from_fn(crate::shared::load_trace::http_boundary))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

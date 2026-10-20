@@ -125,11 +125,25 @@ async fn source_currency_http(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let build_sha = query.get("buildSha").cloned().unwrap_or_default();
     let cache_key = build_sha.clone();
-    let body = tokio::task::spawn_blocking(move || {
+    let context = crate::shared::load_trace::current();
+    let invocation = context
+        .as_ref()
+        .map(crate::shared::load_trace::begin_invocation);
+    let body = crate::gate::blocking_task("source currency", move || {
         crate::routes::rebuild_crown::source_currency_json(&cache_key)
     })
     .await
     .unwrap_or_else(|_| crate::routes::rebuild_crown::source_currency_unavailable(&build_sha));
+    if let (Some(context), Some(invocation)) = (context, invocation) {
+        crate::shared::load_trace::record_native_completion(
+            &context,
+            "source currency",
+            invocation,
+            body["ok"].as_bool() == Some(true),
+        );
+    }
+    let mut body = body;
+    crate::shared::load_trace::enrich_json(&mut body);
     let status = if body["ok"].as_bool() == Some(true) {
         StatusCode::OK
     } else {

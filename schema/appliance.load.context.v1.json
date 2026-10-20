@@ -1,0 +1,73 @@
+{
+  "schema": "appliance.load.context.v1",
+  "schema_version": "1.0.0",
+  "role": "Transient additive load context carried by public Caduceus HTTP and staff envelopes",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/appliance.load.context.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "An absent context selects the primitive path; optional trace evidence never gates a business read.",
+    "stamps": "Append-only. Capacity exhaustion adds trace_incomplete and never removes admitted evidence."
+  },
+  "fields": {
+    "schema": {"type": "string", "const": "appliance.load.context.v1"},
+    "correlation_id": {"type": "string", "minLength": 1, "description": "Opaque caller-owned id; preserve its exact bytes when represented as UTF-8."},
+    "parent_span_id": {"type": ["string", "null"]},
+    "benchmark": {"type": "boolean", "description": "Presence-gated request for additional benchmark detail; every valid traced invocation carries its minimal one-row caduceus.benchmark.v1 duration regardless."},
+    "next_hop_ancestry": {
+      "type": "array",
+      "description": "Append-only namespaced parent links for downstream hops; caller root parent_span_id is preserved.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "namespace": {"type": "string", "const": "caduceus.load_trace.v1"},
+          "parent_span_id": {"type": "string"}
+        },
+        "required": ["namespace", "parent_span_id"],
+        "additionalProperties": true
+      }
+    },
+    "stamps": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "properties": {
+          "namespace": {"type": "string"},
+          "hop": {"type": "string"},
+          "span_id": {"type": "string"},
+          "invocation_id": {"type": "string"},
+          "parent_span_id": {"type": ["string", "null"]},
+          "operation": {"type": "string"},
+          "received_at_utc": {"type": "string"},
+          "returned_at_utc": {"type": "string"},
+          "at_utc": {"type": "string"},
+          "build_identity": {"type": "object"},
+          "outcome": {"type": "string"},
+          "road": {"type": "string"},
+          "source_state": {"type": "string"},
+          "cache_state": {"type": "string"},
+          "staff_instrumented": {"type": "boolean"},
+          "staff_observation": {"type": "string"},
+          "benchmark": {"type": ["object", "null"]}
+        },
+        "required": ["namespace", "hop", "span_id", "invocation_id", "operation", "received_at_utc", "returned_at_utc", "at_utc", "build_identity", "outcome", "road"],
+        "additionalProperties": true
+      }
+    },
+    "trace_unavailable": {"type": "object"},
+    "trace_incomplete": {"type": "string"}
+  },
+  "required": ["schema", "correlation_id", "stamps"],
+  "optional": ["parent_span_id", "benchmark", "next_hop_ancestry", "trace_unavailable", "trace_incomplete"],
+  "budgets": {
+    "encoded_context_bytes": 16384,
+    "stamps": 64,
+    "serialized_stamp_bytes": 2048,
+    "benchmark_rows_per_stamp": 1
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

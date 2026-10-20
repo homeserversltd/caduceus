@@ -4,6 +4,7 @@ pub mod command;
 pub mod config;
 pub mod harmonia;
 pub mod hyalos;
+pub mod load_trace;
 pub mod pjlink;
 pub mod policy;
 pub mod receipts;

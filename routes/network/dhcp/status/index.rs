@@ -19,17 +19,38 @@ pub(crate) async fn network_read_route(
         return Err(api_error(command));
     };
     match policy::allows_command(command) {
-        Ok(true) => network_read::invoke(read).map(Json).map_err(|error| {
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(ApiErrorBody {
-                    schema: "caduceus.api.error.v1",
-                    ok: false,
-                    command: command.to_string(),
-                    first_missing_signal: error,
-                }),
-            )
-        }),
+        Ok(true) => {
+            let context = crate::shared::load_trace::current();
+            let configured_native = std::env::var_os("CADUCEUS_NETWORK_READ_CMD").is_some();
+            let invocation = context
+                .as_ref()
+                .filter(|_| configured_native)
+                .map(crate::shared::load_trace::begin_invocation);
+            let result = crate::gate::blocking_task(command, move || network_read::invoke(read)).await?;
+            if let (Some(context), Some(invocation)) = (context, invocation) {
+                crate::shared::load_trace::record_native_completion(
+                    &context,
+                    command,
+                    invocation,
+                    result.is_ok(),
+                );
+            }
+            match result {
+                Ok(mut value) => {
+                    crate::shared::load_trace::enrich_json(&mut value);
+                    Ok(Json(value))
+                }
+                Err(error) => Err((
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(ApiErrorBody {
+                        schema: "caduceus.api.error.v1",
+                        ok: false,
+                        command: command.to_string(),
+                        first_missing_signal: error,
+                    }),
+                )),
+            }
+        }
         Ok(false) => Err(api_error(command)),
         Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
     }
@@ -43,8 +64,22 @@ async fn dhcp_reservations_read_route() -> Result<Json<Value>, (StatusCode, Json
     let command = "network dhcp reservations list";
     match policy::allows_command(command) {
         Ok(true) => {
+            let context = crate::shared::load_trace::current();
+            let invocation = context
+                .as_ref()
+                .map(crate::shared::load_trace::begin_invocation);
             let value = crate::routes::native_kea_read::response(command);
+            if let (Some(context), Some(invocation)) = (context, invocation) {
+                crate::shared::load_trace::record_native_completion(
+                    &context,
+                    command,
+                    invocation,
+                    value["ok"] == true,
+                );
+            }
             if value["ok"] == true {
+                let mut value = value;
+                crate::shared::load_trace::enrich_json(&mut value);
                 Ok(Json(value))
             } else {
                 Err((

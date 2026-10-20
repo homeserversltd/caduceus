@@ -1,0 +1,36 @@
+{
+  "schema": "hyalos.channel.event.v2",
+  "schema_version": "2.0.0",
+  "role": "Canonical Hyalos channel event written by the Caduceus channel appender",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/hyalos.channel.event.v2.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "The event kernel is required. Correlation and operation identity fields are optional and null when absent.",
+    "serialized_limit_bytes_including_lf": 1024
+  },
+  "fields": {
+    "schema": {"type": "string", "const": "hyalos.channel.event.v2"},
+    "timestamp": {"type": "string"},
+    "body_id": {"type": "string"},
+    "level": {"type": "string", "enum": ["trace", "debug", "info", "warn", "error", "fatal"]},
+    "organ": {"type": "string"},
+    "kind": {"type": "string"},
+    "world": {"type": "string"},
+    "ok": {"type": "boolean"},
+    "message": {"type": "string"},
+    "correlation_id": {"type": ["string", "null"]},
+    "session_id": {"type": ["string", "null"]},
+    "work_id": {"type": ["string", "null"]},
+    "review_id": {"type": ["string", "null"]},
+    "strike_id": {"type": ["string", "null"]},
+    "attributes_redacted": {}
+  },
+  "required": ["schema", "timestamp", "body_id", "level", "organ", "kind", "world", "ok", "message", "attributes_redacted"],
+  "optional": ["correlation_id", "session_id", "work_id", "review_id", "strike_id"],
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

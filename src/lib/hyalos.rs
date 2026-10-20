@@ -2,11 +2,12 @@ use crate::shared::config;
 use chrono::{TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::collections::VecDeque;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::{Mutex, OnceLock};
 
-pub const EVENT_SCHEMA: &str = "hyalos.channel.event.v2";
+pub const EVENT_SCHEMA: &str = crate::protocol::hyalos_event_schema();
 pub const CHANNEL_PATH: &str = "/var/log/appliance/appliance.log";
 
 const LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error", "fatal"];
@@ -568,28 +569,260 @@ fn matches_filters(event: &Value, filters: &TailFilters) -> bool {
     true
 }
 
-pub fn tail_json(filters: TailFilters) -> Result<Value, String> {
-    let path = config::path(CHANNEL_PATH);
-    let text = fs::read_to_string(&path).unwrap_or_default();
-    let mut events = text
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(parse_channel_line)
-        .filter_map(|result| result.ok())
-        .filter(|event| matches_filters(event, &filters))
-        .collect::<Vec<_>>();
-    let keep = filters.count.clamp(1, 1000);
-    if events.len() > keep {
-        events.drain(..events.len() - keep);
+const TAIL_BLOCK_BYTES: usize = 16 * 1024;
+const TAIL_SCAN_MAX_BYTES: u64 = 4 * 1024 * 1024;
+const TAIL_SCAN_MAX_LINES: usize = 65_536;
+const TAIL_RESULT_MAX_BYTES: usize = 1024 * 1024;
+
+struct TailCollector<'a> {
+    filters: &'a TailFilters,
+    keep: usize,
+    events_newest_first: VecDeque<Value>,
+    result_bytes: usize,
+    invalid_lines_skipped: usize,
+    oversized_lines_skipped: usize,
+    torn_trailing_rows_skipped: usize,
+    blank_lines_skipped: usize,
+    filtered_lines: usize,
+    has_more: Option<bool>,
+    output_limit_reached: bool,
+    count_limit_reached: bool,
+}
+
+impl TailCollector<'_> {
+    fn process_line(&mut self, reversed_line: &mut Vec<u8>, oversized: bool, torn: bool) -> bool {
+        if torn {
+            self.torn_trailing_rows_skipped += 1;
+            return false;
+        }
+        if oversized {
+            self.oversized_lines_skipped += 1;
+            return false;
+        }
+        if reversed_line.is_empty() {
+            self.blank_lines_skipped += 1;
+            return false;
+        }
+        reversed_line.reverse();
+        let Ok(line) = std::str::from_utf8(reversed_line) else {
+            self.invalid_lines_skipped += 1;
+            return false;
+        };
+        let Ok(event) = parse_channel_line(line) else {
+            self.invalid_lines_skipped += 1;
+            return false;
+        };
+        if !matches_filters(&event, self.filters) {
+            self.filtered_lines += 1;
+            return false;
+        }
+        if self.events_newest_first.len() >= self.keep {
+            self.has_more = Some(true);
+            self.count_limit_reached = true;
+            return true;
+        }
+        let event_bytes = serde_json::to_vec(&event).map_or(usize::MAX, |bytes| bytes.len() + 1);
+        if self.result_bytes.saturating_add(event_bytes) > TAIL_RESULT_MAX_BYTES {
+            self.has_more = Some(true);
+            self.output_limit_reached = true;
+            return true;
+        }
+        self.result_bytes += event_bytes;
+        self.events_newest_first.push_back(event);
+        false
     }
+}
+
+pub fn tail_json(filters: TailFilters) -> Result<Value, String> {
+    let context = crate::shared::load_trace::current();
+    let invocation = context
+        .as_ref()
+        .map(crate::shared::load_trace::begin_invocation);
+    let result = tail_json_inner(filters);
+    if let (Some(context), Some(invocation)) = (context, invocation) {
+        crate::shared::load_trace::record_native_completion(
+            &context,
+            "hyalos tail",
+            invocation,
+            result.is_ok(),
+        );
+    }
+    let mut result = result;
+    if let Ok(value) = result.as_mut() {
+        crate::shared::load_trace::enrich_json(value);
+    }
+    result
+}
+
+fn tail_json_inner(filters: TailFilters) -> Result<Value, String> {
+    let path = config::path(CHANNEL_PATH);
+    let mut file = File::open(&path).map_err(|error| {
+        format!("hyalos-channel-open-failed:{:?}", error.kind())
+    })?;
+    let file_bytes = file
+        .seek(SeekFrom::End(0))
+        .map_err(|error| format!("hyalos-channel-seek-failed:{:?}", error.kind()))?;
+    let scan_bytes = file_bytes.min(TAIL_SCAN_MAX_BYTES);
+    let scan_start = file_bytes - scan_bytes;
+    let keep = filters.count.clamp(1, 1000);
+    let mut collector = TailCollector {
+        filters: &filters,
+        keep,
+        events_newest_first: VecDeque::new(),
+        result_bytes: 0,
+        invalid_lines_skipped: 0,
+        oversized_lines_skipped: 0,
+        torn_trailing_rows_skipped: 0,
+        blank_lines_skipped: 0,
+        filtered_lines: 0,
+        has_more: None,
+        output_limit_reached: false,
+        count_limit_reached: false,
+    };
+    let mut buffer = vec![0u8; TAIL_BLOCK_BYTES];
+    let mut reversed_line = Vec::with_capacity(MAX_LINE_BYTES);
+    let mut oversized = false;
+    let mut trailing_torn_pending = false;
+    let mut first_byte = true;
+    let mut cursor = file_bytes;
+    let mut bytes_scanned = 0u64;
+    let mut lines_scanned = 0usize;
+    let mut blocks_read = 0usize;
+    let mut line_limit_reached = false;
+    let mut stopped_for_more = false;
+
+    while cursor > scan_start {
+        let chunk_start = cursor.saturating_sub(TAIL_BLOCK_BYTES as u64).max(scan_start);
+        let chunk_len = usize::try_from(cursor - chunk_start)
+            .map_err(|_| "hyalos-channel-read-length-invalid".to_string())?;
+        file.seek(SeekFrom::Start(chunk_start))
+            .map_err(|error| format!("hyalos-channel-seek-failed:{:?}", error.kind()))?;
+        file.read_exact(&mut buffer[..chunk_len])
+            .map_err(|error| format!("hyalos-channel-read-failed:{:?}", error.kind()))?;
+        bytes_scanned = bytes_scanned.saturating_add(chunk_len as u64);
+        blocks_read += 1;
+        let mut stop_at = None;
+        for (index, byte) in buffer[..chunk_len].iter().enumerate().rev() {
+            let absolute = chunk_start + index as u64;
+            if first_byte {
+                trailing_torn_pending = *byte != b'\n';
+                first_byte = false;
+                if !trailing_torn_pending {
+                    continue;
+                }
+            }
+            if *byte == b'\n' {
+                lines_scanned += 1;
+                let torn = trailing_torn_pending;
+                trailing_torn_pending = false;
+                if collector.process_line(&mut reversed_line, oversized, torn) {
+                    stopped_for_more = true;
+                    stop_at = Some(absolute);
+                    break;
+                }
+                reversed_line.clear();
+                oversized = false;
+                if lines_scanned >= TAIL_SCAN_MAX_LINES {
+                    line_limit_reached = absolute > 0;
+                    stop_at = Some(absolute);
+                    break;
+                }
+            } else if !oversized {
+                if reversed_line.len() + 2 > MAX_LINE_BYTES.saturating_sub(1) {
+                    oversized = true;
+                    reversed_line.clear();
+                } else {
+                    reversed_line.push(*byte);
+                }
+            }
+        }
+        if let Some(position) = stop_at {
+            cursor = position;
+            break;
+        }
+        cursor = chunk_start;
+    }
+
+    let reached_file_start = cursor == 0 && !stopped_for_more && !line_limit_reached;
+    let mut truncated_prefix_line_skipped = false;
+    if !stopped_for_more && !line_limit_reached {
+        if trailing_torn_pending {
+            collector.torn_trailing_rows_skipped += 1;
+            reversed_line.clear();
+            oversized = false;
+            trailing_torn_pending = false;
+        }
+        if reached_file_start {
+            if !reversed_line.is_empty() || oversized {
+                lines_scanned += 1;
+                let _ = collector.process_line(&mut reversed_line, oversized, false);
+            }
+        } else if !reversed_line.is_empty() || oversized {
+            truncated_prefix_line_skipped = true;
+            if oversized {
+                collector.oversized_lines_skipped += 1;
+            }
+        }
+    }
+
+    let scan_limit_reached = scan_start > 0 && cursor == scan_start && !stopped_for_more && !line_limit_reached;
+    let truncated = scan_limit_reached
+        || line_limit_reached
+        || collector.output_limit_reached
+        || collector.count_limit_reached
+        || collector.torn_trailing_rows_skipped > 0
+        || truncated_prefix_line_skipped;
+    let has_more = if collector.has_more == Some(true) {
+        Value::Bool(true)
+    } else if scan_limit_reached || line_limit_reached {
+        Value::Null
+    } else {
+        Value::Bool(false)
+    };
+    let events = collector
+        .events_newest_first
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>();
+    let count = events.len();
+    let first_missing_signal = if file_bytes == 0 {
+        "hyalos-channel-empty"
+    } else {
+        "none"
+    };
     Ok(json!({
         "schema": "caduceus.hyalos.tail.v1",
         "ok": true,
         "channelPath": path,
-        "count": events.len(),
+        "count": count,
         "filters": filters,
         "events": events,
-        "firstMissingSignal": if text.trim().is_empty() { "hyalos-channel-empty" } else { "none" }
+        "has_more": has_more,
+        "scan": {
+            "bytes_available": file_bytes,
+            "bytes_scanned": bytes_scanned,
+            "scan_start": scan_start,
+            "scan_end": file_bytes,
+            "lines_scanned": lines_scanned,
+            "blocks_read": blocks_read,
+            "invalid_lines_skipped": collector.invalid_lines_skipped,
+            "oversized_lines_skipped": collector.oversized_lines_skipped,
+            "torn_trailing_rows_skipped": collector.torn_trailing_rows_skipped,
+            "blank_lines_skipped": collector.blank_lines_skipped,
+            "filtered_lines": collector.filtered_lines,
+            "result_bytes": collector.result_bytes,
+            "result_limit_bytes": TAIL_RESULT_MAX_BYTES,
+            "line_limit": TAIL_SCAN_MAX_LINES,
+            "line_bytes_limit_including_lf": MAX_LINE_BYTES - 1,
+            "scan_limit_bytes": TAIL_SCAN_MAX_BYTES,
+            "scan_limit_reached": scan_limit_reached,
+            "line_limit_reached": line_limit_reached,
+            "output_limit_reached": collector.output_limit_reached,
+            "count_limit_reached": collector.count_limit_reached,
+            "truncated_prefix_line_skipped": truncated_prefix_line_skipped,
+            "truncated": truncated
+        },
+        "firstMissingSignal": first_missing_signal
     }))
 }
 

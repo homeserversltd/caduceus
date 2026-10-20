@@ -181,8 +181,29 @@ async fn network_notes_write_route(
                 "/api/v1/network/notes",
             )
             .map_err(|signal| crate::gate::api_error_signal(command, &signal))?;
-            network_notes::write_json(&body.mac, &body.note)
-                .map(|value| (StatusCode::OK, Json(value)))
+            let context = crate::shared::load_trace::current();
+            let invocation = context
+                .as_ref()
+                .map(crate::shared::load_trace::begin_invocation);
+            let result = network_notes::write_json(&body.mac, &body.note);
+            if let (Some(context), Some(invocation)) = (context, invocation) {
+                crate::shared::load_trace::finish_invocation(
+                    &context,
+                    invocation,
+                    "caduceus.network.device.annotate.write",
+                    "native",
+                    "local-state-file",
+                    "not-applicable",
+                    if result.is_ok() { "ok" } else { "failed" },
+                    None,
+                    false,
+                );
+            }
+            result
+                .map(|mut value| {
+                    crate::shared::load_trace::enrich_json(&mut value);
+                    (StatusCode::OK, Json(value))
+                })
                 .map_err(network_notes_write_error)
         }
     }

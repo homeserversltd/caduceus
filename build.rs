@@ -332,9 +332,30 @@ fn main() {
         Some("primitive"),
         "protocol seat absent benchmark flag must select the primitive path"
     );
-    let benchmark_schema = native_benchmark["schema"]
+    let benchmark_seat_bytes = fs::read_to_string("schema/caduceus.benchmark.v1.json")
+        .expect("canonical benchmark declaration readable");
+    let benchmark_seat: serde_json::Value = serde_json::from_str(&benchmark_seat_bytes)
+        .expect("canonical benchmark declaration valid");
+    let benchmark_schema = benchmark_seat["schema"]
         .as_str()
-        .expect("protocol seat benchmark schema must be a string");
+        .expect("canonical benchmark declaration schema must be a string");
+    assert_eq!(
+        native_benchmark["schema"].as_str(),
+        Some(benchmark_schema),
+        "protocol seat benchmark schema must name the canonical public declaration"
+    );
+    let event_seat_bytes = fs::read_to_string("schema/hyalos.channel.event.v2.json")
+        .expect("canonical Hyalos event declaration readable");
+    let event_seat: serde_json::Value = serde_json::from_str(&event_seat_bytes)
+        .expect("canonical Hyalos event declaration valid");
+    let hyalos_event_schema = event_seat["schema"]
+        .as_str()
+        .expect("canonical Hyalos event declaration schema must be a string");
+    assert_eq!(
+        hyalos_event_schema,
+        "hyalos.channel.event.v2",
+        "canonical Hyalos event declaration must name the v2 channel event"
+    );
     let benchmark_receive_locus = native_benchmark["receive_locus"]
         .as_str()
         .expect("protocol seat benchmark receive locus must be a string");
@@ -345,7 +366,7 @@ fn main() {
         .as_u64()
         .expect("protocol seat benchmark serve ordinal base must be an unsigned integer");
 
-    let generated = format!("pub const SEAT_JSON: &str = {source};\n         pub const SCHEMA_ID: &str = {schema};\n         pub const KERNEL_FIELDS: &[&str] = &[{fields}];\n         pub const SERPENTS_SHELF_PATH: &str = {serpents_shelf_path};\n         pub const FLAGS_PRESENCE_GATED: bool = {flags_presence_gated};\n         pub const FLAGS_VERSION_COMPARED: bool = {flags_version_compared};\n         pub const BENCHMARK_FLAG_NAME: &str = {benchmark_flag_name};\n         pub const BENCHMARK_REPORT_SCHEMA: &str = {benchmark_schema};\n         pub const BENCHMARK_RECEIVE_LOCUS: &str = {benchmark_receive_locus};\n         pub const BENCHMARK_SERVE_LOCUS: &str = {benchmark_serve_locus};\n         pub const BENCHMARK_SERVE_ORDINAL_BASE: u64 = {benchmark_serve_ordinal_base};\n", source = rust_string(source.trim()), schema = rust_string(schema), fields = kernel_fields.iter().map(|field| rust_string(field)).collect::<Vec<_>>().join(", "), serpents_shelf_path = rust_string(serpents_shelf_path), benchmark_flag_name = rust_string(benchmark_flag_name), benchmark_schema = rust_string(benchmark_schema), benchmark_receive_locus = rust_string(benchmark_receive_locus), benchmark_serve_locus = rust_string(benchmark_serve_locus));
+    let generated = format!("pub const SEAT_JSON: &str = {source};\n         pub const SCHEMA_ID: &str = {schema};\n         pub const KERNEL_FIELDS: &[&str] = &[{fields}];\n         pub const SERPENTS_SHELF_PATH: &str = {serpents_shelf_path};\n         pub const FLAGS_PRESENCE_GATED: bool = {flags_presence_gated};\n         pub const FLAGS_VERSION_COMPARED: bool = {flags_version_compared};\n         pub const BENCHMARK_FLAG_NAME: &str = {benchmark_flag_name};\n         pub const BENCHMARK_REPORT_SCHEMA: &str = {benchmark_schema};\n         pub const HYALOS_EVENT_SCHEMA: &str = {hyalos_event_schema};\n         pub const BENCHMARK_RECEIVE_LOCUS: &str = {benchmark_receive_locus};\n         pub const BENCHMARK_SERVE_LOCUS: &str = {benchmark_serve_locus};\n         pub const BENCHMARK_SERVE_ORDINAL_BASE: u64 = {benchmark_serve_ordinal_base};\n", source = rust_string(source.trim()), schema = rust_string(schema), fields = kernel_fields.iter().map(|field| rust_string(field)).collect::<Vec<_>>().join(", "), serpents_shelf_path = rust_string(serpents_shelf_path), benchmark_flag_name = rust_string(benchmark_flag_name), benchmark_schema = rust_string(benchmark_schema), hyalos_event_schema = rust_string(hyalos_event_schema), benchmark_receive_locus = rust_string(benchmark_receive_locus), benchmark_serve_locus = rust_string(benchmark_serve_locus));
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR must be set");
     fs::write(Path::new(&out_dir).join("protocol_seat.rs"), generated)
         .expect("generated protocol metadata must be writable");
@@ -377,6 +398,9 @@ fn main() {
         "xenia.events.v1",
         "caduceus.xenia.verdict.v1",
         "caduceus.access.gate.v1",
+        "appliance.load.context.v1",
+        "caduceus.benchmark.v1",
+        "hyalos.channel.event.v2",
         "caduceus.exousia.posture.v1",
         "coronatio.exousia.agent.service.v1",
         "coronatio.exousia.agent.posture.v1",

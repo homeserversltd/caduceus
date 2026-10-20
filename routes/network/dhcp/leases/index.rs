@@ -9,8 +9,22 @@ async fn dhcp_leases_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBo
     let command = "network dhcp leases";
     match crate::shared::policy::allows_command(command) {
         Ok(true) => {
+            let context = crate::shared::load_trace::current();
+            let invocation = context
+                .as_ref()
+                .map(crate::shared::load_trace::begin_invocation);
             let value = crate::routes::native_kea_read::response(command);
+            if let (Some(context), Some(invocation)) = (context, invocation) {
+                crate::shared::load_trace::record_native_completion(
+                    &context,
+                    command,
+                    invocation,
+                    value["ok"] == true,
+                );
+            }
             if value["ok"] == true {
+                let mut value = value;
+                crate::shared::load_trace::enrich_json(&mut value);
                 Ok(Json(value))
             } else {
                 Err((
