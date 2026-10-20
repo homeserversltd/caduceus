@@ -148,11 +148,6 @@ steps:
         build_profile homeconsole
         build_profile tv
         build_profile specula
-        # Temporary compatibility window: a later lane removes the probe aliases after Harmonia rolls.
-        mkdir -p .release/probe
-        cp .release/caduceus-specula-x86_64 .release/caduceus-probe-x86_64
-        cp .release/specula/manifest.json .release/probe/manifest.json
-        cp .release/specula/cargo-metadata.json .release/probe/cargo-metadata.json
 
   - name: build-caduceus-package
     image: git.home.arpa/homeserversltd/rust-house:house
@@ -230,7 +225,7 @@ steps:
         export GIT_CONFIG_COUNT=1
         export GIT_CONFIG_VALUE_0='!f() { if [ "$${1}" = get ]; then printf "username=x-token\npassword=%s\n" "$${FORGEJO_TOKEN}"; fi; }; f'
 
-        WUKONG_STAFF_SHA=d099625ef2e21f6e7af57cbea03aba6b0f9c4cca
+        WUKONG_STAFF_SHA=ecdc0b6ffa73d0794a7981127cf6682699c0b515
         git clone --depth 1 https://git.home.arpa/HOMESERVERSLTD/wukong-staff.git wukong-staff
         git -C wukong-staff fetch --depth 1 origin "$${WUKONG_STAFF_SHA}"
         git -C wukong-staff checkout --detach "$${WUKONG_STAFF_SHA}"
