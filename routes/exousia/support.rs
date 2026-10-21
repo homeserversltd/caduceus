@@ -41,11 +41,7 @@ pub(crate) async fn pin_mode_route(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    access_attendance_admits(
-        &headers,
-        &body,
-        "/api/v1/access/pin/mode",
-    )?;
+    access_attendance_admits(&headers, &body, "/api/v1/access/pin/mode")?;
     let mut body = body;
     crate::gate::strip_administrative_flags(&mut body);
     change_pin::set_pin_mode_json(&body)
@@ -53,7 +49,8 @@ pub(crate) async fn pin_mode_route(
         .map_err(|signal| api_error_signal("access pin mode", &signal))
 }
 
-pub(crate) async fn sudo_mode_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+pub(crate) async fn sudo_mode_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)>
+{
     Ok(Json(crate::shared::attendance::sudo_mode_json()))
 }
 
@@ -61,11 +58,7 @@ pub(crate) async fn sudo_mode_route(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    access_attendance_admits(
-        &headers,
-        &body,
-        "/api/v1/access/sudo/mode",
-    )?;
+    access_attendance_admits(&headers, &body, "/api/v1/access/sudo/mode")?;
     let mut body = body;
     crate::gate::strip_administrative_flags(&mut body);
     change_pin::set_sudo_mode_json(&body)
@@ -172,20 +165,12 @@ pub(crate) async fn vault_auto_route(
 }
 
 pub(crate) async fn attendance_route(
-    connect_info: Option<ConnectInfo<ConnectionInfo>>,
     OriginalUri(uri): OriginalUri,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    // Only gate-populated transport metadata can authorize browser-child derivation.
-    let trusted_unix_carrier = matches!(
-        connect_info.as_ref(),
-        Some(ConnectInfo(ConnectionInfo::Unix { .. }))
-    );
     let started = Instant::now();
     let result = match uri.path() {
-        "/api/v1/exousia/open" | "/api/v1/attendance/open" => {
-            attendance::open_request_json(&body, trusted_unix_carrier)
-        }
+        "/api/v1/exousia/open" | "/api/v1/attendance/open" => attendance::open_request_json(&body),
         "/api/v1/exousia/validate" | "/api/v1/attendance/validate" => {
             attendance::validate_json(&body)
         }
@@ -201,7 +186,9 @@ pub(crate) async fn attendance_route(
     let verb = match uri.path() {
         "/api/v1/exousia/open" | "/api/v1/attendance/open" => "open",
         "/api/v1/exousia/touch" | "/api/v1/attendance/touch" => "touch",
-        "/api/v1/exousia/change-pin" | "/api/v1/access/pin/change" | "/api/v1/attendance/change-pin" => "change-pin",
+        "/api/v1/exousia/change-pin"
+        | "/api/v1/access/pin/change"
+        | "/api/v1/attendance/change-pin" => "change-pin",
         "/api/v1/exousia/invalidate" | "/api/v1/attendance/invalidate" => "invalidate",
         _ => "unknown",
     };

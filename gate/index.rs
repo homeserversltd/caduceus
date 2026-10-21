@@ -24,7 +24,10 @@ use std::{
     net::SocketAddr,
     os::{
         fd::{AsRawFd, FromRawFd, OwnedFd},
-        unix::{ffi::OsStrExt, fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt}},
+        unix::{
+            ffi::OsStrExt,
+            fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+        },
     },
     path::{Component, Path, PathBuf},
     time::Instant,
@@ -155,10 +158,7 @@ pub(crate) async fn gated_json(
                     .as_ref()
                     .is_ok_and(|value| crate::shared::load_trace::outcome_for_result(value));
                 crate::shared::load_trace::record_native_completion(
-                    &context,
-                    command,
-                    invocation,
-                    ok,
+                    &context, command, invocation, ok,
                 );
             }
             match result {
@@ -190,10 +190,7 @@ pub(crate) async fn gated_body(
                     .as_ref()
                     .is_ok_and(|value| crate::shared::load_trace::outcome_for_result(value));
                 crate::shared::load_trace::record_native_completion(
-                    &context,
-                    command,
-                    invocation,
-                    ok,
+                    &context, command, invocation, ok,
                 );
             }
             match result {
@@ -213,7 +210,6 @@ pub(crate) fn mutation_status(value: &Value) -> StatusCode {
         StatusCode::SERVICE_UNAVAILABLE
     }
 }
-pub(crate) const FIREWALL_DOCUMENT_TARGET: &str = "/api/v1/network/firewall/policies/{mac}";
 pub(crate) const VAULT_ATTENDANCE_COMMAND: &str = "staff intent";
 #[derive(Deserialize)]
 pub(crate) struct VaultUnlockBody {
@@ -258,23 +254,6 @@ pub(crate) async fn gated_mutation(
         Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
     }
 }
-pub(crate) fn attendance_admits(
-    target: &str,
-    request_document: Option<&str>,
-    token: Option<&str>,
-) -> Result<(), String> {
-    let token = token
-        .filter(|v| !v.trim().is_empty())
-        .ok_or_else(|| "caduceus-attendance-not-current".to_string())?;
-    let request_document = request_document
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| "caduceus-attendance-not-current".to_string())?;
-    if request_document == target && attendance::admits(token, target, target) {
-        return Ok(());
-    }
-    Err("caduceus-attendance-not-current".into())
-}
 pub(crate) fn document_attendance_admits(
     document: &str,
     token: Option<&str>,
@@ -287,55 +266,6 @@ pub(crate) fn document_attendance_admits(
     } else {
         Err("caduceus-attendance-not-current".into())
     }
-}
-
-fn telemetry_read_request_admits(
-    headers: &HeaderMap,
-    method: &str,
-    path: &str,
-) -> Option<Result<(), String>> {
-    let token = headers
-        .get("x-caduceus-attendance")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty())?;
-    if !attendance::is_telemetry_read_child(token) {
-        return None;
-    }
-    if method != "GET" || path != STATS_ADMIN_HTTP_PATH {
-        return Some(Err("caduceus-attendance-not-current".to_string()));
-    }
-    let document = headers
-        .get("x-caduceus-document")
-        .and_then(|value| value.to_str().ok());
-    if document != Some(STATS_ADMIN_HTTP_PATH)
-        || !attendance::admits_telemetry_read(
-            token,
-            STATS_ADMIN_HTTP_PATH,
-            STATS_ADMIN_HTTP_PATH,
-        )
-    {
-        return Some(Err("caduceus-attendance-not-current".to_string()));
-    }
-    Some(Ok(()))
-}
-
-pub(crate) fn stats_admin_attendance_admits(
-    method: &str,
-    path: &str,
-    headers: &HeaderMap,
-) -> Result<(), String> {
-    if let Some(admission) = telemetry_read_request_admits(headers, method, path) {
-        return admission;
-    }
-    attendance_admits(
-        STATS_ADMIN_HTTP_PATH,
-        headers
-            .get("x-caduceus-document")
-            .and_then(|value| value.to_str().ok()),
-        headers
-            .get("x-caduceus-attendance")
-            .and_then(|value| value.to_str().ok()),
-    )
 }
 
 const ADMINISTRATIVE_PROFILE_MAX_BYTES: usize = 16 * 1024;
@@ -423,7 +353,10 @@ fn open_nofollow_shelf_file(path: &Path) -> io::Result<File> {
     let mut parent: OwnedFd = root.into();
     for (index, component) in components.iter().enumerate() {
         let name = CString::new(component.as_bytes()).map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidInput, "NUL in administrative shelf path")
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "NUL in administrative shelf path",
+            )
         })?;
         let last = index + 1 == components.len();
         let flags = if last {
@@ -562,10 +495,7 @@ fn route_matches(entry: &str, method: Option<&str>, path: &str) -> bool {
     }
 }
 
-fn administrative_routes_match(
-    method: Option<&str>,
-    path: &str,
-) -> Result<bool, String> {
+fn administrative_routes_match(method: Option<&str>, path: &str) -> Result<bool, String> {
     if path == STATS_ADMIN_HTTP_PATH {
         return Ok(true);
     }
@@ -610,10 +540,7 @@ fn administrative_pin_required() -> bool {
         .unwrap_or(false)
 }
 
-fn administrative_credentials_admit(
-    headers: &HeaderMap,
-    body: &Value,
-) -> Result<(), String> {
+fn administrative_credentials_admit(headers: &HeaderMap, body: &Value) -> Result<(), String> {
     if !administrative_pin_required() {
         return Ok(());
     }
@@ -690,10 +617,7 @@ pub(crate) fn strip_administrative_flags(body: &mut Value) -> bool {
     true
 }
 
-async fn administrative_route_gate(
-    mut request: Request<Body>,
-    next: middleware::Next,
-) -> Response {
+async fn administrative_route_gate(mut request: Request<Body>, next: middleware::Next) -> Response {
     request.headers_mut().remove(INTERNAL_ADMIN_GATE_HEADER);
     let method = request.method().as_str().to_owned();
     let path = request.uri().path().to_owned();
@@ -730,16 +654,8 @@ async fn administrative_route_gate(
     let parsed_body = serde_json::from_slice::<Value>(&bytes).ok();
     let empty_body = Value::Null;
     let admission_body = parsed_body.as_ref().unwrap_or(&empty_body);
-    match telemetry_read_request_admits(&parts.headers, &method, &path) {
-        Some(Ok(())) => {}
-        Some(Err(signal)) => {
-            return api_error_signal("administrative route gate", &signal).into_response();
-        }
-        None => {
-            if let Err(signal) = administrative_credentials_admit(&parts.headers, admission_body) {
-                return api_error_signal("administrative route gate", &signal).into_response();
-            }
-        }
+    if let Err(signal) = administrative_credentials_admit(&parts.headers, admission_body) {
+        return api_error_signal("administrative route gate", &signal).into_response();
     }
 
     let mut stripped_pin = false;
@@ -850,7 +766,9 @@ pub fn router() -> Router {
     router
         .layer(middleware::from_fn(administrative_route_gate))
         .layer(middleware::from_fn(self_telemetry_route))
-        .layer(middleware::from_fn(crate::shared::load_trace::http_boundary))
+        .layer(middleware::from_fn(
+            crate::shared::load_trace::http_boundary,
+        ))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1323,14 +1241,8 @@ pub fn receive(
     let envelope = crate::protocol::Envelope::parse(raw)?;
     let admittance = admittance::check_declared_admittance(declaration)?;
     let _ = discovery::walk_compiled_route_set(route_set)?;
-    let mut receipt = receipts::append_stamp(
-        &envelope,
-        admittance,
-        attendance_witness,
-        true,
-        true,
-        None,
-    );
+    let mut receipt =
+        receipts::append_stamp(&envelope, admittance, attendance_witness, true, true, None);
     if let Some(started) = benchmark_started {
         receipt["benchmarkStamp"] = serde_json::json!({
             "schema": crate::protocol::BENCHMARK_REPORT_SCHEMA,

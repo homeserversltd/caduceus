@@ -1,5 +1,6 @@
 use crate::gate::{
-    api_error, api_error_signal, attendance_admits, mutation_status, roster_allows, ApiErrorBody,
+    api_error, api_error_signal, document_attendance_admits, mutation_status, roster_allows,
+    ApiErrorBody,
 };
 use crate::routes::staff;
 use crate::shared::policy;
@@ -9,25 +10,17 @@ use axum::{
 };
 use serde_json::Value;
 
-const STATUS_DOCUMENT_TARGET: &str = "/api/v1/appliance/service/{service}/status";
-const START_DOCUMENT_TARGET: &str = "/api/v1/appliance/service/{service}/start";
-const STOP_DOCUMENT_TARGET: &str = "/api/v1/appliance/service/{service}/stop";
-const RESTART_DOCUMENT_TARGET: &str = "/api/v1/appliance/service/{service}/restart";
-const ENABLE_DOCUMENT_TARGET: &str = "/api/v1/appliance/service/{service}/enable";
-const DISABLE_DOCUMENT_TARGET: &str = "/api/v1/appliance/service/{service}/disable";
-
 async fn registered_service_action_route(
     action: &'static str,
-    document_target: &'static str,
     headers: HeaderMap,
     service: String,
     body: Value,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    attendance_admits(
-        document_target,
+    document_attendance_admits(
         headers
             .get("x-caduceus-document")
-            .and_then(|value| value.to_str().ok()),
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default(),
         headers
             .get("x-caduceus-attendance")
             .and_then(|value| value.to_str().ok()),
@@ -57,7 +50,7 @@ pub(crate) async fn registered_service_status_route(
     Path(service): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    registered_service_action_route("status", STATUS_DOCUMENT_TARGET, headers, service, body).await
+    registered_service_action_route("status", headers, service, body).await
 }
 
 pub(crate) async fn registered_service_start_route(
@@ -65,7 +58,7 @@ pub(crate) async fn registered_service_start_route(
     Path(service): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    registered_service_action_route("start", START_DOCUMENT_TARGET, headers, service, body).await
+    registered_service_action_route("start", headers, service, body).await
 }
 
 pub(crate) async fn registered_service_stop_route(
@@ -73,7 +66,7 @@ pub(crate) async fn registered_service_stop_route(
     Path(service): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    registered_service_action_route("stop", STOP_DOCUMENT_TARGET, headers, service, body).await
+    registered_service_action_route("stop", headers, service, body).await
 }
 
 pub(crate) async fn registered_service_restart_route(
@@ -81,8 +74,7 @@ pub(crate) async fn registered_service_restart_route(
     Path(service): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    registered_service_action_route("restart", RESTART_DOCUMENT_TARGET, headers, service, body)
-        .await
+    registered_service_action_route("restart", headers, service, body).await
 }
 
 pub(crate) async fn registered_service_enable_route(
@@ -90,7 +82,7 @@ pub(crate) async fn registered_service_enable_route(
     Path(service): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    registered_service_action_route("enable", ENABLE_DOCUMENT_TARGET, headers, service, body).await
+    registered_service_action_route("enable", headers, service, body).await
 }
 
 pub(crate) async fn registered_service_disable_route(
@@ -98,6 +90,5 @@ pub(crate) async fn registered_service_disable_route(
     Path(service): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    registered_service_action_route("disable", DISABLE_DOCUMENT_TARGET, headers, service, body)
-        .await
+    registered_service_action_route("disable", headers, service, body).await
 }

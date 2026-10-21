@@ -26,11 +26,11 @@ pub fn command_json(intent: Value) -> Result<Value, Value> {
 
 use crate::routes::firewall;
 use crate::shared::policy;
-use axum::{extract::Json, http::StatusCode, Router};
 #[cfg(carapace_feature_firewall)]
 use axum::extract::Path;
 #[cfg(carapace_feature_firewall)]
 use axum::http::{HeaderMap};
+use axum::{extract::Json, http::StatusCode, Router};
 #[cfg(carapace_feature_firewall)]
 use serde::Deserialize;
 
@@ -231,11 +231,11 @@ async fn firewall_register_route(
             ))
         }
     }
-    attendance_admits(
-        FIREWALL_DOCUMENT_TARGET,
+    document_attendance_admits(
         headers
             .get("x-caduceus-document")
-            .and_then(|value| value.to_str().ok()),
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default(),
         headers
             .get("x-caduceus-attendance")
             .and_then(|value| value.to_str().ok()),
@@ -269,19 +269,22 @@ async fn firewall_unregister_route(
             ))
         }
     }
-    attendance_admits(
-        FIREWALL_DOCUMENT_TARGET,
+    document_attendance_admits(
         headers
             .get("x-caduceus-document")
-            .and_then(|value| value.to_str().ok()),
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default(),
         headers
             .get("x-caduceus-attendance")
             .and_then(|value| value.to_str().ok()),
     )
     .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
-    firewall_invoke_http(command, serde_json::json!({"action":"unregister", "mac":mac}))
-        .await
-        .map(|value| (StatusCode::OK, value))
+    firewall_invoke_http(
+        command,
+        serde_json::json!({"action":"unregister", "mac":mac}),
+    )
+    .await
+    .map(|value| (StatusCode::OK, value))
 }
 
 #[cfg(carapace_feature_firewall)]
@@ -321,22 +324,25 @@ async fn firewall_whitelist_set_route(
             ))
         }
     }
-    attendance_admits(
-        FIREWALL_DOCUMENT_TARGET,
+    document_attendance_admits(
         headers
             .get("x-caduceus-document")
-            .and_then(|value| value.to_str().ok()),
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default(),
         headers
             .get("x-caduceus-attendance")
             .and_then(|value| value.to_str().ok()),
     )
     .map_err(|signal| firewall_refusal(StatusCode::FORBIDDEN, &signal))?;
-    firewall_invoke_http(command, serde_json::json!({
-        "action":"whitelist-set",
-        "mac":mac,
-        "hostnames":body.hostnames,
-        "revision":body.expected_revision
-    }))
+    firewall_invoke_http(
+        command,
+        serde_json::json!({
+            "action":"whitelist-set",
+            "mac":mac,
+            "hostnames":body.hostnames,
+            "revision":body.expected_revision
+        }),
+    )
     .await
     .map(|value| (StatusCode::OK, value))
 }
@@ -351,9 +357,9 @@ pub fn register(router: Router) -> Router {
     let router = router
         .route(
             "/api/v1/network/firewall/children",
-            axum::routing::get(firewall_children_route).post(firewall_register_route).layer(
-                axum::extract::DefaultBodyLimit::max(8192),
-            ),
+            axum::routing::get(firewall_children_route)
+                .post(firewall_register_route)
+                .layer(axum::extract::DefaultBodyLimit::max(8192)),
         )
         .route(
             "/api/v1/network/firewall/children/:mac",

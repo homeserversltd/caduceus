@@ -814,14 +814,10 @@ fn main() {
         {
             prelude.push_str("use crate::shared::policy; ");
         }
-        if source_text.contains("FIREWALL_DOCUMENT_TARGET") {
-            prelude.push_str("use crate::gate::FIREWALL_DOCUMENT_TARGET; ");
-        }
         for name in [
             "api_error",
             "api_error_signal",
             "document_attendance_admits",
-            "attendance_admits",
             "mutation_status",
             "gated_json",
         ] {

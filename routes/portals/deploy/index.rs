@@ -73,6 +73,19 @@ fn staff_admitted() -> Result<(), axum::response::Response> {
     }
 }
 
+fn document_attendance_admitted(headers: &HeaderMap) -> Result<(), axum::response::Response> {
+    crate::gate::document_attendance_admits(
+        headers
+            .get("x-caduceus-document")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default(),
+        headers
+            .get("x-caduceus-attendance")
+            .and_then(|value| value.to_str().ok()),
+    )
+    .map_err(|signal| crate::gate::api_error_signal("staff intent", &signal).into_response())
+}
+
 fn valid_filename(filename: &str) -> bool {
     !filename.is_empty()
         && FsPath::new(filename)
@@ -130,7 +143,13 @@ async fn file_ingress(
     staff_route("storage/upload/ingress", body).await
 }
 
-async fn file_ingress_start(Json(body): Json<UploadStart>) -> axum::response::Response {
+async fn file_ingress_start(
+    headers: HeaderMap,
+    Json(body): Json<UploadStart>,
+) -> axum::response::Response {
+    if let Err(response) = document_attendance_admitted(&headers) {
+        return response;
+    }
     if let Err(response) = staff_admitted() {
         return response;
     }
@@ -237,6 +256,9 @@ async fn file_ingress_chunk(
     Path((upload_id, index)): Path<(String, u64)>,
     request: Request<Body>,
 ) -> axum::response::Response {
+    if let Err(response) = document_attendance_admitted(request.headers()) {
+        return response;
+    }
     if let Err(response) = staff_admitted() {
         return response;
     }
@@ -342,7 +364,13 @@ async fn file_ingress_chunk(
         .into_response()
 }
 
-async fn file_ingress_complete(Path(upload_id): Path<String>) -> axum::response::Response {
+async fn file_ingress_complete(
+    headers: HeaderMap,
+    Path(upload_id): Path<String>,
+) -> axum::response::Response {
+    if let Err(response) = document_attendance_admitted(&headers) {
+        return response;
+    }
     if let Err(response) = staff_admitted() {
         return response;
     }
@@ -398,7 +426,13 @@ async fn file_ingress_complete(Path(upload_id): Path<String>) -> axum::response:
     }
 }
 
-async fn file_ingress_abort(Path(upload_id): Path<String>) -> axum::response::Response {
+async fn file_ingress_abort(
+    headers: HeaderMap,
+    Path(upload_id): Path<String>,
+) -> axum::response::Response {
+    if let Err(response) = document_attendance_admitted(&headers) {
+        return response;
+    }
     if let Err(response) = staff_admitted() {
         return response;
     }
