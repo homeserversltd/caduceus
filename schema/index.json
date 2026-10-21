@@ -21,6 +21,7 @@
     "caduceus.benchmark.v1": {"file": "schema/caduceus.benchmark.v1.json", "schema_version": "1.0.0"},
     "hyalos.channel.event.v2": {"file": "schema/hyalos.channel.event.v2.json", "schema_version": "2.0.0"},
     "caduceus.disk.census.v1": {"file": "schema/caduceus.disk.census.v1.json", "schema_version": "1.0.0"},
+    "caduceus.pjlink.known_product.v1": {"file": "schema/caduceus.pjlink.known_product.v1.json", "schema_version": "1.0.0"},
     "harmonia.ruyi-perspective.v1": {"file": "schema/harmonia.ruyi-perspective.v1.json", "schema_version": "1.0.1"},
     "harmonia.ruyi-register.v1": {"file": "schema/harmonia.ruyi-register.v1.json", "schema_version": "1.0.0"},
     "harmonia.config_proposals.feed.v1": {"file": "schema/harmonia.config_proposals.feed.v1.json", "schema_version": "1.0.1"},

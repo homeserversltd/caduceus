@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "caduceus.pjlink.known_product.v1",
+  "schema": "caduceus.pjlink.known_product.v1",
+  "schema_version": "1.0.0",
+  "role": "One current known PJLink product, not a scan receipt",
+  "authority": {"owner": "caduceus", "path": "schema/caduceus.pjlink.known_product.v1.json"},
+  "evolution": {"law": "additive-only", "unknown_fields": "skip", "missing_fields": "null"},
+  "storage": {"database": "var/lib/caduceus/stats.sqlite3", "table": "pjlink_known_products", "key": ["id"]},
+  "type": "object",
+  "required": ["schema", "id"],
+  "properties": {
+    "schema": {"type": "string", "const": "caduceus.pjlink.known_product.v1"},
+    "id": {"type": "string", "minLength": 1, "description": "Existing deviceId:manufacturer:productName key, spaces replaced by hyphens and lowercased"},
+    "deviceId": {"type": ["string", "null"]},
+    "host": {"type": ["string", "null"]},
+    "port": {"type": ["integer", "null"], "minimum": 0, "maximum": 65535},
+    "manufacturer": {"type": ["string", "null"]},
+    "productName": {"type": ["string", "null"]},
+    "otherInfo": {"type": ["string", "null"]},
+    "class": {"type": ["string", "null"]},
+    "source": {"type": ["string", "null"]},
+    "firstSeenEpoch": {"type": ["integer", "null"], "minimum": 0},
+    "lastSeenEpoch": {"type": ["integer", "null"], "minimum": 0}
+  },
+  "additionalProperties": true
+}

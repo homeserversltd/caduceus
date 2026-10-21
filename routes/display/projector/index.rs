@@ -8,8 +8,7 @@ pub mod scan;
 use crate::shared::{config, pjlink, receipts};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::fs;
-use std::path::PathBuf;
+mod catalog;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn profile() -> Result<Value, String> {
@@ -33,21 +32,21 @@ pub fn devices_json() -> Result<Value, String> {
     }))
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct KnownProductEntry {
     pub schema: String,
     pub id: String,
-    pub device_id: String,
-    pub host: String,
-    pub port: u16,
+    pub device_id: Option<String>,
+    pub host: Option<String>,
+    pub port: Option<u16>,
     pub manufacturer: Option<String>,
     pub product_name: Option<String>,
     pub other_info: Option<String>,
     pub class: Option<String>,
-    pub source: String,
-    pub first_seen_epoch: u64,
-    pub last_seen_epoch: u64,
+    pub source: Option<String>,
+    pub first_seen_epoch: Option<u64>,
+    pub last_seen_epoch: Option<u64>,
 }
 
 fn now_epoch() -> u64 {
@@ -55,16 +54,6 @@ fn now_epoch() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or(0)
-}
-
-fn known_catalog_path() -> Result<PathBuf, String> {
-    let profile = profile()?;
-    let relative = profile
-        .get("pjlink")
-        .and_then(|value| value.get("catalog_path"))
-        .and_then(Value::as_str)
-        .unwrap_or("var/lib/caduceus/pjlink-known-products.jsonl");
-    Ok(config::path(relative))
 }
 
 fn dry_run_product_for(device_id: &str) -> Option<pjlink::PjlinkProductInfo> {
@@ -109,59 +98,27 @@ fn entry_from_scan(
     .to_lowercase();
     let stamp = now_epoch();
     Ok(KnownProductEntry {
-        schema: "caduceus.pjlink.known-product.v1".to_string(),
+        schema: catalog::schema()?,
         id,
-        device_id: receipt.device_id.clone(),
-        host: receipt.host.clone(),
-        port: receipt.port,
+        device_id: Some(receipt.device_id.clone()),
+        host: Some(receipt.host.clone()),
+        port: Some(receipt.port),
         manufacturer: product.manufacturer,
         product_name: product.product_name,
         other_info: product.other_info,
         class: product.class,
-        source: source.to_string(),
-        first_seen_epoch: stamp,
-        last_seen_epoch: stamp,
+        source: Some(source.to_string()),
+        first_seen_epoch: Some(stamp),
+        last_seen_epoch: Some(stamp),
     })
 }
 
-fn read_catalog_entries() -> Result<Vec<KnownProductEntry>, String> {
-    let path = known_catalog_path()?;
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(err) => return Err(format!("{}: {err}", path.display())),
-    };
-    let mut entries = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let entry: KnownProductEntry = serde_json::from_str(line)
-            .map_err(|err| format!("caduceus-pjlink-catalog-line-{}-invalid:{err}", index + 1))?;
-        entries.push(entry);
-    }
-    Ok(entries)
-}
-
-fn write_catalog_entries(entries: &[KnownProductEntry]) -> Result<(), String> {
-    let path = known_catalog_path()?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
-    }
-    let mut text = String::new();
-    for entry in entries {
-        text.push_str(&serde_json::to_string(entry).map_err(|err| err.to_string())?);
-        text.push('\n');
-    }
-    fs::write(&path, text).map_err(|err| format!("{}: {err}", path.display()))
-}
-
 pub fn known_products_json() -> Result<Value, String> {
-    let entries = read_catalog_entries()?;
+    let entries = catalog::list()?;
     Ok(json!({
         "schema": "caduceus.pjlink.known-products.v1",
         "ok": true,
-        "catalogPath": known_catalog_path()?.display().to_string(),
+        "catalogPath": crate::stats::db_path().display().to_string(),
         "count": entries.len(),
         "entries": entries,
         "firstMissingSignal": "none"
@@ -207,34 +164,27 @@ pub fn add_known_product_json(
             "firstMissingSignal": "none"
         }));
     }
-    let mut entries = read_catalog_entries()?;
-    entries.retain(|existing| existing.id != entry.id);
-    entries.push(entry.clone());
-    write_catalog_entries(&entries)?;
+    let count = catalog::add(&entry)?;
     Ok(json!({
         "schema": "caduceus.pjlink.known-product.add.v1",
         "ok": true,
         "mutation": true,
         "dryRun": false,
         "entry": entry,
-        "count": entries.len(),
+        "count": count,
         "firstMissingSignal": "none"
     }))
 }
 
 pub fn remove_known_product_json(entry_id: &str) -> Result<Value, String> {
-    let mut entries = read_catalog_entries()?;
-    let before = entries.len();
-    entries.retain(|entry| entry.id != entry_id);
-    let removed = before.saturating_sub(entries.len());
-    write_catalog_entries(&entries)?;
+    let (removed, count) = catalog::remove(entry_id)?;
     Ok(json!({
         "schema": "caduceus.pjlink.known-product.remove.v1",
         "ok": true,
         "mutation": removed > 0,
         "removed": removed,
         "id": entry_id,
-        "count": entries.len(),
+        "count": count,
         "firstMissingSignal": "none"
     }))
 }

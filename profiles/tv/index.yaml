@@ -8,7 +8,6 @@ services:
   update:
     timer: harmonia.timer
 pjlink:
-  catalog_path: var/lib/caduceus/pjlink-known-products.jsonl
   devices:
   - id: living-room-tv
     host: 192.168.123.17

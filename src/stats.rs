@@ -86,10 +86,10 @@ struct PendingRaw {
     data: Arc<str>,
 }
 
-fn db_path() -> PathBuf {
+pub(crate) fn db_path() -> PathBuf {
     config::path("var/lib/caduceus/stats.sqlite3")
 }
-fn open_db() -> Result<&'static Mutex<Connection>, String> {
+pub(crate) fn open_db() -> Result<&'static Mutex<Connection>, String> {
     match DATABASE.get_or_init(|| open_db_once().map(Mutex::new)) {
         Ok(connection) => Ok(connection),
         Err(error) => Err(error.clone()),
