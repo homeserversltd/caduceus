@@ -28,10 +28,12 @@ pub fn read_ledger_json(
     const UNREADABLE: &str = "caduceus-harmonia-ledger-unreadable";
     const MAX_PAGE_BYTES: u64 = 4 * 1024 * 1024;
     const PAGE_SEAT: &str = "caduceus.receipts.ledger.v1";
-    let expected_schema = leaf_schema::declaration(PAGE_SEAT)
-        .and_then(|seat| seat.get("schema"))
-        .and_then(Value::as_str)
-        .ok_or_else(|| UNREADABLE.to_string())?;
+    // An unseated page stays on the primitive identity/presence path. A loaded
+    // declaration is authoritative, but its absence is not a command failure.
+    let seat = leaf_schema::declaration(PAGE_SEAT);
+    if seat.is_some_and(|seat| seat.get("schema").and_then(Value::as_str) != Some(PAGE_SEAT)) {
+        return Err(UNREADABLE.to_string());
+    }
     let mut command = Command::new("harmonia");
     command.args([
         "ledger",
@@ -67,7 +69,7 @@ pub fn read_ledger_json(
         return Err(UNREADABLE.to_string());
     }
     let mut page: Value = serde_json::from_slice(&bytes).map_err(|_| UNREADABLE.to_string())?;
-    if page.get("schema").and_then(Value::as_str) != Some(expected_schema)
+    if page.get("schema").and_then(Value::as_str) != Some(PAGE_SEAT)
         || !page.is_object()
         || page.get("ok").and_then(Value::as_bool) == Some(false)
     {
@@ -75,7 +77,7 @@ pub fn read_ledger_json(
     }
     // Preserve the producer's page and every additive field, not a private shape.
     page["ledgerPath"] = Value::Null;
-    if !leaf_schema::accepts(PAGE_SEAT, &page) {
+    if seat.is_some() && !leaf_schema::accepts(PAGE_SEAT, &page) {
         return Err(UNREADABLE.to_string());
     }
     Ok(page)
