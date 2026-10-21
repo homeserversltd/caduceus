@@ -1,6 +1,6 @@
 {
   "schema": "harmonia.ledger.entry.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "role": "Harmonia module outcome row for one update run",
   "authority": {
     "owner": "caduceus",
@@ -55,6 +55,45 @@
       "type": "string",
       "format": "date-time",
       "description": "UTC RFC 3339 timestamp at which the module outcome was recorded"
+    },
+    "receipt_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^/",
+      "description": "Absolute path of the run's existing receipt directory; an identity, never a body. Feeds harmonia.module_error.occurrence.v1 receipt_ref."
+    },
+    "ledger_sequence": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1,
+      "description": "Monotonic per-database row sequence. Feeds occurrence ledger_sequence."
+    },
+    "profile_identity": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Identity Harmonia records for the profile, distinct from body_id. Feeds occurrence profile_identity."
+    },
+    "step": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Failed step when attributable; null otherwise."
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 4096,
+      "x-max-utf8-bytes": 4096,
+      "description": "Secrets-redacted failure text truncated at a UTF-8 boundary to at most 4096 bytes on ok=false rows; null otherwise."
     }
   },
   "field_types": {
@@ -67,7 +106,12 @@
     "changed": "boolean",
     "operation_count": "integer",
     "first_missing_signal": "string",
-    "recorded_at": "string"
+    "recorded_at": "string",
+    "receipt_ref": "string|null",
+    "ledger_sequence": "integer|null",
+    "profile_identity": "string|null",
+    "step": "string|null",
+    "error": "string|null"
   },
   "required": [
     "schema",
@@ -81,6 +125,12 @@
     "first_missing_signal",
     "recorded_at"
   ],
-  "optional": [],
+  "optional": [
+    "receipt_ref",
+    "ledger_sequence",
+    "profile_identity",
+    "step",
+    "error"
+  ],
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }
