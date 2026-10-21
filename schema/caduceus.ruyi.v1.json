@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.ruyi.v1",
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "role": "Public Ruyi row, roster and removal envelope",
   "authority": {
     "owner": "caduceus",
@@ -50,6 +50,38 @@
         null
       ],
       "description": "Seat-written address source; absent or null on older rows"
+    },
+    "services": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "fields": {
+          "kind": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "model": {
+            "type": ["string", "null"],
+            "description": "Absent model is normalized to null"
+          },
+          "protocol": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+          }
+        },
+        "required": ["kind", "port", "path", "protocol"],
+        "optional": ["model"]
+      },
+      "description": "Optional services announced by this stave, stored in its existing row JSON and served only while it answers the ordinary Caduceus probe. Missing, null, non-array or empty means none; malformed entries are dropped without refusing the row or perspective.self. Accepted entries preserve unknown additive fields. Empty results are omitted, and discovered-only staves have no services."
     },
     "profile": {
       "type": "string"
@@ -324,6 +356,7 @@
     "canonical_name": "string",
     "ipv4": "string",
     "caduceus_port": "integer",
+    "services": "array|null",
     "ipv4_source": "string|null",
     "profile": "string",
     "gui_face": "string|null",
@@ -355,6 +388,7 @@
     "schema"
   ],
   "optional": [
+    "services",
     "gui_face",
     "ipv4_source",
     "dns_unresolved",
@@ -389,6 +423,7 @@
         "gui_face",
         "ipv4_source",
         "caduceus_port",
+        "services",
         "syzygy_sha",
         "stamp_sha",
         "fire_seal",
@@ -458,6 +493,7 @@
       "optional": [
         "ipv4_source",
         "caduceus_port",
+        "services",
         "profile",
         "gui_face",
         "caduceus_sha",

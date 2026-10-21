@@ -59,6 +59,12 @@ struct RuyiRow {
     ipv4: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     caduceus_port: Option<u16>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_services",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    services: Vec<Value>,
     ipv4_source: Option<String>,
     profile: String,
     gui_face: Option<String>,
@@ -226,6 +232,70 @@ fn valid_hostname(value: &str) -> bool {
 
 fn valid_bounded_text(value: &str) -> bool {
     !value.is_empty() && value.len() <= TEXT_MAX
+}
+
+fn valid_service_token(value: &str) -> bool {
+    value.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+        && value.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        })
+}
+
+// Announcements are optional facts, never a reason to refuse their owning row.
+// Keep each accepted object's unknown fields alongside the fields we understand.
+fn normalize_services(value: Value) -> Vec<Value> {
+    let Value::Array(entries) = value else {
+        return Vec::new();
+    };
+    entries
+        .into_iter()
+        .filter_map(|mut entry| {
+            let service = entry.as_object_mut()?;
+            if !service
+                .get("kind")
+                .and_then(Value::as_str)
+                .is_some_and(valid_service_token)
+                || !service
+                    .get("protocol")
+                    .and_then(Value::as_str)
+                    .is_some_and(valid_service_token)
+                || !service
+                    .get("port")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|port| (1..=65535).contains(&port))
+                || !service
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .is_some_and(|path| path.starts_with('/'))
+                || service
+                    .get("model")
+                    .is_some_and(|model| !model.is_null() && !model.is_string())
+            {
+                return None;
+            }
+            service.entry("model").or_insert(Value::Null);
+            Some(entry)
+        })
+        .collect()
+}
+
+fn deserialize_services<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<Value>, D::Error> {
+    Ok(normalize_services(Value::deserialize(deserializer)?))
+}
+
+fn normalize_row_services(row: &mut Value) {
+    let Some(row) = row.as_object_mut() else {
+        return;
+    };
+    let services = normalize_services(row.remove("services").unwrap_or(Value::Null));
+    if !services.is_empty() {
+        row.insert("services".to_owned(), Value::Array(services));
+    }
 }
 
 fn valid_row(row: &RuyiRow, path_mac: &str) -> bool {
@@ -644,13 +714,19 @@ async fn put(
     Path(path_mac): Path<String>,
     payload: Result<Json<Value>, axum::extract::rejection::JsonRejection>,
 ) -> Result<(StatusCode, Json<RuyiRow>), (StatusCode, Json<crate::gate::ApiErrorBody>)> {
-    let Json(value) =
+    let Json(mut value) =
         payload.map_err(|_| error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"))?;
     if !crate::routes::leaf_schema::accepts_form(row_schema(), "row", &value) {
         return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-row-invalid"));
     }
     if value.get("mac").and_then(Value::as_str) != Some(path_mac.as_str()) {
         return Err(error(StatusCode::BAD_REQUEST, "caduceus-ruyi-mac-mismatch"));
+    }
+    if let Some(own_row) = value
+        .get_mut("perspective")
+        .and_then(|perspective| perspective.get_mut("self"))
+    {
+        normalize_row_services(own_row);
     }
     let perspective = value.get("perspective").filter(|value| !value.is_null());
     if let Some(perspective) = perspective {
