@@ -117,6 +117,12 @@ pub(crate) async fn face_post_with_timeout(
                         record_failure,
                     )
                     .await?;
+                } else if verb == "dictate" {
+                    face_reflect_dictate_success_async(
+                        &payload,
+                        started.map(|started| started.elapsed().as_millis()).unwrap_or_default(),
+                    )
+                    .await?;
                 }
                 Ok(payload)
             }
@@ -143,6 +149,39 @@ pub(crate) async fn face_post_with_timeout(
             "caduceus-profile-missing",
         )),
     }
+}
+
+async fn face_reflect_dictate_success_async(
+    receipt: &serde_json::Value,
+    duration_ms: u128,
+) -> Result<(), String> {
+    // Only bounded deed fields cross into the log, never receipt text or audio.
+    let state = match receipt.get("state").and_then(serde_json::Value::as_str) {
+        Some("recording") => Some("recording"),
+        Some("transcribed") => Some("transcribed"),
+        _ => None,
+    };
+    let chars = receipt.get("chars").and_then(serde_json::Value::as_u64);
+    crate::gate::blocking_task("staff intent", move || {
+        let _ = crate::shared::hyalos::reflect_json(serde_json::json!({
+            "organ": "agathodaimon",
+            "kind": "crossing-change",
+            "level": "info",
+            "ok": true,
+            "message": "agathodaimon crossing completed",
+            "attributes_redacted": {
+                "who": "agathodaimon",
+                "verb": "dictate",
+                "target": "face",
+                "outcome": "success",
+                "duration_ms": u64::try_from(duration_ms).unwrap_or(u64::MAX),
+                "state": state,
+                "chars": chars,
+            }
+        }));
+    })
+    .await
+    .map_err(|_| "caduceus-blocking-task-join-failed".to_string())
 }
 
 fn face_reflect_failure(
