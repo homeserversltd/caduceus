@@ -83,15 +83,19 @@ fn legacy_path() -> Result<PathBuf, String> {
         .with_extension(["json", "l"].concat()))
 }
 
-fn deed(verb: &str, target: &str, started: Instant, ok: bool, signal: &str) -> Result<(), String> {
-    hyalos::reflect_json(json!({
+fn deed_event(verb: &str, target: &str, started: Instant, ok: bool, signal: &str) -> Value {
+    json!({
         "organ": "caduceus", "kind": "pjlink-catalog", "message": "catalog deed", "ok": ok,
         "attributes_redacted": {"who": "caduceus", "verb": verb, "target": target.chars().take(64).collect::<String>(),
             "outcome": if ok { "success" } else { "failure" },
             "duration_ms": started.elapsed().as_millis() as u64, "signal": signal,
             "first_missing_field": if ok { Value::Null } else { json!("catalog") }}
-    }))
-    .map(|_| ())
+    })
+}
+
+fn deed(verb: &str, target: &str, started: Instant, ok: bool, signal: &str) -> Result<(), String> {
+    hyalos::reflect_json(deed_event(verb, target, started, ok, signal))
+        .map(|_| ())
 }
 
 fn import_legacy_inner() -> Result<bool, String> {
@@ -166,27 +170,33 @@ fn import_legacy_inner() -> Result<bool, String> {
     result
 }
 
-pub(super) fn import_legacy() -> Result<bool, String> {
+pub(super) fn import_legacy() -> Result<(bool, &'static str), String> {
     let started = Instant::now();
     let result = import_legacy_inner();
-    match &result {
-        Ok(true) => deed(
-            "pjlink-catalog-import",
-            "pjlink_known_products",
-            started,
-            true,
-            "none",
-        )?,
-        Err(_) => deed(
-            "pjlink-catalog-import",
-            "pjlink_known_products",
-            started,
-            false,
-            "caduceus-pjlink-catalog-import-failed",
-        )?,
-        Ok(false) => (),
-    }
-    result
+    let (ok, signal) = match &result {
+        Ok(false) => return Ok((false, "none")),
+        Ok(true) => (true, "none"),
+        Err(_) => (false, "caduceus-pjlink-catalog-import-failed"),
+    };
+    let recorded = hyalos::reflect_json_with_stderr_fallback(deed_event(
+        "pjlink-catalog-import",
+        "pjlink_known_products",
+        started,
+        ok,
+        signal,
+    ))
+    .unwrap_or(false);
+    // Observability cannot undo committed rows, unlink, or a real import error.
+    result.map(|changed| {
+        (
+            changed,
+            if recorded {
+                "none"
+            } else {
+                "pjlink-catalog-deed-unavailable"
+            },
+        )
+    })
 }
 
 fn require_imported() -> Result<(), String> {

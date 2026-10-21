@@ -392,6 +392,22 @@ pub fn reflect_json(input: Value) -> Result<Value, String> {
     }))
 }
 
+/// An explicitly opted-in deed uses the same bounded channel line on stderr
+/// when its channel append fails. The caller retains the mutation's outcome.
+pub(crate) fn reflect_json_with_stderr_fallback(input: Value) -> Result<bool, String> {
+    let reflection: Reflection =
+        serde_json::from_value(input).map_err(|err| format!("hyalos-reflection-invalid: {err}"))?;
+    let event = reflection_event(reflection)?;
+    let line = channel_line(&event)?;
+    if append(&event).is_ok() {
+        Ok(true)
+    } else {
+        // A closed process stream must not panic or change the applied state.
+        let _ = std::io::stderr().lock().write_all(&line);
+        Ok(false)
+    }
+}
+
 pub fn project_json(input: Value) -> Result<Value, String> {
     let reflection: Reflection =
         serde_json::from_value(input).map_err(|err| format!("hyalos-reflection-invalid: {err}"))?;
@@ -489,16 +505,7 @@ fn compact_duplicate_run_ids(event: &mut ChannelEvent) {
     compact_duplicate_id(&mut event.strike_id, &mut seen);
 }
 
-fn append(event: &ChannelEvent) -> Result<(), String> {
-    static APPEND_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let _guard = APPEND_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .map_err(|_| "hyalos-channel-lock-poisoned".to_string())?;
-    let path = config::path(CHANNEL_PATH);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
-    }
+fn channel_line(event: &ChannelEvent) -> Result<Vec<u8>, String> {
     let run_profile = is_run_profile_kind(&event.kind);
     let disk_event = project_event(event.clone())?;
     let mut disk_event = disk_event;
@@ -522,6 +529,20 @@ fn append(event: &ChannelEvent) -> Result<(), String> {
             set_projected_failures(&mut disk_event, &failures, omitted);
         }
     }
+    Ok(line)
+}
+
+fn append(event: &ChannelEvent) -> Result<(), String> {
+    static APPEND_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = APPEND_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "hyalos-channel-lock-poisoned".to_string())?;
+    let path = config::path(CHANNEL_PATH);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
+    }
+    let line = channel_line(event)?;
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)

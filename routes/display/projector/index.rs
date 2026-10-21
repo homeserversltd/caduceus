@@ -315,17 +315,19 @@ pub fn power_status(device_id: &str) -> i32 {
 }
 
 pub(crate) fn import_catalog_at_serve_start() {
-    // The importer owns its single deed; a failure leaves reads import-required,
-    // but must not prevent the HTTP and staff listeners from starting.
+    // The importer owns its deed and stream fallback. Import errors keep reads
+    // import-required; neither those nor an unavailable deed stop the listeners.
     let _ = catalog::import_legacy();
 }
 
 pub fn import_known_catalog() -> i32 {
     match catalog::import_legacy() {
-        Ok(changed) => {
+        Ok((changed, signal)) => {
             println!("command=pjlink catalog import");
             println!("changed={changed}");
             println!("ok=true");
+            println!("outcome={}", if changed { "applied" } else { "unchanged" });
+            println!("signal={signal}");
             0
         }
         Err(error) => {
