@@ -314,6 +314,12 @@ pub fn power_status(device_id: &str) -> i32 {
     }
 }
 
+pub(crate) fn import_catalog_at_serve_start() {
+    // The importer owns its single deed; a failure leaves reads import-required,
+    // but must not prevent the HTTP and staff listeners from starting.
+    let _ = catalog::import_legacy();
+}
+
 pub fn import_known_catalog() -> i32 {
     match catalog::import_legacy() {
         Ok(changed) => {

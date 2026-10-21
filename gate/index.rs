@@ -1130,6 +1130,12 @@ pub async fn run_async() -> i32 {
     let socket_path = PathBuf::from(
         env::var("CADUCEUS_STAFF_SOCKET").unwrap_or_else(|_| "/run/caduceus/staff.sock".into()),
     );
+    #[cfg(any(
+        leaf_display_projector_power,
+        leaf_display_projector_products,
+        leaf_display_projector_scan
+    ))]
+    crate::routes::control_projector::import_catalog_at_serve_start();
     let tcp = match TcpListener::bind(addr).await {
         Ok(value) => value,
         Err(error) => {
