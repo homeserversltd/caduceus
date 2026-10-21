@@ -1,0 +1,106 @@
+{
+  "schema": "caduceus.receipts.ledger.v1",
+  "schema_version": "1.0.0",
+  "role": "Caduceus paginated Harmonia module ledger observation",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.receipts.ledger.v1.json",
+    "grant": "Public seat for the Caduceus receipts ledger page"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.receipts.ledger.v1"
+    },
+    "ledgerPath": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Legacy ledger location; optional and null once the reader uses the ledger verb"
+    },
+    "module": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional module filter echoed from the request; absent or null means no module filter"
+    },
+    "page": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "perPage": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 25
+    },
+    "totalEntries": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "totalPages": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "fields": {
+          "ordinal": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "entry": {
+            "schema_ref": "harmonia.ledger.entry.v1"
+          }
+        },
+        "required": [
+          "ordinal",
+          "entry"
+        ]
+      },
+      "description": "Newest outcomes first, preserving the ordinal/entry wrapper of the existing page"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "description": "caduceus-ledger-empty when totalEntries is zero, otherwise none"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "ledgerPath": "string|null",
+    "module": "string|null",
+    "page": "integer",
+    "perPage": "integer",
+    "totalEntries": "integer",
+    "totalPages": "integer",
+    "entries": "array<object>",
+    "ok": "boolean",
+    "firstMissingSignal": "string"
+  },
+  "required": [
+    "schema",
+    "page",
+    "perPage",
+    "totalEntries",
+    "totalPages",
+    "entries",
+    "ok",
+    "firstMissingSignal"
+  ],
+  "optional": [
+    "ledgerPath",
+    "module"
+  ],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

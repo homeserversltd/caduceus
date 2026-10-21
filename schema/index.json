@@ -31,6 +31,8 @@
     "harmonia.interactables.ruyi_perspective_seed.receipt.v1": {"file": "schema/harmonia.interactables.ruyi_perspective_seed.receipt.v1.json", "schema_version": "1.0.0"},
     "harmonia.update-set.v1": {"file": "schema/harmonia.update-set.v1.json", "schema_version": "1.0.0"},
     "harmonia.update_module.v1": {"file": "schema/harmonia.update_module.v1.json", "schema_version": "1.0.0"},
+    "harmonia.ledger.entry.v1": {"file": "schema/harmonia.ledger.entry.v1.json", "schema_version": "1.0.0"},
+    "caduceus.receipts.ledger.v1": {"file": "schema/caduceus.receipts.ledger.v1.json", "schema_version": "1.0.0"},
     "estate.release-flag.v1": {
       "file": "schema/estate.release-flag.v1.json",
       "schema_version": "1.0.0"

@@ -1,0 +1,87 @@
+{
+  "schema": "harmonia.ledger.entry.v1",
+  "schema_version": "1.0.0",
+  "role": "Harmonia module outcome row for one update run",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/harmonia.ledger.entry.v1.json",
+    "grant": "Public seat for the Harmonia per-run module ledger row"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true
+  },
+  "key_fields": [
+    "run_id",
+    "module_id"
+  ],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "harmonia.ledger.entry.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Identity of the update run"
+    },
+    "profile_id": {
+      "type": "string"
+    },
+    "module_id": {
+      "type": "string"
+    },
+    "module_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "changed": {
+      "type": "boolean"
+    },
+    "operation_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "first_missing_signal": {
+      "type": "string",
+      "description": "First missing signal for the module outcome, or none"
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC RFC 3339 timestamp at which the module outcome was recorded"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "run_id": "string",
+    "profile_id": "string",
+    "module_id": "string",
+    "module_version": "string|null",
+    "ok": "boolean",
+    "changed": "boolean",
+    "operation_count": "integer",
+    "first_missing_signal": "string",
+    "recorded_at": "string"
+  },
+  "required": [
+    "schema",
+    "run_id",
+    "profile_id",
+    "module_id",
+    "ok",
+    "changed",
+    "operation_count",
+    "first_missing_signal",
+    "recorded_at"
+  ],
+  "optional": [
+    "module_version"
+  ],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

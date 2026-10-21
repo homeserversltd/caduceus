@@ -393,6 +393,8 @@ fn main() {
         "estate.release-flag.v1",
         "harmonia.update-set.v1",
         "harmonia.update_module.v1",
+        "harmonia.ledger.entry.v1",
+        "caduceus.receipts.ledger.v1",
         "appliance.xenia.v1",
         "coronatio.face-surface.v1",
         "harmonia.engine.source_resolution.v1",
