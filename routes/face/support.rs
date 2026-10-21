@@ -163,7 +163,7 @@ async fn face_reflect_dictate_success_async(
     };
     let chars = receipt.get("chars").and_then(serde_json::Value::as_u64);
     crate::gate::blocking_task("staff intent", move || {
-        let _ = crate::shared::hyalos::reflect_json(serde_json::json!({
+        let mut deed = serde_json::json!({
             "organ": "agathodaimon",
             "kind": "crossing-change",
             "level": "info",
@@ -176,9 +176,12 @@ async fn face_reflect_dictate_success_async(
                 "outcome": "success",
                 "duration_ms": u64::try_from(duration_ms).unwrap_or(u64::MAX),
                 "state": state,
-                "chars": chars,
             }
-        }));
+        });
+        if let Some(chars) = chars {
+            deed["attributes_redacted"]["chars"] = serde_json::json!(chars);
+        }
+        let _ = crate::shared::hyalos::reflect_json(deed);
     })
     .await
     .map_err(|_| "caduceus-blocking-task-join-failed".to_string())

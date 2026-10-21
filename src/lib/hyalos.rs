@@ -105,7 +105,9 @@ fn project_attributes(event: &ChannelEvent, run_profile: bool) -> Result<Value, 
     {
         attributes["state"] = json!(source.get("state").and_then(Value::as_str)
             .filter(|state| matches!(*state, "recording" | "transcribed")));
-        attributes["chars"] = json!(source.get("chars").and_then(Value::as_u64));
+        if let Some(chars) = source.get("chars").and_then(Value::as_u64) {
+            attributes["chars"] = json!(chars);
+        }
     }
     if run_profile {
         let run_id = metadata_alias(source, &["run_id", "correlation_id"], 64)
