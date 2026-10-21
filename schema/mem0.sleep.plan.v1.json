@@ -1,0 +1,9 @@
+{
+  "schema": "mem0.sleep.plan.v1",
+  "schema_version": "1.0.0",
+  "authority": {"owner": "fulcrum", "path": "schema/mem0.sleep.plan.v1.json", "governing": ["pali:fulcrum-schema-root-folder-law", "pali:alkahest-unknown-field-skip-law"]},
+  "preserve_unknown_fields": true,
+  "evolution": {"law": "additive-only", "missing_field_semantics": "null selects the primitive layer", "unknown_fields_preserved": true},
+  "fields": {"schema": {"type": "string", "const": "mem0.sleep.plan.v1"}, "duplicates": {"type": "array"}, "expired_grants": {"type": "array"}, "doctrine_candidates": {"type": "array"}, "destructive_held": {"type": "boolean"}},
+  "required": ["schema", "duplicates", "expired_grants", "doctrine_candidates", "destructive_held"], "optional": []
+}

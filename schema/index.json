@@ -59,6 +59,17 @@
     "caduceus.transmission.status.v1": {"file": "schema/caduceus.transmission.status.v1.json", "schema_version": "1.0.0"},
     "caduceus.transmission.keys.v1": {"file": "schema/caduceus.transmission.keys.v1.json", "schema_version": "1.0.0"},
     "caduceus.transmission.vpn.settings.v1": {"file": "schema/caduceus.transmission.vpn.settings.v1.json", "schema_version": "1.0.0"},
+    "mem0.health.v1": {"file": "schema/mem0.health.v1.json", "schema_version": "1.0.0"},
+    "mem0.status.v2": {"file": "schema/mem0.status.v2.json", "schema_version": "1.0.0"},
+    "mem0.search.v2": {"file": "schema/mem0.search.v2.json", "schema_version": "1.0.0"},
+    "mem0.explain.v1": {"file": "schema/mem0.explain.v1.json", "schema_version": "1.0.0"},
+    "mem0.ingest.receipt.v1": {"file": "schema/mem0.ingest.receipt.v1.json", "schema_version": "1.0.0"},
+    "mem0.sleep.plan.v1": {"file": "schema/mem0.sleep.plan.v1.json", "schema_version": "1.0.0"},
+    "mem0.sleep.receipt.v1": {"file": "schema/mem0.sleep.receipt.v1.json", "schema_version": "1.0.0"},
+    "mem0.snapshot.v1": {"file": "schema/mem0.snapshot.v1.json", "schema_version": "1.0.0"},
+    "mem0.custody.manifest.v1": {"file": "schema/mem0.custody.manifest.v1.json", "schema_version": "1.0.0"},
+    "mem0.custody.receipt.v1": {"file": "schema/mem0.custody.receipt.v1.json", "schema_version": "1.0.0"},
+    "mem0.augmentation.warm.v1": {"file": "schema/mem0.augmentation.warm.v1.json", "schema_version": "1.0.0"},
     "appliance.crossings.v1": {"file": "schema/appliance.crossings.v1.json", "schema_version": "1.0.0"}
   }
 }

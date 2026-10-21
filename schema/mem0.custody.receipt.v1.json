@@ -1,0 +1,9 @@
+{
+  "schema": "mem0.custody.receipt.v1",
+  "schema_version": "1.0.0",
+  "authority": {"owner": "fulcrum", "path": "schema/mem0.custody.receipt.v1.json", "governing": ["pali:fulcrum-schema-root-folder-law", "pali:alkahest-unknown-field-skip-law"]},
+  "preserve_unknown_fields": true,
+  "evolution": {"law": "additive-only", "missing_field_semantics": "null selects the primitive layer", "unknown_fields_preserved": true},
+  "fields": {"ok": {"type": "boolean"}, "schema": {"type": "string", "const": "mem0.custody.receipt.v1"}, "backup_root": {"type": "string"}, "manifest": {"type": "object"}},
+  "required": ["ok", "schema", "backup_root", "manifest"], "optional": []
+}

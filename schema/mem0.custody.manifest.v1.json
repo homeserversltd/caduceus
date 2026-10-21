@@ -1,0 +1,13 @@
+{
+  "schema": "mem0.custody.manifest.v1",
+  "schema_version": "1.0.0",
+  "authority": {"owner": "fulcrum", "path": "schema/mem0.custody.manifest.v1.json", "governing": ["pali:fulcrum-schema-root-folder-law", "pali:alkahest-unknown-field-skip-law"]},
+  "preserve_unknown_fields": true,
+  "evolution": {"law": "additive-only", "missing_field_semantics": "null selects the primitive layer", "unknown_fields_preserved": true},
+  "fields": {
+    "schema": {"type": "string", "const": "mem0.custody.manifest.v1"}, "epoch": {"type": "string", "optional": true, "nullable": true, "default": null},
+    "created_at": {"type": "string"}, "source_head": {"type": "string", "optional": true, "nullable": true, "default": null},
+    "qdrant_snapshot": {"type": "object"}, "files": {"type": "array"}, "restore_probe": {"type": "boolean"}
+  },
+  "required": ["schema", "created_at", "qdrant_snapshot", "files", "restore_probe"], "optional": ["epoch", "source_head"]
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "mem0.health.v1",
+  "schema_version": "1.0.0",
+  "authority": {"owner": "fulcrum", "path": "schema/mem0.health.v1.json", "governing": ["pali:fulcrum-schema-root-folder-law", "pali:alkahest-unknown-field-skip-law"]},
+  "preserve_unknown_fields": true,
+  "evolution": {"law": "additive-only", "missing_field_semantics": "null selects the primitive layer", "unknown_fields_preserved": true},
+  "fields": {
+    "schema": {"type": "string", "const": "mem0.health.v1"},
+    "ok": {"type": "boolean"},
+    "service": {"type": "string"},
+    "boundary": {"type": "string", "optional": true, "nullable": true, "default": null},
+    "config_path": {"type": "string", "optional": true, "nullable": true, "default": null}
+  },
+  "required": ["schema", "ok", "service"],
+  "optional": ["boundary", "config_path"]
+}

@@ -1,0 +1,9 @@
+{
+  "schema": "mem0.snapshot.v1",
+  "schema_version": "1.0.0",
+  "authority": {"owner": "fulcrum", "path": "schema/mem0.snapshot.v1.json", "governing": ["pali:fulcrum-schema-root-folder-law", "pali:alkahest-unknown-field-skip-law"]},
+  "preserve_unknown_fields": true,
+  "evolution": {"law": "additive-only", "missing_field_semantics": "null selects the primitive layer", "unknown_fields_preserved": true},
+  "fields": {"ok": {"type": "boolean"}, "schema": {"type": "string", "const": "mem0.snapshot.v1"}, "collection": {"type": "string"}, "qdrant": {"type": "object"}},
+  "required": ["ok", "schema", "collection", "qdrant"], "optional": []
+}

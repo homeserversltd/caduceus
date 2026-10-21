@@ -1,0 +1,9 @@
+{
+  "schema": "mem0.ingest.receipt.v1",
+  "schema_version": "1.0.0",
+  "authority": {"owner": "fulcrum", "path": "schema/mem0.ingest.receipt.v1.json", "governing": ["pali:fulcrum-schema-root-folder-law", "pali:alkahest-unknown-field-skip-law"]},
+  "preserve_unknown_fields": true,
+  "evolution": {"law": "additive-only", "missing_field_semantics": "null selects the primitive layer", "unknown_fields_preserved": true},
+  "fields": {"ok": {"type": "boolean"}, "schema": {"type": "string", "const": "mem0.ingest.receipt.v1"}, "sessions_seen": {"type": "integer"}, "sessions_ingested": {"type": "integer"}, "sessions_skipped": {"type": "integer"}, "memories": {"type": "integer"}, "failures": {"type": "array"}, "sessions": {"type": "array"}, "chunk_char_budget": {"type": "integer"}, "chunk_token_budget_estimate": {"type": "integer"}},
+  "required": ["ok", "schema", "sessions_seen", "sessions_ingested", "sessions_skipped", "memories", "failures", "sessions", "chunk_char_budget", "chunk_token_budget_estimate"], "optional": []
+}
