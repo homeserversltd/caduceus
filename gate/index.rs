@@ -125,7 +125,9 @@ pub(crate) fn api_error(command: &str) -> (StatusCode, Json<ApiErrorBody>) {
     api_error_signal(command, "caduceus-public-action-not-allowed")
 }
 pub(crate) fn missing_signal(err: &str) -> &'static str {
-    if err.contains("identity") {
+    if err == "caduceus-pjlink-catalog-import-required" {
+        "caduceus-pjlink-catalog-import-required"
+    } else if err.contains("identity") {
         "caduceus-identity-missing"
     } else {
         "caduceus-profile-missing"
