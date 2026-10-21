@@ -40,12 +40,12 @@ use crate::routes::local_ai;
 use crate::routes::open_settings_pane as gui;
 #[cfg(leaf_update_module)]
 use crate::routes::update_module;
+#[cfg(carapace_feature_kea)]
+use crate::routes::{dhcp, network_identity};
 use crate::routes::{
     disk, dns, drive_test, health, help, homeserver_sbin, hyalos, identity, legacy_sbin, logs,
     network, network_read, profile, receipts, serve, source_map, staff,
 };
-#[cfg(carapace_feature_kea)]
-use crate::routes::{dhcp, network_identity};
 use crate::routes::{
     sync_sources as sync, toggle_harmonia_module as profile_module, update_appliance as update,
 };
@@ -547,6 +547,17 @@ where
             leaf_display_projector_products,
             leaf_display_projector_scan
         ))]
+        [domain, object, verb] if domain == "pjlink" && object == "catalog" && verb == "import" => {
+            match require_policy("pjlink catalog import", &[]) {
+                Ok(_) => pjlink::import_known_catalog(),
+                Err(code) => code,
+            }
+        }
+        #[cfg(any(
+            leaf_display_projector_power,
+            leaf_display_projector_products,
+            leaf_display_projector_scan
+        ))]
         [domain, verb] if domain == "pjlink" && verb == "known-products" => {
             pjlink::known_products()
         }
@@ -949,6 +960,7 @@ fn print_help() {
     println!("  caduceus pjlink devices");
     println!("  caduceus pjlink scan <device-id> [--dry-run]");
     println!("  caduceus pjlink known-products");
+    println!("  caduceus pjlink catalog import");
     println!("  caduceus pjlink known add <device-id> [--dry-run] [--from-profile]");
     println!("  caduceus pjlink known remove <entry-id>");
     println!("  caduceus pjlink power status <device-id>");

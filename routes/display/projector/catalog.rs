@@ -86,7 +86,7 @@ fn legacy_path() -> Result<PathBuf, String> {
 fn deed(verb: &str, target: &str, started: Instant, ok: bool, signal: &str) -> Result<(), String> {
     hyalos::reflect_json(json!({
         "organ": "caduceus", "kind": "pjlink-catalog", "message": "catalog deed", "ok": ok,
-        "attributes_redacted": {"who": "caduceus", "verb": verb, "target": target,
+        "attributes_redacted": {"who": "caduceus", "verb": verb, "target": target.chars().take(64).collect::<String>(),
             "outcome": if ok { "success" } else { "failure" },
             "duration_ms": started.elapsed().as_millis() as u64, "signal": signal,
             "first_missing_field": if ok { Value::Null } else { json!("catalog") }}
@@ -94,21 +94,20 @@ fn deed(verb: &str, target: &str, started: Instant, ok: bool, signal: &str) -> R
     .map(|_| ())
 }
 
-pub(super) fn import_legacy() -> Result<(), String> {
+fn import_legacy_inner() -> Result<bool, String> {
     let path = legacy_path()?;
     let file = match File::open(&path) {
         Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(_) => return Err("caduceus-pjlink-catalog-unreadable".into()),
     };
-    let started = Instant::now();
     // Serialize concurrent processes, including a reader that opened before unlink.
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
         return Err("caduceus-pjlink-catalog-lock-failed".into());
     }
     let metadata = match fs::metadata(&path) {
         Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(_) => return Err("caduceus-pjlink-catalog-unreadable".into()),
     };
     let opened = file.metadata().map_err(|error| error.to_string())?;
@@ -162,25 +161,46 @@ pub(super) fn import_legacy() -> Result<(), String> {
         }
         transaction.commit().map_err(|error| error.to_string())?;
         fs::remove_file(&path).map_err(|_| "caduceus-pjlink-catalog-unlink-failed".to_owned())?;
-        Ok(())
+        Ok(true)
     })();
-    let signal = if result.is_ok() {
-        "none"
-    } else {
-        "caduceus-pjlink-catalog-import-failed"
-    };
-    deed(
-        "pjlink-catalog-import",
-        "pjlink_known_products",
-        started,
-        result.is_ok(),
-        signal,
-    )?;
     result
 }
 
+pub(super) fn import_legacy() -> Result<bool, String> {
+    let started = Instant::now();
+    let result = import_legacy_inner();
+    match &result {
+        Ok(true) => deed(
+            "pjlink-catalog-import",
+            "pjlink_known_products",
+            started,
+            true,
+            "none",
+        )?,
+        Err(_) => deed(
+            "pjlink-catalog-import",
+            "pjlink_known_products",
+            started,
+            false,
+            "caduceus-pjlink-catalog-import-failed",
+        )?,
+        Ok(false) => (),
+    }
+    result
+}
+
+fn require_imported() -> Result<(), String> {
+    if legacy_path()?
+        .try_exists()
+        .map_err(|_| "caduceus-pjlink-catalog-unreadable")?
+    {
+        return Err("caduceus-pjlink-catalog-import-required".into());
+    }
+    Ok(())
+}
+
 pub(super) fn list() -> Result<Vec<KnownProductEntry>, String> {
-    import_legacy()?;
+    require_imported()?;
     // A query on an uninitialized body creates no database, directory or log.
     if !stats::db_path()
         .try_exists()
@@ -222,9 +242,9 @@ pub(super) fn list() -> Result<Vec<KnownProductEntry>, String> {
 }
 
 pub(super) fn add(entry: &KnownProductEntry) -> Result<usize, String> {
-    import_legacy()?;
     let started = Instant::now();
     let result = (|| {
+        require_imported()?;
         let mut connection = stats::open_db()?
             .lock()
             .map_err(|_| "caduceus-pjlink-catalog-lock-poisoned")?;
@@ -256,32 +276,58 @@ pub(super) fn add(entry: &KnownProductEntry) -> Result<usize, String> {
 }
 
 pub(super) fn remove(id: &str) -> Result<(usize, usize), String> {
-    import_legacy()?;
-    if !stats::db_path()
-        .try_exists()
-        .map_err(|error| error.to_string())?
-    {
-        return Ok((0, 0));
-    }
     let started = Instant::now();
-    let mut connection = stats::open_db()?
-        .lock()
-        .map_err(|_| "caduceus-pjlink-catalog-lock-poisoned")?;
-    initialize(&connection)?;
-    let transaction = connection
-        .transaction()
-        .map_err(|error| error.to_string())?;
-    let removed = transaction
-        .execute("DELETE FROM pjlink_known_products WHERE id=?1", [id])
-        .map_err(|error| error.to_string())?;
-    let count = transaction
-        .query_row("SELECT count(*) FROM pjlink_known_products", [], |row| {
-            row.get(0)
-        })
-        .map_err(|error| error.to_string())?;
-    transaction.commit().map_err(|error| error.to_string())?;
-    if removed > 0 {
-        deed("pjlink-known-remove", id, started, true, "none")?;
+    let result = (|| {
+        require_imported()?;
+        if !stats::db_path()
+            .try_exists()
+            .map_err(|error| error.to_string())?
+        {
+            return Ok((0, 0));
+        }
+        let reader =
+            Connection::open_with_flags(stats::db_path(), OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(|error| error.to_string())?;
+        let exists: bool = reader.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='pjlink_known_products')", [], |row| row.get(0))
+            .map_err(|error| error.to_string())?;
+        if !exists {
+            return Ok((0, 0));
+        }
+        let (count, present): (usize, bool) = reader.query_row(
+            "SELECT count(*), EXISTS(SELECT 1 FROM pjlink_known_products WHERE id=?1) FROM pjlink_known_products",
+            [id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|error| error.to_string())?;
+        drop(reader);
+        if !present {
+            return Ok((0, count));
+        }
+        let mut connection = stats::open_db()?
+            .lock()
+            .map_err(|_| "caduceus-pjlink-catalog-lock-poisoned")?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
+        let removed = transaction
+            .execute("DELETE FROM pjlink_known_products WHERE id=?1", [id])
+            .map_err(|error| error.to_string())?;
+        let count = transaction
+            .query_row("SELECT count(*) FROM pjlink_known_products", [], |row| {
+                row.get(0)
+            })
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok((removed, count))
+    })();
+    match &result {
+        Ok((removed, _)) if *removed > 0 => deed("pjlink-known-remove", id, started, true, "none")?,
+        Err(_) => deed(
+            "pjlink-known-remove",
+            id,
+            started,
+            false,
+            "caduceus-pjlink-catalog-write-failed",
+        )?,
+        _ => (),
     }
-    Ok((removed, count))
+    result
 }

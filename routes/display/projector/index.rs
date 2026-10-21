@@ -314,6 +314,21 @@ pub fn power_status(device_id: &str) -> i32 {
     }
 }
 
+pub fn import_known_catalog() -> i32 {
+    match catalog::import_legacy() {
+        Ok(changed) => {
+            println!("command=pjlink catalog import");
+            println!("changed={changed}");
+            println!("ok=true");
+            0
+        }
+        Err(error) => {
+            eprintln!("caduceus-pjlink-catalog-import-failed: {error}");
+            1
+        }
+    }
+}
+
 pub fn known_products() -> i32 {
     match known_products_json() {
         Ok(value) => {

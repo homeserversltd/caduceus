@@ -1,3 +1,4 @@
+use crate::routes::leaf_schema;
 use crate::shared::config;
 use serde_json::{json, Value};
 use std::io::Read;
@@ -26,6 +27,11 @@ pub fn read_ledger_json(
 ) -> Result<Value, String> {
     const UNREADABLE: &str = "caduceus-harmonia-ledger-unreadable";
     const MAX_PAGE_BYTES: u64 = 4 * 1024 * 1024;
+    const PAGE_SEAT: &str = "caduceus.receipts.ledger.v1";
+    let expected_schema = leaf_schema::declaration(PAGE_SEAT)
+        .and_then(|seat| seat.get("schema"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| UNREADABLE.to_string())?;
     let mut command = Command::new("harmonia");
     command.args([
         "ledger",
@@ -61,7 +67,7 @@ pub fn read_ledger_json(
         return Err(UNREADABLE.to_string());
     }
     let mut page: Value = serde_json::from_slice(&bytes).map_err(|_| UNREADABLE.to_string())?;
-    if page.get("schema").and_then(Value::as_str) != Some("caduceus.receipts.ledger.v1")
+    if page.get("schema").and_then(Value::as_str) != Some(expected_schema)
         || !page.is_object()
         || page.get("ok").and_then(Value::as_bool) == Some(false)
     {
@@ -69,6 +75,9 @@ pub fn read_ledger_json(
     }
     // Preserve the producer's page and every additive field, not a private shape.
     page["ledgerPath"] = Value::Null;
+    if !leaf_schema::accepts(PAGE_SEAT, &page) {
+        return Err(UNREADABLE.to_string());
+    }
     Ok(page)
 }
 

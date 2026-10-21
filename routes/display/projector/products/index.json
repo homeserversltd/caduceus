@@ -1,1 +1,1 @@
-{"namespace":"display/projector/products","admittance":"open","flags":{},"serve":[{"rust":"projector_products_read"}],"commands":["pjlink devices","pjlink known-products","pjlink known add","pjlink known remove"],"needs":["all"]}
+{"namespace":"display/projector/products","admittance":"open","flags":{},"serve":[{"rust":"projector_products_read"}],"commands":["pjlink devices","pjlink known-products","pjlink catalog import","pjlink known add","pjlink known remove"],"needs":["all"]}
