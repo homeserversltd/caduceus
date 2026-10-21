@@ -13,6 +13,7 @@
     "face/app",
     "face/badge",
     "face/bar",
+    "face/dictate",
     "face/fetch",
     "face/focus",
     "face/workspace",
@@ -82,6 +83,10 @@
     [
       "face",
       "bar"
+    ],
+    [
+      "face",
+      "dictate"
     ],
     [
       "face",
@@ -213,6 +218,7 @@
     "/api/v1/face/app",
     "/api/v1/face/badge",
     "/api/v1/face/bar",
+    "/api/v1/face/dictate",
     "/api/v1/face/fetch",
     "/api/v1/face/focus",
     "/api/v1/face/workspace",

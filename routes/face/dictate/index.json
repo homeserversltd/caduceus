@@ -1,0 +1,1 @@
+{"namespace":"face/dictate","admittance":"open","flags":{},"serve":[{"snake":"face/dictate","verb":["face","dictate"]}],"commands":[],"needs":["gtk4"]}
