@@ -102,21 +102,22 @@ pub(crate) async fn receipts_ledger_route(
         .or_else(|| query.get("perPage"))
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(10);
+    let module = query.get("module").cloned();
     match policy::allows_command("receipts ledger") {
         Ok(true) => {
             let result = blocking_task("receipts ledger", move || {
-                receipts::read_ledger_json(page, per_page)
+                receipts::read_ledger_json(page, per_page, module.as_deref())
             })
             .await?;
             match result {
                 Ok(value) => Ok(Json(value)),
-                Err(err) => Err((
+                Err(_) => Err((
                     StatusCode::SERVICE_UNAVAILABLE,
                     Json(ApiErrorBody {
                         schema: "caduceus.api.error.v1",
                         ok: false,
                         command: "receipts ledger".to_string(),
-                        first_missing_signal: missing_signal(&err).to_string(),
+                        first_missing_signal: "caduceus-harmonia-ledger-unreadable".to_string(),
                     }),
                 )),
             }
@@ -138,8 +139,8 @@ pub(crate) async fn update_service_status_route(
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("update service status") {
         Ok(true) => {
-            let result = blocking_task("update service status", update::service_status_json)
-                .await?;
+            let result =
+                blocking_task("update service status", update::service_status_json).await?;
             result
                 .map(Json)
                 .map_err(|signal| service_unavailable("update service status", &signal))

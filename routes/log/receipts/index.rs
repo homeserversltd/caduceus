@@ -1,5 +1,7 @@
-use crate::shared::{config, harmonia};
+use crate::shared::config;
 use serde_json::{json, Value};
+use std::io::Read;
+use std::process::{Command, Stdio};
 
 pub fn read_latest_json() -> Result<Value, String> {
     match config::read_public_file("var/lib/caduceus/receipts/latest/run.txt") {
@@ -17,51 +19,57 @@ pub fn read_latest_json() -> Result<Value, String> {
     }
 }
 
-fn ledger_path() -> Result<String, String> {
-    let profile = harmonia::load_profile_value()?;
-    profile
-        .get("services")
-        .and_then(|services| services.get("ledger"))
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| "caduceus-ledger-path-missing".to_string())
-}
-
-pub fn read_ledger_json(page: usize, per_page: usize) -> Result<Value, String> {
-    let path = ledger_path()?;
-    let text = config::read_file_at(&path).unwrap_or_default();
-    let page = page.max(1);
-    let per_page = per_page.clamp(1, 25);
-    let mut entries = Vec::new();
-    for (idx, line) in text.lines().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if let Ok(entry) = serde_json::from_str::<Value>(trimmed) {
-            entries.push(json!({
-                "ordinal": idx + 1,
-                "entry": entry
-            }));
-        }
+pub fn read_ledger_json(
+    page: usize,
+    per_page: usize,
+    module: Option<&str>,
+) -> Result<Value, String> {
+    const UNREADABLE: &str = "caduceus-harmonia-ledger-unreadable";
+    const MAX_PAGE_BYTES: u64 = 4 * 1024 * 1024;
+    let mut command = Command::new("harmonia");
+    command.args([
+        "ledger",
+        "--json",
+        "--page",
+        &page.max(1).to_string(),
+        "--per-page",
+        &per_page.clamp(1, 25).to_string(),
+    ]);
+    if let Some(module) = module {
+        command.args(["--module", module]);
     }
-    entries.reverse();
-    let total_entries = entries.len();
-    let total_pages = total_entries.div_ceil(per_page).max(1);
-    let bounded_page = page.min(total_pages);
-    let start = (bounded_page - 1) * per_page;
-    let page_entries: Vec<Value> = entries.into_iter().skip(start).take(per_page).collect();
-    Ok(json!({
-        "schema": "caduceus.receipts.ledger.v1",
-        "ledgerPath": path,
-        "page": bounded_page,
-        "perPage": per_page,
-        "totalEntries": total_entries,
-        "totalPages": total_pages,
-        "entries": page_entries,
-        "ok": true,
-        "firstMissingSignal": if total_entries == 0 { "caduceus-ledger-empty" } else { "none" }
-    }))
+    // This is a query, not a press: no sudo, transient service, transcript or log.
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| UNREADABLE.to_string())?;
+    let mut bytes = Vec::new();
+    let read = child
+        .stdout
+        .take()
+        .unwrap()
+        .take(MAX_PAGE_BYTES + 1)
+        .read_to_end(&mut bytes);
+    if read.is_err() || bytes.len() as u64 > MAX_PAGE_BYTES {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(UNREADABLE.to_string());
+    }
+    if !child.wait().map_err(|_| UNREADABLE.to_string())?.success() {
+        return Err(UNREADABLE.to_string());
+    }
+    let mut page: Value = serde_json::from_slice(&bytes).map_err(|_| UNREADABLE.to_string())?;
+    if page.get("schema").and_then(Value::as_str) != Some("caduceus.receipts.ledger.v1")
+        || !page.is_object()
+        || page.get("ok").and_then(Value::as_bool) == Some(false)
+    {
+        return Err(UNREADABLE.to_string());
+    }
+    // Preserve the producer's page and every additive field, not a private shape.
+    page["ledgerPath"] = Value::Null;
+    Ok(page)
 }
 
 pub fn latest() -> i32 {
@@ -87,14 +95,29 @@ pub fn latest() -> i32 {
 }
 
 /// Canonical registration seam for this leaf.
-async fn latest_http() -> Result<axum::Json<Value>, (axum::http::StatusCode, axum::Json<crate::gate::ApiErrorBody>)> { crate::gate::gated_json("receipts latest", read_latest_json).await }
+async fn latest_http() -> Result<
+    axum::Json<Value>,
+    (
+        axum::http::StatusCode,
+        axum::Json<crate::gate::ApiErrorBody>,
+    ),
+> {
+    crate::gate::gated_json("receipts latest", read_latest_json).await
+}
 
 async fn receipts_http(
     axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> Result<axum::Json<Value>, (axum::http::StatusCode, axum::Json<crate::gate::ApiErrorBody>)> {
+) -> Result<
+    axum::Json<Value>,
+    (
+        axum::http::StatusCode,
+        axum::Json<crate::gate::ApiErrorBody>,
+    ),
+> {
     if query.contains_key("page")
         || query.contains_key("per_page")
         || query.contains_key("perPage")
+        || query.contains_key("module")
     {
         crate::routes::update_support::receipts_ledger_route(axum::extract::Query(query)).await
     } else {

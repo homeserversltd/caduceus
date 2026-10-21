@@ -3,7 +3,6 @@ profile: homeconsole
 mode: homeconsole
 harmonia_profile: /etc/harmonia/profiles/homeconsole/index.json
 services:
-  ledger: /var/lib/harmonia/receipts/homeconsole-ledger.jsonl
   update:
     timer: harmonia.timer
     latest_receipt: /var/lib/harmonia/receipts/update-latest/run.json
