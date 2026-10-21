@@ -99,6 +99,14 @@ fn project_attributes(event: &ChannelEvent, run_profile: bool) -> Result<Value, 
         "signal": metadata_alias(source, &["signal", "firstMissingSignal", "first_missing_signal"], 40),
         "first_missing_field": metadata_alias(source, &["first_missing_field", "firstMissingField", "field"], 32),
     });
+    if event.organ == "agathodaimon"
+        && event.kind == "crossing-change"
+        && source.get("verb").and_then(Value::as_str) == Some("dictate")
+    {
+        attributes["state"] = json!(source.get("state").and_then(Value::as_str)
+            .filter(|state| matches!(*state, "recording" | "transcribed")));
+        attributes["chars"] = json!(source.get("chars").and_then(Value::as_u64));
+    }
     if run_profile {
         let run_id = metadata_alias(source, &["run_id", "correlation_id"], 64)
             .or_else(|| event.correlation_id.clone())
