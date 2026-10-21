@@ -74,14 +74,13 @@
     "run_id",
     "profile_id",
     "module_id",
+    "module_version",
     "ok",
     "changed",
     "operation_count",
     "first_missing_signal",
     "recorded_at"
   ],
-  "optional": [
-    "module_version"
-  ],
+  "optional": [],
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }
