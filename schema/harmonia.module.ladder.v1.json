@@ -1,0 +1,3820 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://git.home.arpa/HOMESERVERSLTD/harmonia/schema/harmonia.module.ladder.v1.schema.json",
+  "title": "harmonia.module.ladder.v1",
+  "description": "Alkahest-permissive schema for current Harmonia manifests: unknown top-level fields are skipped, never fatal, per the estate's growing-schema law -- this is what lets a future field (hotfix, quark, whatever comes next) exist without breaking every existing reader. Per-tool ladder args stay strict (additionalProperties:false in each ladderArgs_* definition) because that check catches real drift against the registered tool contract, a different and still-wanted concern from top-level manifest growth. Compatibility properties retain observed declaration drift.",
+  "type": "object",
+  "additionalProperties": true,
+  "definitions": {
+    "constantRef": {
+      "type": "string",
+      "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+    },
+    "category": {
+      "enum": [
+        "known-good",
+        "interactable"
+      ]
+    },
+    "onFailure": {
+      "enum": [
+        "stop",
+        "continue-optional"
+      ]
+    },
+    "opaqueMap": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "stringArray": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "string",
+          "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+        },
+        {
+          "type": "string",
+          "description": "Observed compatibility: string-valued constant used where string_array is declared."
+        }
+      ]
+    },
+    "commandPrecondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "program": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "timeout_secs": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "program"
+      ]
+    },
+    "summaryReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "type": "string"
+        },
+        "first_missing_signal": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authority",
+        "first_missing_signal",
+        "name",
+        "schema"
+      ]
+    },
+    "directory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "group": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "owner",
+        "group",
+        "mode"
+      ]
+    },
+    "profileSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "append": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source",
+        "path",
+        "append",
+        "mode"
+      ]
+    },
+    "managedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "integer"
+        },
+        "category": {
+          "enum": [
+            "known-good",
+            "interactable"
+          ]
+        },
+        "legacy_transition_note": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "collision_policy": {
+          "type": "string"
+        },
+        "rollback_policy": {
+          "type": "string"
+        },
+        "no_follow": {
+          "type": "boolean"
+        },
+        "uid": {
+          "type": "integer"
+        },
+        "gid": {
+          "type": "integer"
+        },
+        "xattrs": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ]
+    },
+    "expectedUnitProperties": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "routineChild": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tool": {
+          "type": "string"
+        },
+        "permutation": {
+          "const": "managed-files"
+        },
+        "args": {
+          "$ref": "#/definitions/ladderArgs_files_managed_files"
+        }
+      },
+      "required": [
+        "name",
+        "tool"
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "tool": {
+              "const": "files"
+            }
+          },
+          "required": [
+            "tool"
+          ]
+        }
+      ]
+    },
+    "ladderStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "permutation": {
+          "type": "string"
+        },
+        "args": {},
+        "steps": {},
+        "on_failure": {
+          "enum": [
+            "stop",
+            "continue-optional"
+          ]
+        }
+      },
+      "required": [
+        "step_id",
+        "tool"
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "tool": {
+              "const": "routine"
+            },
+            "permutation": {
+              "const": "execute"
+            }
+          },
+          "required": [
+            "tool"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "artifact-lock"
+            },
+            "permutation": {
+              "const": "verify"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "command"
+            },
+            "permutation": {
+              "const": "capture"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "files"
+            },
+            "permutation": {
+              "const": "compile-fragments"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "files"
+            },
+            "permutation": {
+              "const": "converge"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "files"
+            },
+            "permutation": {
+              "const": "executable-present"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "files"
+            },
+            "permutation": {
+              "const": "metadata"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "files"
+            },
+            "permutation": {
+              "const": "managed-files"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "files"
+            },
+            "permutation": {
+              "const": "remove"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "files"
+            },
+            "permutation": {
+              "const": "source-shelf-sweep"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "files"
+            },
+            "permutation": {
+              "const": "symlink-converge"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "files"
+            },
+            "permutation": {
+              "const": "validated-sudoers-converge"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "files"
+            },
+            "permutation": {
+              "const": "validated-symlink"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "git-artifact"
+            },
+            "permutation": {
+              "const": "sync"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "health"
+            },
+            "permutation": {
+              "const": "probe"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "household-time"
+            },
+            "permutation": {
+              "const": "resolve"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "household-time"
+            },
+            "permutation": {
+              "const": "watch-and-set"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "package"
+            },
+            "permutation": {
+              "const": "upgrade"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "service-runtime"
+            },
+            "permutation": {
+              "const": "converge"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "systemd"
+            },
+            "permutation": {
+              "const": "daemon-reload"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "systemd"
+            },
+            "permutation": {
+              "const": "disable-stop"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "systemd"
+            },
+            "permutation": {
+              "const": "disable-stop-remove"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "systemd"
+            },
+            "permutation": {
+              "const": "enable-now"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "systemd"
+            },
+            "permutation": {
+              "const": "is-active-probe"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "systemd"
+            },
+            "permutation": {
+              "const": "mask"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "systemd"
+            },
+            "permutation": {
+              "const": "restart"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "systemd"
+            },
+            "permutation": {
+              "const": "user-daemon-reload"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "systemd"
+            },
+            "permutation": {
+              "const": "user-enable-now"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "systemd"
+            },
+            "permutation": {
+              "const": "user-is-active-probe"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "systemd"
+            },
+            "permutation": {
+              "const": "user-restart"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "venv"
+            },
+            "permutation": {
+              "const": "converge"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "ai-coding-harness"
+            },
+            "permutation": {
+              "const": "reconcile"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
+              "const": "command"
+            },
+            "permutation": {
+              "const": "act"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "routine"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "steps": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/definitions/routineChild"
+                }
+              }
+            },
+            "required": [
+              "steps"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "artifact-lock"
+              },
+              "permutation": {
+                "const": "verify"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_artifact_lock_verify"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "command"
+              },
+              "permutation": {
+                "const": "capture"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_command_capture"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "files"
+              },
+              "permutation": {
+                "const": "compile-fragments"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_files_compile_fragments"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "files"
+              },
+              "permutation": {
+                "const": "converge"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_files_converge"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "files"
+              },
+              "permutation": {
+                "const": "executable-present"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_files_executable_present"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "files"
+              },
+              "permutation": {
+                "const": "metadata"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_files_metadata"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "files"
+              },
+              "permutation": {
+                "const": "managed-files"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_files_managed_files"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "files"
+              },
+              "permutation": {
+                "const": "remove"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_files_remove"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "files"
+              },
+              "permutation": {
+                "const": "source-shelf-sweep"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_files_source_shelf_sweep"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "files"
+              },
+              "permutation": {
+                "const": "symlink-converge"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_files_symlink_converge"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "files"
+              },
+              "permutation": {
+                "const": "validated-sudoers-converge"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_files_validated_sudoers_converge"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "files"
+              },
+              "permutation": {
+                "const": "validated-symlink"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_files_validated_symlink"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "git-artifact"
+              },
+              "permutation": {
+                "const": "sync"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_git_artifact_sync"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "health"
+              },
+              "permutation": {
+                "const": "probe"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_health_probe"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "household-time"
+              },
+              "permutation": {
+                "const": "resolve"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_household_time_resolve"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "household-time"
+              },
+              "permutation": {
+                "const": "watch-and-set"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_household_time_watch_and_set"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "package"
+              },
+              "permutation": {
+                "const": "upgrade"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_package_upgrade"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "service-runtime"
+              },
+              "permutation": {
+                "const": "converge"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_service_runtime_converge"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "systemd"
+              },
+              "permutation": {
+                "const": "daemon-reload"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_systemd_daemon_reload"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "systemd"
+              },
+              "permutation": {
+                "const": "disable-stop"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_systemd_disable_stop"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "systemd"
+              },
+              "permutation": {
+                "const": "disable-stop-remove"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_systemd_disable_stop_remove"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "systemd"
+              },
+              "permutation": {
+                "const": "enable-now"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_systemd_enable_now"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "systemd"
+              },
+              "permutation": {
+                "const": "is-active-probe"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_systemd_is_active_probe"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "systemd"
+              },
+              "permutation": {
+                "const": "mask"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_systemd_mask"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "systemd"
+              },
+              "permutation": {
+                "const": "restart"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_systemd_restart"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "systemd"
+              },
+              "permutation": {
+                "const": "user-daemon-reload"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_systemd_user_daemon_reload"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "systemd"
+              },
+              "permutation": {
+                "const": "user-enable-now"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_systemd_user_enable_now"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "systemd"
+              },
+              "permutation": {
+                "const": "user-is-active-probe"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_systemd_user_is_active_probe"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "systemd"
+              },
+              "permutation": {
+                "const": "user-restart"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_systemd_user_restart"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "venv"
+              },
+              "permutation": {
+                "const": "converge"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_venv_converge"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "ai-coding-harness"
+              },
+              "permutation": {
+                "const": "reconcile"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_ai_coding_harness_reconcile"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "command"
+              },
+              "permutation": {
+                "const": "act"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_command_act"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        }
+      ]
+    },
+    "ladderGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "group_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "group_order": {
+          "type": "integer"
+        },
+        "live_probe": {
+          "$ref": "#/definitions/ladderProbe"
+        }
+      },
+      "required": [
+        "group_id",
+        "group_order",
+        "live_probe"
+      ]
+    },
+    "ladderProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "const": "systemd"
+        },
+        "permutation": {
+          "const": "is-active-probe"
+        },
+        "args": {
+          "$ref": "#/definitions/ladderArgs_systemd_is_active_probe"
+        }
+      },
+      "required": [
+        "tool",
+        "permutation"
+      ]
+    },
+    "ladderArgs_artifact_lock_verify": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lock": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "lock"
+      ]
+    },
+    "ladderArgs_command_capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "program": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "args": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            },
+            {
+              "type": "string",
+              "description": "Observed compatibility: string-valued constant used where string_array is declared."
+            }
+          ]
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "advisory": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "lane": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/definitions/constantRef"
+            }
+          ]
+        },
+        "precondition": {
+          "$ref": "#/definitions/commandPrecondition"
+        }
+      },
+      "required": [
+        "program"
+      ]
+    },
+    "ladderArgs_files_compile_fragments": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "target_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "uid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "gid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "backup_existing": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source_root",
+        "target_path",
+        "backup_existing"
+      ]
+    },
+    "ladderArgs_files_converge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "target_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "files": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            },
+            {
+              "type": "string",
+              "description": "Observed compatibility: string-valued constant used where string_array is declared."
+            }
+          ]
+        },
+        "backup_existing": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "receipt_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "summary_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/summaryReceipt"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source_root",
+        "target_root",
+        "files"
+      ]
+    },
+    "ladderArgs_files_executable_present": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "executable": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "search_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "receipt_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "executable"
+      ]
+    },
+    "ladderArgs_files_managed_files": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/managedFile"
+              },
+              {
+                "$ref": "#/definitions/constantRef"
+              }
+            ]
+          }
+        },
+        "profile_sources": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/profileSource"
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": true
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "source_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "managed_files": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/managedFile"
+              },
+              {
+                "$ref": "#/definitions/constantRef"
+              }
+            ]
+          }
+        }
+      },
+      "required": []
+    },
+    "ladderArgs_files_remove": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "paths": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            },
+            {
+              "type": "string",
+              "description": "Observed compatibility: string-valued constant used where string_array is declared."
+            }
+          ]
+        }
+      },
+      "required": [
+        "target_root",
+        "paths"
+      ]
+    },
+    "ladderArgs_files_source_shelf_sweep": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "shelf_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "target_shelf": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "launcher_source_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "launcher_target_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "launcher_pattern": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "shelf_owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "shelf_group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "shelf_directory_mode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "shelf_file_mode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "launcher_mode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "prune": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "launcher_exclude": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            },
+            {
+              "type": "string",
+              "description": "Observed compatibility: string-valued constant used where string_array is declared."
+            }
+          ]
+        },
+        "provenance_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "owned_recursive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source_root",
+        "shelf_source",
+        "target_shelf",
+        "shelf_owner",
+        "shelf_group",
+        "shelf_directory_mode",
+        "shelf_file_mode",
+        "prune"
+      ]
+    },
+    "ladderArgs_files_symlink_converge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "required_source_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "conflict_policy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "target",
+        "required_source_kind"
+      ]
+    },
+    "ladderArgs_files_validated_sudoers_converge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "target_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "files": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            },
+            {
+              "type": "string",
+              "description": "Observed compatibility: string-valued constant used where string_array is declared."
+            }
+          ]
+        },
+        "owned_prefix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "validator_program": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "validator_args": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            },
+            {
+              "type": "string",
+              "description": "Observed compatibility: string-valued constant used where string_array is declared."
+            }
+          ]
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "receipt_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source_root",
+        "target_root",
+        "files",
+        "owned_prefix",
+        "validator_program",
+        "validator_args",
+        "owner",
+        "group"
+      ]
+    },
+    "ladderArgs_files_validated_symlink": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "validator_program": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "validator_args": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            },
+            {
+              "type": "string",
+              "description": "Observed compatibility: string-valued constant used where string_array is declared."
+            }
+          ]
+        },
+        "reload_program": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/definitions/constantRef"
+            }
+          ]
+        },
+        "reload_args": {
+          "$ref": "#/definitions/stringArray"
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "category": {
+          "$ref": "#/definitions/category"
+        }
+      },
+      "required": [
+        "source",
+        "target",
+        "validator_program"
+      ]
+    },
+    "ladderArgs_git_artifact_sync": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "bearer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "source_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "component",
+        "path"
+      ]
+    },
+    "ladderArgs_health_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "expected_contains": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "retries": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "ladderArgs_household_time_resolve": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "state_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "backend"
+      ]
+    },
+    "ladderArgs_household_time_watch_and_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "state_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "state_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "backend",
+        "state_url"
+      ]
+    },
+    "ladderArgs_package_upgrade": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": []
+    },
+    "ladderArgs_service_runtime_converge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "module_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "component": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "bearer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "source_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "install_bin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "binary_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "op_prefix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "run_schema": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "managed_files_schema": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "managed_files": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/managedFile"
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "caduceus_profile_source": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/profileSource"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "caduceus_commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "build_environment": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "CARGO_HOME": {
+              "type": "string"
+            },
+            "RUSTUP_HOME": {
+              "type": "string"
+            }
+          }
+        },
+        "registry_base": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "source_sha_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "retries": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "expected_unit_properties": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "component",
+        "source_dir",
+        "install_bin",
+        "service",
+        "url",
+        "binary_name",
+        "op_prefix",
+        "run_schema",
+        "managed_files_schema"
+      ]
+    },
+    "ladderArgs_systemd_daemon_reload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": []
+    },
+    "ladderArgs_systemd_disable_stop": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "service"
+      ]
+    },
+    "ladderArgs_systemd_disable_stop_remove": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "service"
+      ]
+    },
+    "ladderArgs_systemd_enable_now": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "service"
+      ]
+    },
+    "ladderArgs_systemd_is_active_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "service"
+      ]
+    },
+    "ladderArgs_systemd_mask": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "service"
+      ]
+    },
+    "ladderArgs_systemd_restart": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "service"
+      ]
+    },
+    "ladderArgs_systemd_user_daemon_reload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "user": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": []
+    },
+    "ladderArgs_systemd_user_enable_now": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "user": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "service"
+      ]
+    },
+    "ladderArgs_systemd_user_is_active_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "user": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "service"
+      ]
+    },
+    "ladderArgs_systemd_user_restart": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "user": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "service"
+      ]
+    },
+    "ladderArgs_venv_converge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "venv": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "source_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "source_patterns": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            },
+            {
+              "type": "string",
+              "description": "Observed compatibility: string-valued constant used where string_array is declared."
+            }
+          ]
+        },
+        "python": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "venv",
+        "source_root",
+        "source_patterns"
+      ]
+    },
+    "ladderArgs_ai_coding_harness_reconcile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "claude_bin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "honcho_branch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "honcho_remote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "honcho_repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "claude_bin",
+        "honcho_branch",
+        "honcho_remote",
+        "honcho_repo",
+        "owner"
+      ]
+    },
+    "ladderArgs_files_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "owner": {
+                "type": "string",
+                "minLength": 1
+              },
+              "group": {
+                "type": "string",
+                "minLength": 1
+              },
+              "mode": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4095
+              }
+            },
+            "required": [
+              "path",
+              "owner",
+              "group",
+              "mode"
+            ]
+          }
+        }
+      },
+      "required": [
+        "files"
+      ]
+    },
+    "ladderArgs_command_act": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "program": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "args": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            },
+            {
+              "type": "string",
+              "description": "Observed compatibility: string-valued constant used where string_array is declared."
+            }
+          ]
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "timeout_secs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "lane": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/definitions/constantRef"
+            }
+          ]
+        },
+        "observation": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "program": {
+                  "type": "string"
+                },
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "cwd": {
+                  "type": "string"
+                },
+                "expected_exit_code": {
+                  "type": "integer"
+                },
+                "expected_stdout": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "program",
+                "expected_exit_code"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "module_changed_before_step"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          ]
+        }
+      },
+      "required": [
+        "program",
+        "observation"
+      ]
+    }
+  },
+  "properties": {
+    "authorities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "arch",
+          "debian",
+          "ubuntu"
+        ]
+      },
+      "minItems": 1,
+      "description": "os_family values this module applies to; absent means every authority"
+    },
+    "schema": {
+      "const": "harmonia.module.ladder.v1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "version": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string"
+    },
+    "optional": {
+      "type": "boolean",
+      "default": false
+    },
+    "optional_warning": {
+      "type": "string"
+    },
+    "group": {
+      "$ref": "#/definitions/ladderGroup"
+    },
+    "constants": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "package_pins": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "caduceus_commands": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "category": {
+      "enum": [
+        "known-good",
+        "interactable"
+      ]
+    },
+    "files_root": {
+      "type": "string"
+    },
+    "config_deploy": {
+      "const": "interactable"
+    },
+    "ladder": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ladderStep"
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601. When this manifest was last authored. Joins version as a kernel field per the operator's 2026-08-30 Alkahest ruling. Optional today because no live manifest carries it yet -- required will follow once adoption is real, not before."
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "version",
+    "ladder",
+    "description"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "optional": {
+            "const": true
+          }
+        },
+        "required": [
+          "optional"
+        ]
+      },
+      "then": {
+        "required": [
+          "optional_warning"
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "optional_warning"
+        ]
+      },
+      "then": {
+        "properties": {
+          "optional": {
+            "const": true
+          }
+        },
+        "required": [
+          "optional"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "optional": {
+            "const": false
+          }
+        },
+        "required": [
+          "optional"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "optional_warning"
+          ]
+        }
+      }
+    }
+  ]
+}
