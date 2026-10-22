@@ -7,7 +7,6 @@
     "appliance/sudo-passwordless",
     "console",
     "console/restart",
-    "console/steam-install",
     "exousia/bind",
     "exousia/change",
     "exousia/forgejo-credential",
@@ -107,10 +106,6 @@
     [
       "cert",
       "house-ca"
-    ],
-    [
-      "console",
-      "steam-install"
     ],
     [
       "console",
@@ -395,8 +390,6 @@
     "/api/v1/config/set",
     "/api/v1/config/show",
     "/api/v1/console/restart",
-    "/api/v1/console/steam",
-    "/api/v1/console/steam/install",
     "/api/v1/display/projector/power",
     "/api/v1/display/projector/products",
     "/api/v1/display/projector/scan",
@@ -620,7 +613,6 @@
       ]
     ],
     "routes": [
-      "POST /api/v1/console/steam/install",
       "/api/v1/access/pin/change",
       "/api/v1/access/pin/mode",
       "/api/v1/access/pin/reset-default",

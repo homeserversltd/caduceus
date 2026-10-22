@@ -6,7 +6,6 @@
     "appliance/journal-vacuum",
     "appliance/service",
     "appliance/sudo-passwordless",
-    "console/steam-install",
     "console/restart",
     "exousia/bind",
     "exousia/change",
@@ -47,10 +46,6 @@
     [
       "cert",
       "house-ca"
-    ],
-    [
-      "console",
-      "steam-install"
     ],
     [
       "console",
@@ -168,8 +163,6 @@
     "/api/v1/cert/trust-fetch",
     "/api/v1/cert/trust-install",
     "/api/v1/console/restart",
-    "/api/v1/console/steam",
-    "/api/v1/console/steam/install",
     "/api/v1/file/ingress",
     "/api/v1/file/ingress/:upload_id/complete",
     "/api/v1/games/provider-keys",
@@ -269,7 +262,6 @@
       ]
     ],
     "routes": [
-      "POST /api/v1/console/steam/install",
       "/api/v1/access/sudo/mode",
       "/api/v1/network/dhcp",
       "/api/v1/network/dhcp/pool-boundary",
