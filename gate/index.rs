@@ -497,7 +497,40 @@ fn route_matches(entry: &str, method: Option<&str>, path: &str) -> bool {
     }
 }
 
+fn declared_http_route(method: &str, path: &str) -> Option<Value> {
+    let namespace = path.strip_prefix("/api/v1/")?;
+    let declaration = crate::routes::selected_declaration(namespace)?;
+    let value: Value = serde_json::from_str(declaration).ok()?;
+    let declared_method = value.get("http_method").and_then(Value::as_str)?;
+    (declared_method == method || (method == "HEAD" && declared_method == "GET"))
+        .then_some(value)
+}
+
+fn record_admission_refusal(method: &str, path: &str, signal: &str, started: Instant) {
+    let Some(declaration) = declared_http_route(method, path) else { return; };
+    let Some(deed) = declaration.get("ledger_deed") else { return; };
+    let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(serde_json::json!({
+        "organ": deed["organ"],
+        "kind": "admission-refusal",
+        "level": "error",
+        "ok": false,
+        "message": "administrative deed refused",
+        "attributes_redacted": {
+            "who": "owner", "verb": deed["verb"], "target": deed["target"],
+            "outcome": "refused", "signal": signal,
+            "duration_ms": started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        }
+    }));
+}
+
 fn administrative_routes_match(method: Option<&str>, path: &str) -> Result<bool, String> {
+    // The compiled leaf owns its classification. An older staff mirror cannot
+    // turn a newly declared administrative deed into an unattended request.
+    if method.and_then(|method| declared_http_route(method, path))
+        .is_some_and(|declaration| declaration["administrative"].as_bool() == Some(true))
+    {
+        return Ok(true);
+    }
     if path == STATS_ADMIN_HTTP_PATH {
         return Ok(true);
     }
@@ -637,10 +670,22 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
         return next.run(request).await;
     }
 
+    let started = Instant::now();
+    if declared_http_route(&method, &path)
+        .is_some_and(|declaration| declaration["administrative"].as_bool() == Some(true))
+    {
+        // New declared deeds fail closed if the PIN switch cannot be read.
+        if let Err(signal) = attendance::pin_mode_read() {
+            record_admission_refusal(&method, &path, &signal, started);
+            return api_error_signal("administrative route gate", &signal).into_response();
+        }
+    }
     let (mut parts, body) = request.into_parts();
     let bytes = match to_bytes(body, ADMINISTRATIVE_REQUEST_BODY_MAX_BYTES).await {
         Ok(bytes) => bytes,
         Err(_) => {
+            record_admission_refusal(&method, &path,
+                "caduceus-administrative-request-too-large", started);
             return (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 Json(ApiErrorBody {
@@ -657,6 +702,7 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
     let empty_body = Value::Null;
     let admission_body = parsed_body.as_ref().unwrap_or(&empty_body);
     if let Err(signal) = administrative_credentials_admit(&parts.headers, admission_body) {
+        record_admission_refusal(&method, &path, &signal, started);
         return api_error_signal("administrative route gate", &signal).into_response();
     }
 
@@ -667,6 +713,8 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
             match serde_json::to_vec(&body) {
                 Ok(bytes) => bytes,
                 Err(_) => {
+                    record_admission_refusal(&method, &path,
+                        "caduceus-administrative-request-invalid", started);
                     return api_error_signal(
                         "administrative route gate",
                         "caduceus-administrative-request-invalid",
@@ -707,6 +755,12 @@ pub(crate) fn access_attendance_admits(
     vault_attendance_admits(headers, body, route)
 }
 async fn self_telemetry_route(request: Request<Body>, next: middleware::Next) -> Response {
+    if declared_http_route(request.method().as_str(), request.uri().path())
+        .is_some_and(|declaration| declaration["mutation_allowed"].as_bool() == Some(false))
+    {
+        // Command–Query Separation: the observation leaves no retained counters.
+        return next.run(request).await;
+    }
     let path = request.uri().path().to_owned();
     let started = Instant::now();
     let response = next.run(request).await;

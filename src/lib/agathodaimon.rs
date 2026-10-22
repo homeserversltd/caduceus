@@ -448,6 +448,115 @@ fn crossing_value_mode(
     )
 }
 
+/// Fixed argv CLI crossing. No payload or child output is recorded here;
+/// the deed's caller owns its single ledger line. Other crossings are unchanged.
+pub(crate) struct CliOutput {
+    pub exit: i32,
+    pub value: Option<Value>,
+    pub signal: Option<String>,
+}
+
+pub(crate) fn crossing_argv(
+    noun: &str,
+    verb: &str,
+    suffix: &[&str],
+    timeout: std::time::Duration,
+) -> Result<CliOutput, &'static str> {
+    use std::io::{self, Read};
+    use std::os::{fd::AsRawFd, unix::process::CommandExt};
+    use std::time::Instant;
+
+    fn drain(
+        pipe: &mut impl Read,
+        kept: &mut Vec<u8>,
+        limit: usize,
+        overflow: &mut bool,
+    ) -> io::Result<bool> {
+        let mut chunk = [0; 4096];
+        // Bound each turn as well as retained bytes, so a noisy child cannot
+        // starve the deadline. Excess bytes are drained, never accumulated.
+        for _ in 0..16 {
+            match pipe.read(&mut chunk) {
+                Ok(0) => return Ok(true),
+                Ok(count) => {
+                    let take = count.min(limit.saturating_sub(kept.len()));
+                    kept.extend_from_slice(&chunk[..take]);
+                    *overflow |= take != count;
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(false)
+    }
+
+    let cli = std::env::var("CADUCEUS_AGATHODAIMON_CLI").unwrap_or_else(|_| CLI.into());
+    let mut command = if std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some() {
+        Command::new(&cli)
+    } else {
+        let mut command = Command::new("/usr/bin/sudo");
+        command.args(["-n", &cli]);
+        command
+    };
+    let mut child = command
+        .args([noun, verb])
+        .args(suffix)
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "caduceus-staff-spawn-failed")?;
+    let result = (|| {
+        let mut stdout = child.stdout.take().ok_or("caduceus-staff-pipe-missing")?;
+        let mut stderr = child.stderr.take().ok_or("caduceus-staff-pipe-missing")?;
+        for fd in [stdout.as_raw_fd(), stderr.as_raw_fd()] {
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+                return Err("caduceus-staff-pipe-failed");
+            }
+        }
+        let started = Instant::now();
+        let (mut output, mut diagnostic) = (Vec::new(), Vec::new());
+        let (mut output_large, mut diagnostic_large) = (false, false);
+        let mut status = None;
+        loop {
+            let out_done = drain(&mut stdout, &mut output, MAX_OUTPUT_BYTES, &mut output_large)
+                .map_err(|_| "caduceus-staff-read-failed")?;
+            let err_done = drain(&mut stderr, &mut diagnostic, 256, &mut diagnostic_large)
+                .map_err(|_| "caduceus-staff-read-failed")?;
+            if status.is_none() {
+                status = child.try_wait().map_err(|_| "caduceus-staff-wait-failed")?;
+            }
+            if let Some(status) = status.as_ref().filter(|_| out_done && err_done) {
+                // A diagnostic is a signal token, never an apt-output excerpt.
+                let signal = String::from_utf8_lossy(&diagnostic)
+                    .lines()
+                    .next()
+                    .filter(|line| !line.is_empty() && line.len() <= 160)
+                    .filter(|line| line.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b)))
+                    .map(str::to_owned);
+                return Ok(CliOutput {
+                    exit: status.code().unwrap_or(-1),
+                    value: if output_large { None } else { serde_json::from_slice(&output).ok() },
+                    signal,
+                });
+            }
+            if started.elapsed() >= timeout {
+                return Err("caduceus-staff-timeout");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    })();
+    if result.is_err() {
+        // Kill only this crossing's process group, including inherited pipes.
+        unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL); }
+        let _ = child.wait();
+    }
+    result
+}
+
 /// Cross the same membrane while preserving the staff refusal envelope.
 pub(crate) fn crossing(noun: &str, verb: &str, input: &Value) -> Result<Value, String> {
     crossing_value(noun, verb, input).map_err(|value| {

@@ -6,6 +6,7 @@
     "appliance/journal-vacuum",
     "appliance/service",
     "appliance/sudo-passwordless",
+    "console/steam-install",
     "exousia/bind",
     "exousia/change",
     "exousia/reset-default",
@@ -56,6 +57,10 @@
     [
       "cert",
       "house-ca"
+    ],
+    [
+      "console",
+      "steam-install"
     ],
     [
       "exousia",
@@ -223,6 +228,7 @@
     "/api/v1/cert/status",
     "/api/v1/cert/trust-fetch",
     "/api/v1/cert/trust-install",
+    "/api/v1/console/steam",
     "/api/v1/file/ingress",
     "/api/v1/file/ingress/:upload_id/complete",
     "/api/v1/games/provider-keys",
