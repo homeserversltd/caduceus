@@ -107,11 +107,13 @@ Caduceus profiles are authored as YAML: `etc/caduceus/profile.yaml` on device
 roots and `profiles/<name>/index.yaml` in this repository. The `commands` list
 is the authority for which CLI and HTTP routes each appliance may call.
 
-The shipped appliance profile names are `homeserver`, `homeconsole`, `tv`, and
-`specula`. The HomeConsole profile lives at `profiles/homeconsole/index.yaml`;
+The shipped appliance profile names are `homeserver`, `homeconsole`, `tv`,
+`homesi`, and `specula`. The HomeConsole profile lives at `profiles/homeconsole/index.yaml`;
 `CADUCEUS_PROFILE=homeconsole` builds its `caduceus-homeconsole-x86_64` Release
 asset. Appliance profile names do not rename verb namespaces such as
 `console/restart`.
+
+The `homesi` profile is headless; its face member is absent.
 
 Local profile roots default to `/etc/caduceus` and `/var/lib/caduceus`. For
 tests and development, set `CADUCEUS_ROOT` to a fixture root containing

@@ -123,6 +123,7 @@ pub(crate) fn resolve_build_profile(explicit: Option<&str>, root: &Path) -> Stri
         Some("homeserver") => "homeserver".to_owned(),
         Some("homeconsole") => "homeconsole".to_owned(),
         Some("tv") => "tv".to_owned(),
+        Some("homesi") => "homesi".to_owned(),
         _ => "specula".to_owned(),
     }
 }
@@ -452,7 +453,7 @@ fn main() {
         .expect("embedded public seats writable");
 
     let mut embedded_crossings = String::from("const EMBEDDED_CROSSINGS: &[(&str, &str)] = &[\n");
-    for profile in ["homeserver", "homeconsole", "tv", "lab"] {
+    for profile in ["homeserver", "homeconsole", "tv", "homesi", "lab"] {
         let path = format!("crossings/{profile}.json");
         println!("cargo:rerun-if-changed={path}");
         let bytes = fs::read_to_string(&path).unwrap_or_else(|error| {
@@ -527,6 +528,7 @@ fn main() {
         "homeserver",
         "homeconsole",
         "tv",
+        "homesi",
         "specula",
         "bench",
         "everything-lit",

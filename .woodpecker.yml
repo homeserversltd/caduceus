@@ -147,6 +147,7 @@ steps:
         build_profile homeserver
         build_profile homeconsole
         build_profile tv
+        build_profile homesi
         build_profile specula
 
   - name: build-caduceus-package
@@ -225,7 +226,7 @@ steps:
         export GIT_CONFIG_COUNT=1
         export GIT_CONFIG_VALUE_0='!f() { if [ "$${1}" = get ]; then printf "username=x-token\npassword=%s\n" "$${FORGEJO_TOKEN}"; fi; }; f'
 
-        WUKONG_STAFF_SHA=ecdc0b6ffa73d0794a7981127cf6682699c0b515
+        WUKONG_STAFF_SHA=a28d37815f335c7dc82f190864f5f0e70430ca73
         git clone --depth 1 https://git.home.arpa/HOMESERVERSLTD/wukong-staff.git wukong-staff
         git -C wukong-staff fetch --depth 1 origin "$${WUKONG_STAFF_SHA}"
         git -C wukong-staff checkout --detach "$${WUKONG_STAFF_SHA}"
