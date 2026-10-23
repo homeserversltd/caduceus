@@ -1,0 +1,170 @@
+{
+  "schema": "appliance.local_ai.v1",
+  "schema_version": "1.0.0",
+  "role": "HomeSI local_ai declaration in /etc/appliance/config.json. Caduceus alone writes model/mmproj through its sole-writer lever; staff and Harmonia read this seat.",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/appliance.local_ai.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Absent optional fields select null primitive behavior."
+  },
+  "required": [
+    "schema",
+    "shelf",
+    "slots"
+  ],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "appliance.local_ai.v1"
+    },
+    "shelf": {
+      "type": "string",
+      "description": "Absolute model shelf directory, born as /home/owner/Models."
+    },
+    "slots": {
+      "type": "object",
+      "fields": {
+        "brain": {
+          "type": "object",
+          "fields": {
+            "role": {
+              "type": "string",
+              "const": "text-to-text"
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 255,
+              "description": "One file name on shelf; null empties the slot and stops its process."
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "ctx": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "lan": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "role",
+            "model",
+            "port",
+            "ctx",
+            "lan"
+          ],
+          "unknown_fields_preserved": true
+        },
+        "embed": {
+          "type": "object",
+          "fields": {
+            "role": {
+              "type": "string",
+              "const": "embedding"
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 255,
+              "description": "One file name on shelf; null empties the slot and stops its process."
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "ctx": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "lan": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "role",
+            "model",
+            "port",
+            "ctx",
+            "lan"
+          ],
+          "unknown_fields_preserved": true
+        },
+        "ear": {
+          "type": "object",
+          "fields": {
+            "role": {
+              "type": "string",
+              "const": "speech-to-text"
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 255,
+              "description": "One file name on shelf; null empties the slot and stops its process."
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "ctx": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "lan": {
+              "type": "boolean"
+            },
+            "mmproj": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 255,
+              "description": "Paired projector file on shelf, or null when empty."
+            }
+          },
+          "required": [
+            "role",
+            "model",
+            "port",
+            "ctx",
+            "lan"
+          ],
+          "unknown_fields_preserved": true
+        }
+      },
+      "required": [
+        "brain",
+        "embed",
+        "ear"
+      ],
+      "unknown_fields_preserved": true
+    }
+  },
+  "rooms": {
+    "KERNEL": [
+      "schema",
+      "shelf",
+      "slots"
+    ],
+    "ROUTINE": "Fixed roles brain=text-to-text, embed=embedding, ear=speech-to-text; a null model is an empty stopped slot.",
+    "TARGET": "/etc/appliance/config.json local_ai",
+    "FLAGS": "Optional mmproj on ear; unknown fields preserved."
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF."
+}

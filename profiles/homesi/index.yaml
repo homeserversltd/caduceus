@@ -37,3 +37,4 @@ harmonia_routes:
     - update
 sclerites:
 - nmcli
+- local-ai-memory-card

@@ -2,6 +2,9 @@
   "schema": "appliance.crossings.v1",
   "profile": "homesi",
   "bands": [
+    "local-ai/card",
+    "local-ai/library",
+    "local-ai/slot",
     "appliance/harmonia-press",
     "appliance/journal-vacuum",
     "appliance/service",
@@ -34,6 +37,9 @@
     "update/sources-reseed"
   ],
   "verbs": [
+    ["local-ai", "card"],
+    ["local-ai", "library"],
+    ["local-ai", "slot"],
     ["cert", "house-ca"],
     ["exousia", "bind"],
     ["exousia", "change"],
@@ -57,6 +63,11 @@
     ["vault", "open"]
   ],
   "routes": [
+    "/api/v1/local-ai/card",
+    "/api/v1/local-ai/library",
+    "/api/v1/local-ai/slot/brain",
+    "/api/v1/local-ai/slot/embed",
+    "/api/v1/local-ai/slot/ear",
     "/api/v1/access/sudo/mode",
     "/api/v1/cert/bundle/download",
     "/api/v1/cert/status",
@@ -96,16 +107,21 @@
   ],
   "administrative": {
     "bands": [
+      "local-ai/slot",
       "appliance/service",
       "appliance/sudo-passwordless",
       "storage/vault/open",
       "storage/vault/policy"
     ],
     "verbs": [
+      ["local-ai", "slot"],
       ["exousia", "change"],
       ["exousia", "reset-default"]
     ],
     "routes": [
+      "PUT /api/v1/local-ai/slot/brain",
+      "PUT /api/v1/local-ai/slot/embed",
+      "PUT /api/v1/local-ai/slot/ear",
       "/api/v1/access/sudo/mode",
       "/api/v1/storage/vault/auto-decrypt",
       "/api/v1/storage/vault/unlock"

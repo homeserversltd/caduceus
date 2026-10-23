@@ -12,7 +12,8 @@
     "transmission",
     "tailscale",
     "steam",
-    "gtk4"
+    "gtk4",
+    "local-ai-memory-card"
   ],
   "features": {
     "all": {
@@ -186,6 +187,9 @@
     "sddm": {
       "description": "SDDM software alternative.",
       "parent": "steam"
+    },
+    "local-ai-memory-card": {
+      "description": "HomeSI GPU memory-card card, library and slot doors."
     },
     "gtk4": {
       "description": "GTK4 face and unfinished HomeTV Updates screen debt.",

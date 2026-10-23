@@ -1,0 +1,1 @@
+{"namespace":"local-ai/slot/embed","admittance":"open","flags":{},"http_method":"PUT","administrative":true,"mutation_allowed":true,"serve":[{"snake":"local-ai/slot","verb":["local-ai","slot"]}],"commands":[],"needs":["local-ai-memory-card"],"ledger_deed":{"organ":"local-ai","verb":"slot","target":"embed"}}

@@ -1,0 +1,1 @@
+{"namespace":"local-ai/library","admittance":"open","flags":{},"http_method":"GET","administrative":false,"mutation_allowed":false,"serve":[{"snake":"local-ai/library","verb":["local-ai","library"]}],"commands":[],"needs":["local-ai-memory-card"]}
