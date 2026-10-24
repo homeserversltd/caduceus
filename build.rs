@@ -378,6 +378,8 @@ fn main() {
     let seats = [
         "caduceus.beam.v1",
         "caduceus.docs.seal.v1",
+        "caduceus.hermes.alive.v1",
+        "caduceus.portals.v1",
         "caduceus.ruyi.v1",
         "caduceus.ruyi.stream.v1",
         "caduceus.appliance.stats.sample.v1",
