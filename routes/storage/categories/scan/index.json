@@ -1,1 +1,1 @@
-{"namespace":"storage/categories/scan","admittance":"open","flags":{},"serve":[],"commands":[{"name":"storage categories scan","needs":[]}],"needs":[]}
+{"namespace":"storage/categories/scan","admittance":"open","flags":{},"serve":[],"commands":[{"name":"storage categories scan","needs":["console-management"]}],"needs":["console-management"]}

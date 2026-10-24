@@ -11,6 +11,7 @@
     "keyman",
     "transmission",
     "tailscale",
+    "console-management",
     "gtk4",
     "local-ai-memory-card",
     "hermes",
@@ -31,9 +32,7 @@
         "doors read",
         "staff status",
         "staff actuators",
-        "staff intent",
-        "sync status",
-        "sync now"
+        "staff intent"
       ]
     },
     "benchmark": {
@@ -164,6 +163,13 @@
     },
     "portals": {
       "description": "HomeSI appliance-owned portal tile registry."
+    },
+    "console-management": {
+      "description": "Console management doors for power, session controls, ROM library sync and providers, SSH administration, storage categories and module updates.",
+      "commands": [
+        "sync status",
+        "sync now"
+      ]
     },
     "local-ai-memory-card": {
       "description": "HomeSI GPU memory-card card, library and slot doors."

@@ -1,1 +1,1 @@
-{"namespace":"local-ai/runtime/status","admittance":"open","flags":{},"serve":[],"commands":[{"name":"local-ai runtime status","needs":[]},{"name":"local-ai runtime check","needs":[]},{"name":"local-ai runtime update","needs":[]}],"needs":[]}
+{"namespace":"local-ai/runtime/status","admittance":"open","flags":{},"serve":[],"commands":[{"name":"local-ai runtime status","needs":[]},{"name":"local-ai runtime check","needs":["console-management"]},{"name":"local-ai runtime update","needs":["console-management"]}],"needs":[]}

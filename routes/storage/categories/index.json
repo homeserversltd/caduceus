@@ -1,1 +1,1 @@
-{"namespace":"storage/categories","admittance":"open","flags":{},"serve":[],"commands":[],"needs":[]}
+{"namespace":"storage/categories","admittance":"open","flags":{},"serve":[],"commands":[],"needs":["console-management"]}

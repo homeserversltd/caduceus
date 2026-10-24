@@ -19,6 +19,7 @@
     "face/screenshot",
     "games",
     "games/provider-keys",
+    "games/sync",
     "gui",
     "gui/launcher-cache",
     "gui/plugs",
@@ -159,6 +160,10 @@
     [
       "games",
       "provider-keys"
+    ],
+    [
+      "games",
+      "sync"
     ],
     [
       "gui",
@@ -412,7 +417,9 @@
     "/api/v1/file/ingress/:upload_id/complete",
     "/api/v1/file/ingress/start",
     "/api/v1/games/provider-keys",
+    "/api/v1/games/sync",
     "/api/v1/gaming/provider-keys",
+    "/api/v1/gaming/sync",
     "/api/v1/gui/update/now",
     "/api/v1/homeserver-sbin",
     "/api/v1/homeserver-sbin/show",

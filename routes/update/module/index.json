@@ -1,1 +1,1 @@
-{"namespace":"update/module","transition":"update.module","admittance":"open","flags":{"apply":{"type":"boolean"}},"serve":[],"commands":["update module"],"needs":[]}
+{"namespace":"update/module","transition":"update.module","admittance":"open","flags":{"apply":{"type":"boolean"}},"serve":[],"commands":["update module"],"needs":["console-management"]}
