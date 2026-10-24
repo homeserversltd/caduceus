@@ -1,0 +1,17 @@
+{
+  "schema": "caduceus.hermes.alive.v1",
+  "schema_version": "1.0.0",
+  "role": "HomeSI native Hermes process presence",
+  "authority": {"owner": "caduceus", "path": "schema/caduceus.hermes.alive.v1.json"},
+  "evolution": {"law": "additive-only", "missing_field_semantics": "Absent optional fields are null; unknown fields pass through", "unknown_fields_preserved": true},
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.hermes.alive.v1"},
+    "ok": {"type": "boolean"},
+    "alive": {"type": "integer", "minimum": 0, "description": "One per PID running the Hermes launcher or Python hermes_cli.main entry; not turns, chats, threads or cleanup helpers"},
+    "observed_at": {"type": "string", "format": "date-time", "description": "UTC time of the /proc observation, unchanged during the three-second monotonic TTL"}
+  },
+  "field_types": {"schema": "string", "ok": "boolean", "alive": "integer", "observed_at": "string"},
+  "required": ["schema", "ok", "alive", "observed_at"],
+  "optional": [],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

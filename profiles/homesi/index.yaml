@@ -38,3 +38,5 @@ harmonia_routes:
 sclerites:
 - nmcli
 - local-ai-memory-card
+- hermes
+- portals

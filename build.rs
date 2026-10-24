@@ -644,7 +644,14 @@ fn main() {
             }
         }
         for entry in &leaf_entries {
-            if carapace::route_is_lit(entry, &resolution)
+            // A profile-owned namespace must stay dark even in the '*' probe.
+            let profile_selected = entry.get("profiles").map_or(true, |value| {
+                value.as_array()
+                    .expect("route profiles must be an array")
+                    .iter()
+                    .any(|name| name.as_str() == Some(profile))
+            });
+            if profile_selected && carapace::route_is_lit(entry, &resolution)
                 .unwrap_or_else(|error| panic!("{profile}:carapace-route-resolution-failed:{error}"))
             {
                 let namespace = entry["namespace"]

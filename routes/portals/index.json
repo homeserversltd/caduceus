@@ -1,0 +1,37 @@
+{
+  "namespace": "portals",
+  "admittance": "open",
+  "flags": {"posture": "public-safe"},
+  "profiles": ["homesi"],
+  "needs": ["portals"],
+  "commands": [],
+  "serve": [],
+  "operations": [
+    {
+      "http_method": "GET",
+      "http_path": "/api/v1/portals",
+      "administrative": false,
+      "mutation_allowed": false,
+      "needs": ["portals"],
+      "commands": []
+    },
+    {
+      "http_method": "PUT",
+      "http_path": "/api/v1/portals/{slug}",
+      "administrative": true,
+      "mutation_allowed": true,
+      "ledger_deed": {"organ": "portals", "verb": "put", "target": "portals"},
+      "needs": ["portals"],
+      "commands": []
+    },
+    {
+      "http_method": "DELETE",
+      "http_path": "/api/v1/portals/{slug}",
+      "administrative": true,
+      "mutation_allowed": true,
+      "ledger_deed": {"organ": "portals", "verb": "delete", "target": "portals"},
+      "needs": ["portals"],
+      "commands": []
+    }
+  ]
+}

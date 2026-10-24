@@ -13,7 +13,9 @@
     "tailscale",
     "steam",
     "gtk4",
-    "local-ai-memory-card"
+    "local-ai-memory-card",
+    "hermes",
+    "portals"
   ],
   "features": {
     "all": {
@@ -187,6 +189,12 @@
     "sddm": {
       "description": "SDDM software alternative.",
       "parent": "steam"
+    },
+    "hermes": {
+      "description": "HomeSI native Hermes process-presence door."
+    },
+    "portals": {
+      "description": "HomeSI appliance-owned portal tile registry."
     },
     "local-ai-memory-card": {
       "description": "HomeSI GPU memory-card card, library and slot doors."

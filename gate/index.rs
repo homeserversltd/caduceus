@@ -499,11 +499,32 @@ fn route_matches(entry: &str, method: Option<&str>, path: &str) -> bool {
 
 fn declared_http_route(method: &str, path: &str) -> Option<Value> {
     let namespace = path.strip_prefix("/api/v1/")?;
-    let declaration = crate::routes::selected_declaration(namespace)?;
-    let value: Value = serde_json::from_str(declaration).ok()?;
-    let declared_method = value.get("http_method").and_then(Value::as_str)?;
-    (declared_method == method || (method == "HEAD" && declared_method == "GET"))
-        .then_some(value)
+    let method_matches = |value: &Value| {
+        value.get("http_method").and_then(Value::as_str).is_some_and(|declared| {
+            declared == method || (method == "HEAD" && declared == "GET")
+        })
+    };
+    let mut candidate = Some(namespace);
+    while let Some(name) = candidate {
+        if let Some(declaration) = crate::routes::selected_declaration(name) {
+            let value: Value = serde_json::from_str(declaration).ok()?;
+            if name == namespace && method_matches(&value) {
+                return Some(value);
+            }
+            if let Some(operations) = value.get("operations").and_then(Value::as_array) {
+                for operation in operations {
+                    if method_matches(operation)
+                        && operation.get("http_path").and_then(Value::as_str)
+                            .is_some_and(|pattern| route_matches(pattern, None, path))
+                    {
+                        return Some(operation.clone());
+                    }
+                }
+            }
+        }
+        candidate = name.rsplit_once('/').map(|(parent, _)| parent);
+    }
+    None
 }
 
 fn record_admission_refusal(method: &str, path: &str, signal: &str, started: Instant) {

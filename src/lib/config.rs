@@ -600,6 +600,42 @@ fn mutate_with_rollback(
     Ok(receipt)
 }
 
+/// Update one declaration block under the same lock and owner-write boundary
+/// as the other household writers. No backup, receipt copy, or retained body is
+/// created. The caller owns the single metadata-only Canonical Log Line.
+pub(crate) fn update_block_json<F>(key: &str, update: F) -> Result<(Option<Value>, bool), String>
+where
+    F: FnOnce(Option<&Value>) -> Result<Option<Value>, String>,
+{
+    validate_dotted(key)?;
+    if key.contains('.') {
+        return Err("caduceus-household-config-block-invalid".into());
+    }
+    let _guard = transaction_lock()?;
+    let resolved = resolve()?;
+    ensure_not_symlink_target(&resolved.fs_path)?;
+    if !resolved.fs_path.is_file() {
+        return Err("caduceus-household-config-installed-path-missing".into());
+    }
+    let mut document = read_document(&resolved)?;
+    let object = document.as_object_mut()
+        .ok_or_else(|| "caduceus-household-config-invalid".to_string())?;
+    let next = update(object.get(key))?;
+    if object.get(key) == next.as_ref() {
+        return Ok((next, false));
+    }
+    match &next {
+        Some(value) => { object.insert(key.to_owned(), value.clone()); }
+        None => { object.remove(key); }
+    }
+    let mut bytes = serde_json::to_vec_pretty(&document)
+        .map_err(|_| "caduceus-household-config-render-failed".to_string())?;
+    bytes.push(b'\n');
+    atomic_write_owned(&resolved.fs_path, &bytes, OWNED_FILE_MODE)
+        .map_err(|_| "caduceus-household-config-write-failed".to_string())?;
+    Ok((next, true))
+}
+
 pub fn set_json(path: &str, value: Value) -> Result<Value, String> {
     mutate("set", path, value)
 }

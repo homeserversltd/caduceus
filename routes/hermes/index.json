@@ -1,0 +1,19 @@
+{
+  "namespace": "hermes",
+  "admittance": "open",
+  "flags": {"posture": "guest-aggregate"},
+  "profiles": ["homesi"],
+  "needs": ["hermes"],
+  "commands": [],
+  "serve": [],
+  "operations": [
+    {
+      "http_method": "GET",
+      "http_path": "/api/v1/hermes/alive",
+      "administrative": false,
+      "mutation_allowed": false,
+      "needs": ["hermes"],
+      "commands": []
+    }
+  ]
+}
