@@ -88,21 +88,5 @@ pub fn register(router: axum::Router) -> axum::Router {
             "/api/v1/sync/now",
             axum::routing::post(crate::routes::update_support::sync_now_route),
         );
-    #[cfg(any(
-        leaf_settings_appearance,
-        leaf_settings_child_device,
-        leaf_settings_datetime,
-        leaf_settings_default_apps,
-        leaf_settings_display,
-        leaf_settings_input,
-        leaf_settings_notifications,
-        leaf_settings_pin,
-        leaf_settings_sound,
-        leaf_settings_ssh
-    ))]
-    let router = router.route(
-        "/api/v1/gui/update/now",
-        axum::routing::post(crate::routes::update_support::gui_update_now_route),
-    );
     router
 }

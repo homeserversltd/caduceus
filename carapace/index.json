@@ -175,10 +175,7 @@
       "description": "HomeSI GPU memory-card card, library and slot doors."
     },
     "gtk4": {
-      "description": "GTK4 face and unfinished HomeTV Updates screen debt.",
-      "commands": [
-        "gui update now"
-      ]
+      "description": "GTK4 face and unfinished HomeTV Updates screen debt."
     }
   },
   "relations": [

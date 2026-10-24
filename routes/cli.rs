@@ -25,19 +25,6 @@ use crate::routes::child_device;
 use crate::routes::control_projector as pjlink;
 #[cfg(leaf_local_ai_query)]
 use crate::routes::local_ai;
-#[cfg(any(
-    leaf_settings_appearance,
-    leaf_settings_child_device,
-    leaf_settings_datetime,
-    leaf_settings_default_apps,
-    leaf_settings_display,
-    leaf_settings_input,
-    leaf_settings_notifications,
-    leaf_settings_pin,
-    leaf_settings_sound,
-    leaf_settings_ssh
-))]
-use crate::routes::open_settings_pane as gui;
 #[cfg(leaf_update_module)]
 use crate::routes::update_module;
 #[cfg(carapace_feature_kea)]
@@ -662,26 +649,6 @@ where
                 Err(code) => code,
             }
         }
-        #[cfg(any(
-            leaf_settings_appearance,
-            leaf_settings_child_device,
-            leaf_settings_datetime,
-            leaf_settings_default_apps,
-            leaf_settings_display,
-            leaf_settings_input,
-            leaf_settings_notifications,
-            leaf_settings_pin,
-            leaf_settings_sound,
-            leaf_settings_ssh
-        ))]
-        [domain, object, verb, rest @ ..]
-            if domain == "gui" && object == "update" && verb == "now" =>
-        {
-            match require_policy("gui update now", rest) {
-                Ok(filtered) => gui::update_now(&filtered),
-                Err(code) => code,
-            }
-        }
         #[cfg(leaf_local_ai_query)]
         [domain, object, verb]
             if domain == "local-ai" && object == "runtime" && verb == "status" =>
@@ -980,7 +947,6 @@ fn print_help() {
     println!("  caduceus update check [--dry-run]");
     println!("  caduceus update service status");
     println!("  caduceus update service toggle <on|off> [--dry-run]");
-    println!("  caduceus gui update now [--dry-run]");
     println!("  caduceus local-ai runtime status");
     println!("  caduceus local-ai runtime update [--dry-run]");
     println!("  caduceus profile module toggle <module-id> <on|off>");

@@ -1,1 +1,1 @@
-{"namespace":"update/now","admittance":"open","flags":{},"serve":[{"snake":"appliance/harmonia-press"},{"snake":"gui/update","verb":["gui","update"]}],"commands":["update now"],"needs":["all"]}
+{"namespace":"update/now","admittance":"open","flags":{},"serve":[{"snake":"appliance/harmonia-press"}],"commands":["update now"],"needs":["all"]}

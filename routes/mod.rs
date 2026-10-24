@@ -103,20 +103,6 @@ pub use leaf_network_vpn as manage_vpn;
 pub(crate) mod transmission_status_onness;
 #[cfg(leaf_settings_child_device)]
 pub use leaf_settings_child_device as manage_child_device;
-#[cfg(any(
-    leaf_settings_appearance,
-    leaf_settings_child_device,
-    leaf_settings_datetime,
-    leaf_settings_default_apps,
-    leaf_settings_display,
-    leaf_settings_input,
-    leaf_settings_notifications,
-    leaf_settings_pin,
-    leaf_settings_sound,
-    leaf_settings_ssh
-))]
-#[path = "settings/support/open_settings_pane/index.rs"]
-pub mod open_settings_pane;
 #[cfg(leaf_local_ai_query)]
 pub use leaf_local_ai_query as query_local_ai;
 #[cfg(leaf_log_read)]

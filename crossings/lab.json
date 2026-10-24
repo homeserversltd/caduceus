@@ -420,7 +420,6 @@
     "/api/v1/games/sync",
     "/api/v1/gaming/provider-keys",
     "/api/v1/gaming/sync",
-    "/api/v1/gui/update/now",
     "/api/v1/homeserver-sbin",
     "/api/v1/homeserver-sbin/show",
     "/api/v1/hyalos/reflect",

@@ -22,7 +22,6 @@
     "face/meter",
     "face/screenshot",
     "face/volume",
-    "gui/update",
     "network/cert/house-ca",
     "network/cert/refresh",
     "network/child-device",
@@ -119,10 +118,6 @@
     [
       "face",
       "volume"
-    ],
-    [
-      "gui",
-      "update"
     ],
     [
       "network",
@@ -229,7 +224,6 @@
     "/api/v1/face/volume",
     "/api/v1/file/ingress",
     "/api/v1/file/ingress/:upload_id/complete",
-    "/api/v1/gui/update/now",
     "/api/v1/interactables",
     "/api/v1/interactables/:id/run",
     "/api/v1/network/device",
