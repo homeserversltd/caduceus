@@ -18,7 +18,6 @@ fn staff_refusal(command: &str, signal: String) -> (StatusCode, Json<crate::gate
 }
 
 const PROVIDERS: &[(&str, &str)] = &[
-    ("steamgriddb", "STEAMGRIDDB_API_KEY"),
     ("thegamesdb", "THEGAMESDB_API_KEY"),
     ("screenscraper", "SCREENSCRAPER_API_KEY"),
 ];
@@ -37,7 +36,6 @@ fn bad_request() -> (StatusCode, Json<crate::gate::ApiErrorBody>) {
 
 #[derive(Deserialize)]
 pub(super) struct ProviderKeysBody {
-    steamgriddb_api_key: Option<String>,
     thegamesdb_api_key: Option<String>,
     screenscraper_api_key: Option<String>,
 }
@@ -91,7 +89,6 @@ pub(super) async fn save(
     Json(body): Json<ProviderKeysBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<crate::gate::ApiErrorBody>)> {
     let keys = [
-        ("STEAMGRIDDB_API_KEY", body.steamgriddb_api_key),
         ("THEGAMESDB_API_KEY", body.thegamesdb_api_key),
         ("SCREENSCRAPER_API_KEY", body.screenscraper_api_key),
     ]

@@ -108,14 +108,6 @@ mod tests {
             (
                 include_str!(concat!(
                     env!("CARGO_MANIFEST_DIR"),
-                    "/routes/gaming/sync/index.json"
-                )),
-                "agathodaimon-sbin-gaming-sync",
-                "gaming/sync",
-            ),
-            (
-                include_str!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
                     "/routes/gaming/provider-keys/index.json"
                 )),
                 "agathodaimon-sbin-gaming-provider-keys",

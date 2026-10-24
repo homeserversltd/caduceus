@@ -8,7 +8,6 @@ use serde_json::{json, Value};
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum Degree {
-    Steam,
     Stream,
     Seat,
 }
@@ -47,14 +46,13 @@ async fn restart(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<crate::gate::ApiErrorBody>)> {
     let body: RestartBody = serde_json::from_value(raw).map_err(|error| {
         let signal = if error.to_string().contains("unknown variant") {
-            "caduceus-console-restart-degree-invalid: expected steam|stream|seat"
+            "caduceus-console-restart-degree-invalid: expected stream|seat"
         } else {
             "caduceus-console-restart-request-invalid"
         };
         bad_request("console restart", signal)
     })?;
     let degree = match body.degree {
-        Degree::Steam => "steam",
         Degree::Stream => "stream",
         Degree::Seat => "seat",
     };

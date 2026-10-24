@@ -11,7 +11,6 @@
     "keyman",
     "transmission",
     "tailscale",
-    "steam",
     "gtk4",
     "local-ai-memory-card",
     "hermes",
@@ -32,7 +31,9 @@
         "doors read",
         "staff status",
         "staff actuators",
-        "staff intent"
+        "staff intent",
+        "sync status",
+        "sync now"
       ]
     },
     "benchmark": {
@@ -158,38 +159,6 @@
     "tailscale": {
       "description": "Tailscale service and controls."
     },
-    "steam": {
-      "description": "Console and Steam family root; software choices are declared by child features.",
-      "children": [
-        "console-restart-policy",
-        "steam-client",
-        "sunshine",
-        "sddm"
-      ],
-      "commands": [
-        "sync status",
-        "sync now"
-      ]
-    },
-    "console-restart-policy": {
-      "description": "Defaulted elective console-controls feature for the declared cold restart leaves.",
-      "default_if": [
-        "steam"
-      ],
-      "parent": "steam"
-    },
-    "steam-client": {
-      "description": "Steam client software choice (the selectable Steam alias).",
-      "parent": "steam"
-    },
-    "sunshine": {
-      "description": "Sunshine software alternative.",
-      "parent": "steam"
-    },
-    "sddm": {
-      "description": "SDDM software alternative.",
-      "parent": "steam"
-    },
     "hermes": {
       "description": "HomeSI native Hermes process-presence door."
     },
@@ -227,17 +196,6 @@
         "wireguard"
       ],
       "default": "openvpn"
-    },
-    {
-      "id": "steam-alternative",
-      "owner": "steam",
-      "kind": "or",
-      "features": [
-        "steam-client",
-        "sunshine",
-        "sddm"
-      ],
-      "default": "steam-client"
     }
   ]
 }
