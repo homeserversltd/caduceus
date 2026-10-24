@@ -120,8 +120,7 @@
       "PUT /api/v1/local-ai/slot/embed",
       "PUT /api/v1/local-ai/slot/ear",
       "/api/v1/access/sudo/mode",
-      "/api/v1/storage/vault/auto-decrypt",
-      "/api/v1/storage/vault/unlock"
+      "/api/v1/storage/vault/auto-decrypt"
     ]
   }
 }
