@@ -161,11 +161,11 @@ fn upsert(slug: &str, mut body: Value) -> Result<Value, String> {
     if !valid_slug(slug) {
         return Err("caduceus-portals-slug-invalid".into());
     }
+    // The central administrative gate already removes only flags.exousia.pin.
+    // Preserve every other offered field, including additive flags.
     let object = body
         .as_object_mut()
         .ok_or("caduceus-portals-tile-invalid")?;
-    // Administrative envelope fields never enter the tile declaration.
-    object.remove("flags");
     if object
         .get("slug")
         .is_some_and(|value| value.as_str() != Some(slug))

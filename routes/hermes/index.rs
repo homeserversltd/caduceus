@@ -20,18 +20,16 @@ struct Observation {
 }
 static CACHE: Mutex<Option<Observation>> = Mutex::new(None);
 
-fn basename(path: &[u8]) -> &[u8] {
-    path.rsplit(|byte| *byte == b'/').next().unwrap_or(path)
-}
-
 fn hermes_entry(args: &[&[u8]]) -> bool {
     let Some(program) = args.first() else {
         return false;
     };
-    if basename(program) == b"hermes" {
+    if *program == b"/opt/hermes/venv/bin/hermes" {
         return true;
     }
-    let Some(version) = basename(program).strip_prefix(b"python") else {
+    // Both launchers belong to the declared HomeSI venv. A same-named binary
+    // elsewhere, or system Python running a similarly named module, is not it.
+    let Some(version) = program.strip_prefix(b"/opt/hermes/venv/bin/python") else {
         return false;
     };
     if !version
@@ -44,18 +42,21 @@ fn hermes_entry(args: &[&[u8]]) -> bool {
     while let Some(argument) = args.get(index) {
         match *argument {
             b"-I" | b"-B" | b"-u" | b"-s" | b"-E" | b"-S" | b"-O" | b"-OO" => index += 1,
-            b"-m" => return args.get(index + 1).copied() == Some(b"hermes_cli.main".as_slice()),
             b"-c" => {
-                // HomeSI's installed gateway uses isolated Python plus this
-                // bootstrap, not a process named 'hermes-gateway'. Cleanup
-                // modules and shell arguments mentioning Hermes do not match.
-                return args.get(index + 1).is_some_and(|script| {
-                    let script = String::from_utf8_lossy(script);
-                    script.contains("runpy.run_module('hermes_cli.main'")
-                        || script.contains("runpy.run_module(\"hermes_cli.main\"")
-                });
+                // The gateway service's isolated bootstrap ends with this
+                // entry call and carries the explicit gateway/run argv. Its
+                // stop-mark and cgroup-cleanup helpers cannot match either.
+                let gateway_run = args.get(index + 2).copied() == Some(b"gateway".as_slice())
+                    && args.get(index + 3).copied() == Some(b"run".as_slice());
+                return gateway_run
+                    && args.get(index + 1).is_some_and(|script| {
+                        let script = String::from_utf8_lossy(script);
+                        script.trim_end().ends_with(
+                        "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)",
+                    )
+                    });
             }
-            script => return basename(script) == b"hermes",
+            script => return script == b"/opt/hermes/venv/bin/hermes",
         }
     }
     false
