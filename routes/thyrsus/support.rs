@@ -183,7 +183,7 @@ fn receipt(
         if let Some(value) = object.get(*field) {
             let valid = match *field {
                 "ok" | "token_present" | "reachable" => value.is_boolean(),
-                "firstMissingSignal" => named_signal(value),
+                "firstMissingSignal" => value.is_null() || named_signal(value),
                 _ => value.is_string() || value.is_null(),
             };
             if !valid {
