@@ -1,0 +1,29 @@
+{
+  "namespace": "thyrsus/forge-token",
+  "admittance": "open",
+  "flags": {},
+  "http_method": "POST",
+  "administrative": true,
+  "mutation_allowed": true,
+  "profiles": [
+    "homeserver",
+    "homesi"
+  ],
+  "needs": [],
+  "commands": [],
+  "serve": [
+    {
+      "snake": "thyrsus/forge-token",
+      "verb": [
+        "thyrsus",
+        "forge-token"
+      ],
+      "stdin": "secret"
+    }
+  ],
+  "ledger_deed": {
+    "organ": "thyrsus",
+    "verb": "forge-token",
+    "target": "thyrsus"
+  }
+}

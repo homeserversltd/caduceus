@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema": "caduceus.thyrsus.admit.v1",
+  "schema_version": "1.0.0",
+  "role": "Thyrsus admit HTTP request and secret-free staff receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.thyrsus.admit.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_skipped": true,
+    "missing_field_semantics": "Absent optional fields mean null; absent or null propose branch selects the staff-generated branch"
+  },
+  "required": [
+    "schema"
+  ],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.thyrsus.admit.v1"
+    },
+    "ok": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "firstMissingSignal": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Named staff refusal is preserved unchanged"
+    },
+    "merged_sha": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "optional": [
+    "ok",
+    "firstMissingSignal",
+    "merged_sha"
+  ],
+  "forms": {
+    "request": {
+      "required": [
+        "repo",
+        "pr"
+      ],
+      "fields": {
+        "repo": {
+          "type": "string"
+        },
+        "pr": {
+          "type": [
+            "integer",
+            "string"
+          ],
+          "description": "Positive pull request number"
+        }
+      },
+      "additionalProperties": true
+    },
+    "receipt": {
+      "required": [
+        "ok"
+      ],
+      "fields": {
+        "schema": {
+          "type": "string",
+          "const": "caduceus.thyrsus.admit.v1"
+        },
+        "ok": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "firstMissingSignal": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Named staff refusal is preserved unchanged"
+        },
+        "merged_sha": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "http": {
+    "method": "POST",
+    "path": "/api/v1/thyrsus/admit",
+    "administrative": true,
+    "mutation_allowed": true
+  },
+  "secrecy": {
+    "request_body_logged": false,
+    "response_body_logged": false,
+    "token_returned": false,
+    "token_transport": null
+  },
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

@@ -5,6 +5,9 @@ pub use crate::stats;
 pub mod profile_routes {
     include!(concat!(env!("OUT_DIR"), "/profile_routes.rs"));
 }
+#[cfg(any(leaf_thyrsus_propose, leaf_thyrsus_admit, leaf_thyrsus_forge_token, leaf_thyrsus_forge))]
+#[path = "thyrsus/support.rs"]
+pub(crate) mod thyrsus_support;
 include!(concat!(env!("OUT_DIR"), "/selected_leaves.rs"));
 #[cfg(leaf_cartridges_admit)]
 pub use leaf_cartridges_admit as admit_cartridge;

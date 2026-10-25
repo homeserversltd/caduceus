@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema": "caduceus.thyrsus.propose.v1",
+  "schema_version": "1.0.0",
+  "role": "Thyrsus propose HTTP request and secret-free staff receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.thyrsus.propose.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_skipped": true,
+    "missing_field_semantics": "Absent optional fields mean null; absent or null propose branch selects the staff-generated branch"
+  },
+  "required": [
+    "schema"
+  ],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.thyrsus.propose.v1"
+    },
+    "ok": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "firstMissingSignal": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Named staff refusal is preserved unchanged"
+    },
+    "branch": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "pr_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "optional": [
+    "ok",
+    "firstMissingSignal",
+    "branch",
+    "pr_url"
+  ],
+  "forms": {
+    "request": {
+      "required": [
+        "repo",
+        "message"
+      ],
+      "fields": {
+        "repo": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "receipt": {
+      "required": [
+        "ok"
+      ],
+      "fields": {
+        "schema": {
+          "type": "string",
+          "const": "caduceus.thyrsus.propose.v1"
+        },
+        "ok": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "firstMissingSignal": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Named staff refusal is preserved unchanged"
+        },
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pr_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "http": {
+    "method": "POST",
+    "path": "/api/v1/thyrsus/propose",
+    "administrative": true,
+    "mutation_allowed": true
+  },
+  "secrecy": {
+    "request_body_logged": false,
+    "response_body_logged": false,
+    "token_returned": false,
+    "token_transport": null
+  },
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

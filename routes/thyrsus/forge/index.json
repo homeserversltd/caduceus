@@ -1,0 +1,24 @@
+{
+  "namespace": "thyrsus/forge",
+  "admittance": "open",
+  "flags": {},
+  "http_method": "GET",
+  "administrative": false,
+  "mutation_allowed": false,
+  "profiles": [
+    "homeserver",
+    "homesi"
+  ],
+  "needs": [],
+  "commands": [],
+  "serve": [
+    {
+      "snake": "thyrsus/forge",
+      "verb": [
+        "thyrsus",
+        "forge"
+      ],
+      "stdin": "none"
+    }
+  ]
+}

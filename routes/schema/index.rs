@@ -9,6 +9,38 @@ use std::sync::OnceLock;
 
 include!(concat!(env!("OUT_DIR"), "/public_schema_seats.rs"));
 
+// Canonical seats remain under schema/; this reader embeds their exact bytes.
+const THYRSUS_SEATS: &[(&str, &str)] = &[
+    (
+        "caduceus.thyrsus.propose.v1",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/schema/caduceus.thyrsus.propose.v1.json"
+        )),
+    ),
+    (
+        "caduceus.thyrsus.admit.v1",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/schema/caduceus.thyrsus.admit.v1.json"
+        )),
+    ),
+    (
+        "caduceus.thyrsus.forge-token.v1",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/schema/caduceus.thyrsus.forge-token.v1.json"
+        )),
+    ),
+    (
+        "caduceus.thyrsus.forge.v1",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/schema/caduceus.thyrsus.forge.v1.json"
+        )),
+    ),
+];
+
 struct Seat {
     bytes: &'static str,
     declaration: Value,
@@ -19,6 +51,7 @@ fn seats() -> &'static BTreeMap<&'static str, Seat> {
     SEATS.get_or_init(|| {
         EMBEDDED_SEATS
             .iter()
+            .chain(THYRSUS_SEATS.iter())
             .map(|(id, bytes)| {
                 let declaration: Value = serde_json::from_str(bytes)
                     .expect("caduceus-schema-desync: embedded seat is not JSON");
