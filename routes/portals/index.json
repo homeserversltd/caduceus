@@ -2,7 +2,7 @@
   "namespace": "portals",
   "admittance": "open",
   "flags": {"posture": "public-safe"},
-  "profiles": ["homesi"],
+  "profiles": ["homesi", "specula"],
   "needs": ["portals"],
   "commands": [],
   "serve": [],

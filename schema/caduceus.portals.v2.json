@@ -1,0 +1,44 @@
+{
+  "schema": "caduceus.portals.v2",
+  "schema_version": "1.0.0",
+  "role": "PortalEntry registry over the appliance config portals block",
+  "authority": {"owner": "caduceus", "path": "schema/caduceus.portals.v2.json"},
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "An absent or null portals block projects the Manual factory entry without a write. PortalEntry defaults match Coronatio: description and localURL are empty strings, services is empty, type is systemd, and absent port and remoteURL have no value.",
+    "unknown_fields_preserved": true,
+    "runtime_projection_fields": ["status", "visible"]
+  },
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.portals.v2"},
+    "ok": {"type": "boolean"},
+    "entries": {"type": "array", "items": {"form": "entry"}},
+    "changed": {"type": "boolean", "description": "Mutation-only result; false for an identical upsert or absent deletion"}
+  },
+  "forms": {
+    "entry": {
+      "required": ["name"],
+      "optional": ["description", "services", "type", "port", "localURL", "remoteURL"],
+      "fields": {
+        "name": {"type": "string", "minLength": 1, "description": "The path key is this name lowercased with every run of non-alphanumeric characters folded to one hyphen"},
+        "description": {"type": "string", "default": ""},
+        "services": {"type": "array", "items": {"type": "string"}, "default": []},
+        "type": {"type": "string", "default": "systemd"},
+        "port": {"type": ["integer", "null"], "minimum": 0, "maximum": 65535},
+        "localURL": {"type": "string", "default": "", "description": "Empty for an entry without a local link; otherwise a root-relative path or an http/https URL without embedded credentials"},
+        "remoteURL": {"type": ["string", "null"], "description": "Optional remote link, with the same URL semantics as localURL"}
+      }
+    }
+  },
+  "field_types": {"schema": "string", "ok": "boolean", "entries": "array", "changed": "boolean"},
+  "required": ["schema", "ok", "entries"],
+  "optional": ["changed"],
+  "storage": {
+    "path": "/etc/appliance/config.json",
+    "block": "portals",
+    "shape": "Object with entries array; unknown block and entry fields survive mutations except the derived status and visible fields, which are never stored",
+    "factory_entry": {"name": "Manual", "description": "This box's own manual", "services": [], "type": "link", "localURL": "/manual/"},
+    "legacy_read": "A tiles array projects title as name, url as localURL, type link and the original port; the next effective write replaces tiles with entries"
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

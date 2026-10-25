@@ -8,15 +8,25 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::time::Instant;
 
-const SCHEMA: &str = "caduceus.portals.v1";
+const SCHEMA: &str = "caduceus.portals.v2";
+
+fn name_slug(name: &str) -> String {
+    let mut slug = String::new();
+    let mut separator = false;
+    for ch in name.to_lowercase().chars() {
+        if ch.is_alphanumeric() {
+            slug.push(ch);
+            separator = false;
+        } else if !separator {
+            slug.push('-');
+            separator = true;
+        }
+    }
+    slug
+}
 
 fn valid_slug(slug: &str) -> bool {
-    !slug.is_empty()
-        && slug.len() <= 64
-        && slug
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-        && slug.as_bytes()[0].is_ascii_alphanumeric()
+    !slug.is_empty() && name_slug(slug) == slug
 }
 
 fn valid_url(value: &str) -> bool {
@@ -39,109 +49,131 @@ fn valid_url(value: &str) -> bool {
     })
 }
 
-fn tile(value: &Value) -> Result<Value, String> {
+fn entry(value: &Value) -> Result<Value, String> {
     let mut object = value
         .as_object()
         .cloned()
-        .ok_or("caduceus-portals-tile-invalid")?;
+        .ok_or("caduceus-portals-entry-invalid")?;
     let seat =
         crate::routes::leaf_schema::declaration(SCHEMA).ok_or("caduceus-portals-schema-desync")?;
-    let required = seat["forms"]["tile"]["required"]
+    let required = seat["forms"]["entry"]["required"]
         .as_array()
         .ok_or("caduceus-portals-schema-desync")?;
     if required
         .iter()
         .any(|field| !field.as_str().is_some_and(|key| object.contains_key(key)))
     {
-        return Err("caduceus-portals-tile-kernel-missing".into());
+        return Err("caduceus-portals-entry-kernel-missing".into());
     }
     if !object
-        .get("slug")
+        .get("name")
         .and_then(Value::as_str)
-        .is_some_and(valid_slug)
+        .is_some_and(|name| !name.trim().is_empty())
     {
-        return Err("caduceus-portals-slug-invalid".into());
+        return Err("caduceus-portals-name-invalid".into());
     }
-    if !object
-        .get("title")
-        .and_then(Value::as_str)
-        .is_some_and(|title| {
-            !title.trim().is_empty()
-                && title.chars().count() <= 128
-                && !title.chars().any(char::is_control)
-        })
+    for field in ["description", "services", "type", "localURL"] {
+        let default = seat["forms"]["entry"]["fields"][field]
+            .get("default")
+            .ok_or("caduceus-portals-schema-desync")?;
+        object.entry(field).or_insert_with(|| default.clone());
+    }
+    if !object["description"].is_string() || !object["type"].is_string() {
+        return Err("caduceus-portals-entry-invalid".into());
+    }
+    if !object["services"]
+        .as_array()
+        .is_some_and(|services| services.iter().all(Value::is_string))
     {
-        return Err("caduceus-portals-title-invalid".into());
+        return Err("caduceus-portals-services-invalid".into());
     }
-    if !matches!(
-        object.get("kind").and_then(Value::as_str),
-        Some("link" | "subsite" | "hybrid")
-    ) {
-        return Err("caduceus-portals-kind-invalid".into());
-    }
-    if !object
-        .get("url")
-        .and_then(Value::as_str)
-        .is_some_and(valid_url)
+    if !object["localURL"]
+        .as_str()
+        .is_some_and(|url| url.is_empty() || valid_url(url))
     {
         return Err("caduceus-portals-url-invalid".into());
     }
-    let port = object.entry("port").or_insert(Value::Null);
-    if !port.is_null()
-        && !port
-            .as_u64()
-            .is_some_and(|port| (1..=65535).contains(&port))
-    {
+    if object.get("port").is_some_and(|port| {
+        !port.is_null() && !port.as_u64().is_some_and(|port| port <= u16::MAX as u64)
+    }) {
         return Err("caduceus-portals-port-invalid".into());
     }
-    let health = object.entry("health").or_insert(Value::Null);
-    if !health.is_null() && !health.as_str().is_some_and(valid_url) {
-        return Err("caduceus-portals-health-invalid".into());
+    if object.get("remoteURL").is_some_and(|url| {
+        !url.is_null() && !url.as_str().is_some_and(|url| url.is_empty() || valid_url(url))
+    }) {
+        return Err("caduceus-portals-url-invalid".into());
     }
+    // Coronatio derives these for the face; they never become configuration.
+    object.remove("status");
+    object.remove("visible");
     Ok(Value::Object(object))
 }
 
+fn legacy_entry(value: &Value) -> Result<Value, String> {
+    let mut object = value
+        .as_object()
+        .cloned()
+        .ok_or("caduceus-portals-entry-invalid")?;
+    let name = object.remove("title").ok_or("caduceus-portals-name-invalid")?;
+    let local_url = object.remove("url").ok_or("caduceus-portals-url-invalid")?;
+    for field in ["slug", "kind", "health"] {
+        object.remove(field);
+    }
+    object.insert("name".into(), name);
+    object.insert("localURL".into(), local_url);
+    object.insert("type".into(), json!("link"));
+    entry(&Value::Object(object))
+}
+
 fn registry(block: Option<&Value>) -> Result<Value, String> {
-    let block = match block {
-        None | Some(Value::Null) => json!({"tiles":[{
-            "slug":"manual", "title":"Manual", "kind":"subsite", "url":"/manual/",
-            "port":null, "health":null
-        }]}),
-        Some(value) => value.clone(),
+    let mut object = match block {
+        None | Some(Value::Null) => {
+            let seat = crate::routes::leaf_schema::declaration(SCHEMA)
+                .ok_or("caduceus-portals-schema-desync")?;
+            let factory = seat["storage"].get("factory_entry")
+                .ok_or("caduceus-portals-schema-desync")?;
+            json!({"entries":[factory]}).as_object().unwrap().clone()
+        }
+        Some(value) => value.as_object().cloned()
+            .ok_or("caduceus-portals-registry-invalid")?,
     };
-    if block
-        .get("schema")
-        .is_some_and(|schema| schema.as_str() != Some(SCHEMA))
-    {
+    let legacy = !object.contains_key("entries") && object.contains_key("tiles");
+    if object.get("schema").is_some_and(|schema| {
+        !schema.is_null()
+            && schema.as_str() != Some(SCHEMA)
+            && !(legacy && schema.as_str() == Some("caduceus.portals.v1"))
+    }) {
         return Err("caduceus-portals-schema-desync".into());
     }
-    let tiles = block
-        .get("tiles")
+    let raw = object.get(if legacy { "tiles" } else { "entries" })
         .and_then(Value::as_array)
         .ok_or("caduceus-portals-registry-invalid")?;
     let mut slugs = BTreeSet::new();
-    for raw in tiles {
-        let checked = tile(raw)?;
-        if !slugs.insert(checked["slug"].as_str().unwrap().to_owned()) {
+    let mut entries = Vec::with_capacity(raw.len());
+    for value in raw {
+        let checked = if legacy { legacy_entry(value)? } else { entry(value)? };
+        let slug = name_slug(checked["name"].as_str().unwrap());
+        if !slugs.insert(slug) {
             return Err("caduceus-portals-slug-duplicate".into());
         }
+        entries.push(checked);
     }
-    Ok(block)
+    object.remove("tiles");
+    if object.contains_key("schema") {
+        object.insert("schema".into(), json!(SCHEMA));
+    }
+    object.insert("entries".into(), json!(entries));
+    Ok(Value::Object(object))
 }
 
 fn projection(block: Option<&Value>, changed: Option<bool>) -> Result<Value, String> {
     let mut value = registry(block)?;
-    let tiles = value["tiles"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(tile)
-        .collect::<Result<Vec<_>, _>>()?;
-    value["tiles"] = json!(tiles);
     value["schema"] = json!(SCHEMA);
     value["ok"] = json!(true);
     if let Some(changed) = changed {
         value["changed"] = json!(changed);
+    } else {
+        value.as_object_mut().unwrap().remove("changed");
     }
     if !crate::routes::leaf_schema::accepts(SCHEMA, &value) {
         return Err("caduceus-portals-schema-desync".into());
@@ -157,38 +189,31 @@ fn read() -> Result<Value, String> {
     }
 }
 
-fn upsert(slug: &str, mut body: Value) -> Result<Value, String> {
-    if !valid_slug(slug) {
-        return Err("caduceus-portals-slug-invalid".into());
-    }
-    // The central administrative gate already removes only flags.exousia.pin.
-    // Preserve every other offered field, including additive flags.
-    let object = body
-        .as_object_mut()
-        .ok_or("caduceus-portals-tile-invalid")?;
-    if object
-        .get("slug")
-        .is_some_and(|value| value.as_str() != Some(slug))
-    {
+fn upsert(slug: &str, body: Value) -> Result<Value, String> {
+    // The central administrative gate removes its PIN, not additive entry fields.
+    let offered = entry(&body)?;
+    if name_slug(offered["name"].as_str().unwrap()) != slug {
         return Err("caduceus-portals-slug-mismatch".into());
     }
-    object.insert("slug".into(), json!(slug));
-    // Validate the entire offered tile before acquiring the write boundary.
-    let offered = tile(&body)?;
     let (block, changed) = config::update_block_json("portals", |current| {
         let mut block = registry(current)?;
-        let tiles = block["tiles"].as_array_mut().unwrap();
-        if let Some(existing) = tiles
+        let entries = block["entries"].as_array_mut().unwrap();
+        if let Some(existing) = entries
             .iter_mut()
-            .find(|tile| tile["slug"].as_str() == Some(slug))
+            .find(|value| name_slug(value["name"].as_str().unwrap()) == slug)
         {
             let mut merged = existing.as_object().unwrap().clone();
+            // A missing optional PortalEntry value is absent, not the old value.
+            for field in ["port", "remoteURL"] {
+                if !offered.as_object().unwrap().contains_key(field) {
+                    merged.remove(field);
+                }
+            }
             merged.extend(offered.as_object().unwrap().clone());
-            *existing = tile(&Value::Object(merged))?;
+            *existing = entry(&Value::Object(merged))?;
         } else {
-            tiles.push(offered);
+            entries.push(offered);
         }
-        // Validate and project before durable bytes can change.
         projection(Some(&block), Some(true))?;
         Ok(Some(block))
     })?;
@@ -201,11 +226,11 @@ fn remove(slug: &str) -> Result<Value, String> {
     }
     let (block, changed) = config::update_block_json("portals", |current| {
         let mut block = registry(current)?;
-        let tiles = block["tiles"].as_array_mut().unwrap();
-        if !tiles.iter().any(|tile| tile["slug"].as_str() == Some(slug)) {
+        let entries = block["entries"].as_array_mut().unwrap();
+        if !entries.iter().any(|value| name_slug(value["name"].as_str().unwrap()) == slug) {
             return Ok(current.cloned());
         }
-        tiles.retain(|tile| tile["slug"].as_str() != Some(slug));
+        entries.retain(|value| name_slug(value["name"].as_str().unwrap()) != slug);
         projection(Some(&block), Some(true))?;
         Ok(Some(block))
     })?;
@@ -237,7 +262,7 @@ fn deed(verb: &'static str, started: Instant, result: Result<Value, String>) -> 
     let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
         "organ":"portals", "kind":verb, "ok":result.is_ok(),
         "level":if result.is_ok() { "info" } else { "error" },
-        "message":"portal tile mutation",
+        "message":"portal entry mutation",
         "attributes_redacted":{
             "who":"owner", "verb":verb, "target":"portals",
             "outcome":if result.is_ok() { "success" } else { "refused" },

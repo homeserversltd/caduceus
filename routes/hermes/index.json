@@ -2,7 +2,7 @@
   "namespace": "hermes",
   "admittance": "open",
   "flags": {"posture": "guest-aggregate"},
-  "profiles": ["homesi"],
+  "profiles": ["homesi", "specula"],
   "needs": ["hermes"],
   "commands": [],
   "serve": [],
