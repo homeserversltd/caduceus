@@ -329,12 +329,11 @@ pub fn runtime(entry: &Value) -> Result<Value> {
 
 fn health_address(endpoint: &str) -> Option<std::net::SocketAddr> {
     let url = url::Url::parse(endpoint).ok()?;
+    // The endpoint selects only an origin. Its path, query and fragment do not
+    // replace the separately declared health.route request target.
     if url.scheme() != "http"
         || !url.username().is_empty()
         || url.password().is_some()
-        || url.path() != "/"
-        || url.query().is_some()
-        || url.fragment().is_some()
     {
         return None;
     }
