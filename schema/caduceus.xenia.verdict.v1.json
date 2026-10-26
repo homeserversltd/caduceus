@@ -136,13 +136,46 @@
       }
     },
     "runtime": {
-      "type": "object"
+      "type": "object",
+      "description": "Single guest runtime for status/:id, or a map of id to runtime for whole-register status. Each row follows projections.status_runtime; guest ids are never interpreted as runtime field names. Health and source comparison are live read-only evidence."
     },
     "receipt": {
       "type": "object"
     },
     "envelope": {
       "type": "object"
+    }
+  },
+  "projections": {
+    "status_runtime": {
+      "type": "object",
+      "fields": {
+        "running_source_sha": {
+          "type": ["string", "null"],
+          "description": "The running guest's source_sha from a well-formed xenia.health.v1 reply; null when absent or the read is unusable."
+        },
+        "installed_source_sha": {
+          "type": ["string", "null"],
+          "description": "The register entry's installed.source_sha; never updated by status."
+        },
+        "currentness": {
+          "type": "string",
+          "enum": ["current", "out-of-date", "unknown"]
+        },
+        "currentness_reason": {
+          "type": "string",
+          "description": "source-sha-match, source-sha-mismatch, installed-source-sha-absent, running-source-sha-absent, health-unreachable, health-malformed, health-service-mismatch, health-route-invalid, health-loopback-endpoint-absent, or not-process."
+        },
+        "health": {
+          "type": "string",
+          "description": "Process status reads report healthy, unhealthy, or unreachable. The existing non-process and entry-absent projections retain unobserved or unknown."
+        },
+        "health_reason": {
+          "type": "string",
+          "description": "The live health-read outcome, separate from whether the installed and running source SHAs match."
+        }
+      },
+      "optional": ["running_source_sha", "installed_source_sha", "currentness", "currentness_reason", "health", "health_reason"]
     }
   },
   "field_types": {

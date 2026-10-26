@@ -326,3 +326,119 @@ pub fn runtime(entry: &Value) -> Result<Value> {
         json!({"state": props.get("ActiveState"), "unit": unit, "properties": props, "pids": pids, "socket_inodes": inodes, "listeners": listeners, "health": "unobserved"}),
     )
 }
+
+fn health_address(endpoint: &str) -> Option<std::net::SocketAddr> {
+    let url = url::Url::parse(endpoint).ok()?;
+    if url.scheme() != "http"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    let ip = match url.host()? {
+        url::Host::Ipv4(ip) => IpAddr::V4(ip),
+        url::Host::Ipv6(ip) => IpAddr::V6(ip),
+        url::Host::Domain(_) => return None,
+    };
+    ip.is_loopback().then_some(std::net::SocketAddr::new(ip, url.port_or_known_default()?))
+}
+
+/// Status evidence is request-local. Validation's socket census deliberately
+/// keeps calling runtime(), without a health request or a stored observation.
+pub fn status_runtime(entry: &Value) -> Result<Value> {
+    let mut value = runtime(entry).unwrap_or_else(|error| {
+        json!({"state": "observation-failed", "ok": false, "error": error.value()})
+    });
+    value["installed_source_sha"] = entry["installed"]["source_sha"].clone();
+    value["running_source_sha"] = Value::Null;
+    value["currentness"] = json!("unknown");
+    if entry["kind"] != "cartridge-process" {
+        value["currentness_reason"] = json!("not-process");
+    } else {
+        status_health(entry, &mut value);
+    }
+    // The same public-seat projection checks each row of the all-guests map
+    // as well as the single-guest reply; no second runtime schema is carried.
+    let projection = super::seat::declaration(super::VERDICT)?
+        .pointer("/projections/status_runtime")
+        .ok_or_else(|| observation("schema", "runtime", "status-runtime-seat-absent"))?;
+    super::seat::node(projection, &value, "status", "runtime")?;
+    Ok(value)
+}
+
+fn status_health(entry: &Value, value: &mut Value) {
+    value["health"] = json!("unreachable");
+    value["health_reason"] = json!("health-unreachable");
+    value["currentness_reason"] = json!("health-unreachable");
+    let route = entry["health"]["route"].as_str().unwrap_or("/health");
+    if !route.starts_with('/') || route.starts_with("//")
+        || route.bytes().any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+        || route.contains('#')
+    {
+        value["health_reason"] = json!("health-route-invalid");
+        value["currentness_reason"] = json!("health-route-invalid");
+        return;
+    }
+    let listeners = value["listeners"].as_array().into_iter().flatten()
+        .filter_map(|listener| listener["endpoint"].as_str());
+    let discovered = entry["discovered"]["endpoint"].as_str();
+    let mut seen = BTreeSet::new();
+    let addresses: Vec<_> = listeners.chain(discovered)
+        .filter_map(health_address)
+        .filter(|address| seen.insert(*address))
+        .collect();
+    if addresses.is_empty() {
+        value["health_reason"] = json!("health-loopback-endpoint-absent");
+        value["currentness_reason"] = json!("health-loopback-endpoint-absent");
+        return;
+    }
+    // A slow listener cannot consume the fallback's entire budget. One guest
+    // gets at most 750ms total, with at most 250ms for each distinct endpoint.
+    let deadline = Instant::now() + Duration::from_millis(750);
+    for address in addresses {
+        if Instant::now() >= deadline {
+            break;
+        }
+        let attempt_deadline = deadline.min(Instant::now() + Duration::from_millis(250));
+        let Ok((status, bytes)) = super::remote::local_health(address, route, attempt_deadline) else {
+            continue;
+        };
+        value["health"] = json!("unhealthy");
+        value["health_reason"] = json!("health-malformed");
+        value["currentness_reason"] = json!("health-malformed");
+        // An answering but malformed guest is not replaced with a stale
+        // discovery answer. Fallback is for an endpoint that cannot be read.
+        let Ok(health) = serde_json::from_slice::<Value>(&bytes) else { return; };
+        if super::seat::form("xenia.health.v1", None, &health, "status", "health").is_err() {
+            return;
+        }
+        if health["service"] != entry["id"] {
+            value["health_reason"] = json!("health-service-mismatch");
+            value["currentness_reason"] = json!("health-service-mismatch");
+            return;
+        }
+        if status == 200 && health["ok"] == true {
+            value["health"] = json!("healthy");
+            value["health_reason"] = json!("health-ok");
+        } else {
+            value["health_reason"] = json!("health-http-or-guest-unhealthy");
+        }
+        value["running_source_sha"] = health["source_sha"].clone();
+        match (value["installed_source_sha"].as_str(), health["source_sha"].as_str()) {
+            (Some(installed), Some(running)) if installed == running => {
+                value["currentness"] = json!("current");
+                value["currentness_reason"] = json!("source-sha-match");
+            }
+            (Some(_), Some(_)) => {
+                value["currentness"] = json!("out-of-date");
+                value["currentness_reason"] = json!("source-sha-mismatch");
+            }
+            (None, _) => value["currentness_reason"] = json!("installed-source-sha-absent"),
+            (_, None) => value["currentness_reason"] = json!("running-source-sha-absent"),
+        }
+        return;
+    }
+}

@@ -169,18 +169,49 @@ fn https(url: &str, token: &str) -> Result<HttpsResponse> {
 
 /// Local HTTP observations never use the release transport or carry credentials.
 pub fn local(port: u16, path: &str, check: &str) -> Result<Vec<u8>> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let (status, body) = local_response(address, path, check, None)?;
+    if status != 200 {
+        return Err(observation(check, path, format!("http-observation-status: {status}")));
+    }
+    Ok(body)
+}
+
+/// A status-only guest read shares one deadline across connect, write and body.
+/// Callers supply a literal loopback address; no DNS, proxy or redirect is used.
+pub fn local_health(address: SocketAddr, path: &str, deadline: Instant) -> Result<(u16, Vec<u8>)> {
+    if !address.ip().is_loopback() {
+        return Err(observation("status", "health", "health-endpoint-not-loopback"));
+    }
+    local_response(address, path, "status", Some(deadline))
+}
+
+fn local_response(
+    address: SocketAddr,
+    path: &str,
+    check: &str,
+    deadline: Option<Instant>,
+) -> Result<(u16, Vec<u8>)> {
+    let require_ok_status = deadline.is_none();
     if !path.starts_with('/') || path.contains(['\r', '\n']) {
         return Err(observation(check, path, "local-observation-path-invalid"));
     }
-    let address = SocketAddr::from(([127, 0, 0, 1], port));
-    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(3))
+    let remaining = || -> Result<Duration> {
+        match deadline {
+            Some(end) => end.checked_duration_since(Instant::now())
+                .filter(|left| !left.is_zero())
+                .ok_or_else(|| observation(check, path, "observation-timeout")),
+            None => Ok(Duration::from_secs(3)),
+        }
+    };
+    let mut stream = TcpStream::connect_timeout(&address, remaining()?)
         .map_err(|e| observation(check, path, format!("observation-failed: {e}")))?;
     stream
-        .set_write_timeout(Some(Duration::from_secs(3)))
+        .set_write_timeout(Some(remaining()?))
         .map_err(|e| observation(check, path, e.to_string()))?;
-    stream.write_all(format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nAccept: application/json\r\n\r\n").as_bytes())
+    stream.write_all(format!("GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nAccept: application/json\r\n\r\n").as_bytes())
         .map_err(|e| observation(check, path, e.to_string()))?;
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(5));
     let mut bytes = Vec::new();
     loop {
         let left = deadline
@@ -207,17 +238,20 @@ pub fn local(port: u16, path: &str, check: &str) -> Result<Vec<u8>> {
         .ok_or_else(|| observation(check, path, "http-header-absent"))?;
     let head = std::str::from_utf8(&bytes[..split])
         .map_err(|e| observation(check, path, e.to_string()))?;
-    let status = head
+    let status_text = head
         .lines()
         .next()
         .and_then(|line| line.split_whitespace().nth(1));
-    if status != Some("200") {
+    if require_ok_status && status_text != Some("200") {
         return Err(observation(
             check,
             path,
-            format!("http-observation-status: {status:?}"),
+            format!("http-observation-status: {status_text:?}"),
         ));
     }
+    let status = status_text
+        .and_then(|status| status.parse::<u16>().ok())
+        .ok_or_else(|| observation(check, path, "http-status-invalid"))?;
     let body = &bytes[split + 4..];
     if head.lines().any(|line| {
         line.to_ascii_lowercase()
@@ -236,7 +270,7 @@ pub fn local(port: u16, path: &str, check: &str) -> Result<Vec<u8>> {
                 .ok_or_else(|| observation(check, path, "chunk-size-invalid"))?;
             remaining = &remaining[end + 2..];
             if size == 0 {
-                return Ok(out);
+                return Ok((status, out));
             }
             if size > remaining.len().saturating_sub(2) || &remaining[size..size + 2] != b"\r\n" {
                 return Err(observation(check, path, "chunk-body-truncated"));
@@ -255,7 +289,7 @@ pub fn local(port: u16, path: &str, check: &str) -> Result<Vec<u8>> {
             return Err(observation(check, path, "http-body-truncated"));
         }
     }
-    Ok(body.to_vec())
+    Ok((status, body.to_vec()))
 }
 
 pub fn crown_port() -> Result<u16> {

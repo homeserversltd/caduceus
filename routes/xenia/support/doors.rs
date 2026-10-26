@@ -405,12 +405,7 @@ fn read_status(id: Option<&str>) -> Result<Value> {
     if let Some(id) = id {
         return match house.register["xenoi"].get(id) {
             Some(entry) => {
-                let runtime = match observe::runtime(entry) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        json!({"state": "observation-failed", "ok": false, "error": error.value()})
-                    }
-                };
+                let runtime = observe::status_runtime(entry)?;
                 let failed = runtime["state"] == "observation-failed";
                 let mut outcome = json!({"entry": entry, "id": id, "runtime": runtime,
                     "observed": {"row_present": house.config["tabs"].get(id).is_some()}});
@@ -430,13 +425,8 @@ fn read_status(id: Option<&str>) -> Result<Value> {
     let mut runtime = Map::new();
     let mut failed = false;
     for (id, entry) in entries {
-        let answer = match observe::runtime(entry) {
-            Ok(value) => value,
-            Err(error) => {
-                failed = true;
-                json!({"state": "observation-failed", "ok": false, "error": error.value()})
-            }
-        };
+        let answer = observe::status_runtime(entry)?;
+        failed |= answer["state"] == "observation-failed";
         runtime.insert(id.clone(), answer);
     }
     // Whole register accompanies whole entries so top-level household extensions
