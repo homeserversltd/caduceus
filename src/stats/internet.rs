@@ -233,7 +233,9 @@ fn gateway_answer(value: &Value) -> Result<InternetObservation, ()> {
     }
     let signal = match internet.get("firstMissingSignal") {
         None | Some(Value::Null) => None,
-        Some(Value::String(signal)) => Some(signal.clone()),
+        Some(Value::String(signal)) => {
+            (!signal.trim().is_empty() && signal != "none").then(|| signal.clone())
+        }
         _ => return Err(()),
     };
     Ok(InternetObservation {
