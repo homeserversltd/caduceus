@@ -497,7 +497,8 @@ async fn probe_peer(row: RuyiRow, include_stats: bool) -> Option<(String, PeerRe
         row.canonical_name.as_str()
     };
     let port = row.caduceus_port.unwrap_or_else(peer_probe_port);
-    let response = timeout(RUYI_PEER_TIMEOUT, fetch_peer(host, port, "/api/v1/beam"))
+    let deadline = Instant::now() + RUYI_PEER_TIMEOUT;
+    let response = timeout_at(deadline, fetch_peer(host, port, "/api/v1/beam"))
         .await
         .ok()?
         .ok()?;
@@ -505,6 +506,23 @@ async fn probe_peer(row: RuyiRow, include_stats: bool) -> Option<(String, PeerRe
         return None;
     }
     let beam = response_json_200(&response)?;
+    // The seat-only query prevents a reciprocal roster sweep on newer peers;
+    // older peers ignore it and return their ordinary roster within this deadline.
+    let seat_response = timeout_at(deadline, fetch_peer(host, port, "/api/v1/ruyi?seat=1"))
+        .await
+        .ok()?
+        .ok()?;
+    let roster = response_json_200(&seat_response)?;
+    if roster.get("schema").and_then(Value::as_str) != Some(row_schema())
+        || roster.get("ok").and_then(Value::as_bool) != Some(true)
+        || roster.get("service").and_then(Value::as_str) != Some("caduceus")
+    {
+        return None;
+    }
+    let seat_mac = roster.pointer("/seat/mac")?.as_str()?;
+    if seat_mac != "unknown" && normalized_mac(seat_mac).as_deref() != Some(row.mac.as_str()) {
+        return None;
+    }
     let hostname = beam
         .get("hostname")
         .and_then(Value::as_str)
@@ -763,6 +781,23 @@ async fn list(
 ) -> Result<Response, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
     let stream_deadline = Instant::now() + RUYI_STREAM_SWEEP_TIMEOUT;
     let include_stats = stats_requested(&uri);
+    // A peer may ask for the seat without recursively starting another sweep.
+    if uri.query().is_some_and(|query| query.split('&').any(|part| part == "seat=1")) {
+        let identity = crate::gate::blocking_task("ruyi", current_identity).await?;
+        let Json(beam) = crate::routes::leaf_beam::route().await?;
+        let (stats, stats_signal) = if include_stats { local_stats() } else { (None, None) };
+        return Ok(Json(RuyiListBody {
+            schema: row_schema(), ok: true, service: "caduceus",
+            seat: RuyiSeat {
+                mac: identity.mac.unwrap_or_else(|| "unknown".to_owned()),
+                hostname: beam.hostname.filter(|name| !name.trim().is_empty()).unwrap_or_else(|| "unknown".to_owned()),
+                ipv4: identity.ipv4.map(|ip| ip.to_string()).unwrap_or_else(|| "unknown".to_owned()),
+                ipv4_source: identity.ipv4_source.map(str::to_owned),
+                stats: include_stats.then_some(stats), stats_signal,
+            },
+            staves: Vec::new(), perspectives: BTreeMap::new(), trust: Vec::new(), dns_unresolved: Vec::new(),
+        }).into_response());
+    }
     if include_stats && stream_requested(&uri) {
         return stream_list(include_stats, stream_deadline).await;
     }
