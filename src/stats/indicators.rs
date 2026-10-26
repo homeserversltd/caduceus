@@ -690,7 +690,7 @@ impl Collector {
                     .write()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .internet = observation;
-                INTERNET_CADENCE
+                internet.cadence()
             }) {
                 Ok(worker) => {
                     internet_worker = Some(Arc::clone(&worker.control));
@@ -829,11 +829,12 @@ impl Collector {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
         let (tailscale_guest, tailscale_admin) = tailscale_blocks(&caches.tailscale, interfaces, &caches.services);
+        let internet = internet::project(&caches.internet);
         let internet_guest = json!({
-            "status": caches.internet.status,
-            "source": caches.internet.source,
-            "ts": caches.internet.ts,
-            "firstMissingSignal": signal_value(&caches.internet.first_missing_signal)
+            "status": internet.status,
+            "source": internet.source,
+            "ts": internet.ts,
+            "firstMissingSignal": signal_value(&internet.first_missing_signal)
         });
         let services_guest = services_guest(&caches.services);
         let vpn_guest = json!({
