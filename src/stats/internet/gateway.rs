@@ -298,6 +298,15 @@ fn answer(
     }
 }
 
+fn checksum(bytes: &[u8]) -> u16 {
+    let sum: u32 = bytes
+        .chunks_exact(2)
+        .map(|pair| u32::from(u16::from_be_bytes([pair[0], pair[1]])))
+        .sum();
+    let sum = (sum & 0xffff) + (sum >> 16);
+    !((sum & 0xffff) + (sum >> 16)) as u16
+}
+
 fn echo(wan: &Wan) -> Result<(), &'static str> {
     const UNAVAILABLE: &str = "caduceus-stats-internet-isp-hop-unavailable";
     let device = CString::new(wan.interface.as_str()).map_err(|_| UNAVAILABLE)?;
@@ -420,6 +429,7 @@ fn echo(wan: &Wan) -> Result<(), &'static str> {
             && reply[0] == 0
             && reply[1] == 0
             && reply[6..] == message[6..]
+            && checksum(reply) == 0
             && (!raw || reply[4..6] == message[4..6])
         {
             return Ok(());

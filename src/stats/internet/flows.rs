@@ -7,6 +7,7 @@ use std::{
     io::{self, Read},
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
+    os::unix::fs::OpenOptionsExt,
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -16,6 +17,16 @@ const MAX_BYTES: usize = 8 * 1024 * 1024;
 const READ_BUDGET: Duration = Duration::from_millis(500);
 const EVENT_BUDGET: Duration = Duration::from_millis(200);
 const SNAPSHOT_CADENCE: Duration = Duration::from_secs(7);
+
+fn open_table(path: &std::path::Path) -> io::Result<fs::File> {
+    if !fs::metadata(path)?.is_file() {
+        return Err(io::Error::other("not a kernel table file"));
+    }
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
+        .open(path)
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Tuple {
@@ -77,7 +88,7 @@ pub(super) enum Reader {
 impl Reader {
     pub(super) fn open() -> Result<Self, ()> {
         let path = config::path("proc/net/nf_conntrack");
-        match fs::File::open(&path) {
+        match open_table(&path) {
             Ok(file) => {
                 let mut stat: libc::statfs = unsafe { std::mem::zeroed() };
                 if unsafe { libc::fstatfs(file.as_raw_fd(), &mut stat) } != 0 {
@@ -108,7 +119,7 @@ impl Reader {
             Self::Table { path, previous } => {
                 let bound = Evidence::now();
                 let mut bytes = Vec::new();
-                fs::File::open(path)
+                open_table(path)
                     .map_err(|_| ())?
                     .take(MAX_BYTES as u64 + 1)
                     .read_to_end(&mut bytes)
@@ -348,7 +359,7 @@ impl Netlink {
         if n == 0
             || n as usize > buffer.len()
             || sender.nl_pid != 0
-            || sender.nl_family != libc::AF_NETLINK as _
+            || sender.nl_family != libc::AF_NETLINK as libc::sa_family_t
         {
             return Err(());
         }
