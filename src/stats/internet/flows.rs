@@ -12,6 +12,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+// Linux UAPI enum ctattr_type in nfnetlink_conntrack.h; aliases do not
+// consume enum values. Keep reply counters distinct from original traffic.
+const CTA_COUNTERS_REPLY: u16 = 10;
+const CTA_ID: u16 = 12;
+const CTA_ZONE: u16 = 18;
+
 const MAX_FLOWS: usize = 16_384;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 const READ_BUDGET: Duration = Duration::from_millis(500);
@@ -291,9 +297,14 @@ impl Native {
                         }
                     }
                 } else if let Some(old) = self.previous.get_mut(&flow.key) {
-                    // Keep the earlier real-read bound. Repeated events or
-                    // their receive times must not keep sticky state green.
-                    old.flow = flow;
+                    // A queued event can predate the latest real snapshot.
+                    // Never lower that confirmed high-water state, or a later
+                    // old event could look fresh against the newer read_at.
+                    // Event receive times cannot renew the earlier bound.
+                    old.flow.seen_reply |= flow.seen_reply;
+                    if let Some(packets) = flow.packets {
+                        old.flow.packets = Some(old.flow.packets.unwrap_or(0).max(packets));
+                    }
                 }
             }
         }
@@ -383,9 +394,9 @@ impl Netlink {
                 1 | 0x8000,
                 &encode_tuple(&key.original, key.zone[1]),
             );
-            attribute(&mut request, 12, &key.id.to_be_bytes());
+            attribute(&mut request, CTA_ID, &key.id.to_be_bytes());
             if key.zone[0] != 0 {
-                attribute(&mut request, 18, &key.zone[0].to_be_bytes());
+                attribute(&mut request, CTA_ZONE, &key.zone[0].to_be_bytes());
             }
         }
         let length = request.len() as u32;
@@ -628,7 +639,7 @@ fn netlink_flow(body: &[u8]) -> Result<Flow, ()> {
     let (original, origin_zone) = decode_tuple(a.get(&1).ok_or(())?, family)?;
     let (reply, reply_zone) = decode_tuple(a.get(&2).ok_or(())?, family)?;
     let packets = a
-        .get(&10)
+        .get(&CTA_COUNTERS_REPLY)
         .map(|bytes| {
             let p = attributes(bytes)?;
             let b = p.get(&1).ok_or(())?;
@@ -637,9 +648,9 @@ fn netlink_flow(body: &[u8]) -> Result<Flow, ()> {
         .transpose()?;
     Ok(Flow {
         key: Key {
-            id: be32(a.get(&12).ok_or(())?)?,
+            id: be32(a.get(&CTA_ID).ok_or(())?)?,
             zone: [
-                a.get(&18).map_or(Ok(0), |p| be16(p))?,
+                a.get(&CTA_ZONE).map_or(Ok(0), |p| be16(p))?,
                 origin_zone,
                 reply_zone,
             ],

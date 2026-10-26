@@ -1,6 +1,7 @@
 //! Passive WAN evidence, with one route-next-hop echo only after a silent window.
 use super::{
-    flows, named_signal, now_ts, read_text, InternetObservation, INTERNET_CADENCE, RECENT,
+    flows, named_signal, now_ts, read_text, seat_identity, InternetObservation, INTERNET_CADENCE,
+    RECENT,
 };
 use std::{
     ffi::CString,
@@ -22,6 +23,8 @@ pub(super) struct Wan {
     pub(super) interface: String,
     pub(super) next_hop: Ipv4Addr,
     routes: Vec<Route>,
+    local_addresses: Vec<IpAddr>,
+    ipv6_addresses_known: bool,
 }
 
 impl Wan {
@@ -87,17 +90,47 @@ impl Wan {
                 }
             }
         }
+        let mut local_addresses: Vec<IpAddr> = seat_identity::local_ipv4_interfaces()
+            .into_iter()
+            .map(|local| local.address.into())
+            .collect();
+        // A public address owned by this gateway is not an internet peer.
+        // Without its IPv6 local-address read, decline IPv6 evidence rather
+        // than crediting replies sent by the gateway itself on an inbound flow.
+        let ipv6 = read_text("proc/net/if_inet6").and_then(|text| {
+            text.lines()
+                .map(|line| {
+                    line.split_whitespace()
+                        .next()
+                        .and_then(|value| u128::from_str_radix(value, 16).ok())
+                        .map(|value| IpAddr::V6(Ipv6Addr::from(value)))
+                })
+                .collect::<Option<Vec<_>>>()
+        });
+        let ipv6_addresses_known = ipv6.is_some();
+        if let Some(ipv6) = ipv6 {
+            local_addresses.extend(ipv6);
+        }
+        local_addresses.sort();
+        local_addresses.dedup();
         defaults.sort();
         let (_, interface, next_hop) = defaults.into_iter().next()?;
         Some(Self {
             interface,
             next_hop,
             routes,
+            local_addresses,
+            ipv6_addresses_known,
         })
     }
 
     pub(super) fn carries(&self, destination: IpAddr) -> bool {
-        if destination == IpAddr::V4(self.next_hop) || !public(destination) {
+        if self.local_addresses.is_empty()
+            || self.local_addresses.contains(&destination)
+            || (destination.is_ipv6() && !self.ipv6_addresses_known)
+            || destination == IpAddr::V4(self.next_hop)
+            || !public(destination)
+        {
             return false;
         }
         self.routes
@@ -181,7 +214,13 @@ impl Gateway {
             // filesystem or staff-door loop. Nothing runs on the 1 s tick.
             return Duration::from_millis(1);
         }
-        echo_not_before
+        // Wake at the silence/budget edge rather than delaying a cold
+        // window until the next ordinary seven-second table read.
+        let silence_due = self
+            .flow
+            .map_or(self.watching_since + RECENT, |e| e.at + RECENT);
+        let next = echo_not_before.map_or(silence_due, |budget| budget.max(silence_due));
+        Some(next)
             .map(|next| next.saturating_duration_since(Instant::now()))
             .filter(|delay| !delay.is_zero())
             .unwrap_or(INTERNET_CADENCE)
