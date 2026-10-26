@@ -578,39 +578,7 @@ fn response_status(response: &[u8]) -> Option<u16> {
 }
 
 async fn fetch_peer_stats(host: &str, port: u16) -> (Option<Value>, Option<String>) {
-    let response = match timeout(
-        RUYI_PEER_TIMEOUT,
-        fetch_peer(host, port, "/api/v1/appliance/stats"),
-    )
-    .await
-    {
-        Err(_) => return (None, Some("timeout".to_owned())),
-        Ok(Err(error)) if error.kind() == ErrorKind::InvalidData => {
-            return (None, Some("too-large".to_owned()))
-        }
-        Ok(Err(error)) if error.kind() == ErrorKind::ConnectionRefused => {
-            return (None, Some("unreachable".to_owned()))
-        }
-        Ok(Err(_)) => return (None, Some("unreachable".to_owned())),
-        Ok(Ok(response)) => response,
-    };
-    match response_status(&response) {
-        Some(200) => {}
-        Some(status) if (100..=599).contains(&status) => {
-            return (None, Some(format!("refused-{status}")))
-        }
-        _ => return (None, Some("malformed".to_owned())),
-    }
-    let Some(body_start) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
-        return (None, Some("malformed".to_owned()));
-    };
-    let Ok(value) = serde_json::from_slice::<Value>(&response[body_start + 4..]) else {
-        return (None, Some("malformed".to_owned()));
-    };
-    if !crate::routes::leaf_schema::accepts("caduceus.appliance.stats.sample.v1", &value) {
-        return (None, Some("malformed".to_owned()));
-    }
-    (Some(value), None)
+    crate::stats::indicators::internet::fetch_peer_stats(host, port).await
 }
 
 fn local_stats() -> (Option<Value>, Option<String>) {

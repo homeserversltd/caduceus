@@ -1,4 +1,7 @@
 //! Native, independently cached blocks for the Coronatio indicator surface.
+#[path = "internet.rs"]
+pub(crate) mod internet;
+
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -86,6 +89,7 @@ impl TailnetObservation {
 struct InternetObservation {
     ts: i64,
     status: Option<String>,
+    source: Option<&'static str>,
     first_missing_signal: Option<String>,
 }
 
@@ -94,6 +98,7 @@ impl InternetObservation {
         Self {
             ts: now_ts(),
             status: None,
+            source: None,
             first_missing_signal: named_signal(signal),
         }
     }
@@ -678,8 +683,9 @@ impl Collector {
         {
             let shared = Arc::clone(&shared);
             let fallback = Arc::clone(&shared);
+            let mut internet = internet::Sampler::new();
             match spawn_worker("caduceus-stats-internet", move || {
-                let observation = probe_internet();
+                let observation = internet.observe();
                 shared
                     .write()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -825,6 +831,7 @@ impl Collector {
         let (tailscale_guest, tailscale_admin) = tailscale_blocks(&caches.tailscale, interfaces, &caches.services);
         let internet_guest = json!({
             "status": caches.internet.status,
+            "source": caches.internet.source,
             "ts": caches.internet.ts,
             "firstMissingSignal": signal_value(&caches.internet.first_missing_signal)
         });
@@ -1438,6 +1445,7 @@ fn probe_internet() -> InternetObservation {
             return InternetObservation {
                 ts: now_ts(),
                 status: Some("connected".to_owned()),
+                source: Some("public-probe"),
                 first_missing_signal: None,
             };
         }
@@ -1445,6 +1453,7 @@ fn probe_internet() -> InternetObservation {
     InternetObservation {
         ts: now_ts(),
         status: Some("disconnected".to_owned()),
+        source: Some("public-probe"),
         first_missing_signal: named_signal("caduceus-stats-internet-tcp53-unreachable"),
     }
 }

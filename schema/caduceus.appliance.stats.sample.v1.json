@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.appliance.stats.sample.v1",
-  "schema_version": "1.0.2",
+  "schema_version": "1.1.0",
   "role": "One emitted Caduceus appliance statistics sample",
   "authority": {
     "owner": "caduceus",
@@ -118,7 +118,17 @@
     "network": {"type": "object"},
     "power": {"type": "object"},
     "tailscale": {"type": "object"},
-    "internet": {"type": "object"},
+    "internet": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": ["string", "null"],
+          "enum": ["gateway", "resolver", "public-probe", null],
+          "description": "Answering rung. Absent on older peers or null before the worker samples. Gateway answers preserve the gateway's observation timestamp."
+        }
+      },
+      "additionalProperties": true
+    },
     "services": {"type": "object"},
     "vpn": {"type": "object"},
     "tcp": {"type": "object"},
@@ -211,6 +221,7 @@
     },
     "internet": {
       "status": "string|null",
+      "source": "gateway|resolver|public-probe|null",
       "ts": "integer",
       "firstMissingSignal": "string|null"
     },
