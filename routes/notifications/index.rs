@@ -291,11 +291,11 @@ fn names(body: &Value, candidate: &Value) -> Result<Vec<String>, Failure> {
 }
 
 fn record(id: &str, verb: &str, outcome: &Value, started: Instant) {
-    let id = if id.len() <= 96 { id } else { "oversized-id" };
+    let id = if id.len() <= 64 { id } else { "oversized-id" };
     let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
-        "organ": "notifications", "kind": "deed", "ok": outcome["ok"] == true,
+        "organ": "notifications", "kind": "deed", "correlation_id": id, "ok": outcome["ok"] == true,
         "message": "house link-up",
-        "attributes_redacted": {"who": "owner", "verb": verb, "target": "house-link-up", "notification_id": id,
+        "attributes_redacted": {"who": "owner", "verb": verb, "target": "house-link-up",
             "outcome": if outcome["ok"] == true {"complete"} else {"refused"},
             "duration_ms": started.elapsed().as_millis().min(u64::MAX as u128) as u64,
             "signal": outcome["firstMissingSignal"].as_str().unwrap_or("none")}
