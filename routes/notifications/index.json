@@ -1,0 +1,51 @@
+{
+  "namespace": "notifications",
+  "admittance": "open",
+  "flags": {
+    "posture": "guest-aggregate"
+  },
+  "profiles": [
+    "homeserver",
+    "homesi",
+    "tv",
+    "homeconsole"
+  ],
+  "needs": [
+    "all"
+  ],
+  "commands": [],
+  "serve": [],
+  "operations": [
+    {
+      "http_method": "GET",
+      "http_path": "/api/v1/notifications",
+      "mutation_allowed": false,
+      "needs": [
+        "all"
+      ],
+      "commands": []
+    },
+    {
+      "http_method": "POST",
+      "http_path": "/api/v1/notifications/{id}/accept",
+      "admin_mode_required": true,
+      "admission": "document-attendance-in-handler",
+      "mutation_allowed": true,
+      "needs": [
+        "all"
+      ],
+      "commands": []
+    },
+    {
+      "http_method": "POST",
+      "http_path": "/api/v1/notifications/{id}/dismiss",
+      "admin_mode_required": true,
+      "admission": "document-attendance-in-handler",
+      "mutation_allowed": true,
+      "needs": [
+        "all"
+      ],
+      "commands": []
+    }
+  ]
+}

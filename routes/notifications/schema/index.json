@@ -1,0 +1,14 @@
+{
+  "namespace": "notifications/schema",
+  "admittance": "open",
+  "flags": {
+    "posture": "public-safe"
+  },
+  "needs": [
+    "all"
+  ],
+  "commands": [],
+  "serve": [],
+  "http_method": "GET",
+  "mutation_allowed": false
+}

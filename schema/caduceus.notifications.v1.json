@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema": "caduceus.notifications.v1",
+  "schema_version": "1.0.0",
+  "role": "Guest-readable household notifications and Admin Mode link-up receipts",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.notifications.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_skipped": true,
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Missing optional fields mean null; missing request names uses the face declaration; dry_run missing or null means execute after admission"
+  },
+  "required": [
+    "schema"
+  ],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.notifications.v1"
+    },
+    "notifications": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object",
+        "fields": {
+          "id": {
+            "type": "string",
+            "description": "Stable link-up:<lowercase stave MAC>:<face port> identity"
+          },
+          "kind": {
+            "type": "string",
+            "description": "First kind is house-link-up; unknown kinds are skipped by semantic readers"
+          },
+          "state": {
+            "type": "string",
+            "description": "Pending requests only in the list; an admitted first name disappears, not another pending request"
+          },
+          "title": {
+            "type": "string"
+          },
+          "from": {
+            "type": "object",
+            "fields": {
+              "hostname": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "canonical_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ipv4": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "mac": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "upstream": {
+            "type": "string"
+          },
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "gateway": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "unreachable on a peer when its discovered gateway door cannot answer; notifications is empty"
+    },
+    "ok": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "portal": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "names": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "firstMissingSignal": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dry_run": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "attempted": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "argv": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "forms": {
+    "list": {
+      "required": [
+        "schema",
+        "notifications"
+      ]
+    },
+    "accept": {
+      "required": [],
+      "description": "names omitted or null selects declared names. Unknown fields are skipped. Optional dry_run validates names and returns the exact caduceus cert portal-admit argv without invoking the staff."
+    },
+    "dismiss": {
+      "required": []
+    },
+    "receipt": {
+      "required": [
+        "ok"
+      ],
+      "description": "The complete portal-admit staff receipt, including additive unknown fields, plus portal and names. A failed composite is never accepted."
+    }
+  },
+  "http": {
+    "read": {
+      "method": "GET",
+      "path": "/api/v1/notifications",
+      "guest_readable": true,
+      "mutation_allowed": false
+    },
+    "accept": {
+      "method": "POST",
+      "path": "/api/v1/notifications/{id}/accept",
+      "admin_mode_required": true
+    },
+    "dismiss": {
+      "method": "POST",
+      "path": "/api/v1/notifications/{id}/dismiss",
+      "admin_mode_required": true
+    }
+  },
+  "signals": [
+    "link-up-name-invalid",
+    "link-up-name-taken",
+    "link-up-admin-required",
+    "link-up-accept-on-homeserver"
+  ],
+  "secrecy": {
+    "request_body_logged": false,
+    "response_body_logged": false,
+    "new_credentials": false
+  },
+  "additionalProperties": true
+}

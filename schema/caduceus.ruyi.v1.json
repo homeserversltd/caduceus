@@ -81,7 +81,7 @@
         "required": ["kind", "port", "path", "protocol"],
         "optional": ["model"]
       },
-      "description": "Optional services announced by this stave, stored in its existing row JSON and served only while it answers the ordinary Caduceus probe. Missing, null, non-array or empty means none; malformed entries are dropped without refusing the row or perspective.self. Accepted entries preserve unknown additive fields. Empty results are omitted, and discovered-only staves have no services."
+      "description": "Optional services announced by this stave, stored in its existing row JSON and served only while it answers the ordinary Caduceus probe. Missing, null, non-array or empty means none; malformed entries are dropped without refusing the row or perspective.self. Accepted entries preserve unknown additive fields. A face service may carry names: an ordered list of requested *.home.arpa names (portal first, aliases after), preserved for household notifications. Empty results are omitted, and discovered-only staves have no services."
     },
     "profile": {
       "type": "string"
