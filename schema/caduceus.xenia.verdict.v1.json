@@ -164,7 +164,7 @@
         },
         "currentness_reason": {
           "type": "string",
-          "description": "source-sha-match, source-sha-mismatch, installed-source-sha-absent, running-source-sha-absent, health-unreachable, health-malformed, health-service-mismatch, health-route-invalid, health-loopback-endpoint-absent, or not-process."
+          "description": "source-sha-match, source-sha-mismatch, installed-source-sha-absent, running-source-sha-absent, health-unreachable, health-malformed, health-service-mismatch, health-route-invalid, health-route-absent, health-loopback-endpoint-absent, process-not-observed, or not-process."
         },
         "health": {
           "type": "string",

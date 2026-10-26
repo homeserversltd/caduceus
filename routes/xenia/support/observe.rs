@@ -372,7 +372,16 @@ fn status_health(entry: &Value, value: &mut Value) {
     value["health"] = json!("unreachable");
     value["health_reason"] = json!("health-unreachable");
     value["currentness_reason"] = json!("health-unreachable");
-    let route = entry["health"]["route"].as_str().unwrap_or("/health");
+    if !value["pids"].as_array().is_some_and(|pids| !pids.is_empty()) {
+        value["health_reason"] = json!("process-not-observed");
+        value["currentness_reason"] = json!("process-not-observed");
+        return;
+    }
+    let Some(route) = entry["health"]["route"].as_str() else {
+        value["health_reason"] = json!("health-route-absent");
+        value["currentness_reason"] = json!("health-route-absent");
+        return;
+    };
     if !route.starts_with('/') || route.starts_with("//")
         || route.bytes().any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
         || route.contains('#')
@@ -394,16 +403,22 @@ fn status_health(entry: &Value, value: &mut Value) {
         value["currentness_reason"] = json!("health-loopback-endpoint-absent");
         return;
     }
-    // A slow listener cannot consume the fallback's entire budget. One guest
-    // gets at most 750ms total, with at most 250ms for each distinct endpoint.
+    // Endpoint selection may fall back only before a GET starts. A slow or
+    // unreadable answer never triggers a second guest GET in this status read.
+    // Selection and the single read share 750ms, at most 250ms per endpoint.
     let deadline = Instant::now() + Duration::from_millis(750);
     for address in addresses {
         if Instant::now() >= deadline {
             break;
         }
         let attempt_deadline = deadline.min(Instant::now() + Duration::from_millis(250));
-        let Ok((status, bytes)) = super::remote::local_health(address, route, attempt_deadline) else {
-            continue;
+        let mut request_started = false;
+        let (status, bytes) = match super::remote::local_health(
+            address, route, attempt_deadline, &mut request_started,
+        ) {
+            Ok(answer) => answer,
+            Err(_) if request_started => return,
+            Err(_) => continue,
         };
         value["health"] = json!("unhealthy");
         value["health_reason"] = json!("health-malformed");

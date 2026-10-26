@@ -170,7 +170,7 @@ fn https(url: &str, token: &str) -> Result<HttpsResponse> {
 /// Local HTTP observations never use the release transport or carry credentials.
 pub fn local(port: u16, path: &str, check: &str) -> Result<Vec<u8>> {
     let address = SocketAddr::from(([127, 0, 0, 1], port));
-    let (status, body) = local_response(address, path, check, None)?;
+    let (status, body) = local_response(address, path, check, None, None)?;
     if status != 200 {
         return Err(observation(check, path, format!("http-observation-status: {status}")));
     }
@@ -179,11 +179,16 @@ pub fn local(port: u16, path: &str, check: &str) -> Result<Vec<u8>> {
 
 /// A status-only guest read shares one deadline across connect, write and body.
 /// Callers supply a literal loopback address; no DNS, proxy or redirect is used.
-pub fn local_health(address: SocketAddr, path: &str, deadline: Instant) -> Result<(u16, Vec<u8>)> {
+pub fn local_health(
+    address: SocketAddr,
+    path: &str,
+    deadline: Instant,
+    request_started: &mut bool,
+) -> Result<(u16, Vec<u8>)> {
     if !address.ip().is_loopback() {
         return Err(observation("status", "health", "health-endpoint-not-loopback"));
     }
-    local_response(address, path, "status", Some(deadline))
+    local_response(address, path, "status", Some(deadline), Some(request_started))
 }
 
 fn local_response(
@@ -191,6 +196,7 @@ fn local_response(
     path: &str,
     check: &str,
     deadline: Option<Instant>,
+    request_started: Option<&mut bool>,
 ) -> Result<(u16, Vec<u8>)> {
     let require_ok_status = deadline.is_none();
     if !path.starts_with('/') || path.contains(['\r', '\n']) {
@@ -209,6 +215,11 @@ fn local_response(
     stream
         .set_write_timeout(Some(remaining()?))
         .map_err(|e| observation(check, path, e.to_string()))?;
+    // Mark before writing: even a partial or failed write cannot be retried as
+    // another health GET by the status caller.
+    if let Some(started) = request_started {
+        *started = true;
+    }
     stream.write_all(format!("GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nAccept: application/json\r\n\r\n").as_bytes())
         .map_err(|e| observation(check, path, e.to_string()))?;
     let deadline = deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(5));
