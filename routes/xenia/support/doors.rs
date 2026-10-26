@@ -422,13 +422,8 @@ fn read_status(id: Option<&str>) -> Result<Value> {
     let entries = house.register["xenoi"]
         .as_object()
         .ok_or_else(|| observation("status", "xenoi", "register-map-absent"))?;
-    let mut runtime = Map::new();
-    let mut failed = false;
-    for (id, entry) in entries {
-        let answer = observe::status_runtime(entry)?;
-        failed |= answer["state"] == "observation-failed";
-        runtime.insert(id.clone(), answer);
-    }
+    let runtime = observe::status_runtimes(entries)?;
+    let failed = runtime.values().any(|answer| answer["state"] == "observation-failed");
     // Whole register accompanies whole entries so top-level household extensions
     // survive readback too. Runtime is evidence alongside them, never a stamp.
     Ok(

@@ -191,6 +191,41 @@ pub fn local_health(
     local_response(address, path, "status", Some(deadline), Some(request_started))
 }
 
+/// Whole-register health owns this future; timeout drops its socket, not a task.
+pub async fn local_health_async(
+    address: SocketAddr,
+    path: &str,
+    deadline: Instant,
+    request_started: &mut bool,
+) -> Result<(u16, Vec<u8>)> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    if !address.ip().is_loopback() {
+        return Err(observation("status", "health", "health-endpoint-not-loopback"));
+    }
+    if !path.starts_with('/') || path.contains(['\r', '\n']) {
+        return Err(observation("status", path, "local-observation-path-invalid"));
+    }
+    tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), async {
+        let mut stream = tokio::net::TcpStream::connect(address).await
+            .map_err(|error| observation("status", path, format!("observation-failed: {error}")))?;
+        *request_started = true;
+        stream.write_all(format!("GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nAccept: application/json\r\n\r\n").as_bytes()).await
+            .map_err(|error| observation("status", path, error.to_string()))?;
+        let mut bytes = Vec::new();
+        loop {
+            let mut block = [0u8; 4096];
+            let count = stream.read(&mut block).await
+                .map_err(|error| observation("status", path, error.to_string()))?;
+            if count == 0 { break; }
+            bytes.extend_from_slice(&block[..count]);
+            if bytes.len() > LIMIT {
+                return Err(observation("status", path, "observation-size-exceeded"));
+            }
+        }
+        local_response_bytes(&bytes, "status", path, false)
+    }).await.map_err(|_| observation("status", path, "observation-timeout"))?
+}
+
 fn local_response(
     address: SocketAddr,
     path: &str,
@@ -243,6 +278,10 @@ fn local_response(
             return Err(observation(check, path, "observation-size-exceeded"));
         }
     }
+    local_response_bytes(&bytes, check, path, require_ok_status)
+}
+
+fn local_response_bytes(bytes: &[u8], check: &str, path: &str, require_ok_status: bool) -> Result<(u16, Vec<u8>)> {
     let split = bytes
         .windows(4)
         .position(|b| b == b"\r\n\r\n")
