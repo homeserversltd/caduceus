@@ -20,15 +20,46 @@ fn read(relative: &str) -> Result<String, Failure> {
 }
 
 fn gateway() -> Option<(Ipv4Addr, u16)> {
-    // This is the Ruyi registrant's discovered gateway seat, not a hostname or
-    // address embedded in a profile. Its port is part of that same observation.
-    let perspective: Value = serde_json::from_str(&read("etc/appliance/ruyi.json").ok()?).ok()?;
-    let seat = perspective.get("gateway_seat")?;
-    let ip = seat["ipv4"].as_str()?.parse::<Ipv4Addr>().ok()?;
-    let port = seat["caduceus_port"]
-        .as_u64()
-        .and_then(|p| u16::try_from(p).ok())
-        .filter(|p| *p != 0)
+    // Match the existing Ruyi/internet reader: the current default route owns
+    // the address; a remembered seat may supply a port only for that address.
+    let ip = read("proc/net/route")
+        .ok()?
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            if fields.get(1) != Some(&"00000000") || fields.get(7) != Some(&"00000000") {
+                return None;
+            }
+            let flags = u32::from_str_radix(fields.get(3)?, 16).ok()?;
+            let gateway = u32::from_str_radix(fields.get(2)?, 16).ok()?;
+            let metric = fields.get(6)?.parse::<u32>().ok()?;
+            (flags & 3 == 3 && gateway != 0)
+                .then_some((metric, Ipv4Addr::from(gateway.to_le_bytes())))
+        })
+        .min_by_key(|(metric, _)| *metric)?
+        .1;
+    let perspective: Value = read("etc/appliance/ruyi.json")
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .filter(|value: &Value| value["schema"] == "harmonia.ruyi-perspective.v1")
+        .unwrap_or(Value::Null);
+    let seat = &perspective["gateway_seat"];
+    let matched = seat["ipv4"]
+        .as_str()
+        .and_then(|value| value.parse::<Ipv4Addr>().ok())
+        == Some(ip);
+    let port = matched
+        .then(|| seat["caduceus_port"].as_u64())
+        .flatten()
+        .or_else(|| {
+            read("etc/appliance/config.json")
+                .ok()
+                .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+                .and_then(|value| value.pointer("/caduceus/seat_port").and_then(Value::as_u64))
+        })
+        .and_then(|port| u16::try_from(port).ok())
+        .filter(|port| *port != 0)
         .unwrap_or(8787);
     Some((ip, port))
 }

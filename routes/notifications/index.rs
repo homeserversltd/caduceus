@@ -290,11 +290,12 @@ fn names(body: &Value, candidate: &Value) -> Result<Vec<String>, Failure> {
         .collect()
 }
 
-fn record(verb: &str, outcome: &Value, started: Instant) {
+fn record(id: &str, verb: &str, outcome: &Value, started: Instant) {
+    let id = if id.len() <= 96 { id } else { "oversized-id" };
     let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
         "organ": "notifications", "kind": "deed", "ok": outcome["ok"] == true,
         "message": "house link-up",
-        "attributes_redacted": {"who": "owner", "verb": verb, "target": "house-link-up",
+        "attributes_redacted": {"who": "owner", "verb": verb, "target": "house-link-up", "notification_id": id,
             "outcome": if outcome["ok"] == true {"complete"} else {"refused"},
             "duration_ms": started.elapsed().as_millis().min(u64::MAX as u128) as u64,
             "signal": outcome["firstMissingSignal"].as_str().unwrap_or("none")}
@@ -336,6 +337,7 @@ async fn mutate(
 ) -> Response {
     let started = Instant::now();
     let verb = if dismiss { "dismiss" } else { "accept" };
+    let deed_id = id.clone();
     let result: Result<Value, Failure> = async {
         admin(&headers)?;
         if !gateway_profile() {
@@ -410,7 +412,7 @@ async fn mutate(
     .await;
     match result {
         Ok(value) => {
-            record(verb, &value, started);
+            record(&deed_id, verb, &value, started);
             let status = if value["ok"] == true {
                 StatusCode::OK
             } else {
@@ -420,6 +422,7 @@ async fn mutate(
         }
         Err(failure) => {
             record(
+                &deed_id,
                 verb,
                 &json!({"ok": false, "firstMissingSignal": failure.1}),
                 started,
@@ -446,7 +449,7 @@ async fn dismiss(
 }
 
 pub fn register(router: Router) -> Router {
-    let _ = crate::routes::leaf_notifications_schema::declaration();
+    let _ = crate::routes::leaf_schema::declaration(SCHEMA).expect("link-up-schema-desync");
     router
         .route("/api/v1/notifications", axum::routing::get(list))
         .route(
