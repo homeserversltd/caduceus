@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.appliance.stats.sample.v1",
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "role": "One emitted Caduceus appliance statistics sample",
   "authority": {
     "owner": "caduceus",
@@ -123,8 +123,8 @@
       "properties": {
         "source": {
           "type": ["string", "null"],
-          "enum": ["gateway", "resolver", "public-probe", null],
-          "description": "Answering rung. Absent on older peers or null before the worker samples. Gateway answers preserve the gateway's observation timestamp."
+          "enum": ["gateway", "flows", "isp-hop", "public-probe", "resolver", null],
+          "description": "Answering rung. flows witnesses a newer public-WAN reply from kernel metadata; isp-hop witnesses only the link to the route-derived ISP next hop, not reachability of a public service. Gateway answers preserve the gateway's evidence timestamp. Absent/null remains supported; resolver is accepted only for legacy peers and is no longer emitted locally."
         }
       },
       "additionalProperties": true
@@ -221,7 +221,7 @@
     },
     "internet": {
       "status": "string|null",
-      "source": "gateway|resolver|public-probe|null",
+      "source": "gateway|flows|isp-hop|public-probe|resolver|null",
       "ts": "integer",
       "firstMissingSignal": "string|null"
     },
