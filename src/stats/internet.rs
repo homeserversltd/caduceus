@@ -110,6 +110,8 @@ pub(super) struct Sampler {
     runtime: Option<tokio::runtime::Runtime>,
     next_resolver_question: Option<Instant>,
     resolver_observation: Option<InternetObservation>,
+    previous_activity: Option<ResolverActivity>,
+    own_completed_questions: u64,
     using_resolver: bool,
 }
 
@@ -122,6 +124,8 @@ impl Sampler {
                 .ok(),
             next_resolver_question: None,
             resolver_observation: None,
+            previous_activity: None,
+            own_completed_questions: 0,
             using_resolver: false,
         }
     }
@@ -136,6 +140,8 @@ impl Sampler {
         // Do not carry resolver evidence across a change of this body's role.
         self.next_resolver_question = None;
         self.resolver_observation = None;
+        self.previous_activity = None;
+        self.own_completed_questions = 0;
         self.using_resolver = false;
         let signal = match (gateway, self.runtime.as_ref()) {
             (None, _) => "caduceus-stats-internet-gateway-no-default-route".to_owned(),
@@ -160,7 +166,10 @@ impl Sampler {
 
     pub(super) fn cadence(&self) -> Duration {
         if self.using_resolver {
-            if let Some(next) = self.next_resolver_question {
+            if let Some(next) = self
+                .next_resolver_question
+                .filter(|next| *next > Instant::now())
+            {
                 return next
                     .saturating_duration_since(Instant::now())
                     .min(INTERNET_CADENCE)
@@ -171,24 +180,53 @@ impl Sampler {
     }
 
     fn resolver(&mut self) -> InternetObservation {
+        let activity = resolver_activity();
+        let (idle, control_error) = match activity {
+            Ok(current) => {
+                // A cold or reset counter has no idle interval to testify to.
+                // Exclude only our own questions that received a DNS response;
+                // a timed-out write might not have reached the resolver.
+                let idle = self.previous_activity.as_ref().is_some_and(|previous| {
+                    current.uptime > previous.uptime
+                        && current.queries.checked_sub(previous.queries)
+                            == Some(self.own_completed_questions)
+                        && current.pending == 0
+                });
+                self.previous_activity = Some(current);
+                self.own_completed_questions = 0;
+                (idle, None)
+            }
+            Err(error) => {
+                self.previous_activity = None;
+                self.own_completed_questions = 0;
+                (false, Some(error))
+            }
+        };
+        if !idle && control_error.is_none() {
+            return self.retained_or_disconnected(
+                "caduceus-stats-internet-resolver-passive-success-unavailable",
+            );
+        }
         let now = Instant::now();
         if self.next_resolver_question.is_some_and(|next| now < next) {
-            if let Some(answer) = &self.resolver_observation {
-                return project(answer);
-            }
+            return self.retained_or_disconnected(
+                "caduceus-stats-internet-resolver-question-window-pending",
+            );
         }
         // Attempt time, not success, throttles both failures and successes.
         // Pokes cannot turn a failed question into seven-second outreach.
-        let control_error = resolver_counters_available().err();
+
         // RTT/infra TTL and recursive reply totals include failure; neither is
         // a successful upstream witness. Until such a passive reader exists,
         // take the contract's local-question fallback, never call those green.
         let question = fresh_resolver_question();
         self.next_resolver_question = Some(Instant::now() + RECENT);
-        let success = question.as_ref().is_ok_and(|name| {
-            dns_query(Ipv4Addr::LOCALHOST, name, Instant::now() + RESOLVER_TIMEOUT).is_ok_and(
-                |answer| answer.rcode == 0 && answer.ipv4_answer == Some(Ipv4Addr::new(1, 1, 1, 1)),
-            )
+        let response = question.as_ref().ok().and_then(|name| {
+            dns_query(Ipv4Addr::LOCALHOST, name, Instant::now() + RESOLVER_TIMEOUT).ok()
+        });
+        self.own_completed_questions = u64::from(response.is_some());
+        let success = response.is_some_and(|answer| {
+            answer.rcode == 0 && answer.ipv4_answer == Some(Ipv4Addr::new(1, 1, 1, 1))
         });
         let answer = if success {
             let mut answer = resolver_answer();
@@ -197,6 +235,9 @@ impl Sampler {
         } else if let Some(error) = control_error {
             // Preserve the original fallback for absent/unreadable control.
             let mut answer = probe_internet();
+            // The required TCP fallback still runs, but an open port is not
+            // a successful DNS answer and cannot satisfy gateway connected.
+            answer.status = Some("disconnected".to_owned());
             answer.first_missing_signal = named_signal(error);
             answer
         } else {
@@ -215,6 +256,18 @@ impl Sampler {
         };
         self.resolver_observation = Some(answer.clone());
         answer
+    }
+
+    fn retained_or_disconnected(&self, signal: &'static str) -> InternetObservation {
+        self.resolver_observation
+            .as_ref()
+            .map(project)
+            .unwrap_or_else(|| InternetObservation {
+                ts: now_ts(),
+                status: Some("disconnected".to_owned()),
+                source: Some("resolver"),
+                first_missing_signal: named_signal(signal),
+            })
     }
 }
 
@@ -288,7 +341,13 @@ fn gateway_answer(value: &Value) -> Result<InternetObservation, ()> {
     })
 }
 
-fn resolver_counters_available() -> Result<(), &'static str> {
+struct ResolverActivity {
+    queries: u64,
+    pending: u64,
+    uptime: f64,
+}
+
+fn resolver_activity() -> Result<ResolverActivity, &'static str> {
     let text =
         resolver_stats().map_err(|_| "caduceus-stats-internet-resolver-counters-unavailable")?;
     let field = |name: &str| {
@@ -297,11 +356,20 @@ fn resolver_counters_available() -> Result<(), &'static str> {
             (key == name).then_some(value)
         })
     };
-    field("time.up")
+    let uptime = field("time.up")
         .and_then(|value| value.parse::<f64>().ok())
         .filter(|value| value.is_finite() && *value >= 0.0)
         .ok_or("caduceus-stats-internet-resolver-counters-malformed")?;
-    Ok(())
+    let number = |name| {
+        field(name)
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or("caduceus-stats-internet-resolver-counters-malformed")
+    };
+    Ok(ResolverActivity {
+        queries: number("total.num.queries")?,
+        pending: number("total.requestlist.current.all")?,
+        uptime,
+    })
 }
 
 fn resolver_stats() -> io::Result<String> {
