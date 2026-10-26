@@ -52,6 +52,8 @@ struct Stave {
     #[serde(default)]
     ipv4: Value,
     #[serde(default)]
+    caduceus_port: Value,
+    #[serde(default)]
     hostname: Value,
     #[serde(default)]
     canonical_name: Value,
@@ -302,6 +304,105 @@ fn record(id: &str, verb: &str, outcome: &Value, started: Instant) {
     }));
 }
 
+// The single worker owns a bounded one-slot coalescing trigger. A trigger
+// represents a fresh whole-roster observation, not a child-supplied authority.
+static CHILD_BIND_SIGNAL: std::sync::OnceLock<tokio::sync::mpsc::Sender<()>> = std::sync::OnceLock::new();
+
+pub(crate) fn signal_child_portals() {
+    if !gateway_profile() { return; }
+    let sender = CHILD_BIND_SIGNAL.get_or_init(|| {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+        tokio::spawn(async move {
+            while receiver.recv().await.is_some() {
+                let Ok(_permit) = MUTATIONS.acquire().await else { break; };
+                let Ok(roster) = roster().await else { continue; };
+                for child in roster["staves"].as_array().into_iter().flatten() {
+                    let started = Instant::now();
+                    if let Err((_, signal)) = bind_child_portals(child, &roster, false).await {
+                        let id = child["mac"].as_str().unwrap_or("unknown-child");
+                        record(id, "auto-bind", &json!({"ok":false,"firstMissingSignal":signal}), started);
+                    }
+                }
+            }
+        });
+        sender
+    });
+    // Full means an already-queued whole-roster sweep will include this PUT.
+    let _ = sender.try_send(());
+}
+
+// Caller holds MUTATIONS: accept already owns it, and the signal worker takes
+// it once before its sweep. Authority is the gateway's current status, never
+// the announcement, the child's registry, or Hestia membership.
+async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool) -> Result<Vec<Value>, Failure> {
+    if !gateway_profile() { return Ok(Vec::new()); }
+    let ip = child["ipv4"].as_str().and_then(|v| v.parse::<std::net::Ipv4Addr>().ok())
+        .ok_or_else(|| unavailable("link-up-child-address-unavailable"))?;
+    if roster["seat"]["ipv4"].as_str() == Some(ip.to_string().as_str()) { return Ok(Vec::new()); }
+    let mut status = house::portals().await?;
+    let accepted = status["portals"].as_array().into_iter().flatten().any(|portal| {
+        portal["lan_ip"].as_str().and_then(|v| v.parse::<std::net::Ipv4Addr>().ok()) == Some(ip)
+    });
+    if !accepted { return Ok(Vec::new()); }
+    let listener = child["caduceus_port"].as_u64().and_then(|n| u16::try_from(n).ok())
+        .filter(|n| *n != 0).unwrap_or(8787);
+    let entries = house::child_portals(ip, listener).await?;
+    let mut results = Vec::new();
+    for entry in entries {
+        let Some(url) = entry.local_url.as_str().and_then(|s| s.strip_prefix("https://")) else { continue; };
+        let name = url.strip_suffix('/').unwrap_or(url);
+        if !name.ends_with(".home.arpa") || name.contains('/') { continue; }
+        let Some(port) = entry.port.as_u64().and_then(|port| u16::try_from(port).ok()).filter(|port| *port != 0) else { continue; };
+        let started = Instant::now();
+        let upstream = format!("http://{ip}:{port}");
+        if status["portals"].as_array().into_iter().flatten().any(|p| p["fqdn"] == name && p["upstream"] == upstream) {
+            continue;
+        }
+        let candidate = json!({"from":{"ipv4":ip.to_string()}, "upstream":upstream});
+        let names = vec![name.to_owned()];
+        let validation = if house::valid_name(name) {
+            let names = names.clone();
+            let roster = roster.clone();
+            let status = status.clone();
+            tokio::task::spawn_blocking(move || house::validate_names(&names, &candidate, &roster, &status))
+                .await.map_err(|_| unavailable("link-up-name-observation-failed"))?
+        } else { Err((StatusCode::BAD_REQUEST, "link-up-name-invalid")) };
+        if let Err((_, signal)) = validation {
+            let result = json!({"portal":name,"ok":false,"firstMissingSignal":signal});
+            record(name, "auto-bind", &result, started);
+            results.push(result);
+            continue;
+        }
+        let args = vec!["portal-admit".to_owned(), name.to_owned(), ip.to_string(), upstream];
+        if dry_run {
+            let mut argv = vec!["caduceus".to_owned(), "cert".to_owned()];
+            argv.extend(args);
+            results.push(json!({"portal":name,"ok":true,"attempted":false,"argv":argv}));
+            continue;
+        }
+        let result = match house::admit(args).await {
+            Ok(value) if value["ok"] == true && value["converged"] != false => json!({"portal":name,"ok":true}),
+            Ok(value) => json!({"portal":name,"ok":false,"firstMissingSignal":value["firstMissingSignal"].as_str().unwrap_or("link-up-portal-admit-incomplete")}),
+            Err((_, signal)) => json!({"portal":name,"ok":false,"firstMissingSignal":signal}),
+        };
+        record(name, "auto-bind", &result, started);
+        let succeeded = result["ok"] == true;
+        results.push(result);
+        if succeeded {
+            match house::portals().await {
+                Ok(current) => status = current,
+                Err((_, signal)) => {
+                    let failure = json!({"portal":name,"ok":false,"firstMissingSignal":signal});
+                    record(name, "auto-bind-refresh", &failure, started);
+                    results.push(failure);
+                    break;
+                }
+            }
+        }
+    }
+    Ok(results)
+}
+
 // Only identities are kept. The live reader is pending(); accepted/dropped
 // announcements are deleted on the next mutation, never during a GET.
 fn dismissal(id: &str, dismiss: bool) -> Result<(), Failure> {
@@ -370,8 +471,9 @@ async fn mutate(
         let portals = house::portals().await?;
         let owned_names = names.clone();
         let owned_candidate = candidate.clone();
+        let validation_roster = roster.clone();
         tokio::task::spawn_blocking(move || {
-            house::validate_names(&owned_names, &owned_candidate, &roster, &portals)
+            house::validate_names(&owned_names, &owned_candidate, &validation_roster, &portals)
         })
         .await
         .map_err(|_| unavailable("link-up-name-observation-failed"))??;
@@ -387,9 +489,18 @@ async fn mutate(
         if body["dry_run"] == true {
             let mut argv = vec!["caduceus".to_owned(), "cert".to_owned()];
             argv.extend(args);
+            let child = roster["staves"].as_array().into_iter().flatten()
+                .find(|row| row["mac"] == candidate["from"]["mac"] && row["ipv4"] == candidate["from"]["ipv4"]);
+            let child_portals = match child {
+                Some(child) => match bind_child_portals(child, &roster, true).await {
+                    Ok(results) => json!(results),
+                    Err((_, signal)) => json!([{"ok":false,"firstMissingSignal":signal}]),
+                },
+                None => json!([]),
+            };
             return Ok(
                 json!({"schema": SCHEMA, "ok": true, "dry_run": true, "attempted": false,
-                "portal": names[0], "names": names, "argv": argv}),
+                "portal": names[0], "names": names, "argv": argv, "child_portals": child_portals}),
             );
         }
         let mut receipt = house::admit(args).await?;
@@ -402,6 +513,15 @@ async fn mutate(
         if receipt["ok"] != true {
             return Ok(receipt);
         }
+        let child = roster["staves"].as_array().into_iter().flatten()
+            .find(|row| row["mac"] == candidate["from"]["mac"] && row["ipv4"] == candidate["from"]["ipv4"]);
+        receipt["child_portals"] = match child {
+            Some(child) => match bind_child_portals(child, &roster, false).await {
+                Ok(results) => json!(results),
+                Err((_, signal)) => json!([{"ok":false,"firstMissingSignal":signal}]),
+            },
+            None => json!([]),
+        };
         tokio::task::spawn_blocking(move || dismissal(&id, false))
             .await
             .map_err(|_| unavailable("link-up-state-unavailable"))??;

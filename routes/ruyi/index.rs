@@ -773,6 +773,8 @@ async fn put(
         Ok::<_, (StatusCode, Json<crate::gate::ApiErrorBody>)>(row)
     })
     .await??;
+    #[cfg(leaf_notifications)]
+    crate::routes::leaf_notifications::signal_child_portals();
     Ok((StatusCode::OK, Json(row)))
 }
 

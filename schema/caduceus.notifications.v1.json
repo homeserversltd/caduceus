@@ -140,6 +140,10 @@
       "items": {
         "type": "string"
       }
+    },
+    "child_portals": {
+      "type": ["array", "null"],
+      "description": "Optional per-entry child portal bind results; dry-run entries carry planned argv and attempted=false."
     }
   },
   "forms": {

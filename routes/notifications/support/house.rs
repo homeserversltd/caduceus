@@ -83,6 +83,62 @@ pub(super) async fn gateway_notifications() -> Option<Value> {
     }).await.ok().flatten()
 }
 
+#[derive(serde::Deserialize)]
+pub(super) struct ChildPortal {
+    #[serde(rename = "localURL", default)]
+    pub local_url: Value,
+    #[serde(default)]
+    pub port: Value,
+}
+
+#[derive(serde::Deserialize)]
+struct ChildPortals {
+    schema: String,
+    entries: Vec<ChildPortal>,
+}
+
+// The response crosses a bounded streaming channel. Unrelated entry fields
+// are skipped by the semantic reader rather than kept in a response buffer.
+pub(super) async fn child_portals(ip: Ipv4Addr, port: u16) -> Result<Vec<ChildPortal>, Failure> {
+    timeout(Duration::from_secs(3), async move {
+        let mut stream = TcpStream::connect((ip, port)).await
+            .map_err(|_| unavailable("link-up-child-portals-unavailable"))?;
+        let request = format!("GET /api/v1/portals HTTP/1.0\r\nHost: {ip}\r\nAccept: application/json\r\nConnection: close\r\n\r\n");
+        stream.write_all(request.as_bytes()).await
+            .map_err(|_| unavailable("link-up-child-portals-unavailable"))?;
+        let mut head = Vec::new();
+        loop {
+            if head.len() >= 8192 { return Err(unavailable("link-up-child-portals-unavailable")); }
+            let byte = stream.read_u8().await.map_err(|_| unavailable("link-up-child-portals-unavailable"))?;
+            head.push(byte);
+            if head.ends_with(b"\r\n\r\n") { break; }
+        }
+        let headers = std::str::from_utf8(&head).map_err(|_| unavailable("link-up-child-portals-unavailable"))?;
+        if headers.lines().next().and_then(|line| line.split_whitespace().nth(1)) != Some("200") {
+            return Err(unavailable("link-up-child-portals-unavailable"));
+        }
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        let parser = tokio::task::spawn_blocking(move || serde_json::from_reader::<_, ChildPortals>(super::RosterStream {
+            receiver, current: axum::body::Bytes::new(),
+        }));
+        let mut total = 0usize;
+        let mut bytes = [0u8; 8192];
+        loop {
+            let count = stream.read(&mut bytes).await.map_err(|_| unavailable("link-up-child-portals-unavailable"))?;
+            if count == 0 { break; }
+            total += count;
+            if total > MAX_BODY { return Err(unavailable("link-up-child-portals-unavailable")); }
+            sender.send(axum::body::Bytes::copy_from_slice(&bytes[..count])).await
+                .map_err(|_| unavailable("link-up-child-portals-unavailable"))?;
+        }
+        drop(sender);
+        let value = parser.await.map_err(|_| unavailable("link-up-child-portals-unavailable"))?
+            .map_err(|_| unavailable("link-up-child-portals-unavailable"))?;
+        if value.schema != "caduceus.portals.v2" { return Err(unavailable("link-up-child-portals-desync")); }
+        Ok(value.entries)
+    }).await.map_err(|_| unavailable("link-up-child-portals-unavailable"))?
+}
+
 pub(super) async fn portals() -> Result<Value, Failure> {
     match crate::shared::policy::allows_command("cert status") {
         Ok(true) => {}
