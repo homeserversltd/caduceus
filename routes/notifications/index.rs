@@ -339,11 +339,11 @@ async fn mutate(
     let verb = if dismiss { "dismiss" } else { "accept" };
     let deed_id = id.clone();
     let result: Result<Value, Failure> = async {
-        admin(&headers)?;
         if !gateway_profile() {
             // There is no peer-pinned HTTP credential path in this source.
             return Err((StatusCode::FORBIDDEN, "link-up-accept-on-homeserver"));
         }
+        admin(&headers)?;
         let _permit = MUTATIONS
             .try_acquire()
             .map_err(|_| unavailable("link-up-busy"))?;
