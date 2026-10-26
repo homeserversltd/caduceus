@@ -58,6 +58,14 @@ where
     S: Into<String>,
 {
     let args: Vec<String> = args.into_iter().map(Into::into).collect();
+    if let Some(help_at) = args.iter().position(|arg| arg == "--help" || arg == "-h") {
+        if help_at == 0 {
+            print_help();
+        } else {
+            print_verb_help(&args[..help_at]);
+        }
+        return 0;
+    }
     if let Some(namespace) = crate::routes::route_for_cli(&args) {
         let declaration_source = crate::routes::selected_declaration(namespace)
             .expect("selected CLI route must have a declaration");
@@ -884,6 +892,62 @@ fn option_list(rest: &[String], name: &str) -> Vec<String> {
 }
 
 fn print_help() {
+    print_usage(None);
+}
+
+fn print_verb_help(args: &[String]) {
+    let mut canonical = args.to_vec();
+    if canonical.first().is_some_and(|arg| arg == "cert") {
+        if canonical.get(1).is_some_and(|arg| arg == "apply") {
+            canonical[1] = "apply-nginx".into();
+        } else if canonical.get(1).is_some_and(|arg| arg == "bundle")
+            && canonical.get(2).is_some_and(|arg| arg == "create")
+        {
+            canonical.splice(1..3, ["bundle-export".into()]);
+        }
+    }
+    print_usage(Some(&canonical));
+}
+
+fn print_usage(args: Option<&[String]>) {
+    let mut best: Option<(usize, &str)> = None;
+    macro_rules! println {
+        ($line:literal) => {{
+            if let Some(args) = args {
+                if let Some(usage) = $line.trim_start().strip_prefix("caduceus ") {
+                    let mut matched = 0;
+                    let mut complete = true;
+                    for (index, word) in usage.split_whitespace().enumerate() {
+                        if word.starts_with('[') || word.starts_with("--") {
+                            break;
+                        }
+                        if word.starts_with('<') && word.ends_with('>')
+                            && !word.contains('|') && word != "<family>" {
+                            break;
+                        }
+                        let Some(arg) = args.get(index) else { complete = false; break };
+                        if word.starts_with('<') && word.ends_with('>') {
+                            let inner = &word[1..word.len() - 1];
+                            if inner.contains('|') && !inner.split('|').any(|choice| choice == arg) {
+                                complete = false;
+                                break;
+                            }
+                        } else if !word.split('|').any(|choice| choice == arg) {
+                            complete = false;
+                            break;
+                        }
+                        matched += 1;
+                    }
+                    if complete && matched > 0 && best.map_or(true, |(n, _)| matched > n) {
+                        best = Some((matched, $line));
+                    }
+                }
+            } else {
+                std::println!($line);
+            }
+        }};
+        () => {{ if args.is_none() { std::println!(); } }};
+    }
     println!("caduceus 0.1.0");
     println!("public appliance-control lever");
     println!();
@@ -896,6 +960,13 @@ fn print_help() {
     println!("  caduceus health");
     println!("  caduceus logs read [--offset N] [--limit N]");
     println!("  caduceus logs clear");
+    println!("  caduceus storage categories scan");
+    println!("  caduceus disk census");
+    println!("  caduceus time state");
+    println!("  caduceus time resolve");
+    println!("  caduceus time ensure-ntp");
+    println!("  caduceus time set-timezone <timezone>");
+    println!("  caduceus child-device <command> [arguments]");
     println!("  caduceus disk test progress");
     println!("  caduceus disk test results");
     println!("  caduceus disk test start <device> <quick|full|ultimate> [--dry-run]");
@@ -916,8 +987,14 @@ fn print_help() {
     println!("  caduceus homeserver-sbin list");
     println!("  caduceus homeserver-sbin show <script-id>");
     println!("  caduceus network status");
-    println!("  caduceus network dhcp status|leases|reservations list|boundary show");
+    println!("  caduceus network dhcp status");
+    println!("  caduceus network dhcp leases");
+    println!("  caduceus network dhcp reservations list");
+    println!("  caduceus network dhcp boundary show");
+    println!("  caduceus network dhcp statistics");
+    println!("  caduceus network dhcp health");
     println!("  caduceus network dns status|read");
+    println!("  caduceus network dns resolver status");
     println!("  caduceus network dns intent POST /api/dns/unbound/drop-in --metadata-json <json>");
     println!("  caduceus network dns device-name <create|remove> --hostname <name> --ip <ip>");
     println!("  caduceus network dns alias <create|remove> --label <label> --hostname <name>");
@@ -959,4 +1036,11 @@ fn print_help() {
     println!("  caduceus settings <family> read");
     println!("  caduceus settings <family> mutate <fields-json>");
     println!("  caduceus serve");
+    if let Some(args) = args {
+        if let Some((_, usage)) = best {
+            std::println!("{}", usage.trim_start());
+        } else {
+            std::println!("Usage is not listed for this command; run caduceus --help.");
+        }
+    }
 }
