@@ -308,10 +308,9 @@ fn valid_row(row: &RuyiRow, path_mac: &str) -> bool {
         && row.ipv4.parse::<Ipv4Addr>().is_ok()
         && row.caduceus_port.map_or(true, |port| port != 0)
         && valid_hostname(&row.profile)
-        && matches!(
-            row.gui_face.as_deref(),
-            None | Some("Hyprland") | Some("Arcadia") | Some("Coronatio") | Some("Sway")
-        )
+        && row.gui_face.as_deref().map_or(true, |face| {
+            crate::routes::profile_routes::RUYI_GUI_FACES.contains(&face)
+        })
         && valid_hex(&row.caduceus_sha, 40)
         && valid_hex(&row.env_sha, 64)
         && valid_hex(&row.harmonia_sha, 40)

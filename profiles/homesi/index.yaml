@@ -1,5 +1,6 @@
 schema: caduceus.profile.v1
 profile: homesi
+gui_face: Noesis
 mode: homesi
 # Thyrsus profile routes are derived from the shared routes/thyrsus/* leaves:
 # POST propose, POST admit, POST forge-token, GET forge (all under /api/v1/thyrsus).

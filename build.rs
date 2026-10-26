@@ -271,8 +271,13 @@ fn main() {
     let explicit = env::var("CADUCEUS_PROFILE").ok();
     let requested = resolve_build_profile(explicit.as_deref(), &root);
     let profile_path = format!("profiles/{requested}/index.yaml");
-    let _profile_authority = fs::read_to_string(&profile_path)
+    let profile_source = fs::read_to_string(&profile_path)
         .unwrap_or_else(|_| panic!("profile authority must be readable: {profile_path}"));
+    let profile_authority: serde_yaml::Value =
+        serde_yaml::from_str(&profile_source).expect("selected profile index valid YAML");
+    let active_gui_face = profile_authority
+        .get("gui_face")
+        .and_then(serde_yaml::Value::as_str);
     println!("cargo:rerun-if-env-changed=CADUCEUS_BUILD_SHA");
     println!("cargo:rerun-if-env-changed=CADUCEUS_BUILD_ENV_SHA");
     println!("cargo:rerun-if-env-changed=CADUCEUS_PROFILE");
@@ -621,6 +626,38 @@ fn main() {
     let mut generated = String::from("pub const ACTIVE_PROFILE: &str = ");
     generated.push_str(&rust_string(&requested));
     generated.push_str(";\n");
+    generated.push_str(&format!(
+        "pub const ACTIVE_GUI_FACE: Option<&str> = {};\n",
+        active_gui_face.map_or_else(|| "None".to_owned(), |face| {
+            format!("Some({})", rust_string(face))
+        })
+    ));
+    // Accept every declared species face, plus the existing lab-package face.
+    let mut gui_faces = BTreeSet::from(["Hyprland".to_owned()]);
+    for entry in fs::read_dir("profiles").expect("profile directory readable") {
+        let path = entry
+            .expect("profile directory entry readable")
+            .path()
+            .join("index.yaml");
+        if !path.is_file() {
+            continue;
+        }
+        println!("cargo:rerun-if-changed={}", path.display());
+        let text = fs::read_to_string(&path).expect("profile index readable");
+        let value: serde_yaml::Value =
+            serde_yaml::from_str(&text).expect("profile index valid YAML");
+        if let Some(face) = value.get("gui_face").and_then(serde_yaml::Value::as_str) {
+            gui_faces.insert(face.to_owned());
+        }
+    }
+    generated.push_str(&format!(
+        "pub static RUYI_GUI_FACES: &[&str] = &[{}];\n",
+        gui_faces
+            .iter()
+            .map(|face| rust_string(face))
+            .collect::<Vec<_>>()
+            .join(",")
+    ));
     let mut resolved_profiles = BTreeMap::<
         String,
         (Vec<String>, Vec<String>, Vec<String>, String),

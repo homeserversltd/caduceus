@@ -1,5 +1,6 @@
 schema: caduceus.profile.v1
 profile: everything-lit
+gui_face: null
 mode: everything-lit
 sclerites:
 - '*'

@@ -40,12 +40,7 @@ pub(crate) async fn route() -> Result<Json<BeamBody>, (StatusCode, Json<crate::g
     .await?
     .map_err(|_| failure("caduceus-ruyi-store-failed"))?;
     let profile = crate::routes::profile_routes::ACTIVE_PROFILE.to_owned();
-    let gui_face = match profile.as_str() {
-        "homeserver" => Some("Coronatio"),
-        "homeconsole" => Some("Arcadia"),
-        "tv" => Some("Sway"),
-        _ => None,
-    };
+    let gui_face = crate::routes::profile_routes::ACTIVE_GUI_FACE;
     let body = BeamBody {
         schema: crate::routes::leaf_schema::beam_schema(),
         ok: true,

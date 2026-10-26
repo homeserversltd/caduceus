@@ -1,5 +1,6 @@
 schema: caduceus.profile.v1
 profile: homeconsole
+gui_face: Arcadia
 mode: homeconsole
 harmonia_profile: /etc/harmonia/profiles/homeconsole/index.json
 services:
