@@ -37,7 +37,7 @@ struct Tuple {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct Key {
+pub(super) struct Key {
     id: u32,
     zone: [u16; 3],
     original: Tuple,
@@ -72,7 +72,7 @@ impl Flow {
 }
 
 #[derive(Clone)]
-struct Tracked {
+pub(super) struct Tracked {
     flow: Flow,
     read_at: Evidence,
 }
