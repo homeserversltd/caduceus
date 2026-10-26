@@ -2,7 +2,7 @@ use super::{observation, observe, seat, store, validation, Refusal, Result, VERD
 use axum::extract::{rejection::JsonRejection, Path};
 use axum::http::StatusCode;
 use axum::Json;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 
 type Reply = (StatusCode, Json<Value>);
