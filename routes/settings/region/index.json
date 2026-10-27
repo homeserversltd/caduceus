@@ -1,0 +1,1 @@
+{"namespace":"settings/region","admittance":"open","flags":{},"serve":[{"rust":"settings_region_read_mutate"},{"snake":"settings/region","verb":["settings","region"]}],"commands":["settings region read","settings region mutate"],"needs":["sway"]}
