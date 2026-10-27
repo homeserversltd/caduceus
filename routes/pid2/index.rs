@@ -39,7 +39,7 @@ async fn command(Path(verb): Path<String>, body: Bytes) -> Response {
     respond(result,Some(value),&transition)
 }
 pub(crate) fn unit_control(payload: &Value) -> Result<Value,String> {
-    let result = crate::gate::snake::crossing_path_with_timeout("unit/control",payload,std::time::Duration::from_secs(60))?;
+    let result = crate::gate::snake::crossing_path_with_timeout("unit/control",payload,std::time::Duration::from_secs(300))?;
     let receipt = result.get("receiptPayload").cloned().unwrap_or(Value::Null);
     if result.get("ok").and_then(Value::as_bool) != Some(true) || receipt.get("ok").and_then(Value::as_bool) != Some(true) {
         return Err(receipt.get("first_missing_signal").and_then(Value::as_str)

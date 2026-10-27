@@ -52,11 +52,11 @@ async fn owner_child() -> Result<(),String> {
     let address=format!("unix:path=/run/user/{uid}/bus");
     let conn=zbus::connection::Builder::address(address.as_str()).map_err(|e|e.to_string())?.build().await.map_err(|e|e.to_string())?;
     let (mut managers,mut changes)=streams(&conn).await?;
-    println!("ready"); std::io::stdout().flush().map_err(|e|e.to_string())?;
+    writeln!(std::io::stdout(),"ready").and_then(|_|std::io::stdout().flush()).map_err(|e|e.to_string())?;
     loop {
         let item=tokio::select! { item=managers.next()=>item, item=changes.next()=>item };
         match item {
-            Some(Ok(_)) => { println!("wake"); std::io::stdout().flush().map_err(|e|e.to_string())?; },
+            Some(Ok(_)) => { writeln!(std::io::stdout(),"wake").and_then(|_|std::io::stdout().flush()).map_err(|e|e.to_string())?; },
             Some(Err(e)) => return Err(e.to_string()), None => return Err("pid2-owner-stream-closed".into()),
         }
     }
