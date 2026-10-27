@@ -1,1 +1,1 @@
-{"namespace":"settings/keyboard","admittance":"open","flags":{},"serve":[{"rust":"settings_keyboard_read_mutate"},{"snake":"settings/keyboard","verb":["settings","keyboard"]}],"commands":["settings keyboard read","settings keyboard mutate"],"needs":["sway"]}
+{"namespace":"settings/keyboard","admittance":"open","flags":{},"serve":[{"snake":"settings/keyboard","verb":["settings","keyboard"]}],"commands":["settings keyboard read","settings keyboard mutate"],"needs":["sway"]}
