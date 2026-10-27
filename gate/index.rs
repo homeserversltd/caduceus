@@ -1184,6 +1184,11 @@ async fn wait_for_shutdown(mut stop: watch::Receiver<bool>) {
 }
 
 pub async fn run_async() -> i32 {
+    #[cfg(leaf_pid2)]
+    let pid2_gate_ok = match crate::pid2::reset_gate() {
+        Ok(_) => true,
+        Err(error) => { eprintln!("pid2-reset-gate-failed: {error}"); false }
+    };
     if let Err(error) = crate::crossings::initialize() {
         eprintln!("{error}");
         return 1;
@@ -1238,6 +1243,8 @@ pub async fn run_async() -> i32 {
     };
     attendance::bind();
     crate::stats::start();
+    #[cfg(leaf_pid2)]
+    let pid2_task = pid2_gate_ok.then(|| tokio::spawn(crate::pid2::events::run()));
     crate::maintenance::start();
     let app = router();
     let (tx, rx) = watch::channel(false);
@@ -1292,6 +1299,8 @@ pub async fn run_async() -> i32 {
             if !report("uds", uds_task.await) { result = 1; }
         }
     }
+    #[cfg(leaf_pid2)]
+    if let Some(task) = pid2_task { task.abort(); }
     if let Err(error) = crate::stats::stop() {
         eprintln!("caduceus-stats-stop-failed: {error}");
         result = 1;

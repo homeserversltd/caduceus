@@ -1,0 +1,14 @@
+{
+  "namespace": "pid2",
+  "admittance": "open",
+  "flags": {"posture": "public-safe"},
+  "profiles": ["homesi", "everything-lit"],
+  "needs": [],
+  "commands": ["enable", "disable", "start", "stop", "restart", "status", "list"],
+  "serve": [],
+  "operations": [
+    {"http_method":"GET", "http_path":"/api/v1/pid2/list", "administrative":false, "mutation_allowed":false, "needs":[], "commands":[]},
+    {"http_method":"GET", "http_path":"/api/v1/pid2/status/{id}", "administrative":false, "mutation_allowed":false, "needs":[], "commands":[]},
+    {"http_method":"POST", "http_path":"/api/v1/pid2/{verb}", "administrative":true, "mutation_allowed":true, "needs":[], "ledger_deed":{"organ":"pid2","verb":"command","target":"routine"}, "commands":[]}
+  ]
+}

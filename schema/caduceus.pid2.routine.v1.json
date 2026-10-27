@@ -1,0 +1,47 @@
+{
+  "schema": "caduceus.pid2.routine.v1",
+  "schema_version": "1.0.0",
+  "role": "Caduceus PID-2 routine registration",
+  "authority": {"owner": "caduceus", "path": "schema/caduceus.pid2.routine.v1.json"},
+  "evolution": {"law": "additive-only", "unknown_fields_preserved": true, "missing_field_semantics": "Absent optional fields mean null; only the frozen kernel is required."},
+  "required": ["schema", "intent_id", "transition", "version", "timestamp"],
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.pid2.routine.v1"},
+    "intent_id": {"type": "string"},
+    "transition": {"type": "string"},
+    "version": {"type": "string"},
+    "timestamp": {"type": "string"},
+    "routine": {
+      "type": ["object", "null"],
+      "properties": {
+        "routine_id": {"type": "string"},
+        "stages": {"type": "array", "items": {"type": "object", "properties": {
+          "line": {"type": "string"},
+          "select": {"type": "object", "properties": {"line": {"type":"string"}, "map": {"type":"object"}}, "additionalProperties":true},
+          "needs": {"type": "array", "items": {"type": "object", "properties": {
+            "kind": {"type": "string", "enum": ["await-device", "await-mount", "await-line", "await-ready", "await-owner", "observe"]},
+            "properties": {"type": "object"}, "path": {"type": "string"},
+            "routine_id": {"type": "string"}, "line": {"type": "string"},
+            "value": {}, "unit": {"type": "string"}, "scope": {"type": "string"},
+            "observer": {"type": "string"}, "pattern": {"type": "string"},
+            "seat": {"type": "string"}, "when_line": {"type": "string"}, "when_value": {}
+          }, "additionalProperties": true}},
+          "actions": {"type": "array", "items": {"type": "object", "properties": {
+            "unit": {"type": "string"}, "scope": {"type": "string"},
+            "when_line": {"type": "string"}, "when_value": {}
+          }, "additionalProperties": true}}
+        }, "additionalProperties": true}}
+      },
+      "additionalProperties": true
+    }
+  },
+  "unit_enum": [
+    {"unit": "sddm.service", "scope": "system"},
+    {"unit": "sway-seat.service", "scope": "owner"},
+    {"unit": "sunshine.service", "scope": "owner"},
+    {"unit": "sunshine@screen.service", "scope": "owner"},
+    {"unit": "sunshine@headless.service", "scope": "owner"},
+    {"unit": "hometv-sway-session.target", "scope": "owner", "observe_only": true, "readiness": "sway-session-target"}
+  ],
+  "additionalProperties": true
+}

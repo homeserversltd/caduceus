@@ -66,6 +66,12 @@ where
         }
         return 0;
     }
+    #[cfg(leaf_pid2)]
+    if args.as_slice() == ["pid2-owner-sense"] { return crate::pid2::events::owner_sense_cli(); }
+    #[cfg(leaf_pid2)]
+    if args.first().is_some_and(|v| ["enable", "disable", "start", "stop", "restart", "status", "list", "pid2-observe-drm"].contains(&v.as_str())) {
+        return crate::pid2::cli(&args);
+    }
     if let Some(namespace) = crate::routes::route_for_cli(&args) {
         let declaration_source = crate::routes::selected_declaration(namespace)
             .expect("selected CLI route must have a declaration");
@@ -953,6 +959,14 @@ fn print_usage(args: Option<&[String]>) {
     println!();
     println!("commands:");
     println!("  caduceus help");
+    #[cfg(leaf_pid2)]
+    {
+        println!("  caduceus enable < routine-envelope-on-stdin");
+        println!("  caduceus disable <routine-id>");
+        println!("  caduceus start|stop|restart <unit>");
+        println!("  caduceus status <routine-id-or-unit>");
+        println!("  caduceus list");
+    }
     println!("  caduceus carapace <profile> --tree");
     println!("  caduceus identity show");
     println!("  caduceus profile show");

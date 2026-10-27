@@ -432,6 +432,7 @@ fn main() {
         "caduceus.thyrsus.forge.v1",
         "caduceus.network.tailscale.v1",
         "caduceus.disk.census.v1",
+        "caduceus.pid2.routine.v1",
         "caduceus.pjlink.known_product.v1",
         "appliance.crossings.v1",
         "mem0.health.v1",
