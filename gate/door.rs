@@ -34,6 +34,7 @@ struct DoorReply {
     body: Value,
     receipt: Value,
     changed: Option<bool>,
+    is_chord: bool,
 }
 
 struct DeedGuard {
@@ -233,7 +234,7 @@ async fn handle_request(
                 let ok = reply.receipt.get("ok").and_then(Value::as_bool) == Some(true);
                 let signal = receipt_signal(&reply.receipt).filter(|signal| ok || *signal != "none")
                     .unwrap_or(if ok { "none" } else { "caduceus-generic-actuator-refused" });
-                if reply.changed == Some(false) {
+                if !reply.is_chord || reply.changed == Some(false) {
                     deed.recorded = true;
                 } else {
                     deed.record(
@@ -371,10 +372,13 @@ async fn dispatch(
     }
     let changed = declared_receipt_change(validation_schema, &receipt);
     let body = project_response(declaration, &receipt)
-        .map_err(|signal| DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, signal).with_witness(receipt.clone(), changed))?;
+        .map_err(|signal| {
+            let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, signal).with_witness(receipt.clone(), changed);
+            if is_chord { failure } else { failure.after_attempt() }
+        })?;
     let status = status_from_declaration(declaration, &receipt)
         .unwrap_or_else(|| crate::gate::mutation_status(&receipt));
-    Ok(DoorReply { status, body, receipt, changed })
+    Ok(DoorReply { status, body, receipt, changed, is_chord })
 }
 
 // Only a boolean declared by the expected public seat can establish a no-op.

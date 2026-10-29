@@ -886,6 +886,7 @@ struct NativeChordState {
     failed_stage: Option<String>,
     first_missing_signal: Option<String>,
     skip_serve: bool,
+    finally_skipped: bool,
     // None means at least one mutator did not report whether it changed.
     changed: Option<bool>,
     next_ordinal: usize,
@@ -1111,8 +1112,20 @@ async fn native_chord_run_steps(
         if let Some(dependency) = step
             .depends_on
             .iter()
-            .find(|dependency| !is_finally && !state.completed.contains_key(*dependency))
+            .find(|dependency| !state.completed.contains_key(*dependency))
         {
+            if is_finally {
+                state.finally_skipped = true;
+                state.first_missing_signal.get_or_insert_with(|| "caduceus-chord-finally-dependency-not-completed".to_owned());
+                state.stages.push(native_chord_stage_row(
+                    &step_id,
+                    &transition,
+                    "stage-skipped",
+                    declared_arguments,
+                    json!({"ok":false,"dependency":dependency,"firstMissingSignal":"caduceus-chord-finally-dependency-not-completed"}),
+                ));
+                continue;
+            }
             let signal = "caduceus-chord-dependency-unresolved";
             state.stages.push(native_chord_stage_row(
                 &step_id,
@@ -1362,6 +1375,7 @@ pub async fn execute_native_chord(
         failed_stage: None,
         first_missing_signal: None,
         skip_serve: false,
+        finally_skipped: false,
         changed: Some(false),
         next_ordinal: 0,
     };
@@ -1394,7 +1408,7 @@ pub async fn execute_native_chord(
     )
     .await;
 
-    let ok = state.failed_stage.is_none();
+    let ok = state.failed_stage.is_none() && !state.finally_skipped;
     let mut aggregate = json!({
         "schema": receipt_schema,
         "namespace": namespace,

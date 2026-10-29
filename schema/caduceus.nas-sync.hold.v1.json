@@ -16,7 +16,10 @@
     "firstMissingSignal",
     "steps"
   ],
-  "fields": {"changed": {"type": "boolean", "description": "True if the operation changed state; absent means unknown."}},
-  "optional": ["changed"],
+  "fields": {
+    "changed": {"type": "boolean", "description": "True if the operation changed state; absent means unknown."},
+    "holdId": {"type": "string", "description": "Identity of the hold acquired by this operation."}
+  },
+  "optional": ["changed", "holdId"],
   "additionalProperties": true
 }

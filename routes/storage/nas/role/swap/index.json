@@ -187,7 +187,11 @@
       "verb": [
         "nas-sync",
         "release"
-      ]
+      ],
+      "depends_on": ["hold"],
+      "arguments": {
+        "hold_id": {"$ref": "stages.hold.receipt.holdId"}
+      }
     }
   ],
   "commands": [
