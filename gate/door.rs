@@ -10,7 +10,7 @@ use axum::{
 };
 use serde_json::{json, Map, Value};
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     sync::{Arc, OnceLock, RwLock},
     time::{Duration, Instant},
 };
@@ -18,9 +18,8 @@ use std::{
 const DEFAULT_GATE_DEADLINE: Duration = Duration::from_secs(30);
 const MAX_CROSSING_DEADLINE: Duration = Duration::from_secs(600);
 const MAX_REQUEST_BODY_BYTES: usize = 2 * 1024 * 1024;
-// No queued mutations: the permit belongs to the detached invocation until
-// its complete finalizer walk returns, even if the HTTP client disconnects.
-static MUTATION_SLOT: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
+// No queued mutations: each selected leaf's permit belongs to its detached
+// invocation until its complete finalizer walk returns, even on disconnect.
 
 #[derive(Debug)]
 struct DoorFailure {
@@ -91,16 +90,23 @@ impl DoorFailure {
 /// The compiled router registers only index-less leaves here. This bounded,
 /// declaration-only set lets the existing gate recognize defaulted generic
 /// paths without reclassifying any handwritten route that also has `serve`.
-static GENERIC_HTTP_NAMESPACES: OnceLock<RwLock<HashSet<String>>> = OnceLock::new();
+static GENERIC_HTTP_NAMESPACES: OnceLock<RwLock<HashMap<String, Arc<tokio::sync::Semaphore>>>> = OnceLock::new();
 
 fn register_generic_namespace(namespace: &str) {
-    let namespaces = GENERIC_HTTP_NAMESPACES.get_or_init(|| RwLock::new(HashSet::new()));
-    namespaces.write().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(namespace.to_owned());
+    let namespaces = GENERIC_HTTP_NAMESPACES.get_or_init(|| RwLock::new(HashMap::new()));
+    namespaces.write().unwrap_or_else(|poisoned| poisoned.into_inner())
+        .entry(namespace.to_owned()).or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(1)));
+}
+
+fn mutation_slot(namespace: &str) -> Option<Arc<tokio::sync::Semaphore>> {
+    GENERIC_HTTP_NAMESPACES.get().and_then(|namespaces| {
+        namespaces.read().unwrap_or_else(|poisoned| poisoned.into_inner()).get(namespace).cloned()
+    })
 }
 
 pub(crate) fn is_registered_namespace(namespace: &str) -> bool {
     GENERIC_HTTP_NAMESPACES.get().is_some_and(|namespaces| {
-        namespaces.read().unwrap_or_else(|poisoned| poisoned.into_inner()).contains(namespace)
+        namespaces.read().unwrap_or_else(|poisoned| poisoned.into_inner()).contains_key(namespace)
     })
 }
 
@@ -196,7 +202,10 @@ async fn handle_request(
     };
 
     let permit = if mutation_allowed {
-        match MUTATION_SLOT.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(1))).clone().try_acquire_owned() {
+        let Some(slot) = mutation_slot(namespace) else {
+            return error_response(StatusCode::SERVICE_UNAVAILABLE, &command, "caduceus-generic-slot-missing");
+        };
+        match slot.try_acquire_owned() {
             Ok(permit) => Some(permit),
             // No mutation has started: the rejected concurrent request is a non-event.
             Err(_) => return error_response(StatusCode::SERVICE_UNAVAILABLE, &command, "caduceus-generic-mutation-busy"),
@@ -487,35 +496,12 @@ fn request_id(_headers: &HeaderMap) -> String {
 }
 
 fn deed_signal(signal: &str) -> &str {
-    // Never copy untrusted receipt text into the ledger: only fixed signals
-    // defined by this gate and the named NAS staff contract are safe.
-    match signal {
-        "none" | "caduceus-schema-desync" | "caduceus-chord-ref-unresolved"
-        | "caduceus-chord-total-deadline-exceeded" | "caduceus-chord-dependency-unresolved"
-        | "caduceus-chord-request-payload-not-object" | "caduceus-chord-required-stage-refused"
-        | "caduceus-chord-stage-arguments-invalid" | "caduceus-chord-stage-id-duplicate"
-        | "caduceus-chord-stage-not-object" | "caduceus-chord-total-deadline-out-of-range"
-        | "caduceus-agathodaimon-timeout" | "caduceus-agathodaimon-refused"
-        | "caduceus-agathodaimon-cli-unavailable" | "caduceus-agathodaimon-cli-missing"
-        | "caduceus-agathodaimon-cli-stdin-write-failed" | "caduceus-agathodaimon-output-too-large"
-        | "caduceus-generic-task-aborted" | "caduceus-generic-mutation-busy"
-        | "caduceus-generic-command-missing" | "caduceus-generic-deadline-invalid"
-        | "caduceus-generic-receipt-missing" | "caduceus-generic-serve-empty"
-        | "caduceus-generic-body-declaration-invalid" | "caduceus-generic-actuator-refused"
-        | "caduceus-administrative-pin-required" | "caduceus-http-method-not-allowed"
-        | "caduceus-http-response-project-invalid" | "caduceus-profile-missing"
-        | "caduceus-public-action-not-allowed" | "caduceus-request-body-invalid"
-        | "caduceus-request-body-not-allowed" | "caduceus-request-body-object-required"
-        | "caduceus-request-body-required" | "caduceus-request-body-too-large"
-        | "caduceus-request-content-type-invalid" | "caduceus-rust-primitive-refused"
-        | "caduceus-rust-primitive-timeout" | "caduceus-snake-band-not-profile-lit"
-        | "caduceus-snake-band-path-invalid" | "caduceus-snake-envelope-invalid"
-        | "caduceus-snake-stdin-writer-failed" | "caduceus-snake-step-receipt-missing"
-        | "caduceus-snake-step-stamp-missing" | "caduceus-snake-timeout-out-of-range"
-        | "sync-hold-refused-running" | "agathodaimon-nas-partlabel-absent"
-        | "agathodaimon-nas-partlabel-duplicate" | "agathodaimon-nas-key-mismatched"
-        | "agathodaimon-nas-mount-busy" => signal,
-        _ => "caduceus-actuator-refused",
+    if signal.len() <= 64 && signal.split('-').all(|part| {
+        !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+    }) {
+        signal
+    } else {
+        "caduceus-actuator-refused"
     }
 }
 
@@ -526,10 +512,13 @@ fn deed_missing_field(witness: Option<&Value>) -> Option<&str> {
         .iter().find(|stage| stage.get("stage_id").and_then(Value::as_str) == Some(id))?
         .get("receipt")).unwrap_or(witness);
     let field = receipt.get("firstMissingField").or_else(|| receipt.get("first_missing_field"))?.as_str()?;
-    match field {
-        "schema" | "ok" | "firstMissingSignal" | "steps" | "role" | "partlabel"
-        | "partition" | "key_role" | "current_label" | "label" | "failedStep" => Some(field),
-        _ => None,
+    let mut bytes = field.bytes();
+    let first = bytes.next()?;
+    if field.len() <= 32 && (first.is_ascii_alphabetic() || first == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
+        Some(field)
+    } else {
+        None
     }
 }
 

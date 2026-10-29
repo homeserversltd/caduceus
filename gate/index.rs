@@ -589,13 +589,7 @@ fn generic_path_matches(pattern: &str, path: &str) -> bool {
     }
 }
 
-fn record_admission_refusal(
-    method: &str,
-    path: &str,
-    signal: &str,
-    started: Instant,
-    _headers: &HeaderMap,
-) {
+fn record_admission_refusal(method: &str, path: &str, signal: &str, started: Instant) {
     let Some(declaration) = declared_http_route(method, path) else { return; };
     if generic_http_declaration(&declaration) {
         // The generic request was refused before any act, so it leaves no deed.
@@ -781,7 +775,7 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
     {
         // New declared deeds fail closed if the PIN switch cannot be read.
         if let Err(signal) = attendance::pin_mode_read() {
-            record_admission_refusal(&method, &path, &signal, started, request.headers());
+            record_admission_refusal(&method, &path, &signal, started);
             return api_error_signal("administrative route gate", &signal).into_response();
         }
     }
@@ -790,7 +784,7 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
         Ok(bytes) => bytes,
         Err(_) => {
             record_admission_refusal(&method, &path,
-                "caduceus-administrative-request-too-large", started, &parts.headers);
+                "caduceus-administrative-request-too-large", started);
             return (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 Json(ApiErrorBody {
@@ -807,7 +801,7 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
     let empty_body = Value::Null;
     let admission_body = parsed_body.as_ref().unwrap_or(&empty_body);
     if let Err(signal) = administrative_credentials_admit(&parts.headers, admission_body) {
-        record_admission_refusal(&method, &path, &signal, started, &parts.headers);
+        record_admission_refusal(&method, &path, &signal, started);
         return api_error_signal("administrative route gate", &signal).into_response();
     }
 
@@ -819,7 +813,7 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
                 Ok(bytes) => bytes,
                 Err(_) => {
                     record_admission_refusal(&method, &path,
-                        "caduceus-administrative-request-invalid", started, &parts.headers);
+                        "caduceus-administrative-request-invalid", started);
                     return api_error_signal(
                         "administrative route gate",
                         "caduceus-administrative-request-invalid",
