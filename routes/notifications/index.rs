@@ -190,6 +190,13 @@ fn candidates(roster: &Value) -> Vec<Value> {
     found.into_values().collect()
 }
 
+pub(crate) fn record_stave_failure(stave: Option<&Value>, signal: &'static str) {
+    let started = Instant::now();
+    let rows = stave.map(|row| candidates(&json!({"staves":[row]}))).unwrap_or_default();
+    let id = rows.first().and_then(|row| row["id"].as_str()).unwrap_or("unknown");
+    record(id, "post", &json!({"ok":false,"firstMissingSignal":signal}), started);
+}
+
 pub(crate) async fn post_stave(stave: Value) -> Result<(), Failure> {
     if !gateway_profile() { return Ok(()); }
     let roster = json!({"staves":[stave]});
@@ -406,11 +413,12 @@ async fn mutate(
         {
             return Err((StatusCode::BAD_REQUEST, "link-up-schema-desync"));
         }
-        let roster = roster().await?;
         let candidate_id = id.clone();
         let candidate = tokio::task::spawn_blocking(move || ledger::get(&candidate_id)).await
             .map_err(|_| unavailable("notification-state-unavailable"))??;
+        if candidate["state"] != "pending" { return Err((StatusCode::CONFLICT, "notification-not-pending")); }
         if candidate["kind"] != "house-link-up" { return Err((StatusCode::BAD_REQUEST, "notification-verb-unknown")); }
+        let roster = roster().await?;
         if dismiss {
             let stored_id = id.clone();
             tokio::task::spawn_blocking(move || ledger::change(&stored_id, "dismissed"))
@@ -541,9 +549,11 @@ async fn receive_post(
         let ip = peer.and_then(|p| match p.0 { crate::gate::ConnectionInfo::Tcp(addr) => match addr.ip() { std::net::IpAddr::V4(ip) => Some(ip.to_string()), _ => None }, _ => None });
         if let Some(ip) = ip {
             row.insert("received_from".into(), json!(ip));
-            let from = row.entry("from").or_insert_with(|| json!({}));
-            if !from.is_object() { *from = json!({}); }
-            if let Some(object) = from.as_object_mut() { if !object.get("ipv4").and_then(Value::as_str).is_some() { object.insert("ipv4".into(),json!(ip)); } }
+            if !ip.parse::<std::net::Ipv4Addr>().is_ok_and(|address| address.is_loopback()) {
+                let from = row.entry("from").or_insert_with(|| json!({}));
+                if !from.is_object() { *from = json!({}); }
+                if let Some(object) = from.as_object_mut() { if !object.get("ipv4").and_then(Value::as_str).is_some() { object.insert("ipv4".into(),json!(ip)); } }
+            }
         }
         if !gateway_profile() {
             let mut receipt = house::gateway_post(&envelope).await.ok_or(unavailable("notification-gateway-unreachable"))?;
@@ -553,7 +563,7 @@ async fn receive_post(
         let _permit = MUTATIONS.try_acquire().map_err(|_| unavailable("link-up-busy"))?;
         let repost = envelope["repost"] == true;
         let mut row = envelope["notification"].clone();
-        if let Some(ip) = row["received_from"].as_str() {
+        if let Some(ip) = row["received_from"].as_str().filter(|ip| ip.parse::<std::net::Ipv4Addr>().is_ok_and(|address| !address.is_loopback())) {
             let db = crate::stats::open_db().map_err(|_| unavailable("notification-state-unavailable"))?.lock().map_err(|_| unavailable("notification-state-unavailable"))?;
             use rusqlite::OptionalExtension;
             let mac: Option<String> = db.query_row("SELECT mac FROM ruyi WHERE json_extract(row,'$.ipv4')=?1 LIMIT 1",[ip],|r|r.get(0)).optional().map_err(|_| unavailable("notification-state-unavailable"))?;
@@ -578,6 +588,7 @@ async fn action(axum::extract::Path((id,verb)): axum::extract::Path<(String,Stri
     let result: Result<Value,Failure> = async {
         let row_id = id.clone();
         let row = tokio::task::spawn_blocking(move || ledger::get(&row_id)).await.map_err(|_| unavailable("notification-state-unavailable"))??;
+        if row["state"] != "pending" { return Err((StatusCode::CONFLICT, "notification-not-pending")); }
         if verb != "dismiss" && !row["actions"].as_array().is_some_and(|actions| actions.iter().any(|a| a["verb"] == verb)) { return Err((StatusCode::BAD_REQUEST,"notification-verb-unknown")); }
         if verb == "accept" && row["kind"] == "house-link-up" { return Err((StatusCode::BAD_REQUEST,"notification-verb-unknown")); }
         let state = if verb == "dismiss" { "dismissed".to_owned() } else {

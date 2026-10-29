@@ -211,7 +211,8 @@
     "link-up-name-invalid",
     "link-up-name-taken",
     "link-up-admin-required",
-    "link-up-accept-on-homeserver"
+    "link-up-accept-on-homeserver",
+    "notification-not-pending"
   ],
   "secrecy": {
     "request_body_logged": false,
