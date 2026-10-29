@@ -125,6 +125,9 @@
           "type": ["string", "null"],
           "enum": ["gateway", "flows", "isp-hop", "public-probe", "resolver", null],
           "description": "Answering rung. flows witnesses a newer public-WAN reply from kernel metadata; isp-hop witnesses only the link to the route-derived ISP next hop, not reachability of a public service. Gateway answers preserve the gateway's evidence timestamp. Absent/null remains supported; resolver is accepted only for legacy peers and is no longer emitted locally."
+        },
+        "firstMissingSignal": {
+          "description": "Internet signal, including caduceus-stats-internet-gateway-stale, caduceus-stats-internet-flows-dump-interrupted, caduceus-stats-internet-flows-overrun, and caduceus-stats-internet-flows-over-budget."
         }
       },
       "additionalProperties": true

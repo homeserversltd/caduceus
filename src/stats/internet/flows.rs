@@ -83,6 +83,18 @@ pub(super) struct Tracked {
     read_at: Evidence,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum ReadError {
+    Hard,
+    Interrupted,
+    Overrun,
+    OverBudget,
+}
+
+impl From<()> for ReadError {
+    fn from(_: ()) -> Self { Self::Hard }
+}
+
 pub(super) enum Reader {
     Native(Native),
     Table {
@@ -119,7 +131,7 @@ impl Reader {
         matches!(self, Self::Native(native) if native.events.is_some())
     }
 
-    pub(super) fn observe(&mut self, wan: &Wan) -> Result<Option<Evidence>, ()> {
+    pub(super) fn observe(&mut self, wan: &Wan) -> Result<Option<Evidence>, ReadError> {
         match self {
             Self::Native(native) => native.observe(wan),
             Self::Table { path, previous } => {
@@ -131,7 +143,7 @@ impl Reader {
                     .read_to_end(&mut bytes)
                     .map_err(|_| ())?;
                 if bytes.len() > MAX_BYTES {
-                    return Err(());
+                    return Err(ReadError::OverBudget);
                 }
                 let text = std::str::from_utf8(&bytes).map_err(|_| ())?;
                 let deadline = Instant::now() + READ_BUDGET;
@@ -139,7 +151,7 @@ impl Reader {
                 let mut evidence = None;
                 for (count, line) in text.lines().enumerate() {
                     if count >= MAX_FLOWS || Instant::now() >= deadline {
-                        return Err(());
+                        return Err(ReadError::OverBudget);
                     }
                     let Some(flow) = proc_flow(line)? else {
                         continue;
@@ -198,7 +210,7 @@ impl Native {
         })
     }
 
-    fn observe(&mut self, wan: &Wan) -> Result<Option<Evidence>, ()> {
+    fn observe(&mut self, wan: &Wan) -> Result<Option<Evidence>, ReadError> {
         let mut evidence = None;
         if Instant::now() >= self.next_snapshot {
             let bound = Evidence::now();
@@ -230,7 +242,7 @@ impl Native {
             let Some(events) = self.events.as_ref() else {
                 break;
             };
-            if !ready(events.fd.as_raw_fd(), deadline).map_err(|_| ())? {
+            if !ready(events.fd.as_raw_fd(), deadline).map_err(|_| ReadError::Overrun)? {
                 break;
             }
             let Some(batch) = events.receive()? else {
@@ -238,17 +250,15 @@ impl Native {
             };
             bytes += batch.len();
             if bytes > MAX_BYTES {
-                return Err(());
+                return Err(ReadError::OverBudget);
             }
             for message in Messages::new(&batch) {
                 let message = message?;
                 messages += 1;
-                if messages > MAX_FLOWS || message.flags & 0x10 != 0 {
-                    return Err(());
-                }
-                if message.kind == 2 || message.kind == 4 {
-                    return Err(());
-                }
+                if messages > MAX_FLOWS { return Err(ReadError::OverBudget); }
+                if message.flags & 0x10 != 0 { return Err(ReadError::Interrupted); }
+                if message.kind == 4 { return Err(ReadError::Overrun); }
+                if message.kind == 2 { return Err(ReadError::Hard); }
                 if !matches!(message.kind, 0x100 | 0x102) {
                     continue;
                 }
@@ -282,7 +292,7 @@ impl Native {
                             && self.previous.len() >= MAX_FLOWS
                             && !self.previous.contains_key(&current.key)
                         {
-                            return Err(());
+                            return Err(ReadError::OverBudget);
                         }
                         if current.useful() {
                             self.previous.insert(
@@ -346,7 +356,7 @@ impl Netlink {
         Ok(Self { fd, sequence: 0 })
     }
 
-    fn receive(&self) -> Result<Option<Vec<u8>>, ()> {
+    fn receive(&self) -> Result<Option<Vec<u8>>, ReadError> {
         let mut buffer = vec![0u8; 65536];
         let mut sender: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
         let mut length = std::mem::size_of_val(&sender) as libc::socklen_t;
@@ -361,24 +371,28 @@ impl Netlink {
             )
         };
         if n < 0 {
-            return if io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock {
+            let error = io::Error::last_os_error();
+            return if error.kind() == io::ErrorKind::WouldBlock {
                 Ok(None)
+            } else if error.raw_os_error() == Some(libc::ENOBUFS) {
+                Err(ReadError::Overrun)
             } else {
-                Err(())
+                Err(ReadError::Hard)
             };
         }
-        if n == 0
-            || n as usize > buffer.len()
-            || sender.nl_pid != 0
+        if n as usize > buffer.len() {
+            return Err(ReadError::Overrun);
+        }
+        if n == 0 || sender.nl_pid != 0
             || sender.nl_family != libc::AF_NETLINK as libc::sa_family_t
         {
-            return Err(());
+            return Err(ReadError::Hard);
         }
         buffer.truncate(n as usize);
         Ok(Some(buffer))
     }
 
-    fn request(&mut self, key: Option<&Key>, deadline: Instant) -> Result<Vec<Flow>, ()> {
+    fn request(&mut self, key: Option<&Key>, deadline: Instant) -> Result<Vec<Flow>, ReadError> {
         self.sequence = self.sequence.wrapping_add(1).max(1);
         let mut request = vec![0u8; 20];
         request[4..6].copy_from_slice(&0x101u16.to_ne_bytes()); // CT_GET only, never CTRZERO.
@@ -414,7 +428,7 @@ impl Netlink {
             )
         } != request.len() as isize
         {
-            return Err(());
+            return Err(ReadError::Hard);
         }
         let mut rows = Vec::new();
         let mut bytes = 0;
@@ -424,16 +438,15 @@ impl Netlink {
             };
             bytes += batch.len();
             if bytes > MAX_BYTES {
-                return Err(());
+                return Err(ReadError::OverBudget);
             }
             for message in Messages::new(&batch) {
                 let message = message?;
                 if message.sequence != self.sequence {
                     continue;
                 }
-                if message.flags & 0x10 != 0 || message.kind == 4 {
-                    return Err(());
-                }
+                if message.flags & 0x10 != 0 { return Err(ReadError::Interrupted); }
+                if message.kind == 4 { return Err(ReadError::Overrun); }
                 match message.kind {
                     2 => {
                         let error = i32::from_ne_bytes(
@@ -447,33 +460,33 @@ impl Netlink {
                         if key.is_some() && error == -libc::ENOENT {
                             return Ok(Vec::new());
                         }
-                        return Err(());
+                        return Err(ReadError::Hard);
                     }
                     3 => {
                         if message.body.len() >= 4 && message.body[..4] != [0; 4] {
-                            return Err(());
+                            return Err(ReadError::Hard);
                         }
                         return Ok(rows);
                     }
                     0x100 => {
                         let row = netlink_flow(message.body)?;
                         if key.is_some_and(|expected| expected != &row.key) {
-                            return Err(());
+                            return Err(ReadError::Hard);
                         }
                         rows.push(row);
                         if rows.len() > MAX_FLOWS {
-                            return Err(());
+                            return Err(ReadError::OverBudget);
                         }
                         if key.is_some() {
                             return Ok(rows);
                         }
                     }
-                    _ => return Err(()),
+                    _ => return Err(ReadError::Hard),
                 }
             }
         }
         // A partial dump is not an empty table or a valid baseline.
-        Err(())
+        Err(ReadError::OverBudget)
     }
 }
 

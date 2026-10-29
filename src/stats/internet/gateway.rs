@@ -190,7 +190,7 @@ pub(super) struct Gateway {
     watching_since: Instant,
     flow: Option<Evidence>,
     hop: Option<(Evidence, bool, &'static str)>,
-    missing_read: bool,
+    missing_read: Option<&'static str>,
 }
 
 impl Gateway {
@@ -204,11 +204,14 @@ impl Gateway {
             watching_since: now,
             flow: None,
             hop: None,
-            missing_read: false,
+            missing_read: None,
         }
     }
 
     pub(super) fn cadence(&self, echo_not_before: Option<Instant>) -> Duration {
+        if self.reader.is_none() && self.next_open <= Instant::now() {
+            return Duration::from_millis(10);
+        }
         if self.reader.as_ref().is_some_and(flows::Reader::listening) {
             // The worker waits in a bounded kernel poll; this is not a hot
             // filesystem or staff-door loop. Nothing runs on the 1 s tick.
@@ -255,30 +258,44 @@ impl Gateway {
         if self.reader.is_none() && now >= self.next_open {
             self.reader = flows::Reader::open().ok();
             self.next_open = now + INTERNET_CADENCE;
-            self.missing_read = self.reader.is_none();
+            if self.reader.is_none() {
+                self.flow = None;
+                self.missing_read = Some("caduceus-stats-internet-flows-unreadable");
+            }
         }
         if let Some(reader) = self.reader.as_mut() {
             match reader.observe(wan) {
                 Ok(evidence) => {
-                    self.missing_read = false;
                     if let Some(evidence) = evidence.filter(|e| e.recent()) {
+                        self.missing_read = None;
                         self.flow = Some(evidence);
+                    } else if self.missing_read == Some("caduceus-stats-internet-flows-unreadable") {
+                        self.missing_read = None;
                     }
                 }
-                Err(()) => {
+                Err(error) => {
                     self.reader = None;
-                    self.next_open = Instant::now() + INTERNET_CADENCE;
-                    self.flow = None;
-                    self.missing_read = true;
+                    self.missing_read = Some(match error {
+                        flows::ReadError::Hard => "caduceus-stats-internet-flows-unreadable",
+                        flows::ReadError::Interrupted => "caduceus-stats-internet-flows-dump-interrupted",
+                        flows::ReadError::Overrun => "caduceus-stats-internet-flows-overrun",
+                        flows::ReadError::OverBudget => "caduceus-stats-internet-flows-over-budget",
+                    });
+                    if matches!(error, flows::ReadError::Hard) {
+                        self.flow = None;
+                        self.next_open = Instant::now() + INTERNET_CADENCE;
+                    } else {
+                        // Reopen and rebaseline after loss, but retain only the
+                        // independently established evidence until it expires.
+                        self.next_open = Instant::now();
+                    }
                 }
             }
         }
         if let Some(evidence) = self.flow.filter(|e| e.recent()) {
             return answer("flows", Some(evidence), true, None);
         }
-        let missing = self
-            .missing_read
-            .then_some("caduceus-stats-internet-flows-unreadable");
+        let missing = self.missing_read;
         // A cold readable table is not evidence of a silent house. First
         // observe an entire window. A missing read takes the explicit fallback.
         if missing.is_none() && self.flow.is_none() && self.watching_since.elapsed() < RECENT {

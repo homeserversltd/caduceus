@@ -199,12 +199,10 @@ fn gateway_answer(value: &Value) -> Result<InternetObservation, ()> {
         .filter(|status| matches!(*status, "connected" | "disconnected"))
         .ok_or(())?;
     let ts = internet.get("ts").and_then(Value::as_i64).ok_or(())?;
-    let age = now_ts().checked_sub(ts).ok_or(())?;
-    // Do not re-freshen a relayed or stale answer into an endless connected loop.
-    // Older gateway builds without source remain valid direct house answers.
-    if !(-7..=RECENT.as_secs() as i64).contains(&age)
-        || internet.get("source").and_then(Value::as_str) == Some("gateway")
-    {
+    let age = now_ts().saturating_sub(ts);
+    // A relayed answer must not become a loop; an old direct answer is still
+    // an answering house, but never renews connected evidence.
+    if internet.get("source").and_then(Value::as_str) == Some("gateway") {
         return Err(());
     }
     let signal = match internet.get("firstMissingSignal") {
@@ -214,14 +212,19 @@ fn gateway_answer(value: &Value) -> Result<InternetObservation, ()> {
         }
         _ => return Err(()),
     };
+    let stale = !(-7..=RECENT.as_secs() as i64).contains(&age);
     Ok(InternetObservation {
         ts,
-        status: Some(status.to_owned()),
+        status: Some(if stale { "disconnected" } else { status }.to_owned()),
         source: Some("gateway"),
-        first_missing_signal: signal.or_else(|| {
-            (status == "disconnected")
-                .then(|| "caduceus-stats-internet-gateway-disconnected".to_owned())
-        }),
+        first_missing_signal: if stale {
+            Some("caduceus-stats-internet-gateway-stale".to_owned())
+        } else {
+            signal.or_else(|| {
+                (status == "disconnected")
+                    .then(|| "caduceus-stats-internet-gateway-disconnected".to_owned())
+            })
+        },
     })
 }
 
