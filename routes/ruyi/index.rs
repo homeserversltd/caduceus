@@ -774,7 +774,11 @@ async fn put(
     })
     .await??;
     #[cfg(leaf_notifications)]
-    crate::routes::leaf_notifications::signal_child_portals();
+    {
+        let notification_row = serde_json::to_value(&row).map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "notification-state-unavailable"))?;
+        crate::routes::leaf_notifications::post_stave(notification_row).await.map_err(|(_, signal)| error(StatusCode::SERVICE_UNAVAILABLE, signal))?;
+        crate::routes::leaf_notifications::signal_child_portals();
+    }
     Ok((StatusCode::OK, Json(row)))
 }
 

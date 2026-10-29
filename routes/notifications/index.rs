@@ -15,6 +15,8 @@ use tower::ServiceExt;
 
 #[path = "support/house.rs"]
 mod house;
+#[path = "support/ledger.rs"]
+mod ledger;
 
 const SCHEMA: &str = "caduceus.notifications.v1";
 const MAX_BODY: usize = 1024 * 1024;
@@ -188,64 +190,40 @@ fn candidates(roster: &Value) -> Vec<Value> {
     found.into_values().collect()
 }
 
-fn dismissals_exist(db: &Connection) -> Result<bool, Failure> {
-    db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='notification_dismissals')", [], |row| row.get(0))
-        .map_err(|_| unavailable("link-up-state-unavailable"))
-}
-
-fn is_dismissed(db: &Connection, id: &str) -> Result<bool, Failure> {
-    db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM notification_dismissals WHERE id=?1)",
-        [id],
-        |row| row.get(0),
-    )
-    .map_err(|_| unavailable("link-up-state-unavailable"))
-}
-
-fn pending(candidates: Vec<Value>, portals: &Value) -> Result<Vec<Value>, Failure> {
-    let db = Connection::open_with_flags(crate::stats::db_path(), OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|_| unavailable("link-up-state-unavailable"))?;
-    let has_dismissals = dismissals_exist(&db)?;
-    let mut result = Vec::new();
-    for candidate in candidates {
-        let admitted = portals["portals"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|portal| portal["fqdn"] == candidate["names"][0]);
-        if !admitted && !(has_dismissals && is_dismissed(&db, candidate["id"].as_str().unwrap())?) {
-            result.push(candidate);
-        }
+pub(crate) async fn post_stave(stave: Value) -> Result<(), Failure> {
+    if !gateway_profile() { return Ok(()); }
+    let roster = json!({"staves":[stave]});
+    let rows = candidates(&roster);
+    if rows.is_empty() { return Ok(()); }
+    let _permit = MUTATIONS.try_acquire().map_err(|_| unavailable("link-up-busy"))?;
+    let portals = house::portals().await?;
+    for mut row in rows {
+        let admitted = portals["portals"].as_array().is_some_and(|items| items.iter().any(|p| p["fqdn"] == row["names"][0]));
+        row["color"] = json!("blue");
+        row["ttl"] = json!("until-acted");
+        row["actions"] = json!([{"verb":"accept","label":"Accept","fields":{"names":"list"}},{"verb":"dismiss","label":"Dismiss"}]);
+        let id = row["id"].as_str().unwrap_or("").to_owned();
+        tokio::task::spawn_blocking(move || ledger::post(row,false)).await.map_err(|_| unavailable("notification-state-unavailable"))??;
+        if admitted { tokio::task::spawn_blocking(move || ledger::change(&id,"accepted")).await.map_err(|_| unavailable("notification-state-unavailable"))??; }
     }
-    Ok(result)
+    Ok(())
 }
 
-async fn list() -> Response {
-    let Ok(_permit) = READS.try_acquire() else {
-        return refusal(unavailable("link-up-busy"));
-    };
+async fn list(headers: HeaderMap, uri: axum::http::Uri) -> Response {
+    let Ok(_permit) = READS.try_acquire() else { return refusal(unavailable("link-up-busy")); };
+    let all = uri.query().is_some_and(|q| q.split('&').any(|part| part == "all=1"));
     if !gateway_profile() {
-        // A peer read carries the gateway's complete raw JSON, including additive
-        // fields. A missing gateway door is quiet, not a local admission fallback.
+        if all { return Json(json!({"schema":SCHEMA,"notifications":[],"gateway":"history-on-homeserver"})).into_response(); }
         return match house::gateway_notifications().await {
             Some(value) => Json(value).into_response(),
-            None => Json(json!({"schema": SCHEMA, "notifications": [], "gateway": "unreachable"}))
-                .into_response(),
+            None => Json(json!({"schema":SCHEMA,"notifications":[],"gateway":"unreachable"})).into_response(),
         };
     }
-    let result = async {
-        let roster = roster().await?;
-        let portals = house::portals().await?;
-        tokio::task::spawn_blocking(move || pending(candidates(&roster), &portals))
-            .await
-            .map_err(|_| unavailable("link-up-state-unavailable"))?
-    }
-    .await;
-    match result {
-        Ok(notifications) => {
-            Json(json!({"schema": SCHEMA, "notifications": notifications})).into_response()
-        }
-        Err(failure) => refusal(failure),
+    if all { if let Err(error) = admin(&headers) { return refusal(error); } }
+    match tokio::task::spawn_blocking(move || ledger::list(all)).await {
+        Ok(Ok(notifications)) => Json(json!({"schema":SCHEMA,"notifications":notifications})).into_response(),
+        Ok(Err(error)) => refusal(error),
+        Err(_) => refusal(unavailable("notification-state-unavailable")),
     }
 }
 
@@ -296,8 +274,8 @@ fn record(id: &str, verb: &str, outcome: &Value, started: Instant) {
     let id = if id.len() <= 64 { id } else { "oversized-id" };
     let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
         "organ": "notifications", "kind": "deed", "correlation_id": id, "ok": outcome["ok"] == true,
-        "message": "house link-up",
-        "attributes_redacted": {"who": "owner", "verb": verb, "target": "house-link-up",
+        "message": "notification deed",
+        "attributes_redacted": {"who": if verb == "post" || verb == "forward" {"lan"} else {"owner"}, "verb": verb, "target": "notification",
             "outcome": if outcome["ok"] == true {"complete"} else {"refused"},
             "duration_ms": started.elapsed().as_millis().min(u64::MAX as u128) as u64,
             "signal": outcome["firstMissingSignal"].as_str().unwrap_or("none")}
@@ -403,33 +381,6 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool) -> Res
     Ok(results)
 }
 
-// Only identities are kept. The live reader is pending(); accepted/dropped
-// announcements are deleted on the next mutation, never during a GET.
-fn dismissal(id: &str, dismiss: bool) -> Result<(), Failure> {
-    let mut db = crate::stats::open_db()
-        .map_err(|_| unavailable("link-up-state-unavailable"))?
-        .lock()
-        .map_err(|_| unavailable("link-up-state-unavailable"))?;
-    let tx = db
-        .transaction()
-        .map_err(|_| unavailable("link-up-state-unavailable"))?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS notification_dismissals (id TEXT PRIMARY KEY);")
-        .map_err(|_| unavailable("link-up-state-unavailable"))?;
-    tx.execute("DELETE FROM notification_dismissals WHERE NOT EXISTS (SELECT 1 FROM ruyi, json_each(ruyi.row, '$.services') AS service WHERE json_extract(service.value, '$.kind')='face' AND notification_dismissals.id='link-up:' || lower(ruyi.mac) || ':' || json_extract(service.value, '$.port'))", [])
-        .map_err(|_| unavailable("link-up-state-unavailable"))?;
-    if dismiss {
-        tx.execute(
-            "INSERT OR IGNORE INTO notification_dismissals(id) VALUES(?1)",
-            [id],
-        )
-    } else {
-        tx.execute("DELETE FROM notification_dismissals WHERE id=?1", [id])
-    }
-    .map_err(|_| unavailable("link-up-state-unavailable"))?;
-    tx.commit()
-        .map_err(|_| unavailable("link-up-state-unavailable"))
-}
-
 async fn mutate(
     id: String,
     headers: HeaderMap,
@@ -456,15 +407,14 @@ async fn mutate(
             return Err((StatusCode::BAD_REQUEST, "link-up-schema-desync"));
         }
         let roster = roster().await?;
-        let candidate = candidates(&roster)
-            .into_iter()
-            .find(|candidate| candidate["id"] == id)
-            .ok_or((StatusCode::NOT_FOUND, "link-up-notification-absent"))?;
+        let candidate_id = id.clone();
+        let candidate = tokio::task::spawn_blocking(move || ledger::get(&candidate_id)).await
+            .map_err(|_| unavailable("notification-state-unavailable"))??;
+        if candidate["kind"] != "house-link-up" { return Err((StatusCode::BAD_REQUEST, "notification-verb-unknown")); }
         if dismiss {
             let stored_id = id.clone();
-            tokio::task::spawn_blocking(move || dismissal(&stored_id, true))
-                .await
-                .map_err(|_| unavailable("link-up-state-unavailable"))??;
+            tokio::task::spawn_blocking(move || ledger::change(&stored_id, "dismissed"))
+                .await.map_err(|_| unavailable("notification-state-unavailable"))??;
             return Ok(json!({"schema": SCHEMA, "ok": true, "id": id, "state": "dismissed"}));
         }
         let names = names(&body, &candidate)?;
@@ -522,12 +472,11 @@ async fn mutate(
             },
             None => json!([]),
         };
-        tokio::task::spawn_blocking(move || dismissal(&id, false))
+        let accepted_id = id.clone();
+        tokio::task::spawn_blocking(move || ledger::change(&id, "accepted"))
             .await
-            .map_err(|_| unavailable("link-up-state-unavailable"))??;
-        receipt["portal"] = json!(names[0]);
-        receipt["names"] = json!(names);
-        Ok(receipt)
+            .map_err(|_| unavailable("notification-state-unavailable"))??;
+        Ok(json!({"schema":SCHEMA,"ok":true,"id":accepted_id,"state":"accepted","staff":receipt,"portal":names[0],"names":names}))
     }
     .await;
     match result {
@@ -557,7 +506,15 @@ async fn accept(
     headers: HeaderMap,
     body: Result<Json<Value>, JsonRejection>,
 ) -> Response {
-    mutate(id, headers, body, false).await
+    if !gateway_profile() { return refusal((StatusCode::FORBIDDEN, if id.starts_with("link-up:") { "link-up-accept-on-homeserver" } else { "notification-act-on-homeserver" })); }
+    if let Err(error) = admin(&headers) { return refusal(error); }
+    let key = id.clone();
+    match tokio::task::spawn_blocking(move || ledger::get(&key)).await {
+        Ok(Ok(row)) if row["kind"] == "house-link-up" => mutate(id, headers, body, false).await,
+        Ok(Ok(_)) => action(axum::extract::Path((id, "accept".to_owned())), headers, body.ok()).await,
+        Ok(Err(error)) => refusal(error),
+        Err(_) => refusal(unavailable("notification-state-unavailable")),
+    }
 }
 
 async fn dismiss(
@@ -565,13 +522,88 @@ async fn dismiss(
     headers: HeaderMap,
     body: Option<Json<Value>>,
 ) -> Response {
-    mutate(id, headers, Ok(body.unwrap_or(Json(Value::Null))), true).await
+    action(axum::extract::Path((id, "dismiss".to_owned())), headers, body).await
+}
+
+async fn receive_post(
+    forward: bool,
+    peer: Option<axum::extract::ConnectInfo<crate::gate::ConnectionInfo>>,
+    bytes: axum::body::Bytes,
+) -> Response {
+    let started = Instant::now();
+    let result: Result<Value, Failure> = async {
+        if forward && !gateway_profile() { return Err((StatusCode::FORBIDDEN,"notification-forward-on-homeserver")); }
+        if bytes.len() >= 1024 { return Err((StatusCode::BAD_REQUEST,"notification-row-invalid")); }
+        let mut envelope: Value = serde_json::from_slice(&bytes).map_err(|_| (StatusCode::BAD_REQUEST,"notification-row-invalid"))?;
+        let row = envelope.get_mut("notification").and_then(Value::as_object_mut).ok_or((StatusCode::BAD_REQUEST,"notification-row-invalid"))?;
+        for key in ["id","kind","title"] { if !row.get(key).and_then(Value::as_str).is_some_and(|s| !s.is_empty()) { return Err((StatusCode::BAD_REQUEST,"notification-row-invalid")); } }
+        if row.get("color").is_some_and(|v| !v.is_null() && !v.as_str().is_some_and(|s| ["red","amber","blue","none"].contains(&s))) { return Err((StatusCode::BAD_REQUEST,"notification-row-invalid")); }
+        let ip = peer.and_then(|p| match p.0 { crate::gate::ConnectionInfo::Tcp(addr) => match addr.ip() { std::net::IpAddr::V4(ip) => Some(ip.to_string()), _ => None }, _ => None });
+        if let Some(ip) = ip {
+            row.insert("received_from".into(), json!(ip));
+            let from = row.entry("from").or_insert_with(|| json!({}));
+            if !from.is_object() { *from = json!({}); }
+            if let Some(object) = from.as_object_mut() { if !object.get("ipv4").and_then(Value::as_str).is_some() { object.insert("ipv4".into(),json!(ip)); } }
+        }
+        if !gateway_profile() {
+            let mut receipt = house::gateway_post(&envelope).await.ok_or(unavailable("notification-gateway-unreachable"))?;
+            receipt["forwarded"] = json!(true);
+            return Ok(receipt);
+        }
+        let _permit = MUTATIONS.try_acquire().map_err(|_| unavailable("link-up-busy"))?;
+        let repost = envelope["repost"] == true;
+        let mut row = envelope["notification"].clone();
+        if let Some(ip) = row["received_from"].as_str() {
+            let db = crate::stats::open_db().map_err(|_| unavailable("notification-state-unavailable"))?.lock().map_err(|_| unavailable("notification-state-unavailable"))?;
+            use rusqlite::OptionalExtension;
+            let mac: Option<String> = db.query_row("SELECT mac FROM ruyi WHERE json_extract(row,'$.ipv4')=?1 LIMIT 1",[ip],|r|r.get(0)).optional().map_err(|_| unavailable("notification-state-unavailable"))?;
+            if let Some(mac) = mac { if let Some(from) = row["from"].as_object_mut() { from.insert("mac".into(),json!(mac)); } }
+        }
+        tokio::task::spawn_blocking(move || ledger::post(row,repost)).await.map_err(|_| unavailable("notification-state-unavailable"))?
+    }.await;
+    match result {
+        Ok(value) => { record(value["id"].as_str().unwrap_or("unknown"), if forward {"forward"} else {"post"}, &value, started); Json(value).into_response() }
+        Err(error) => { record("unknown",if forward {"forward"} else {"post"},&json!({"ok":false,"firstMissingSignal":error.1}),started); refusal(error) }
+    }
+}
+
+async fn post(peer: Option<axum::extract::ConnectInfo<crate::gate::ConnectionInfo>>, bytes: axum::body::Bytes) -> Response { receive_post(false, peer, bytes).await }
+async fn forward(peer: Option<axum::extract::ConnectInfo<crate::gate::ConnectionInfo>>, bytes: axum::body::Bytes) -> Response { receive_post(true, peer, bytes).await }
+
+async fn action(axum::extract::Path((id,verb)): axum::extract::Path<(String,String)>, headers: HeaderMap, body: Option<Json<Value>>) -> Response {
+    if !gateway_profile() { return refusal((StatusCode::FORBIDDEN, if verb == "accept" && id.starts_with("link-up:") {"link-up-accept-on-homeserver"} else {"notification-act-on-homeserver"})); }
+    if let Err(error) = admin(&headers) { return refusal(error); }
+    let Ok(_permit) = MUTATIONS.try_acquire() else { return refusal(unavailable("link-up-busy")); };
+    let started = Instant::now();
+    let result: Result<Value,Failure> = async {
+        let row_id = id.clone();
+        let row = tokio::task::spawn_blocking(move || ledger::get(&row_id)).await.map_err(|_| unavailable("notification-state-unavailable"))??;
+        if verb != "dismiss" && !row["actions"].as_array().is_some_and(|actions| actions.iter().any(|a| a["verb"] == verb)) { return Err((StatusCode::BAD_REQUEST,"notification-verb-unknown")); }
+        if verb == "accept" && row["kind"] == "house-link-up" { return Err((StatusCode::BAD_REQUEST,"notification-verb-unknown")); }
+        let state = if verb == "dismiss" { "dismissed".to_owned() } else {
+            if crate::shared::policy::allows_command("notify act").ok() != Some(true) { return Err((StatusCode::FORBIDDEN,"notification-staff-forbidden")); }
+            let input = json!({"id":id,"verb":verb,"fields":body.map(|b|b.0).unwrap_or_else(||json!({})),"row":row});
+            let staff = crate::gate::blocking_task("notify act", move || crate::shared::agathodaimon::crossing_value_preserving_receipt("notify","act",&input,false)).await.map_err(|_| unavailable("notification-staff-unavailable"))?.unwrap_or_else(|v|v);
+            if staff["ok"] != true { return Ok(json!({"schema":SCHEMA,"ok":false,"id":id,"state":row["state"],"staff":staff})); }
+            let state = staff["state_after"].as_str().unwrap_or("pending").to_owned();
+            let key = id.clone(); let next = state.clone();
+            tokio::task::spawn_blocking(move || ledger::change(&key,&next)).await.map_err(|_| unavailable("notification-state-unavailable"))??;
+            return Ok(json!({"schema":SCHEMA,"ok":true,"id":id,"state":state,"staff":staff}));
+        };
+        let key = id.clone(); let next = state.clone();
+        tokio::task::spawn_blocking(move || ledger::change(&key,&next)).await.map_err(|_| unavailable("notification-state-unavailable"))??;
+        Ok(json!({"schema":SCHEMA,"ok":true,"id":id,"state":state}))
+    }.await;
+    match result { Ok(value) => { record(&id,&verb,&value,started); Json(value).into_response() }, Err(error) => { record(&id,&verb,&json!({"ok":false,"firstMissingSignal":error.1}),started); refusal(error) } }
 }
 
 pub fn register(router: Router) -> Router {
     let _ = crate::routes::leaf_schema::declaration(SCHEMA).expect("link-up-schema-desync");
+    if gateway_profile() { let _ = ledger::initialize(); }
     router
-        .route("/api/v1/notifications", axum::routing::get(list))
+        .route("/api/v1/notifications", axum::routing::get(list).post(post))
+        .route("/api/v1/notifications/forward", axum::routing::post(forward))
+        .route("/api/v1/notifications/:id/:verb", axum::routing::post(action))
         .route(
             "/api/v1/notifications/:id/accept",
             axum::routing::post(accept),

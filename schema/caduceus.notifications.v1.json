@@ -44,6 +44,15 @@
           "title": {
             "type": "string"
           },
+          "color": {"type": ["string", "null"], "description": "red, amber, blue, or none; absent reads none"},
+          "body": {"type": ["string", "null"]},
+          "posted_at": {"type": ["string", "null"]},
+          "ttl": {"type": ["string", "null"], "description": "until-acted, night, or a duration in hours or days"},
+          "expires_at": {"type": ["string", "null"]},
+          "acted_at": {"type": ["string", "null"]},
+          "actions": {"type": ["array", "null"], "items": {"type": "object", "additionalProperties": true}},
+          "max_rows": {"type": ["integer", "null"], "description": "Per-kind history bound; factory 50"},
+          "received_from": {"type": ["string", "null"], "description": "Address observed by the receiving Caduceus socket"},
           "from": {
             "type": "object",
             "fields": {
@@ -86,6 +95,12 @@
         "additionalProperties": true
       }
     },
+    "notification": {"type": ["object", "null"], "additionalProperties": true, "description": "One raw notification row for a post or forward; unknown fields survive."},
+    "repost": {"type": ["boolean", "null"], "description": "When true, a dismissed or expired identity can be posted again."},
+    "forwarded": {"type": ["boolean", "null"], "description": "A peer returned the gateway's post receipt."},
+    "id": {"type": ["string", "null"]},
+    "state": {"type": ["string", "null"]},
+    "staff": {"type": ["object", "null"], "additionalProperties": true},
     "gateway": {
       "type": [
         "string",
@@ -147,6 +162,9 @@
     }
   },
   "forms": {
+    "post": {"required": ["notification"], "description": "Pinless LAN post; a peer forwards once to the gateway."},
+    "forward": {"required": ["notification"], "description": "Pinless gateway-only forward; no roster admission."},
+    "action": {"required": [], "description": "Action fields as an object; gateway attendance is required."},
     "list": {
       "required": [
         "schema",
@@ -168,6 +186,10 @@
     }
   },
   "http": {
+    "post": {"method":"POST", "path":"/api/v1/notifications", "admin_mode_required":false, "mutation_allowed":true},
+    "forward": {"method":"POST", "path":"/api/v1/notifications/forward", "admin_mode_required":false, "mutation_allowed":true},
+    "action": {"method":"POST", "path":"/api/v1/notifications/{id}/{verb}", "admin_mode_required":true, "mutation_allowed":true},
+    "history": {"method":"GET", "path":"/api/v1/notifications?all=1", "admin_mode_required":true, "mutation_allowed":false, "description":"Gateway-only history; peers return an empty list with gateway=history-on-homeserver."},
     "read": {
       "method": "GET",
       "path": "/api/v1/notifications",

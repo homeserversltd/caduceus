@@ -64,6 +64,24 @@ fn gateway() -> Option<(Ipv4Addr, u16)> {
     Some((ip, port))
 }
 
+pub(super) async fn gateway_post(body: &Value) -> Option<Value> {
+    let (ip, port) = gateway()?;
+    let data = serde_json::to_vec(body).ok()?;
+    timeout(Duration::from_secs(3), async {
+        let mut stream = TcpStream::connect((ip, port)).await.ok()?;
+        let request = format!("POST /api/v1/notifications/forward HTTP/1.0\r\nHost: {ip}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", data.len());
+        stream.write_all(request.as_bytes()).await.ok()?;
+        stream.write_all(&data).await.ok()?;
+        let mut bytes = Vec::new();
+        stream.take(MAX_BODY as u64 + 1).read_to_end(&mut bytes).await.ok()?;
+        if bytes.len() > MAX_BODY { return None; }
+        let split = bytes.windows(4).position(|v| v == b"\r\n\r\n")?;
+        let head = std::str::from_utf8(&bytes[..split]).ok()?;
+        if head.lines().next()?.split_whitespace().nth(1) != Some("200") { return None; }
+        serde_json::from_slice(&bytes[split + 4..]).ok()
+    }).await.ok().flatten()
+}
+
 pub(super) async fn gateway_notifications() -> Option<Value> {
     let (ip, port) = gateway()?;
     timeout(Duration::from_secs(3), async {
