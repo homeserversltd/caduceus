@@ -96,9 +96,32 @@ fn project_attributes(event: &ChannelEvent, run_profile: bool) -> Result<Value, 
         "duration_ms": source.get("duration_ms")
             .or_else(|| source.get("durationMs"))
             .and_then(Value::as_u64),
-        "signal": metadata_alias(source, &["signal", "firstMissingSignal", "first_missing_signal"], 40),
+        "signal": metadata_alias(source, &["signal", "firstMissingSignal", "first_missing_signal"], if event.kind == "generic-http-door" { 64 } else { 40 }),
         "first_missing_field": metadata_alias(source, &["first_missing_field", "firstMissingField", "field"], 32),
     });
+    if event.kind == "generic-http-door" {
+        // The routine id is the target for a generic deed; do not duplicate it.
+        attributes.as_object_mut().expect("object").remove("target");
+        attributes["routine_id"] = json!(metadata_alias(source, &["routine_id"], 48));
+        attributes["failedStage"] = json!(metadata_alias(source, &["failedStage"], 48));
+        let ids = source.get("stage_ids").and_then(Value::as_array);
+        let outcomes = source.get("stage_outcomes").and_then(Value::as_array);
+        if let (Some(ids), Some(outcomes)) = (ids, outcomes) {
+            let stages: Vec<(String, &str)> = ids.iter().zip(outcomes).filter_map(|(id, outcome)| {
+                let id = metadata_text(Some(id), 48)?;
+                let outcome = match outcome.as_str()? {
+                    "stage-completed" => "C",
+                    "stage-refused" => "R",
+                    "stage-skipped" => "S",
+                    _ => return None,
+                };
+                Some((id, outcome))
+            }).collect();
+            let stage_ids = stages.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join(",");
+            let stage_outcomes = stages.iter().map(|(_, outcome)| *outcome).collect::<String>();
+            attributes["stages"] = json!([stage_ids, stage_outcomes]);
+        }
+    }
     if event.organ == "agathodaimon"
         && event.kind == "crossing-change"
         && source.get("verb").and_then(Value::as_str) == Some("dictate")
@@ -511,6 +534,10 @@ fn channel_line(event: &ChannelEvent) -> Result<Vec<u8>, String> {
     let mut disk_event = disk_event;
     let mut line = serialize_line(&disk_event)?;
     if line.len() >= MAX_LINE_BYTES {
+        if disk_event.kind == "generic-http-door" {
+            // Generic declarations are build-bounded; never drop a stage.
+            return Err("hyalos-channel-event-too-large".into());
+        }
         if !run_profile {
             return Err("hyalos-channel-event-too-large".to_string());
         }

@@ -1,0 +1,25 @@
+{
+  "namespace": "storage/disk/partlabel/assign",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/disk/partlabel/assign",
+      "verb": [
+        "partlabel",
+        "assign"
+      ]
+    }
+  ],
+  "commands": [
+    "storage disk partlabel assign"
+  ],
+  "needs": [
+    "nas"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/disk/partlabel/assign",
+  "body": "optional",
+  "receipt": "caduceus.disk.partlabel.assign.v1",
+  "administrative": true
+}

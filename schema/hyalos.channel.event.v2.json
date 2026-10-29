@@ -27,7 +27,9 @@
     "work_id": {"type": ["string", "null"]},
     "review_id": {"type": ["string", "null"]},
     "strike_id": {"type": ["string", "null"]},
-    "attributes_redacted": {}
+    "attributes_redacted": {
+      "description": "A generic-http-door routine_id is its target. stages is [comma-separated stage ids, matching outcome codes in order]; C means stage-completed, R stage-refused, S stage-skipped. Identifiers cannot contain commas."
+    }
   },
   "required": ["schema", "timestamp", "body_id", "level", "organ", "kind", "world", "ok", "message", "attributes_redacted"],
   "optional": ["correlation_id", "session_id", "work_id", "review_id", "strike_id"],

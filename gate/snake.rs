@@ -878,3 +878,532 @@ pub fn crossing_path(path: &str, input: &Value) -> Result<Value, String> {
             .into())
     }
 }
+
+struct NativeChordState {
+    stages: Vec<Value>,
+    completed: std::collections::HashMap<String, Value>,
+    seen: std::collections::HashSet<String>,
+    failed_stage: Option<String>,
+    first_missing_signal: Option<String>,
+    skip_serve: bool,
+    // None means at least one mutator did not report whether it changed.
+    changed: Option<bool>,
+    next_ordinal: usize,
+}
+
+fn native_chord_mark_failed(state: &mut NativeChordState, stage_id: &str, signal: &str) {
+    if state.failed_stage.is_none() {
+        state.failed_stage = Some(stage_id.to_owned());
+        state.first_missing_signal = Some(signal.to_owned());
+    }
+}
+
+fn native_chord_stage_row(
+    stage_id: &str,
+    transition: &str,
+    outcome: &str,
+    arguments: Value,
+    receipt: Value,
+) -> Value {
+    json!({
+        "stage_id": stage_id,
+        "transition": transition,
+        "outcome": outcome,
+        "arguments": arguments,
+        "receipt": receipt
+    })
+}
+
+fn native_chord_dotted_lookup(value: &Value, path: &str) -> Option<Value> {
+    if path.is_empty() {
+        return None;
+    }
+    let mut current = value;
+    for segment in path.split('.') {
+        if segment.is_empty() {
+            return None;
+        }
+        current = current.get(segment)?;
+    }
+    Some(current.clone())
+}
+
+fn native_chord_resolve_reference(
+    reference: &str,
+    request_payload: &Value,
+    completed: &std::collections::HashMap<String, Value>,
+) -> Option<Value> {
+    if let Some(path) = reference.strip_prefix("request.payload.") {
+        return native_chord_dotted_lookup(request_payload, path);
+    }
+    let rest = reference.strip_prefix("stages.")?;
+    let (stage_id, path) = rest.split_once(".receipt.")?;
+    if stage_id.is_empty() {
+        return None;
+    }
+    native_chord_dotted_lookup(completed.get(stage_id)?, path)
+}
+
+fn native_chord_resolve_arguments(
+    value: &Value,
+    request_payload: &Value,
+    completed: &std::collections::HashMap<String, Value>,
+) -> Result<Value, String> {
+    if let Some(object) = value.as_object() {
+        if object.len() == 1 {
+            if let Some(reference) = object.get("$ref").and_then(Value::as_str) {
+                return native_chord_resolve_reference(reference, request_payload, completed)
+                    .ok_or_else(|| "caduceus-chord-ref-unresolved".to_string());
+            }
+        }
+        let mut resolved = serde_json::Map::new();
+        for (key, entry) in object {
+            resolved.insert(
+                key.clone(),
+                native_chord_resolve_arguments(entry, request_payload, completed)?,
+            );
+        }
+        return Ok(Value::Object(resolved));
+    }
+    if let Some(array) = value.as_array() {
+        return array
+            .iter()
+            .map(|entry| native_chord_resolve_arguments(entry, request_payload, completed))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array);
+    }
+    Ok(value.clone())
+}
+
+fn native_chord_request_envelope(
+    base_envelope: &Value,
+    routine_id: &str,
+    stage_id: &str,
+    arguments: &Value,
+) -> Result<Value, String> {
+    let mut envelope = base_envelope.clone();
+    let object = envelope
+        .as_object_mut()
+        .ok_or_else(|| "protocol-envelope-not-object".to_string())?;
+
+    let mut payload = match object.get("payload") {
+        Some(Value::Object(payload)) => payload.clone(),
+        Some(Value::Null) => return Err("caduceus-chord-request-payload-not-object".into()),
+        Some(_) => return Err("caduceus-chord-request-payload-not-object".into()),
+        None => serde_json::Map::new(),
+    };
+    let stage_arguments = arguments
+        .as_object()
+        .ok_or_else(|| "caduceus-chord-stage-arguments-invalid".to_string())?;
+    for (key, value) in stage_arguments {
+        payload.insert(key.clone(), value.clone());
+    }
+    object.insert("payload".into(), Value::Object(payload));
+
+    let mut routine = match object.get("routine") {
+        Some(Value::Object(routine)) => routine.clone(),
+        Some(Value::Null) | None => serde_json::Map::new(),
+        Some(_) => return Err("caduceus-chord-routine-not-object".into()),
+    };
+    let mut stage = match routine.get("stage") {
+        Some(Value::Object(stage)) => stage.clone(),
+        Some(Value::Null) | None => serde_json::Map::new(),
+        Some(_) => return Err("caduceus-chord-stage-not-object".into()),
+    };
+    stage.insert("stage_id".into(), json!(stage_id));
+    stage.insert("arguments".into(), arguments.clone());
+    routine.insert("request".into(), base_envelope.clone());
+    routine.insert("routine_id".into(), json!(routine_id));
+    routine.insert("stage".into(), Value::Object(stage));
+    object.insert("routine".into(), Value::Object(routine));
+    Ok(envelope)
+}
+
+async fn native_chord_run_steps(
+    routine_id: &str,
+    route_steps: &[Value],
+    base_envelope: &Value,
+    request_payload: &Value,
+    total_started: Instant,
+    total_deadline: Duration,
+    is_finally: bool,
+    state: &mut NativeChordState,
+) {
+    for raw_step in route_steps {
+        let ordinal = state.next_ordinal;
+        state.next_ordinal += 1;
+        let step_id = raw_step
+            .get("stage_id")
+            .and_then(Value::as_str)
+            .filter(|stage_id| !stage_id.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("step-{ordinal}"));
+        let transition = raw_step
+            .get("snake")
+            .or_else(|| raw_step.get("rust"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        let required = raw_step
+            .get("required")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let declared_arguments = raw_step
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let unique_stage_id = state.seen.insert(step_id.clone());
+
+        if !is_finally && state.skip_serve {
+            let signal = if state.failed_stage.is_none() && required {
+                "caduceus-chord-total-deadline-exceeded"
+            } else {
+                "caduceus-chord-required-stage-refused"
+            };
+            if required && state.failed_stage.is_none() {
+                native_chord_mark_failed(state, &step_id, signal);
+            }
+            state.stages.push(native_chord_stage_row(
+                &step_id,
+                &transition,
+                "stage-skipped",
+                declared_arguments,
+                json!({"ok":false,"firstMissingSignal":signal}),
+            ));
+            continue;
+        }
+
+        let parsed_step = crate::gate::discovery::RouteStep::from_value(raw_step);
+        let step = match parsed_step {
+            Ok(step) => step,
+            Err(signal) => {
+                state.stages.push(native_chord_stage_row(
+                    &step_id,
+                    &transition,
+                    "stage-refused",
+                    declared_arguments,
+                    json!({"ok":false,"firstMissingSignal":signal}),
+                ));
+                if is_finally || required { native_chord_mark_failed(state, &step_id, &signal); }
+                if !is_finally && required {
+                    state.skip_serve = true;
+                }
+                continue;
+            }
+        };
+
+        if !unique_stage_id {
+            let signal = "caduceus-chord-stage-id-duplicate";
+            state.stages.push(native_chord_stage_row(
+                &step_id,
+                &transition,
+                "stage-refused",
+                declared_arguments,
+                json!({"ok":false,"firstMissingSignal":signal}),
+            ));
+            if is_finally || required { native_chord_mark_failed(state, &step_id, signal); }
+            if !is_finally && step.required {
+                state.skip_serve = true;
+            }
+            continue;
+        }
+
+        if let Some(dependency) = step
+            .depends_on
+            .iter()
+            .find(|dependency| !is_finally && !state.completed.contains_key(*dependency))
+        {
+            let signal = "caduceus-chord-dependency-unresolved";
+            state.stages.push(native_chord_stage_row(
+                &step_id,
+                &transition,
+                "stage-refused",
+                declared_arguments,
+                json!({"ok":false,"dependency":dependency,"firstMissingSignal":signal}),
+            ));
+            if is_finally || required { native_chord_mark_failed(state, &step_id, signal); }
+            if !is_finally && step.required {
+                state.skip_serve = true;
+            }
+            continue;
+        }
+
+        if raw_step.get("arguments").is_some() && !declared_arguments.is_object() {
+            let signal = "caduceus-chord-stage-arguments-invalid";
+            state.stages.push(native_chord_stage_row(
+                &step_id,
+                &transition,
+                "stage-refused",
+                declared_arguments,
+                json!({"ok":false,"firstMissingSignal":signal}),
+            ));
+            if is_finally || required { native_chord_mark_failed(state, &step_id, signal); }
+            if !is_finally && step.required {
+                state.skip_serve = true;
+            }
+            continue;
+        }
+
+        let resolved_arguments = match native_chord_resolve_arguments(
+            &declared_arguments,
+            request_payload,
+            &state.completed,
+        ) {
+            Ok(arguments) => arguments,
+            Err(signal) => {
+                state.stages.push(native_chord_stage_row(
+                    &step_id,
+                    &transition,
+                    "stage-refused",
+                    declared_arguments,
+                    json!({"ok":false,"firstMissingSignal":signal}),
+                ));
+                if is_finally || required { native_chord_mark_failed(state, &step_id, &signal); }
+                if !is_finally && step.required {
+                    state.skip_serve = true;
+                }
+                continue;
+            }
+        };
+
+        let snake = match step.snake.as_deref().map(safe_band_path).transpose() {
+            Ok(snake) => snake,
+            Err(signal) => {
+                state.stages.push(native_chord_stage_row(
+                    &step_id,
+                    &transition,
+                    "stage-refused",
+                    resolved_arguments,
+                    json!({"ok":false,"firstMissingSignal":signal}),
+                ));
+                if is_finally || required { native_chord_mark_failed(state, &step_id, &signal); }
+                if !is_finally && step.required {
+                    state.skip_serve = true;
+                }
+                continue;
+            }
+        };
+
+        let remaining = total_deadline.saturating_sub(total_started.elapsed());
+        if remaining.is_zero() && !is_finally {
+            let signal = "caduceus-chord-total-deadline-exceeded";
+            state.stages.push(native_chord_stage_row(
+                &step_id,
+                &transition,
+                "stage-skipped",
+                resolved_arguments,
+                json!({"ok":false,"firstMissingSignal":signal}),
+            ));
+            if is_finally || required { native_chord_mark_failed(state, &step_id, signal); }
+            if !is_finally {
+                state.skip_serve = true;
+            }
+            continue;
+        }
+
+        let stage_timeout = match step.deadline_seconds {
+            Some(0) | Some(601..) => {
+                let signal = "caduceus-snake-timeout-out-of-range";
+                state.stages.push(native_chord_stage_row(
+                    &step_id,
+                    &transition,
+                    "stage-refused",
+                    resolved_arguments,
+                    json!({"ok":false,"firstMissingSignal":signal}),
+                ));
+                if is_finally || required { native_chord_mark_failed(state, &step_id, signal); }
+                if !is_finally && step.required {
+                    state.skip_serve = true;
+                }
+                continue;
+            }
+            Some(seconds) => Duration::from_secs(seconds),
+            None => Duration::from_secs(30),
+        }
+        .min(if is_finally { remaining.max(Duration::from_millis(1)) } else { remaining });
+
+        let stage_envelope = match native_chord_request_envelope(
+            base_envelope,
+            routine_id,
+            &step_id,
+            &resolved_arguments,
+        ) {
+            Ok(envelope) => envelope,
+            Err(signal) => {
+                state.stages.push(native_chord_stage_row(
+                    &step_id,
+                    &transition,
+                    "stage-refused",
+                    resolved_arguments,
+                    json!({"ok":false,"firstMissingSignal":signal}),
+                ));
+                if is_finally || required { native_chord_mark_failed(state, &step_id, &signal); }
+                if !is_finally && step.required {
+                    state.skip_serve = true;
+                }
+                continue;
+            }
+        };
+
+        let result = if let Some(stage_snake) = snake {
+            let context = crate::shared::load_trace::current();
+            tokio::task::spawn_blocking(move || {
+                crate::shared::load_trace::with_blocking_context(context, || {
+                    execute_with_timeout(&stage_snake, &stage_envelope, stage_timeout)
+                })
+            }).await.map_err(|_| "caduceus-blocking-task-join-failed".to_string())
+                .and_then(|result| result)
+        } else if let Some(primitive) = step.rust.as_deref() {
+            match tokio::time::timeout(stage_timeout, crate::shared::primitives::execute(primitive, &stage_envelope)).await {
+                Ok(Ok(receipt)) => Ok(json!({"ok":receipt.get("ok").and_then(Value::as_bool)==Some(true), "receiptPayload":receipt})),
+                Ok(Err(signal)) => Err(signal),
+                Err(_) => Err("caduceus-rust-primitive-timeout".into()),
+            }
+        } else { Err("gate-route-step-must-name-one-band".into()) };
+
+        let (outcome, receipt, failure_signal) = match result {
+            Err(signal) => {
+                // A timed-out or broken crossing cannot prove it changed nothing.
+                state.changed = None;
+                (
+                    "stage-refused",
+                    json!({"ok":false,"firstMissingSignal":signal}),
+                    Some(signal),
+                )
+            },
+            Ok(result) => {
+                let receipt = result
+                    .get("receiptPayload")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let crossing_ok = result.get("ok").and_then(Value::as_bool) == Some(true);
+                let receipt_ok = receipt.get("ok").and_then(Value::as_bool) == Some(true);
+                let stage_declaration = crate::routes::selected_declaration(&transition)
+                    .and_then(|source| serde_json::from_str::<Value>(source).ok());
+                let expected_schema = raw_step.get("receipt").and_then(Value::as_str).map(ToOwned::to_owned)
+                    .or_else(|| stage_declaration.as_ref().and_then(|d| d.get("receipt").and_then(Value::as_str)
+                        .or_else(|| d.pointer("/flags/receiptSchema").and_then(Value::as_str))).map(ToOwned::to_owned));
+                let schema_ok = expected_schema.as_deref().is_none_or(|schema| crate::routes::leaf_schema::accepts(schema, &receipt));
+                if !schema_ok {
+                    state.changed = None;
+                    ("stage-refused", receipt, Some("caduceus-schema-desync".to_owned()))
+                } else {
+                    let is_read = stage_declaration.as_ref().and_then(|d| d.get("mutation_allowed")).and_then(Value::as_bool) == Some(false);
+                    if !is_read {
+                        state.changed = match (state.changed, crate::gate::door::declared_receipt_change(expected_schema.as_deref(), &receipt)) {
+                            (Some(previous), Some(current)) => Some(previous || current),
+                            _ => None,
+                        };
+                    }
+                    if crossing_ok && receipt_ok {
+                        state.completed.insert(step_id.clone(), receipt.clone());
+                        ("stage-completed", receipt, None)
+                    } else {
+                        let signal = receipt
+                            .get("firstMissingSignal")
+                            .and_then(Value::as_str)
+                            .filter(|signal| *signal != "none")
+                            .or_else(|| result.get("firstMissingSignal").and_then(Value::as_str))
+                            .filter(|signal| *signal != "none")
+                            .unwrap_or("caduceus-agathodaimon-refused")
+                            .to_owned();
+                        ("stage-refused", receipt, Some(signal))
+                    }
+                }
+            }
+        };
+
+        if let Some(signal) = failure_signal.as_deref() {
+            if is_finally || required { native_chord_mark_failed(state, &step_id, signal); }
+            if !is_finally && step.required {
+                state.skip_serve = true;
+            }
+        }
+        state.stages.push(native_chord_stage_row(
+            &step_id,
+            &transition,
+            outcome,
+            resolved_arguments,
+            receipt,
+        ));
+    }
+}
+
+/// Execute the declaration's serve chord and unconditional finally chord.
+/// `routine_id` is the declaration namespace, independent of request values.
+pub async fn execute_native_chord(
+    namespace: &str,
+    serve: &[Value],
+    finally: &[Value],
+    base_envelope: &Value,
+    receipt_schema: &str,
+    total_deadline: Duration,
+) -> Result<Value, String> {
+    if namespace.is_empty() {
+        return Err("caduceus-chord-namespace-missing".into());
+    }
+    if receipt_schema.is_empty() {
+        return Err("caduceus-chord-receipt-schema-missing".into());
+    }
+    if total_deadline.is_zero() {
+        return Err("caduceus-chord-total-deadline-out-of-range".into());
+    }
+    if serve.is_empty() && finally.is_empty() {
+        return Err("caduceus-chord-empty".into());
+    }
+    let routine_id = namespace;
+    let empty_payload = Value::Object(serde_json::Map::new());
+    let request_payload = base_envelope.get("payload").unwrap_or(&empty_payload);
+    let total_started = Instant::now();
+    let mut state = NativeChordState {
+        stages: Vec::with_capacity(serve.len() + finally.len()),
+        completed: std::collections::HashMap::new(),
+        seen: std::collections::HashSet::new(),
+        failed_stage: None,
+        first_missing_signal: None,
+        skip_serve: false,
+        changed: Some(false),
+        next_ordinal: 0,
+    };
+
+    // Reserve each finalizer's declared bound, capped at the whole budget.
+    let reserve_seconds = finally.iter().fold(0u64, |sum, step| {
+        sum.saturating_add(step.get("deadline_seconds").and_then(Value::as_u64).unwrap_or(30).clamp(1, 600))
+    });
+    let reserve = Duration::from_secs(reserve_seconds).min(total_deadline);
+    native_chord_run_steps(
+        routine_id,
+        serve,
+        base_envelope,
+        request_payload,
+        total_started,
+        total_deadline.saturating_sub(reserve),
+        false,
+        &mut state,
+    )
+    .await;
+    native_chord_run_steps(
+        routine_id,
+        finally,
+        base_envelope,
+        request_payload,
+        total_started,
+        total_deadline,
+        true,
+        &mut state,
+    )
+    .await;
+
+    let ok = state.failed_stage.is_none();
+    let mut aggregate = json!({
+        "schema": receipt_schema,
+        "namespace": namespace,
+        "ok": ok,
+        "routine_id": routine_id,
+        "stages": state.stages,
+        "failedStage": state.failed_stage,
+        "firstMissingSignal": state.first_missing_signal.unwrap_or_else(|| "none".into())
+    });
+    if let Some(changed) = state.changed { aggregate["changed"] = json!(changed); }
+    Ok(aggregate)
+}

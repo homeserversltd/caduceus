@@ -36,6 +36,13 @@
     "settings/samba",
     "settings/ssh",
     "storage/backup/forgejo/credential",
+    "storage/backup/nas-sync/hold",
+    "storage/backup/nas-sync/release",
+    "storage/backup/nas-sync/schedule/disable",
+    "storage/disk/partlabel/assign",
+    "storage/nas/role/observe",
+    "storage/nas/key/probe",
+    "storage/nas/role/swap",
     "storage/disk/test",
     "storage/nas/attach",
     "storage/nas/detach",
@@ -52,6 +59,13 @@
     "update/sources-reseed"
   ],
   "verbs": [
+    ["nas-sync", "hold"],
+    ["nas-sync", "release"],
+    ["schedule", "disable"],
+    ["role", "observe"],
+    ["key", "probe"],
+    ["partlabel", "assign"],
+    ["role", "swap"],
     [
       "cert",
       "house-ca"
@@ -206,6 +220,13 @@
     ]
   ],
   "routes": [
+    "/api/v1/storage/backup/nas-sync/hold",
+    "/api/v1/storage/backup/nas-sync/release",
+    "/api/v1/storage/backup/nas-sync/schedule/disable",
+    "/api/v1/storage/nas/role/observe",
+    "/api/v1/storage/nas/key/probe",
+    "/api/v1/storage/disk/partlabel/assign",
+    "/api/v1/storage/nas/role/swap",
     "/api/v1/access/sudo/mode",
     "/api/v1/appliance/service/:service/disable",
     "/api/v1/appliance/service/:service/enable",
@@ -291,6 +312,12 @@
   ],
   "administrative": {
     "bands": [
+      "storage/backup/nas-sync/hold",
+      "storage/backup/nas-sync/release",
+      "storage/backup/nas-sync/schedule/disable",
+      "storage/nas/key/probe",
+      "storage/disk/partlabel/assign",
+      "storage/nas/role/swap",
       "appliance/service",
       "appliance/sudo-passwordless",
       "keyman/admin-password",
@@ -311,6 +338,12 @@
       "transmission/up"
     ],
     "verbs": [
+      ["nas-sync", "hold"],
+      ["nas-sync", "release"],
+      ["schedule", "disable"],
+      ["key", "probe"],
+      ["partlabel", "assign"],
+      ["role", "swap"],
       [
         "exousia",
         "change"
@@ -349,6 +382,12 @@
       ]
     ],
     "routes": [
+      "/api/v1/storage/backup/nas-sync/hold",
+      "/api/v1/storage/backup/nas-sync/release",
+      "/api/v1/storage/backup/nas-sync/schedule/disable",
+      "/api/v1/storage/nas/key/probe",
+      "/api/v1/storage/disk/partlabel/assign",
+      "/api/v1/storage/nas/role/swap",
       "/api/v1/access/sudo/mode",
       "/api/v1/appliance/service/:service/disable",
       "/api/v1/appliance/service/:service/enable",

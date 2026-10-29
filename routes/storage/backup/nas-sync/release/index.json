@@ -1,0 +1,25 @@
+{
+  "namespace": "storage/backup/nas-sync/release",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/nas-sync/release",
+      "verb": [
+        "nas-sync",
+        "release"
+      ]
+    }
+  ],
+  "commands": [
+    "storage backup nas-sync release"
+  ],
+  "needs": [
+    "nas"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/nas-sync/release",
+  "body": "optional",
+  "receipt": "caduceus.nas-sync.release.v1",
+  "administrative": true
+}

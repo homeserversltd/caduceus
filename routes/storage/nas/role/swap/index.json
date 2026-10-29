@@ -1,0 +1,205 @@
+{
+  "namespace": "storage/nas/role/swap",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "stage_id": "hold",
+      "snake": "storage/backup/nas-sync/hold",
+      "verb": [
+        "nas-sync",
+        "hold"
+      ]
+    },
+    {
+      "stage_id": "schedule-off",
+      "snake": "storage/backup/nas-sync/schedule/disable",
+      "verb": [
+        "schedule",
+        "disable"
+      ]
+    },
+    {
+      "stage_id": "observe-primary",
+      "snake": "storage/nas/role/observe",
+      "verb": [
+        "role",
+        "observe"
+      ],
+      "arguments": {
+        "role": "primary"
+      }
+    },
+    {
+      "stage_id": "observe-backup",
+      "snake": "storage/nas/role/observe",
+      "verb": [
+        "role",
+        "observe"
+      ],
+      "arguments": {
+        "role": "backup"
+      }
+    },
+    {
+      "stage_id": "probe-primary-disk-backup-key",
+      "snake": "storage/nas/key/probe",
+      "verb": [
+        "key",
+        "probe"
+      ],
+      "arguments": {
+        "key_role": "backup",
+        "partition": {
+          "$ref": "stages.observe-primary.receipt.partition"
+        }
+      }
+    },
+    {
+      "stage_id": "probe-backup-disk-primary-key",
+      "snake": "storage/nas/key/probe",
+      "verb": [
+        "key",
+        "probe"
+      ],
+      "arguments": {
+        "key_role": "primary",
+        "partition": {
+          "$ref": "stages.observe-backup.receipt.partition"
+        }
+      }
+    },
+    {
+      "stage_id": "detach-backup",
+      "snake": "storage/nas/detach",
+      "receipt": "caduceus.nas.detach.v1",
+      "deadline_seconds": 180,
+      "verb": [
+        "nas",
+        "detach"
+      ],
+      "arguments": {
+        "role": "backup"
+      }
+    },
+    {
+      "stage_id": "detach-primary",
+      "snake": "storage/nas/detach",
+      "receipt": "caduceus.nas.detach.v1",
+      "deadline_seconds": 180,
+      "verb": [
+        "nas",
+        "detach"
+      ],
+      "arguments": {
+        "role": "primary"
+      }
+    },
+    {
+      "stage_id": "label-primary-to-tmp",
+      "snake": "storage/disk/partlabel/assign",
+      "verb": [
+        "partlabel",
+        "assign"
+      ],
+      "arguments": {
+        "current_label": "homeserver-primary-nas",
+        "label": "homeserver-nas-swap-tmp"
+      }
+    },
+    {
+      "stage_id": "label-backup-to-primary",
+      "snake": "storage/disk/partlabel/assign",
+      "verb": [
+        "partlabel",
+        "assign"
+      ],
+      "arguments": {
+        "current_label": "homeserver-backup-nas",
+        "label": "homeserver-primary-nas"
+      }
+    },
+    {
+      "stage_id": "label-tmp-to-backup",
+      "snake": "storage/disk/partlabel/assign",
+      "verb": [
+        "partlabel",
+        "assign"
+      ],
+      "arguments": {
+        "current_label": "homeserver-nas-swap-tmp",
+        "label": "homeserver-backup-nas"
+      }
+    },
+    {
+      "stage_id": "attach-primary",
+      "snake": "storage/nas/attach",
+      "receipt": "caduceus.nas.attach.v1",
+      "deadline_seconds": 180,
+      "verb": [
+        "nas",
+        "attach"
+      ],
+      "arguments": {
+        "role": "primary"
+      }
+    },
+    {
+      "stage_id": "attach-backup",
+      "snake": "storage/nas/attach",
+      "receipt": "caduceus.nas.attach.v1",
+      "deadline_seconds": 180,
+      "verb": [
+        "nas",
+        "attach"
+      ],
+      "arguments": {
+        "role": "backup"
+      }
+    },
+    {
+      "stage_id": "observe-after-primary",
+      "snake": "storage/nas/role/observe",
+      "verb": [
+        "role",
+        "observe"
+      ],
+      "arguments": {
+        "role": "primary"
+      }
+    },
+    {
+      "stage_id": "observe-after-backup",
+      "snake": "storage/nas/role/observe",
+      "verb": [
+        "role",
+        "observe"
+      ],
+      "arguments": {
+        "role": "backup"
+      }
+    }
+  ],
+  "finally": [
+    {
+      "stage_id": "release",
+      "snake": "storage/backup/nas-sync/release",
+      "verb": [
+        "nas-sync",
+        "release"
+      ]
+    }
+  ],
+  "commands": [
+    "storage nas role swap"
+  ],
+  "needs": [
+    "nas"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/nas/role/swap",
+  "body": "optional",
+  "receipt": "caduceus.nas.role.swap.v1",
+  "administrative": true,
+  "deadline_seconds": 1800
+}

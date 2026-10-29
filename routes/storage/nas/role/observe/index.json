@@ -1,0 +1,25 @@
+{
+  "namespace": "storage/nas/role/observe",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/nas/role/observe",
+      "verb": [
+        "role",
+        "observe"
+      ]
+    }
+  ],
+  "commands": [
+    "storage nas role observe"
+  ],
+  "needs": [
+    "nas"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/nas/role/observe",
+  "body": "optional",
+  "receipt": "caduceus.nas.role.observe.v1",
+  "mutation_allowed": false
+}

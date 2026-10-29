@@ -125,6 +125,15 @@
       "timestamp"
     ]
   },
+  "routine": {
+    "optional": true,
+    "fields": {
+      "routine_id": "string",
+      "request": "original envelope",
+      "stage": {"stage_id": "string", "arguments": "object"}
+    },
+    "unknown_fields_preserved": true
+  },
   "origin_of_intent": {
     "near": "acts on this machine alone, no further data needed",
     "far": [

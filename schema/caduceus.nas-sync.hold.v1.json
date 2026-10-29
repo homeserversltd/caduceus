@@ -1,0 +1,22 @@
+{
+  "schema": "caduceus.nas-sync.hold.v1",
+  "schema_version": "1.0.0",
+  "role": "NAS switch receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.nas-sync.hold.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true
+  },
+  "required": [
+    "schema",
+    "ok",
+    "firstMissingSignal",
+    "steps"
+  ],
+  "fields": {"changed": {"type": "boolean", "description": "True if the operation changed state; absent means unknown."}},
+  "optional": ["changed"],
+  "additionalProperties": true
+}

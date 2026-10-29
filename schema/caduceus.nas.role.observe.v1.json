@@ -1,0 +1,24 @@
+{
+  "schema": "caduceus.nas.role.observe.v1",
+  "schema_version": "1.0.0",
+  "role": "NAS switch receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.nas.role.observe.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true
+  },
+  "required": [
+    "schema",
+    "ok",
+    "firstMissingSignal",
+    "steps",
+    "role",
+    "partlabel",
+    "partition"
+  ],
+  "optional": [],
+  "additionalProperties": true
+}

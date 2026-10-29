@@ -1,0 +1,26 @@
+{
+  "namespace": "storage/nas/key/probe",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/nas/key/probe",
+      "verb": [
+        "key",
+        "probe"
+      ]
+    }
+  ],
+  "commands": [
+    "storage nas key probe"
+  ],
+  "needs": [
+    "nas"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/nas/key/probe",
+  "body": "optional",
+  "receipt": "caduceus.nas.key.probe.v1",
+  "administrative": true,
+  "mutation_allowed": false
+}

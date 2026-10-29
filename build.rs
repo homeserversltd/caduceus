@@ -421,6 +421,14 @@ fn main() {
         "caduceus.nas.setup.v1",
         "caduceus.nas.attach.v1",
         "caduceus.nas.detach.v1",
+        "caduceus.chord.receipt.v1",
+        "caduceus.nas.role.swap.v1",
+        "caduceus.nas-sync.hold.v1",
+        "caduceus.nas-sync.release.v1",
+        "caduceus.nas-sync.schedule.disable.v1",
+        "caduceus.nas.role.observe.v1",
+        "caduceus.nas.key.probe.v1",
+        "caduceus.disk.partlabel.assign.v1",
         "caduceus.transmission.up.v1",
         "caduceus.transmission.down.v1",
         "caduceus.transmission.status.v1",
@@ -592,6 +600,60 @@ fn main() {
     };
 
     let leaf_entries = walk_json_leaves(Path::new("routes"));
+    // Chord references and dependencies may name earlier stages only.
+    fn check_chord_refs(value: &serde_json::Value, seen: &BTreeSet<String>, namespace: &str) {
+        match value {
+            serde_json::Value::Object(object) => {
+                if object.len() == 1 {
+                    if let Some(reference) = object.get("$ref").and_then(serde_json::Value::as_str) {
+                        if let Some(rest) = reference.strip_prefix("stages.") {
+                            let stage = rest.split_once(".receipt.").map(|(id, _)| id)
+                                .unwrap_or_else(|| panic!("{namespace}: invalid stage reference {reference}"));
+                            assert!(seen.contains(stage), "{namespace}: reference names non-earlier stage {stage}");
+                        }
+                        return;
+                    }
+                }
+                for child in object.values() { check_chord_refs(child, seen, namespace); }
+            }
+            serde_json::Value::Array(array) => for child in array { check_chord_refs(child, seen, namespace); },
+            _ => {}
+        }
+    }
+    for entry in &leaf_entries {
+        let namespace = entry["namespace"].as_str().unwrap_or("unknown");
+        let mut seen = BTreeSet::new();
+        let mut ordinal = 0usize;
+        for list in ["serve", "finally"] {
+            if let Some(steps) = entry.get(list).and_then(serde_json::Value::as_array) {
+                for step in steps {
+                    if let Some(args) = step.get("arguments") { check_chord_refs(args, &seen, namespace); }
+                    if let Some(dependencies) = step.get("depends_on").and_then(serde_json::Value::as_array) {
+                        for dependency in dependencies {
+                            let id = dependency.as_str().expect("chord dependency must be a stage id");
+                            assert!(seen.contains(id), "{namespace}: dependency names non-earlier stage {id}");
+                        }
+                    }
+                    let fallback = format!("step-{ordinal}");
+                    let id = step.get("stage_id").and_then(serde_json::Value::as_str).unwrap_or(&fallback);
+                    assert!(seen.insert(id.to_owned()), "{namespace}: duplicate stage {id}");
+                    ordinal += 1;
+                }
+            }
+        }
+        if !Path::new(&format!("routes/{namespace}/index.rs")).is_file() {
+            assert!(!namespace.is_empty() && namespace.len() <= 48 && namespace.bytes().all(|c| c.is_ascii_alphanumeric() || b"_.-/".contains(&c)),
+                "{namespace}: generic deed namespace exceeds bounded line budget");
+        }
+        if !Path::new(&format!("routes/{namespace}/index.rs")).is_file() && ordinal > 1 {
+            assert!(seen.len() <= 32 && seen.iter().all(|id| !id.is_empty() && id.len() <= 48 && id.bytes().all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c))),
+                "{namespace}: chord deed stage identifiers invalid");
+            // Encoded ids plus one-character outcomes fit with worst-case bounded
+            // channel metadata in a line strictly shorter than 1024 bytes.
+            assert!(seen.iter().map(|id| id.len() + 2).sum::<usize>().saturating_sub(1) <= 330,
+                "{namespace}: chord deed stage identifiers exceed bounded line budget");
+        }
+    }
     let mut namespace_set = BTreeSet::new();
     for entry in &leaf_entries {
         let namespace = entry
@@ -824,6 +886,29 @@ fn main() {
         }
     }
     let selected = active.0.clone();
+    // Refuse declaration-level route overlaps rather than let the gate and
+    // Axum choose different policies for a dynamic generic path.
+    fn route_overlap(a: &str, b: &str) -> bool {
+        let aa: Vec<_> = a.split('/').collect();
+        let bb: Vec<_> = b.split('/').collect();
+        aa.len() == bb.len() && aa.iter().zip(bb.iter()).all(|(x,y)| {
+            let dynamic = |s: &str| s.starts_with(':') || (s.starts_with('{') && s.ends_with('}'));
+            x == y || dynamic(x) || dynamic(y)
+        })
+    }
+    let selected_paths: Vec<(String, String, bool)> = selected.iter().filter_map(|name| {
+        let entry = leaf_entries.iter().find(|v| v.get("namespace").and_then(serde_json::Value::as_str) == Some(name.as_str()))?;
+        let generic = !Path::new(&format!("routes/{name}/index.rs")).is_file();
+        let path = entry.get("http_path").and_then(serde_json::Value::as_str).map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("/api/v1/{name}"));
+        Some((name.clone(), path, generic))
+    }).collect();
+    for (i, (left, lp, lg)) in selected_paths.iter().enumerate() {
+        for (right, rp, rg) in selected_paths.iter().skip(i + 1) {
+            assert!(!(*lg || *rg) || !route_overlap(lp, rp),
+                "generic route path overlap: {left} ({lp}) and {right} ({rp})");
+        }
+    }
     let selected_leaf_entries = leaf_entries.clone();
     // The generated module set is the active resolved carapace closure.
     for entry in walk_json_leaves(Path::new("routes")) {
@@ -839,6 +924,9 @@ fn main() {
     for namespace in &selected {
         let ident = module_ident(namespace);
         let path = format!("{namespace}/index.rs");
+        if !Path::new(&format!("routes/{path}")).is_file() {
+            continue;
+        }
         let source_text =
             fs::read_to_string(format!("routes/{path}")).expect("leaf source readable");
         let mut prelude = String::from("use super::*; ");
@@ -967,7 +1055,11 @@ fn main() {
     modules.push_str("pub fn register_selected(mut router: axum::Router) -> axum::Router {\n");
     for namespace in &selected {
         let ident = module_ident(namespace);
-        modules.push_str(&format!("    router = {ident}::register(router);\n"));
+        if Path::new(&format!("routes/{namespace}/index.rs")).is_file() {
+            modules.push_str(&format!("    router = {ident}::register(router);\n"));
+        } else {
+            modules.push_str(&format!("    router = crate::gate::door::register(router, selected_declaration({}).expect(\"selected declaration\"));\n", rust_string(namespace)));
+        }
     }
     modules.push_str("    router\n}\n");
     fs::write(Path::new(&out_dir).join("selected_leaves.rs"), modules)
@@ -984,7 +1076,8 @@ fn main() {
         })
         .collect::<Vec<_>>();
     for entry in walk_json_leaves(Path::new("routes")) {
-        if let Some(serve) = entry.get("serve").and_then(serde_json::Value::as_array) {
+        for stage_group in ["serve", "finally"] {
+        if let Some(serve) = entry.get(stage_group).and_then(serde_json::Value::as_array) {
             for step in serve {
                 if let Some(name) = step.get("rust").and_then(serde_json::Value::as_str) {
                     assert!(
@@ -994,12 +1087,14 @@ fn main() {
                 }
             }
         }
+        }
     }
     // Validate declared snake bands only when a local shelf is supplied.
     if let Ok(sbin) = env::var("CADUCEUS_SBIN_PATH") {
         let shelf = Path::new(&sbin);
         for entry in walk_json_leaves(Path::new("routes")) {
-            if let Some(serve) = entry.get("serve").and_then(serde_json::Value::as_array) {
+            for stage_group in ["serve", "finally"] {
+            if let Some(serve) = entry.get(stage_group).and_then(serde_json::Value::as_array) {
                 for step in serve {
                     if let Some(name) = step.get("snake").and_then(serde_json::Value::as_str) {
                         assert!(
@@ -1013,6 +1108,7 @@ fn main() {
                         );
                     }
                 }
+            }
             }
         }
     } else {

@@ -42,6 +42,8 @@ use tower::ServiceExt;
 
 #[path = "../gate/snake.rs"]
 pub mod snake;
+#[path = "door.rs"]
+pub mod door;
 
 pub(crate) struct ApiErrorBody {
     pub(crate) schema: &'static str,
@@ -507,7 +509,10 @@ fn declared_http_route(method: &str, path: &str) -> Option<Value> {
     while let Some(name) = candidate {
         if let Some(declaration) = crate::routes::selected_declaration(name) {
             let value: Value = serde_json::from_str(declaration).ok()?;
-            if name == namespace && method_matches(&value) {
+            if generic_http_route_matches(name, &value, method, path) {
+                return Some(value);
+            }
+            if !generic_http_declaration(&value) && name == namespace && method_matches(&value) {
                 return Some(value);
             }
             if let Some(operations) = value.get("operations").and_then(Value::as_array) {
@@ -523,12 +528,82 @@ fn declared_http_route(method: &str, path: &str) -> Option<Value> {
         }
         candidate = name.rsplit_once('/').map(|(parent, _)| parent);
     }
+    // Generic leaves may choose an explicit path unrelated to their namespace.
+    // Scan only their compile-selected declarations; hand-authored route lookup
+    // above retains its prior matching behavior.
+    for name in crate::routes::SELECTED_LEAF_MODULES {
+        let Some(source) = crate::routes::selected_declaration(name) else { continue; };
+        let Ok(value) = serde_json::from_str::<Value>(source) else { continue; };
+        if generic_http_route_matches(name, &value, method, path) {
+            return Some(value);
+        }
+    }
     None
 }
 
-fn record_admission_refusal(method: &str, path: &str, signal: &str, started: Instant) {
+fn generic_http_declaration(value: &Value) -> bool {
+    value.get("namespace").and_then(Value::as_str)
+        .is_some_and(crate::gate::door::is_registered_namespace)
+}
+
+fn generic_http_route_matches(name: &str, value: &Value, method: &str, path: &str) -> bool {
+    if !generic_http_declaration(value) {
+        return false;
+    }
+    let declared_method = match value.get("http_method") {
+        Some(method) => match method.as_str() {
+            Some(method) => method.to_ascii_uppercase(),
+            None => return false,
+        },
+        None => "POST".to_owned(),
+    };
+    let declared_path = match value.get("http_path") {
+        Some(path) => match path.as_str() {
+            Some(path) => path.to_owned(),
+            None => return false,
+        },
+        None => format!("/api/v1/{name}"),
+    };
+    (declared_method == method || (method == "HEAD" && declared_method == "GET"))
+        && generic_path_matches(&declared_path, path)
+}
+
+fn generic_path_matches(pattern: &str, path: &str) -> bool {
+    let mut pattern_segments = pattern.split('/');
+    let mut path_segments = path.split('/');
+    loop {
+        match (pattern_segments.next(), path_segments.next()) {
+            (Some(expected), Some(actual)) => {
+                let named = expected.strip_prefix('{').and_then(|part| part.strip_suffix('}'))
+                    .is_some_and(|name| !name.is_empty())
+                    || expected.strip_prefix(':').is_some_and(|name| !name.is_empty());
+                if named {
+                    if actual.is_empty() { return false; }
+                } else if expected != actual {
+                    return false;
+                }
+            }
+            (None, None) => return true,
+            _ => return false,
+        }
+    }
+}
+
+fn record_admission_refusal(
+    method: &str,
+    path: &str,
+    signal: &str,
+    started: Instant,
+    _headers: &HeaderMap,
+) {
     let Some(declaration) = declared_http_route(method, path) else { return; };
-    let Some(deed) = declaration.get("ledger_deed") else { return; };
+    if generic_http_declaration(&declaration) {
+        // The generic request was refused before any act, so it leaves no deed.
+        return;
+    }
+    let Some(deed) = declaration.get("ledger_deed") else {
+        return;
+    };
     let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(serde_json::json!({
         "organ": deed["organ"],
         "kind": "admission-refusal",
@@ -706,7 +781,7 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
     {
         // New declared deeds fail closed if the PIN switch cannot be read.
         if let Err(signal) = attendance::pin_mode_read() {
-            record_admission_refusal(&method, &path, &signal, started);
+            record_admission_refusal(&method, &path, &signal, started, request.headers());
             return api_error_signal("administrative route gate", &signal).into_response();
         }
     }
@@ -715,7 +790,7 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
         Ok(bytes) => bytes,
         Err(_) => {
             record_admission_refusal(&method, &path,
-                "caduceus-administrative-request-too-large", started);
+                "caduceus-administrative-request-too-large", started, &parts.headers);
             return (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 Json(ApiErrorBody {
@@ -732,7 +807,7 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
     let empty_body = Value::Null;
     let admission_body = parsed_body.as_ref().unwrap_or(&empty_body);
     if let Err(signal) = administrative_credentials_admit(&parts.headers, admission_body) {
-        record_admission_refusal(&method, &path, &signal, started);
+        record_admission_refusal(&method, &path, &signal, started, &parts.headers);
         return api_error_signal("administrative route gate", &signal).into_response();
     }
 
@@ -744,7 +819,7 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
                 Ok(bytes) => bytes,
                 Err(_) => {
                     record_admission_refusal(&method, &path,
-                        "caduceus-administrative-request-invalid", started);
+                        "caduceus-administrative-request-invalid", started, &parts.headers);
                     return api_error_signal(
                         "administrative route gate",
                         "caduceus-administrative-request-invalid",

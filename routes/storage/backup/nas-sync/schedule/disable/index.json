@@ -1,0 +1,25 @@
+{
+  "namespace": "storage/backup/nas-sync/schedule/disable",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/nas-sync/schedule/disable",
+      "verb": [
+        "schedule",
+        "disable"
+      ]
+    }
+  ],
+  "commands": [
+    "storage backup nas-sync schedule disable"
+  ],
+  "needs": [
+    "nas"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/nas-sync/schedule/disable",
+  "body": "optional",
+  "receipt": "caduceus.nas-sync.schedule.disable.v1",
+  "administrative": true
+}

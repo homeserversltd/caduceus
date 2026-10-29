@@ -23,6 +23,7 @@
     "servicesStopped"
   ],
   "fields": {
+    "changed": {"type": "boolean", "description": "True if the operation changed state; absent means unknown."},
     "schema": {
       "type": "string",
       "const": "caduceus.nas.detach.v1"
@@ -75,7 +76,7 @@
     "steps": "array",
     "servicesStopped": "array"
   },
-  "optional": [],
+  "optional": ["changed"],
   "additionalProperties": true,
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }
