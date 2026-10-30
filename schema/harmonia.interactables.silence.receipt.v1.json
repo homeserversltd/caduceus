@@ -1,0 +1,82 @@
+{
+  "schema": "harmonia.interactables.silence.receipt.v1",
+  "schema_version": "1.0.0",
+  "role": "Harmonia interactable silence receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/harmonia.interactables.silence.receipt.v1.json",
+    "grant": "Operator-elected public seat for the Harmonia interactable silence receipt"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "harmonia.interactables.silence.receipt.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "converged": {
+      "type": "boolean"
+    },
+    "id": {
+      "type": "string"
+    },
+    "silenced": {
+      "type": "boolean"
+    },
+    "silenced_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "stamps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "by": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "first_missing_signal": {
+      "type": "string"
+    }
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "converged": "boolean",
+    "id": "string",
+    "silenced": "boolean",
+    "silenced_at": [
+      "string",
+      "null"
+    ],
+    "stamps": "array",
+    "first_missing_signal": "string"
+  },
+  "required": [
+    "schema",
+    "ok",
+    "id",
+    "silenced"
+  ],
+  "optional": [
+    "converged",
+    "silenced_at",
+    "stamps",
+    "first_missing_signal"
+  ],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

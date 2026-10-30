@@ -31,6 +31,7 @@
     "harmonia.config_proposals.feed.v1": {"file": "schema/harmonia.config_proposals.feed.v1.json", "schema_version": "1.0.1"},
     "harmonia.interactables.hermes_appearance.receipt.v1": {"file": "schema/harmonia.interactables.hermes_appearance.receipt.v1.json", "schema_version": "1.0.0"},
     "harmonia.interactables.ruyi_bump.receipt.v1": {"file": "schema/harmonia.interactables.ruyi_bump.receipt.v1.json", "schema_version": "1.0.0"},
+    "harmonia.interactables.silence.receipt.v1": {"file": "schema/harmonia.interactables.silence.receipt.v1.json", "schema_version": "1.0.0"},
     "harmonia.interactables.household_trust_renew.receipt.v1": {"file": "schema/harmonia.interactables.household_trust_renew.receipt.v1.json", "schema_version": "1.0.0"},
     "harmonia.interactables.dns_record.receipt.v1": {"file": "schema/harmonia.interactables.dns_record.receipt.v1.json", "schema_version": "1.0.0"},
     "harmonia.interactables.ruyi_perspective_seed.receipt.v1": {"file": "schema/harmonia.interactables.ruyi_perspective_seed.receipt.v1.json", "schema_version": "1.0.0"},

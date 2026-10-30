@@ -396,6 +396,7 @@ fn main() {
         "harmonia.config_proposals.feed.v1",
         "harmonia.interactables.hermes_appearance.receipt.v1",
         "harmonia.interactables.ruyi_bump.receipt.v1",
+        "harmonia.interactables.silence.receipt.v1",
         "harmonia.interactables.household_trust_renew.receipt.v1",
         "harmonia.interactables.dns_record.receipt.v1",
         "harmonia.interactables.ruyi_perspective_seed.receipt.v1",
