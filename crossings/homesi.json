@@ -21,6 +21,7 @@
     "face/focus",
     "face/launch",
     "face/launcher-cache",
+    "face/meter",
     "face/screenshot",
     "face/volume",
     "face/workspace",
@@ -73,6 +74,7 @@
     ["face", "focus"],
     ["face", "launch"],
     ["face", "launcher-cache"],
+    ["face", "meter"],
     ["face", "screenshot"],
     ["face", "volume"],
     ["face", "workspace"],
@@ -196,8 +198,11 @@
       "/api/v1/settings/datetime",
       "/api/v1/settings/default-apps",
       "/api/v1/settings/display",
+      "/api/v1/settings/energy",
       "/api/v1/settings/input",
+      "/api/v1/settings/keyboard",
       "/api/v1/settings/notifications",
+      "/api/v1/settings/region",
       "/api/v1/settings/sound",
       "/api/v1/storage/vault/auto-decrypt"
     ]
