@@ -49,7 +49,9 @@ fn tables(db: &rusqlite::Connection) -> Result<(), String> {
         CREATE TABLE IF NOT EXISTS pid2_programs (unit TEXT NOT NULL, scope TEXT NOT NULL, routine_id TEXT NOT NULL, desired TEXT NOT NULL, life TEXT NOT NULL, last_receipt TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY(unit,scope,routine_id));
         CREATE TABLE IF NOT EXISTS pid2_holds (routine_id TEXT PRIMARY KEY, held_at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS pid2_completed (routine_id TEXT NOT NULL, line TEXT NOT NULL, PRIMARY KEY(routine_id,line));
-        CREATE TABLE IF NOT EXISTS pid2_attempts (routine_id TEXT NOT NULL, line TEXT NOT NULL, attempted_at INTEGER NOT NULL, PRIMARY KEY(routine_id,line));").map_err(|e| e.to_string())
+        CREATE TABLE IF NOT EXISTS pid2_attempts (routine_id TEXT NOT NULL, line TEXT NOT NULL, attempted_at INTEGER NOT NULL, PRIMARY KEY(routine_id,line));
+        CREATE TABLE IF NOT EXISTS pid2_elections (routine_id TEXT NOT NULL, line TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(routine_id,line));
+        CREATE TABLE IF NOT EXISTS pid2_crossings (routine_id TEXT NOT NULL, line TEXT NOT NULL, step_index INTEGER NOT NULL, PRIMARY KEY(routine_id,line,step_index));").map_err(|e| e.to_string())
 }
 
 /// The boot id is compared and runtime rows are cleared atomically; registrations survive.
@@ -70,6 +72,8 @@ pub fn reset_gate() -> Result<bool, String> {
         tx.execute("DELETE FROM pid2_holds", []).map_err(|e| e.to_string())?;
         tx.execute("DELETE FROM pid2_completed", []).map_err(|e| e.to_string())?;
         tx.execute("DELETE FROM pid2_attempts", []).map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM pid2_elections", []).map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM pid2_crossings", []).map_err(|e| e.to_string())?;
         tx.execute("INSERT INTO pid2_boot(id,boot_id,began_at) VALUES(1,?1,?2) ON CONFLICT(id) DO UPDATE SET boot_id=excluded.boot_id,began_at=excluded.began_at", params![boot,now()]).map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
@@ -101,7 +105,18 @@ pub fn enable(raw: &[u8]) -> Result<Value, String> {
     let changed=tx.execute("INSERT INTO pid2_registrations(routine_id,enabled,envelope,registered_at) VALUES(?1,1,?2,?3) ON CONFLICT(routine_id) DO UPDATE SET enabled=1,envelope=excluded.envelope,registered_at=excluded.registered_at WHERE enabled<>1 OR envelope<>excluded.envelope", params![id, raw, now()]).map_err(|e| e.to_string())?;
     if previous.as_deref().is_some_and(|prior|prior!=raw) {
         tx.execute("DELETE FROM pid2_lines WHERE routine_id=?1 AND state<>'Observed'",[id]).map_err(|e|e.to_string())?;
+        // A formerly observation-only line may now also execute a crossing
+        // or action; its old value must not masquerade as completion.
+        for stage in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten() {
+            let mixed=stage.get("do").is_some_and(Value::is_array) || stage.get("until").is_some_and(Value::is_array) || stage.get("actions").and_then(Value::as_array).is_some_and(|a|!a.is_empty());
+            if mixed {
+                if let Some(line)=stage.get("line").and_then(Value::as_str) {
+                    tx.execute("DELETE FROM pid2_lines WHERE routine_id=?1 AND line=?2 AND state='Observed'",params![id,line]).map_err(|e|e.to_string())?;
+                }
+            }
+        }
         tx.execute("DELETE FROM pid2_attempts WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+        tx.execute("DELETE FROM pid2_crossings WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
     }
     tx.commit().map_err(|e|e.to_string())?;
     drop(db);
@@ -154,6 +169,8 @@ fn change_hold(id: &str, hold: bool) -> Result<Value, String> {
             tx.execute("DELETE FROM pid2_lines WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
             tx.execute("DELETE FROM pid2_completed WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
             tx.execute("DELETE FROM pid2_attempts WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+            tx.execute("DELETE FROM pid2_elections WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+            tx.execute("DELETE FROM pid2_crossings WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
             tx.execute("UPDATE pid2_programs SET desired='Run',life='Waiting',last_receipt=NULL,updated_at=?2 WHERE routine_id=?1",params![id,now()]).map_err(|e|e.to_string())?;
         }
         n != 0

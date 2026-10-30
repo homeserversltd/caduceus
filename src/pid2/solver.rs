@@ -211,16 +211,23 @@ fn resolve_line(routine: &str, name: &str, senses: &super::events::Senses, visit
     Ok(())
 }
 
-fn needs(routine: &str, stage_line: &str, need: &Value, senses: &super::events::Senses, visiting: &mut Visiting) -> Result<Option<String>, String> {
+fn needs(routine: &str, stage_line: &str, need: &Value, senses: &super::events::Senses, visiting: &mut Visiting, separate_election: bool) -> Result<Option<String>, String> {
     let kind = need.get("kind").and_then(Value::as_str).ok_or("pid2-need-kind-missing")?;
     match kind {
         "observe" => {
-            if let Some((Some(value), state)) = line(routine, stage_line)? { if state=="Observed" { return Ok(Some(value)); } }
+            if separate_election {
+                let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+                let existing:Option<String>=db.query_row("SELECT value FROM pid2_elections WHERE routine_id=?1 AND line=?2",params![routine,stage_line],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+                if let Some(value)=existing { return Ok(Some(value)); }
+            } else if let Some((Some(value), state)) = line(routine, stage_line)? { if state=="Observed" { return Ok(Some(value)); } }
             if !senses.online("udev") { return Err("pid2-udev-sense-unavailable".into()); }
             if need.get("observer").and_then(Value::as_str) != Some("drm-connector") { return Err("pid2-observer-unknown".into()); }
             let pattern = need.get("pattern").and_then(Value::as_str).unwrap_or("*-HDMI-*");
             let value = observe_drm(pattern)?;
-            write_line(routine,stage_line,Some(&value),"Observed",None)?;
+            if separate_election {
+                let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+                db.execute("INSERT OR IGNORE INTO pid2_elections(routine_id,line,value) SELECT ?1,?2,?3 WHERE NOT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",params![routine,stage_line,value]).map_err(|e|e.to_string())?;
+            } else { write_line(routine,stage_line,Some(&value),"Observed",None)?; }
             Ok(Some(value))
         }
         "await-mount" => {
@@ -281,15 +288,19 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
     if stage.get("until").is_some_and(|value| !value.is_null() && !value.is_array()) { return Err("pid2-until-not-array".into()); }
     let crossings=stage.get("do").and_then(Value::as_array);
     let until=stage.get("until").and_then(Value::as_array);
+    let separate_election=crossings.is_some() || until.is_some() || stage.get("actions").and_then(Value::as_array).is_some_and(|a|!a.is_empty());
     let check_until = |visiting: &mut Visiting| -> Result<(),String> {
         if let Some(conditions)=until {
-            for condition in conditions { needs(routine,name,condition,senses,visiting)?; }
+            for condition in conditions { needs(routine,name,condition,senses,visiting,separate_election)?; }
         }
         Ok(())
     };
     if until.is_some() && check_until(visiting).is_ok() {
-        let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
-        db.execute("INSERT OR IGNORE INTO pid2_completed(routine_id,line) SELECT ?1,?2 WHERE NOT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",params![routine,name]).map_err(|e|e.to_string())?;
+        let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+        let tx=db.transaction().map_err(|e|e.to_string())?;
+        tx.execute("INSERT OR IGNORE INTO pid2_completed(routine_id,line) SELECT ?1,?2 WHERE NOT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",params![routine,name]).map_err(|e|e.to_string())?;
+        tx.execute("DELETE FROM pid2_crossings WHERE routine_id=?1 AND line=?2",params![routine,name]).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;
         drop(db);
         return write_line(routine,name,Some("true"),"Done",None);
     }
@@ -301,7 +312,7 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
             let expected=need.get("when_value").and_then(Value::as_str).unwrap_or("true");
             if selected != expected { continue; }
         }
-        match needs(routine,name,need,senses,visiting) {
+        match needs(routine,name,need,senses,visiting,separate_election) {
             Ok(Some(v)) => value=Some(v),
             Ok(None) => {},
             Err(reason) => { write_line(routine,name,None,"Waiting",Some(&reason))?; return Ok(()); }
@@ -334,7 +345,12 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
                 let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
                 db.execute("INSERT INTO pid2_attempts(routine_id,line,attempted_at) VALUES(?1,?2,?3) ON CONFLICT(routine_id,line) DO UPDATE SET attempted_at=excluded.attempted_at",params![routine,name,now()]).map_err(|e|e.to_string())?;
             }
-            for step in steps {
+            for (index,step) in steps.iter().enumerate() {
+                let completed:bool={
+                    let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+                    db.query_row("SELECT EXISTS(SELECT 1 FROM pid2_crossings WHERE routine_id=?1 AND line=?2 AND step_index=?3)",params![routine,name,index as i64],|r|r.get(0)).map_err(|e|e.to_string())?
+                };
+                if completed { continue; }
                 let band=step.get("staff").and_then(Value::as_str).ok_or("pid2-staff-path-missing")?;
                 let payload=step.get("payload").filter(|v|v.is_object()).ok_or("pid2-staff-payload-invalid")?;
                 // The generic crossing is also an entry to unit/control;
@@ -363,6 +379,8 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
                     db.execute("UPDATE pid2_attempts SET attempted_at=?3 WHERE routine_id=?1 AND line=?2",params![routine,name,now()]).map_err(|e|e.to_string())?;
                     return Ok(());
                 }
+                let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+                db.execute("INSERT OR IGNORE INTO pid2_crossings(routine_id,line,step_index) SELECT ?1,?2,?3 WHERE NOT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",params![routine,name,index as i64]).map_err(|e|e.to_string())?;
             }
             {
                 let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
@@ -371,8 +389,11 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
             drop(_process); drop(_action);
         }
         if let Err(reason)=check_until(visiting) { return write_line(routine,name,None,"Waiting",Some(&reason)); }
-        let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
-        db.execute("INSERT OR IGNORE INTO pid2_completed(routine_id,line) SELECT ?1,?2 WHERE NOT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",params![routine,name]).map_err(|e|e.to_string())?;
+        let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+        let tx=db.transaction().map_err(|e|e.to_string())?;
+        tx.execute("INSERT OR IGNORE INTO pid2_completed(routine_id,line) SELECT ?1,?2 WHERE NOT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",params![routine,name]).map_err(|e|e.to_string())?;
+        tx.execute("DELETE FROM pid2_crossings WHERE routine_id=?1 AND line=?2",params![routine,name]).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;
         drop(db);
         return write_line(routine,name,Some("true"),"Done",None);
     }
