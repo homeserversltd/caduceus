@@ -1,0 +1,54 @@
+{
+  "schema": "harmonia.run_profile.v1",
+  "schema_version": "1.0.0",
+  "role": "Harmonia profile run receipt",
+  "authority": {"owner": "caduceus", "path": "schema/harmonia.run_profile.v1.json"},
+  "evolution": {"law": "additive-only", "missing_field_semantics": "Absent optional fields mean null", "unknown_fields_preserved": true},
+  "required": ["schema", "run_id", "ok"],
+  "optional": ["changed", "mutation", "mode", "profile_id", "identity", "identity_source", "module_count", "operation_count", "config_proposal_count", "run_duration_ms", "first_missing_signal", "module_spine_entered", "selected_profile", "suite_ok", "steps", "module_artifact_debt", "engine_debt", "overall_ok", "degraded", "config_surfaces", "extends", "base_profile_id", "union_module_count", "excluded_module_ids", "observed", "could_change_to", "attempt", "final_receipt", "notify"],
+  "fields": {
+    "schema": {"type": "string", "const": "harmonia.run_profile.v1"},
+    "run_id": {"type": "string"},
+    "ok": {"type": "boolean"},
+    "changed": {"type": "boolean"},
+    "mutation": {"type": "boolean"},
+    "mode": {"type": "string"},
+    "profile_id": {"type": ["string", "null"]},
+    "identity": {"type": ["string", "null"]},
+    "identity_source": {"type": "string"},
+    "module_count": {"type": "integer"},
+    "operation_count": {"type": "integer"},
+    "config_proposal_count": {"type": "integer"},
+    "run_duration_ms": {"type": "integer"},
+    "first_missing_signal": {"type": "string"},
+    "module_spine_entered": {"type": "string"},
+    "selected_profile": {"type": "string"},
+    "suite_ok": {"type": "boolean"},
+    "steps": {"type": "array"},
+    "module_artifact_debt": {"type": "array"},
+    "engine_debt": {"type": ["object", "null"], "properties": {"ok": {"type": "boolean"}, "first_missing_signal": {"type": "string"}, "candidate_count": {"type": "integer"}, "candidates": {"type": "array"}, "preflight_receipt": {"type": "string"}}},
+    "overall_ok": {"type": "boolean"},
+    "degraded": {"type": "boolean"},
+    "config_surfaces": {"type": "array"},
+    "extends": {"type": "string"},
+    "base_profile_id": {"type": "string"},
+    "union_module_count": {"type": "integer"},
+    "excluded_module_ids": {"type": "array", "items": {"type": "string"}},
+    "observed": {"type": ["object", "null"], "properties": {
+      "set": {"type": ["object", "null"], "properties": {"caduceus": {"type": ["string", "null"]}, "sbin": {"type": ["string", "null"]}, "face": {"type": ["string", "null"]}}},
+      "timer": {"type": ["object", "null"], "properties": {"enabled": {"type": ["boolean", "null"]}, "active": {"type": ["boolean", "null"]}}},
+      "proposals_pending": {"type": ["integer", "null"]}
+    }},
+    "could_change_to": {"type": ["object", "null"], "properties": {
+      "set": {"type": ["object", "null"], "properties": {"caduceus": {"type": ["string", "null"]}, "sbin": {"type": ["string", "null"]}, "face": {"type": ["string", "null"]}}},
+      "diff": {"type": ["object", "null"], "properties": {"caduceus": {"type": ["boolean", "null"]}, "sbin": {"type": ["boolean", "null"]}, "face": {"type": ["boolean", "null"]}}}
+    }},
+    "attempt": {"type": ["array", "null"], "items": {"type": "object", "properties": {"module": {"type": "string"}, "step": {"type": ["string", "null"]}, "ok": {"type": ["boolean", "null"]}, "changed": {"type": ["boolean", "null"]}, "signal": {"type": ["string", "null"]}}}},
+    "final_receipt": {"type": ["object", "null"], "properties": {
+      "ok": {"type": ["boolean", "null"]}, "converged": {"type": ["boolean", "null"]},
+      "promoted": {"type": ["array", "null"], "items": {"type": "string"}}, "set_digest": {"type": ["string", "null"]},
+      "stamps": {"type": ["array", "null"], "items": {"type": "object", "properties": {"by": {"type": "string"}, "at": {"type": "string"}}}}
+    }},
+    "notify": {"type": ["array", "string", "null"], "items": {"type": "object", "properties": {"row": {"type": "string"}, "posted": {"type": "boolean"}, "id": {"type": ["string", "null"]}}}}
+  }
+}

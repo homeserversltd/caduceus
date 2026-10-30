@@ -402,6 +402,7 @@ fn main() {
         "estate.release-flag.v1",
         "harmonia.update-set.v1",
         "harmonia.update_module.v1",
+        "harmonia.run_profile.v1",
         "harmonia.ledger.entry.v1",
         "caduceus.receipts.ledger.v1",
         "appliance.xenia.v1",
