@@ -50,6 +50,10 @@ harmonia_routes:
     args:
     - update
 sclerites:
+- sway
+- pactl
+- desktop
+- gtk4
 - nmcli
 - local-ai-memory-card
 - hermes

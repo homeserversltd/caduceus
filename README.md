@@ -113,7 +113,7 @@ The shipped appliance profile names are `homeserver`, `homeconsole`, `tv`,
 asset. Appliance profile names do not rename verb namespaces such as
 `console/restart`.
 
-The `homesi` profile is headless; its face member is absent.
+The `homesi` profile keeps the Noesis face and includes the TV desktop's sway, pactl, desktop and gtk4 doors.
 
 Local profile roots default to `/etc/caduceus` and `/var/lib/caduceus`. For
 tests and development, set `CADUCEUS_ROOT` to a fixture root containing
