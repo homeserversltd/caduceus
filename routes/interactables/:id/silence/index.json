@@ -1,0 +1,1 @@
+{"namespace":"interactables/:id/silence","admittance":"open","flags":{},"serve":[],"commands":["interactable silence"],"needs":["all"]}

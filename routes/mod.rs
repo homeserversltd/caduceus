@@ -118,8 +118,7 @@ pub use leaf_storage_vault_unlock as open_vault;
 pub mod read_logs;
 #[cfg(leaf_log_receipts)]
 pub use leaf_log_receipts as read_receipts;
-#[path = "appliance/report/support/rebuild_crown/index.rs"]
-pub mod rebuild_crown;
+
 #[cfg(leaf_appliance_report)]
 pub use leaf_appliance_report as report_health;
 #[cfg(leaf_cartridges_remove)]

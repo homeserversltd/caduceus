@@ -34,6 +34,16 @@ harmonia_routes:
     - run
     positional: true
     raw_json: true
+  interactable_silence:
+    bin: /usr/local/bin/harmonia
+    args: [interactable, silence]
+    positional: true
+    raw_json: true
+  interactable_unsilence:
+    bin: /usr/local/bin/harmonia
+    args: [interactable, unsilence]
+    positional: true
+    raw_json: true
   update_now:
     bin: /usr/local/bin/harmonia
     args:

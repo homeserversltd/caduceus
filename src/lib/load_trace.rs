@@ -682,11 +682,7 @@ fn native_operation(command: &str) -> Option<(&'static str, &'static str, &'stat
             "configured-read-command",
             "not-applicable",
         )),
-        "source currency" => Some((
-            "caduceus.coronatio.source_currency",
-            "source-currency-query",
-            "not-applicable",
-        )),
+
         _ => None,
     }
 }

@@ -1,0 +1,30 @@
+{
+  "schema": "harmonia.run.v1",
+  "schema_version": "1.0.0",
+  "role": "Harmonia run receipt",
+  "authority": {"owner": "caduceus", "path": "schema/harmonia.run.v1.json"},
+  "evolution": {"law": "additive-only", "missing_field_semantics": "Absent optional fields mean null", "unknown_fields_preserved": true},
+  "required": ["schema", "run_id", "ok"],
+  "optional": ["observed", "could_change_to", "attempt", "final_receipt", "notify"],
+  "fields": {
+    "schema": {"type": "string", "const": "harmonia.run.v1"},
+    "run_id": {"type": "string"},
+    "ok": {"type": "boolean"},
+    "observed": {"type": ["object", "null"], "properties": {
+      "set": {"type": ["object", "null"], "properties": {"caduceus": {"type": ["string", "null"]}, "sbin": {"type": ["string", "null"]}, "face": {"type": ["string", "null"]}}},
+      "timer": {"type": ["object", "null"], "properties": {"enabled": {"type": ["boolean", "null"]}, "active": {"type": ["boolean", "null"]}}},
+      "proposals_pending": {"type": ["integer", "null"]}
+    }},
+    "could_change_to": {"type": ["object", "null"], "properties": {
+      "set": {"type": ["object", "null"], "properties": {"caduceus": {"type": ["string", "null"]}, "sbin": {"type": ["string", "null"]}, "face": {"type": ["string", "null"]}}},
+      "diff": {"type": ["object", "null"], "properties": {"caduceus": {"type": ["boolean", "null"]}, "sbin": {"type": ["boolean", "null"]}, "face": {"type": ["boolean", "null"]}}}
+    }},
+    "attempt": {"type": ["array", "null"], "items": {"type": "object", "properties": {"module": {"type": "string"}, "step": {"type": ["string", "null"]}, "ok": {"type": ["boolean", "null"]}, "changed": {"type": ["boolean", "null"]}, "signal": {"type": ["string", "null"]}}}},
+    "final_receipt": {"type": ["object", "null"], "properties": {
+      "ok": {"type": ["boolean", "null"]}, "converged": {"type": ["boolean", "null"]},
+      "promoted": {"type": ["array", "null"], "items": {"type": "string"}}, "set_digest": {"type": ["string", "null"]},
+      "stamps": {"type": ["array", "null"], "items": {"type": "object", "properties": {"by": {"type": "string"}, "at": {"type": "string"}}}}
+    }},
+    "notify": {"type": ["array", "null"], "items": {"type": "object", "properties": {"row": {"type": "string"}, "posted": {"type": "boolean"}, "id": {"type": ["string", "null"]}}}}
+  }
+}

@@ -115,50 +115,10 @@ async fn crossings_http() -> axum::response::Response {
     }
 }
 
-/// Coronatio's source-currency door: the relation of a running Coronatio build
-/// to coronatio origin/main, read through the rebuild_crown support worker.
-/// It was mounted by the pre-canopy router and dropped when the canopy grew
-/// (8200ffb) while its producer stayed compiled under this leaf; the shape is
-/// the old door's, unchanged: read-only, cached, reflected to Hyalos.
-async fn source_currency_http(
-    Query(query): Query<HashMap<String, String>>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    let build_sha = query.get("buildSha").cloned().unwrap_or_default();
-    let cache_key = build_sha.clone();
-    let context = crate::shared::load_trace::current();
-    let invocation = context
-        .as_ref()
-        .map(crate::shared::load_trace::begin_invocation);
-    let body = crate::gate::blocking_task("source currency", move || {
-        crate::routes::rebuild_crown::source_currency_json(&cache_key)
-    })
-    .await
-    .unwrap_or_else(|_| crate::routes::rebuild_crown::source_currency_unavailable(&build_sha));
-    if let (Some(context), Some(invocation)) = (context, invocation) {
-        crate::shared::load_trace::record_native_completion(
-            &context,
-            "source currency",
-            invocation,
-            body["ok"].as_bool() == Some(true),
-        );
-    }
-    let mut body = body;
-    crate::shared::load_trace::enrich_json(&mut body);
-    let status = if body["ok"].as_bool() == Some(true) {
-        StatusCode::OK
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
-    };
-    Ok((status, Json(body)))
-}
-
 pub fn register(router: axum::Router) -> axum::Router {
     router
         .route("/api/v1/appliance/report", axum::routing::get(report_http))
-        .route(
-            "/api/v1/coronatio/source-currency",
-            axum::routing::get(source_currency_http),
-        )
+
         .route("/api/v1/identity", axum::routing::get(identity_http))
         .route("/api/v1/legacy-sbin", axum::routing::get(legacy_list_http))
         .route(
