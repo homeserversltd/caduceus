@@ -1042,6 +1042,7 @@ async fn native_chord_run_steps(
         let transition = raw_step
             .get("snake")
             .or_else(|| raw_step.get("rust"))
+            .or_else(|| raw_step.get("native"))
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_owned();
@@ -1266,6 +1267,42 @@ async fn native_chord_run_steps(
                 })
             }).await.map_err(|_| "caduceus-blocking-task-join-failed".to_string())
                 .and_then(|result| result)
+        } else if let Some(native) = step.native.as_deref() {
+            let id = resolved_arguments.get("routine_id").and_then(Value::as_str).unwrap_or("").to_owned();
+            let acquired=resolved_arguments.get("acquired").and_then(Value::as_bool);
+            let native = native.to_owned();
+            let is_swap=routine_id=="storage/nas/role/swap";
+            let deadline=Instant::now()+stage_timeout;
+            tokio::task::spawn_blocking(move || {
+                #[cfg(leaf_pid2)]
+                let reply = match native.as_str() {
+                    "pid2/hold" => {
+                        let receipt = if is_swap { crate::pid2::hold_from_swap(&id) } else { crate::pid2::hold(&id) }?;
+                        // HomeServer's swap is safe only when both continuity
+                        // routines were actually registered and held. Other
+                        // profiles retain the no-op for an absent routine.
+                        if is_swap && receipt.get("held").and_then(Value::as_bool)!=Some(true)
+                            && crate::shared::config::resolved_profile()?.as_str()=="homeserver" {
+                            return Err(format!("pid2-swap-routine-not-registered: {id}"));
+                        }
+                        if let Err(signal) = crate::pid2::solver::quiesce_held(&id,deadline) {
+                            if receipt.get("acquired").and_then(Value::as_bool)==Some(true) {
+                                let rollback = if is_swap { crate::pid2::release_from_swap(&id) } else { crate::pid2::release(&id) };
+                                if let Err(error)=rollback { return Err(format!("{signal}; pid2-hold-rollback-failed: {error}")); }
+                            }
+                            Err(signal)
+                        } else { Ok(receipt) }
+                    },
+                    "pid2/release" if is_swap && acquired==Some(false) => Ok(json!({"ok":true,"changed":false})),
+                    "pid2/release" if is_swap && acquired==Some(true) => crate::pid2::release_from_swap(&id),
+                    "pid2/release" if is_swap => Err("pid2-swap-hold-ownership-missing".into()),
+                    "pid2/release" => crate::pid2::release(&id),
+                    _ => Err("caduceus-chord-native-unknown".into()),
+                };
+                #[cfg(not(leaf_pid2))]
+                let reply: Result<Value,String> = { let _ = (native,id,is_swap,acquired); Err("caduceus-pid2-leaf-unavailable".into()) };
+                reply.map(|receipt| json!({"ok":receipt.get("ok").and_then(Value::as_bool)==Some(true),"receiptPayload":receipt}))
+            }).await.map_err(|_| "caduceus-blocking-task-join-failed".to_string()).and_then(|result|result)
         } else if let Some(primitive) = step.rust.as_deref() {
             match tokio::time::timeout(stage_timeout, crate::shared::primitives::execute(primitive, &stage_envelope)).await {
                 Ok(Ok(receipt)) => Ok(json!({"ok":receipt.get("ok").and_then(Value::as_bool)==Some(true), "receiptPayload":receipt})),
@@ -1352,6 +1389,26 @@ pub async fn execute_native_chord(
     receipt_schema: &str,
     total_deadline: Duration,
 ) -> Result<Value, String> {
+    // Own the complete chord, including its lease and finalizers, separately
+    // from the requesting future so a disconnected caller cannot abandon it.
+    let namespace=namespace.to_owned();
+    let serve=serve.to_vec();
+    let finally=finally.to_vec();
+    let base_envelope=base_envelope.clone();
+    let receipt_schema=receipt_schema.to_owned();
+    tokio::spawn(async move {
+        execute_owned_chord(&namespace,&serve,&finally,&base_envelope,&receipt_schema,total_deadline).await
+    }).await.map_err(|_|"caduceus-chord-owner-task-failed".to_owned())?
+}
+
+async fn execute_owned_chord(
+    namespace: &str,
+    serve: &[Value],
+    finally: &[Value],
+    base_envelope: &Value,
+    receipt_schema: &str,
+    total_deadline: Duration,
+) -> Result<Value, String> {
     if namespace.is_empty() {
         return Err("caduceus-chord-namespace-missing".into());
     }
@@ -1364,6 +1421,10 @@ pub async fn execute_native_chord(
     if serve.is_empty() && finally.is_empty() {
         return Err("caduceus-chord-empty".into());
     }
+    // HTTP and CLI processes must not share and prematurely release each
+    // other's boot-scoped NAS holds while either swap is still executing.
+    #[cfg(leaf_pid2)]
+    let _swap_lease=if namespace=="storage/nas/role/swap" { Some(crate::pid2::swap_lease()?) } else { None };
     let routine_id = namespace;
     let empty_payload = Value::Object(serde_json::Map::new());
     let request_payload = base_envelope.get("payload").unwrap_or(&empty_payload);

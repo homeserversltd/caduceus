@@ -3,6 +3,8 @@
   "admittance": "open",
   "flags": {},
   "serve": [
+    {"stage_id":"hold-nas", "native":"pid2/hold", "arguments":{"routine_id":"nas"}, "required":true},
+    {"stage_id":"hold-nas-backup", "native":"pid2/hold", "arguments":{"routine_id":"nas-backup"}, "required":true},
     {
       "stage_id": "hold",
       "snake": "storage/backup/nas-sync/hold",
@@ -192,7 +194,9 @@
       "arguments": {
         "hold_id": {"$ref": "stages.hold.receipt.holdId"}
       }
-    }
+    },
+    {"stage_id":"release-nas", "native":"pid2/release", "arguments":{"routine_id":"nas","acquired":{"$ref":"stages.hold-nas.receipt.acquired"}}, "required":true, "depends_on":["hold-nas"]},
+    {"stage_id":"release-nas-backup", "native":"pid2/release", "arguments":{"routine_id":"nas-backup","acquired":{"$ref":"stages.hold-nas-backup.receipt.acquired"}}, "required":true, "depends_on":["hold-nas-backup"]}
   ],
   "commands": [
     "storage nas role swap"

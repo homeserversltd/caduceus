@@ -69,7 +69,7 @@ where
     #[cfg(leaf_pid2)]
     if args.as_slice() == ["pid2-owner-sense"] { return crate::pid2::events::owner_sense_cli(); }
     #[cfg(leaf_pid2)]
-    if args.first().is_some_and(|v| ["enable", "disable", "start", "stop", "restart", "status", "list", "pid2-observe-drm"].contains(&v.as_str())) {
+    if args.first().is_some_and(|v| ["enable", "disable", "start", "stop", "restart", "hold", "release", "status", "list", "pid2-observe-drm"].contains(&v.as_str())) {
         return crate::pid2::cli(&args);
     }
     if let Some(namespace) = crate::routes::route_for_cli(&args) {
@@ -100,9 +100,28 @@ where
             "origin_of_intent": "near",
             "payload": { "args": args[prefix_len..].to_vec() }
         });
-        if let Err(signal) = crate::gate::receive(raw, serve, &declaration, false) {
+        if let Err(signal) = crate::gate::receive(raw.clone(), serve, &declaration, false) {
             eprintln!("{signal}");
             return 2;
+        }
+        if namespace == "storage/nas/role/swap" && args.len()==4 {
+            if let Err(code)=require_policy("storage nas role swap",&[]) { return code; }
+            let finally=declaration.get("finally").and_then(serde_json::Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+            let receipt=declaration.get("receipt").and_then(serde_json::Value::as_str).unwrap_or("caduceus.chord.receipt.v1");
+            let timeout=declaration.get("deadline_seconds").and_then(serde_json::Value::as_u64).unwrap_or(1800);
+            let runtime=match tokio::runtime::Runtime::new() { Ok(runtime)=>runtime, Err(error)=>{eprintln!("{error}");return 1;} };
+            let started=std::time::Instant::now();
+            return match runtime.block_on(crate::gate::snake::execute_native_chord(namespace,serve,finally,&raw,receipt,std::time::Duration::from_secs(timeout))) {
+                Ok(value)=>{
+                    let ok=value.get("ok").and_then(serde_json::Value::as_bool)==Some(true);
+                    if value.get("changed").and_then(serde_json::Value::as_bool)!=Some(false) {
+                        let signal=value.get("firstMissingSignal").and_then(serde_json::Value::as_str).unwrap_or("caduceus-generic-actuator-refused");
+                        crate::gate::door::record_deed(&declaration,"cli",started.elapsed(),if ok {"success"} else {"refused"},signal,Some(&value));
+                    }
+                    println!("{value}"); if ok {0} else {1}
+                },
+                Err(signal)=>{ eprintln!("{signal}"); 1 }
+            };
         }
     }
     // Legacy dispatch remains below; the declaration pass is admission only.
@@ -963,6 +982,7 @@ fn print_usage(args: Option<&[String]>) {
     {
         println!("  caduceus enable < routine-envelope-on-stdin");
         println!("  caduceus disable <routine-id>");
+        println!("  caduceus hold|release <routine-id>");
         println!("  caduceus start|stop|restart <unit>");
         println!("  caduceus status <routine-id-or-unit>");
         println!("  caduceus list");

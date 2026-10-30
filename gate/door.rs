@@ -526,7 +526,7 @@ fn deed_missing_field(witness: Option<&Value>) -> Option<&str> {
     }
 }
 
-fn record_deed(
+pub(crate) fn record_deed(
     declaration: &Value,
     request_id: &str,
     elapsed: Duration,
@@ -537,17 +537,23 @@ fn record_deed(
     let namespace = declaration.get("namespace").and_then(Value::as_str).unwrap_or("generic");
     let aggregate = witness.filter(|value| value.get("routine_id").and_then(Value::as_str).is_some());
     let stages = aggregate.and_then(|value| value.get("stages")).and_then(Value::as_array);
-    let stage_ids = stages.into_iter().flatten().take(32).filter_map(|stage| {
-        let id = stage.get("stage_id").and_then(Value::as_str)?;
-        (!id.is_empty() && id.len() <= 48
-            && id.chars().all(|character| character.is_ascii_alphanumeric() || "_.-".contains(character)))
-            .then(|| id.to_owned())
-    }).collect::<Vec<_>>();
-    let stage_outcomes = stages.into_iter().flatten().take(32).filter_map(|stage| {
-        stage.get("outcome").and_then(Value::as_str)
-            .filter(|outcome| matches!(*outcome, "stage-completed" | "stage-refused" | "stage-skipped"))
-            .map(ToOwned::to_owned)
-    }).collect::<Vec<_>>();
+    // The full stage list remains in the reply. Keep the log summary bounded
+    // as stage counts grow, and keep ids and outcomes paired.
+    let mut stage_ids=Vec::new();
+    let mut stage_outcomes=Vec::new();
+    let mut budget=200usize;
+    let mut stage_count=0usize;
+    for stage in stages.into_iter().flatten().take(32) {
+        stage_count += 1;
+        let Some(id)=stage.get("stage_id").and_then(Value::as_str) else { continue; };
+        let Some(result)=stage.get("outcome").and_then(Value::as_str) else { continue; };
+        if id.is_empty() || id.len()>48 || !id.chars().all(|c|c.is_ascii_alphanumeric() || "_.-".contains(c)) || !matches!(result,"stage-completed"|"stage-refused"|"stage-skipped") { continue; }
+        let cost=id.len()+result.len()+8;
+        if cost>budget { continue; }
+        budget-=cost;
+        stage_ids.push(id.to_owned());
+        stage_outcomes.push(result.to_owned());
+    }
     let failed_stage = aggregate.and_then(|value| value.get("failedStage"))
         .and_then(Value::as_str)
         .filter(|stage| !stage.is_empty() && stage.len() <= 48
@@ -572,6 +578,7 @@ fn record_deed(
             "duration_ms": elapsed.as_millis().min(u64::MAX as u128) as u64,
             "stage_ids": stage_ids,
             "stage_outcomes": stage_outcomes,
+            "stage_count": stage_count,
             "failedStage": failed_stage,
             "signal": deed_signal(signal),
             "first_missing_field": deed_missing_field(witness),

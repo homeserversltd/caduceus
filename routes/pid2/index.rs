@@ -31,6 +31,8 @@ async fn command(Path(verb): Path<String>, body: Bytes) -> Response {
         let target=payload.get("routine_id").or_else(||payload.get("unit")).and_then(Value::as_str).unwrap_or("");
         match verb.as_str() {
             "disable" => crate::pid2::disable(target),
+            "hold" => crate::pid2::hold(target),
+            "release" => crate::pid2::release(target),
             "answer" => crate::pid2::solver::owner_answer(payload.get("routine_id").and_then(Value::as_str).unwrap_or(""), payload.get("line").and_then(Value::as_str).unwrap_or(""), payload.get("value").and_then(Value::as_str).unwrap_or("")),
             "start" | "stop" | "restart" => crate::pid2::request_unit(&verb, target),
             _ => Err("pid2-action-unknown".into()),
@@ -39,9 +41,13 @@ async fn command(Path(verb): Path<String>, body: Bytes) -> Response {
     respond(result,Some(value),&transition)
 }
 pub(crate) fn unit_control(payload: &Value) -> Result<Value,String> {
-    let result = crate::gate::snake::crossing_path_with_timeout("unit/control",payload,std::time::Duration::from_secs(300))?;
+    unit_control_with_timeout(payload,std::time::Duration::from_secs(300))
+}
+pub(crate) fn unit_control_with_timeout(payload: &Value, timeout: std::time::Duration) -> Result<Value,String> {
+    let result = crate::gate::snake::crossing_path_with_timeout("unit/control",payload,timeout)?;
     let receipt = result.get("receiptPayload").cloned().unwrap_or(Value::Null);
-    if result.get("ok").and_then(Value::as_bool) != Some(true) || receipt.get("ok").and_then(Value::as_bool) != Some(true) {
+    if result.get("ok").and_then(Value::as_bool) != Some(true) || receipt.get("ok").and_then(Value::as_bool) != Some(true)
+        || result.get("converged").and_then(Value::as_bool) == Some(false) || receipt.get("converged").and_then(Value::as_bool) == Some(false) {
         return Err(receipt.get("first_missing_signal").and_then(Value::as_str)
             .or_else(|| result.get("firstMissingSignal").and_then(Value::as_str))
             .unwrap_or("pid2-unit-control-refused").to_owned());

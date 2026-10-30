@@ -26,6 +26,11 @@
             "observer": {"type": "string"}, "pattern": {"type": "string"},
             "seat": {"type": "string"}, "when_line": {"type": "string"}, "when_value": {}
           }, "additionalProperties": true}},
+          "do": {"type":"array", "items":{"type":"object", "properties":{"staff":{"type":"string"}, "payload":{"type":"object"}, "deadline_seconds":{"type":"integer", "minimum":1, "maximum":600, "default":180}}, "additionalProperties":true}},
+          "until": {"type":"array", "items":{"type":"object", "properties":{
+            "kind":{"type":"string", "enum":["await-device", "await-mount", "await-line", "await-ready", "await-owner", "observe"]},
+            "properties":{"type":"object"}, "path":{"type":"string"}, "routine_id":{"type":"string"}, "line":{"type":"string"}, "value":{}, "unit":{"type":"string"}, "scope":{"type":"string"}, "observer":{"type":"string"}, "pattern":{"type":"string"}, "seat":{"type":"string"}, "when_line":{"type":"string"}, "when_value":{}
+          }, "additionalProperties":true}},
           "actions": {"type": "array", "items": {"type": "object", "properties": {
             "unit": {"type": "string"}, "scope": {"type": "string"},
             "when_line": {"type": "string"}, "when_value": {}
@@ -36,6 +41,12 @@
     }
   },
   "unit_enum": [
+    {"unit": "jellyfin.service", "scope": "system"},
+    {"unit": "navidrome.service", "scope": "system"},
+    {"unit": "filebrowser.service", "scope": "system"},
+    {"unit": "calibre-web.service", "scope": "system"},
+    {"unit": "calibre-simple-watch.service", "scope": "system"},
+    {"unit": "transmissionVPN.service", "scope": "system"},
     {"unit": "sddm.service", "scope": "system"},
     {"unit": "sway-seat.service", "scope": "owner"},
     {"unit": "sunshine.service", "scope": "owner"},

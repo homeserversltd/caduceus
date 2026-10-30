@@ -3,6 +3,7 @@ use serde_json::Value;
 pub struct RouteStep {
     pub rust: Option<String>,
     pub snake: Option<String>,
+    pub native: Option<String>,
     pub stage_id: Option<String>,
     pub arguments: Option<Value>,
     pub required: bool,
@@ -22,7 +23,8 @@ impl RouteStep {
             .get("snake")
             .and_then(Value::as_str)
             .map(ToOwned::to_owned);
-        if rust.is_none() == snake.is_none() {
+        let native = object.get("native").and_then(Value::as_str).map(ToOwned::to_owned);
+        if usize::from(rust.is_some()) + usize::from(snake.is_some()) + usize::from(native.is_some()) != 1 {
             return Err("gate-route-step-must-name-one-band".into());
         }
         let stage_id = object.get("stage_id").and_then(Value::as_str).map(ToOwned::to_owned);
@@ -32,7 +34,7 @@ impl RouteStep {
             .map(|values| values.iter().filter_map(Value::as_str).map(ToOwned::to_owned).collect())
             .unwrap_or_default();
         let deadline_seconds = object.get("deadline_seconds").and_then(Value::as_u64);
-        Ok(Self { rust, snake, stage_id, arguments, required, depends_on, deadline_seconds })
+        Ok(Self { rust, snake, native, stage_id, arguments, required, depends_on, deadline_seconds })
     }
 }
 pub fn walk_compiled_route_set(route_set: &[Value]) -> Result<Vec<RouteStep>, String> {

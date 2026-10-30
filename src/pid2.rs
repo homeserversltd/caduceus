@@ -3,6 +3,36 @@ use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 pub(super) static ACTION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+// Linux flock on the existing SQLite inode is independent of SQLite's fcntl locks.
+pub(super) fn process_action_lock() -> Result<std::fs::File,String> {
+    use std::os::fd::AsRawFd;
+    crate::stats::open_db()?;
+    let file=std::fs::OpenOptions::new().read(true).write(true).open(crate::stats::db_path()).map_err(|e|format!("pid2-action-lock-open: {e}"))?;
+    if unsafe { libc::flock(file.as_raw_fd(),libc::LOCK_EX) } != 0 { return Err(format!("pid2-action-lock: {}",std::io::Error::last_os_error())); }
+    Ok(file)
+}
+
+/// Serialize an entire solver walk against routine and boot transitions.
+/// OFD byte 1 is separate from the swap lease (byte 0) and SQLite's locks.
+pub(super) fn walk_lock() -> Result<std::fs::File,String> {
+    use std::os::fd::AsRawFd;
+    crate::stats::open_db()?;
+    let file=std::fs::OpenOptions::new().read(true).write(true).open(crate::stats::db_path()).map_err(|e|format!("pid2-walk-lock-open: {e}"))?;
+    let lock=libc::flock { l_type:libc::F_WRLCK as _, l_whence:libc::SEEK_SET as _, l_start:1, l_len:1, l_pid:0 };
+    if unsafe { libc::fcntl(file.as_raw_fd(),libc::F_OFD_SETLKW,&lock) } != 0 { return Err(format!("pid2-walk-lock: {}",std::io::Error::last_os_error())); }
+    Ok(file)
+}
+/// A non-blocking cross-process lease for the complete NAS swap chord.
+/// SQLite locks high reserved bytes; this open-file-description lock uses byte 0
+/// of the same inode and is released by the kernel even if the owner dies.
+pub(crate) fn swap_lease() -> Result<std::fs::File,String> {
+    use std::os::fd::AsRawFd;
+    crate::stats::open_db()?;
+    let file=std::fs::OpenOptions::new().read(true).write(true).open(crate::stats::db_path()).map_err(|e|format!("pid2-swap-lease-open: {e}"))?;
+    let lock=libc::flock { l_type:libc::F_WRLCK as _, l_whence:libc::SEEK_SET as _, l_start:0, l_len:1, l_pid:0 };
+    if unsafe { libc::fcntl(file.as_raw_fd(),libc::F_OFD_SETLK,&lock) } != 0 { return Err("pid2-swap-busy".into()); }
+    Ok(file)
+}
 pub mod solver;
 pub mod events;
 
@@ -16,7 +46,10 @@ fn tables(db: &rusqlite::Connection) -> Result<(), String> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS pid2_boot (id INTEGER PRIMARY KEY CHECK(id=1), boot_id TEXT NOT NULL, began_at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS pid2_registrations (routine_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, envelope BLOB NOT NULL, registered_at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS pid2_lines (routine_id TEXT NOT NULL, line TEXT NOT NULL, value TEXT, state TEXT NOT NULL, observed_at INTEGER NOT NULL, reason TEXT, PRIMARY KEY(routine_id,line));
-        CREATE TABLE IF NOT EXISTS pid2_programs (unit TEXT NOT NULL, scope TEXT NOT NULL, routine_id TEXT NOT NULL, desired TEXT NOT NULL, life TEXT NOT NULL, last_receipt TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY(unit,scope,routine_id));").map_err(|e| e.to_string())
+        CREATE TABLE IF NOT EXISTS pid2_programs (unit TEXT NOT NULL, scope TEXT NOT NULL, routine_id TEXT NOT NULL, desired TEXT NOT NULL, life TEXT NOT NULL, last_receipt TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY(unit,scope,routine_id));
+        CREATE TABLE IF NOT EXISTS pid2_holds (routine_id TEXT PRIMARY KEY, held_at INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS pid2_completed (routine_id TEXT NOT NULL, line TEXT NOT NULL, PRIMARY KEY(routine_id,line));
+        CREATE TABLE IF NOT EXISTS pid2_attempts (routine_id TEXT NOT NULL, line TEXT NOT NULL, attempted_at INTEGER NOT NULL, PRIMARY KEY(routine_id,line));").map_err(|e| e.to_string())
 }
 
 /// The boot id is compared and runtime rows are cleared atomically; registrations survive.
@@ -25,6 +58,7 @@ pub fn reset_gate() -> Result<bool, String> {
         .map_err(|e| format!("pid2-boot-id-unavailable: {e}"))?;
     let boot = boot.trim();
     if boot.is_empty() { return Err("pid2-boot-id-empty".into()); }
+    let _walk=walk_lock()?;
     let mut db = crate::stats::open_db()?.lock().map_err(|_| "pid2-database-lock-poisoned")?;
     tables(&db)?;
     let tx = db.transaction().map_err(|e| e.to_string())?;
@@ -33,6 +67,9 @@ pub fn reset_gate() -> Result<bool, String> {
     if changed {
         tx.execute("DELETE FROM pid2_lines", []).map_err(|e| e.to_string())?;
         tx.execute("DELETE FROM pid2_programs", []).map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM pid2_holds", []).map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM pid2_completed", []).map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM pid2_attempts", []).map_err(|e| e.to_string())?;
         tx.execute("INSERT INTO pid2_boot(id,boot_id,began_at) VALUES(1,?1,?2) ON CONFLICT(id) DO UPDATE SET boot_id=excluded.boot_id,began_at=excluded.began_at", params![boot,now()]).map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
@@ -53,25 +90,92 @@ pub fn enable(raw: &[u8]) -> Result<Value, String> {
         }
     }
     let id = envelope.pointer("/routine/routine_id").and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or("pid2-routine-id-unavailable")?;
+    let _swap_guard=if matches!(id,"nas"|"nas-backup") { Some(swap_lease()?) } else { None };
+    let _walk=walk_lock()?;
     let action_guard=ACTION_LOCK.lock().map_err(|_|"pid2-action-lock-poisoned")?;
-    let db = crate::stats::open_db()?.lock().map_err(|_| "pid2-database-lock-poisoned")?;
+    let process_guard=process_action_lock()?;
+    let mut db = crate::stats::open_db()?.lock().map_err(|_| "pid2-database-lock-poisoned")?;
     tables(&db)?;
-    let changed=db.execute("INSERT INTO pid2_registrations(routine_id,enabled,envelope,registered_at) VALUES(?1,1,?2,?3) ON CONFLICT(routine_id) DO UPDATE SET enabled=1,envelope=excluded.envelope,registered_at=excluded.registered_at WHERE enabled<>1 OR envelope<>excluded.envelope", params![id, raw, now()]).map_err(|e| e.to_string())?;
+    let tx=db.transaction().map_err(|e|e.to_string())?;
+    let previous:Option<Vec<u8>>=tx.query_row("SELECT envelope FROM pid2_registrations WHERE routine_id=?1",[id],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+    let changed=tx.execute("INSERT INTO pid2_registrations(routine_id,enabled,envelope,registered_at) VALUES(?1,1,?2,?3) ON CONFLICT(routine_id) DO UPDATE SET enabled=1,envelope=excluded.envelope,registered_at=excluded.registered_at WHERE enabled<>1 OR envelope<>excluded.envelope", params![id, raw, now()]).map_err(|e| e.to_string())?;
+    if previous.as_deref().is_some_and(|prior|prior!=raw) {
+        tx.execute("DELETE FROM pid2_lines WHERE routine_id=?1 AND state<>'Observed'",[id]).map_err(|e|e.to_string())?;
+        tx.execute("DELETE FROM pid2_attempts WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+    }
+    tx.commit().map_err(|e|e.to_string())?;
     drop(db);
+    drop(process_guard);
     drop(action_guard);
     if changed != 0 { solver::deed("enable",id,"success",None); events::notify(); }
     Ok(json!({"ok":true,"routine_id":id,"enabled":true,"changed":changed!=0,"readback":status(id)?}))
 }
 
 pub fn disable(id: &str) -> Result<Value, String> {
+    let _swap_guard=if matches!(id,"nas"|"nas-backup") { Some(swap_lease()?) } else { None };
+    let _walk=walk_lock()?;
     let action_guard=ACTION_LOCK.lock().map_err(|_|"pid2-action-lock-poisoned")?;
+    let process_guard=process_action_lock()?;
     let db = crate::stats::open_db()?.lock().map_err(|_| "pid2-database-lock-poisoned")?;
     tables(&db)?;
     let changed = db.execute("UPDATE pid2_registrations SET enabled=0 WHERE routine_id=?1 AND enabled<>0", [id]).map_err(|e| e.to_string())?;
     drop(db);
+    drop(process_guard);
     drop(action_guard);
     if changed != 0 { solver::deed("disable",id,"success",None); events::notify(); }
     Ok(json!({"ok":true,"routine_id":id,"changed":changed != 0,"readback":status(id)?}))
+}
+
+/// Hold and release serialize with the solver's staff actions.
+fn change_hold(id: &str, hold: bool) -> Result<Value, String> {
+    if id.is_empty() { return Err("pid2-routine-id-unavailable".into()); }
+    let _walk=walk_lock()?;
+    let guard = ACTION_LOCK.lock().map_err(|_| "pid2-action-lock-poisoned")?;
+    let process_guard=process_action_lock()?;
+    let mut db = crate::stats::open_db()?.lock().map_err(|_| "pid2-database-lock-poisoned")?;
+    tables(&db)?;
+    let tx = db.transaction().map_err(|e| e.to_string())?;
+    let registered: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM pid2_registrations WHERE routine_id=?1)",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+    let was_held: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+    let changed = if !registered { false } else if hold {
+        let mut n=tx.execute("INSERT OR IGNORE INTO pid2_holds(routine_id,held_at) VALUES(?1,?2)",params![id,now()]).map_err(|e|e.to_string())?;
+        let raw: Vec<u8>=tx.query_row("SELECT envelope FROM pid2_registrations WHERE routine_id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+        let envelope: Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+        for action in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten().flat_map(|s|s.get("actions").and_then(Value::as_array).into_iter().flatten()) {
+            let Some(unit)=action.get("unit").and_then(Value::as_str) else { continue; };
+            let scope=solver::unit_scope(unit)?;
+            n+=tx.execute("INSERT OR IGNORE INTO pid2_programs(unit,scope,routine_id,desired,life,updated_at) VALUES(?1,?2,?3,'Stop','Queued',?4)",params![unit,scope,id,now()]).map_err(|e|e.to_string())?;
+        }
+        n+=tx.execute("UPDATE pid2_programs SET desired='Stop',life='Queued',last_receipt=NULL,updated_at=?2 WHERE routine_id=?1 AND desired<>'Stop'",params![id,now()]).map_err(|e|e.to_string())?;
+        n != 0
+    } else {
+        let n=tx.execute("DELETE FROM pid2_holds WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+        if n != 0 {
+            tx.execute("DELETE FROM pid2_lines WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+            tx.execute("DELETE FROM pid2_completed WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+            tx.execute("DELETE FROM pid2_attempts WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+            tx.execute("UPDATE pid2_programs SET desired='Run',life='Waiting',last_receipt=NULL,updated_at=?2 WHERE routine_id=?1",params![id,now()]).map_err(|e|e.to_string())?;
+        }
+        n != 0
+    };
+    tx.commit().map_err(|e|e.to_string())?;
+    drop(db); drop(process_guard); drop(guard);
+    if changed { solver::deed(if hold {"hold"} else {"release"},id,"success",None); events::notify(); }
+    Ok(json!({"ok":true,"routine_id":id,"held":hold && registered,"changed":changed,"acquired":hold && registered && !was_held}))
+}
+pub fn hold(id: &str) -> Result<Value,String> {
+    let _swap_guard=if matches!(id,"nas"|"nas-backup") { Some(swap_lease()?) } else { None };
+    change_hold(id,true)
+}
+pub(crate) fn hold_from_swap(id: &str) -> Result<Value,String> { change_hold(id,true) }
+pub fn release(id: &str) -> Result<Value,String> {
+    let _swap_guard=if matches!(id,"nas"|"nas-backup") { Some(swap_lease()?) } else { None };
+    change_hold(id,false)
+}
+pub(crate) fn release_from_swap(id: &str) -> Result<Value,String> { change_hold(id,false) }
+fn held_at(db: &rusqlite::Connection, id: &str) -> Result<Option<i64>,String> {
+    if !table_exists(db,"pid2_holds")? { return Ok(None); }
+    db.query_row("SELECT held_at FROM pid2_holds WHERE routine_id=?1",[id],|r|r.get(0)).optional().map_err(|e|e.to_string())
 }
 
 pub fn list() -> Result<Value, String> {
@@ -84,7 +188,8 @@ pub fn list() -> Result<Value, String> {
         let (id, enabled, raw, at) = row.map_err(|e| e.to_string())?;
         let envelope: Value = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
         let raw_envelope = String::from_utf8(raw).map_err(|e| e.to_string())?;
-        out.push(json!({"routine_id":id,"enabled":enabled,"registered_at":at,"envelope":envelope,"raw_envelope":raw_envelope}));
+        let hold = held_at(&db,&id)?;
+        out.push(json!({"routine_id":id,"enabled":enabled,"registered_at":at,"held":hold.is_some(),"held_at":hold,"envelope":envelope,"raw_envelope":raw_envelope}));
     }
     drop(q);
     let mut programs=Vec::new();
@@ -121,7 +226,8 @@ pub fn status(id: &str) -> Result<Value, String> {
             Some(json!({"routine_id":name,"enabled":enabled,"registered_at":registered_at,"envelope":envelope,"raw_envelope":raw_envelope}))
         }
     };
-    if !table_exists(&db, "pid2_lines")? || !table_exists(&db, "pid2_programs")? { return Ok(json!({"registration":registration,"lines":[],"programs":[]})); }
+    let hold = held_at(&db,id)?;
+    if !table_exists(&db, "pid2_lines")? || !table_exists(&db, "pid2_programs")? { return Ok(json!({"registration":registration,"held":hold.is_some(),"held_at":hold,"lines":[],"programs":[]})); }
     let mut lines = Vec::new();
     let mut statement = db.prepare("SELECT routine_id,line,value,state,observed_at,reason FROM pid2_lines WHERE routine_id=?1 ORDER BY line").map_err(|e| e.to_string())?;
     let rows = statement.query_map([id], |r| Ok(json!({"routine_id":r.get::<_,String>(0)?, "line":r.get::<_,String>(1)?, "value":r.get::<_,Option<String>>(2)?, "state":r.get::<_,String>(3)?, "observed_at":r.get::<_,i64>(4)?, "reason":r.get::<_,Option<String>>(5)?}))).map_err(|e| e.to_string())?;
@@ -134,7 +240,7 @@ pub fn status(id: &str) -> Result<Value, String> {
     drop(statement);
     drop(db);
     observe_programs(&mut programs);
-    Ok(json!({"registration":registration,"lines":lines,"programs":programs}))
+    Ok(json!({"registration":registration,"held":hold.is_some(),"held_at":hold,"lines":lines,"programs":programs}))
 }
 
 fn observe_programs(programs: &mut [Value]) {
@@ -158,7 +264,9 @@ pub fn request_unit(action: &str, unit: &str) -> Result<Value, String> {
         "start" => ("Run", "Queued"), "stop" => ("Stop", "Queued"), "restart" => ("Run", "Stopping"),
         _ => return Err("pid2-action-unknown".into()),
     };
+    let _walk=walk_lock()?;
     let action_guard=ACTION_LOCK.lock().map_err(|_|"pid2-action-lock-poisoned")?;
+    let process_guard=process_action_lock()?;
     let db = crate::stats::open_db()?.lock().map_err(|_| "pid2-database-lock-poisoned")?;
     tables(&db)?;
     let mut after = String::new();
@@ -172,8 +280,13 @@ pub fn request_unit(action: &str, unit: &str) -> Result<Value, String> {
         if contains { if owner.is_some() { return Err("pid2-unit-registration-ambiguous".into()); } owner=Some(id); }
     }
     let routine_id = owner.ok_or("pid2-unit-not-registered")?;
+    let is_held: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",[&routine_id],|r|r.get(0)).map_err(|e|e.to_string())?;
+    // Release is contractually a re-walk with Run intent; do not acknowledge
+    // a Stop during the hold only to silently overwrite it on release.
+    if is_held { return Err("pid2-routine-held".into()); }
     db.execute("INSERT INTO pid2_programs(unit,scope,routine_id,desired,life,updated_at) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(unit,scope,routine_id) DO UPDATE SET desired=excluded.desired,life=excluded.life,last_receipt=NULL,updated_at=excluded.updated_at", params![unit,scope,routine_id,desired,life,now()]).map_err(|e| e.to_string())?;
     drop(db);
+    drop(process_guard);
     drop(action_guard);
     solver::deed(action,unit,"queued",None);
     events::notify();
@@ -191,6 +304,8 @@ pub fn cli(args: &[String]) -> i32 {
         [verb, pattern] if verb == "pid2-observe-drm" => solver::observe_drm(pattern).map(|value| json!({"observer":"drm-connector","pattern":pattern,"value":value})),
         [verb,id] if verb == "status" => status(id),
         [verb,id] if verb == "disable" => disable(id),
+        [verb,id] if verb == "hold" => hold(id),
+        [verb,id] if verb == "release" => release(id),
         [verb,id] if ["start","stop","restart"].contains(&verb.as_str()) => request_unit(verb,id),
         _ => Err("pid2-arguments-invalid".into()),
     };

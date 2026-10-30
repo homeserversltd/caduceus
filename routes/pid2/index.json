@@ -2,9 +2,9 @@
   "namespace": "pid2",
   "admittance": "open",
   "flags": {"posture": "public-safe"},
-  "profiles": ["homesi", "everything-lit"],
+  "profiles": ["homeserver", "homesi", "everything-lit"],
   "needs": [],
-  "commands": ["enable", "disable", "start", "stop", "restart", "status", "list"],
+  "commands": ["enable", "disable", "start", "stop", "restart", "hold", "release", "status", "list"],
   "serve": [],
   "operations": [
     {"http_method":"GET", "http_path":"/api/v1/pid2/list", "administrative":false, "mutation_allowed":false, "needs":[], "commands":[]},

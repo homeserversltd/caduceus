@@ -121,7 +121,7 @@ fn wake_address() -> Result<std::os::unix::net::SocketAddr, String> {
 pub fn notify() {
     if let (Ok(addr),Ok(socket)) = (wake_address(),std::os::unix::net::UnixDatagram::unbound()) { let _ = socket.send_to_addr(&[1],&addr); }
 }
-async fn watch_commands(tx: Wake) {
+async fn watch_commands(tx: Wake, command_wake: Arc<AtomicBool>) {
     let result = (|| -> Result<tokio::net::UnixDatagram,String> {
         let addr = wake_address()?;
         let socket = std::os::unix::net::UnixDatagram::bind_addr(&addr).map_err(|e|e.to_string())?;
@@ -131,7 +131,7 @@ async fn watch_commands(tx: Wake) {
     let socket = match result { Ok(s)=>s, Err(e)=>{ eprintln!("pid2-command-watch: {e}"); return; } };
     wake(&tx);
     let mut buf = [0u8;1];
-    while socket.recv(&mut buf).await.is_ok() { wake(&tx); }
+    while socket.recv(&mut buf).await.is_ok() { command_wake.store(true,Ordering::Release); wake(&tx); }
 }
 async fn watch_fd(make: fn()->Result<AsyncFd<OwnedFd>,String>, label: &'static str, tx: Wake, online: Arc<AtomicBool>) {
     loop {
@@ -160,21 +160,23 @@ pub struct Senses { pub system: Arc<AtomicBool>, pub owner: Arc<AtomicBool>, pub
 impl Senses { pub fn online(&self, scope: &str) -> bool { match scope { "system"=>self.system.load(Ordering::Acquire), "owner"=>self.owner.load(Ordering::Acquire), "udev"=>self.udev.load(Ordering::Acquire), _=>false } } }
 pub async fn run() {
     let (tx,mut rx) = mpsc::channel::<()>(1);
+    let command_wake=Arc::new(AtomicBool::new(false));
     let senses = Arc::new(Senses { system:Arc::new(AtomicBool::new(false)),owner:Arc::new(AtomicBool::new(false)),udev:Arc::new(AtomicBool::new(false)) });
     let owner_changed=Arc::new(Notify::new());
     let tasks = [
         tokio::spawn(watch_systemd(tx.clone(),senses.system.clone(),owner_changed.clone())),
         tokio::spawn(watch_owner(tx.clone(),senses.owner.clone(),owner_changed)),
         tokio::spawn(watch_fd(udev_socket,"udev",tx.clone(),senses.udev.clone())),
-        tokio::spawn(watch_commands(tx.clone())),
+        tokio::spawn(watch_commands(tx.clone(),command_wake.clone())),
     ];
     wake(&tx);
     let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now()+Duration::from_secs(300),Duration::from_secs(300));
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
-        tokio::select! { _=heartbeat.tick()=>{}, item=rx.recv()=>if item.is_none(){break} }
+        let heartbeat_wake=tokio::select! { _=heartbeat.tick()=>true, item=rx.recv()=>{if item.is_none(){break} false} };
         let senses = senses.clone();
-        match tokio::task::spawn_blocking(move || super::solver::reconcile(&senses)).await {
+        let command=command_wake.swap(false,Ordering::AcqRel);
+        match tokio::task::spawn_blocking(move || super::solver::reconcile(&senses,command,heartbeat_wake)).await {
             Ok(Ok(())) => {}, Ok(Err(e)) => eprintln!("pid2-reconcile-failed: {e}"), Err(e) => eprintln!("pid2-reconcile-task-failed: {e}"),
         }
     }

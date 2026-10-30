@@ -650,10 +650,8 @@ fn main() {
         if !Path::new(&format!("routes/{namespace}/index.rs")).is_file() && ordinal > 1 {
             assert!(seen.len() <= 32 && seen.iter().all(|id| !id.is_empty() && id.len() <= 48 && id.bytes().all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c))),
                 "{namespace}: chord deed stage identifiers invalid");
-            // Encoded ids plus one-character outcomes fit with worst-case bounded
-            // channel metadata in a line strictly shorter than 1024 bytes.
-            assert!(seen.iter().map(|id| id.len() + 2).sum::<usize>().saturating_sub(1) <= 330,
-                "{namespace}: chord deed stage identifiers exceed bounded line budget");
+            // The door limits the serialized stage summary at emission time;
+            // the complete identifiers remain in the returned chord receipt.
         }
     }
     let mut namespace_set = BTreeSet::new();
