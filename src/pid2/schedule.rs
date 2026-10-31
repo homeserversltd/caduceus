@@ -7,7 +7,7 @@ use std::time::Duration;
 const SCHEMA: &str = "caduceus.pid2.schedule.v1";
 
 fn fire_deed(id:&str,fire:&str,outcome:&str,duration_ms:i64,signal:Option<&str>) {
-    let _=crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({"organ":"pid2","kind":"schedule-fire","level":"info","ok":signal.is_none(),"message":"schedule fire","attributes_redacted":{"who":"caduceus","verb":"schedule-fire","target":id,"outcome":outcome,"duration_ms":duration_ms,"fire_id":fire,"first_missing_signal":signal}}));
+    let _=crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({"organ":"pid2","kind":"schedule-fire","level":"info","ok":signal.is_none(),"message":"schedule fire","correlation_id":fire,"attributes_redacted":{"who":"caduceus","verb":"schedule-fire","target":id,"outcome":outcome,"duration_ms":duration_ms,"fire_id":fire,"first_missing_signal":signal}}));
 }
 
 #[derive(Clone)]
@@ -197,6 +197,7 @@ pub fn execute(id:&str) -> Result<(),String> {
         tx.commit().map_err(|e|e.to_string())?;
         (fire,raw,band,action,max)
     };
+    let result=(|| -> Result<(),String> {
     // A NAS fire and a NAS role swap must never cross the staff concurrently.
     // The shared nonblocking lease is held until the crossing has ended.
     let _nas_lease=if band=="storage/backup/nas-sync" {
@@ -209,13 +210,7 @@ pub fn execute(id:&str) -> Result<(),String> {
                 if changed!=0 {fire_deed(id,&fire,"Refused",0,Some("pid2-routine-held"));}
                 return Ok(());
             },
-            Err(signal)=>{
-                let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
-                let changed=db.execute("UPDATE pid2_fires SET state='Failed',finished_at=?3,first_missing_signal=?4 WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,super::now(),signal]).map_err(|e|e.to_string())?;
-                drop(db);
-                if changed!=0 {fire_deed(id,&fire,"Failed",0,Some(&signal));}
-                return Err(signal);
-            },
+            Err(signal)=>return Err(signal),
         }
     } else {None};
     let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
@@ -250,6 +245,22 @@ pub fn execute(id:&str) -> Result<(),String> {
     tx.commit().map_err(|e|e.to_string())?;drop(db);
     if changed!=0 {fire_deed(id,&fire,state,elapsed,signal.as_deref());}
     super::events::notify();Ok(())
+    })();
+    if let Err(signal)=&result {
+        // The cached connection or its mutex may itself be the failure.  Use
+        // a fresh write connection and touch only the claimed running fire.
+        let recovery=(|| -> Result<usize,String> {
+            let db=rusqlite::Connection::open_with_flags(crate::stats::db_path(),rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e|e.to_string())?;
+            db.busy_timeout(Duration::from_secs(5)).map_err(|e|e.to_string())?;
+            db.execute("UPDATE pid2_fires SET state='Failed',finished_at=?3,first_missing_signal=?4 WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,super::now(),signal]).map_err(|e|e.to_string())
+        })();
+        match recovery {
+            Ok(changed) if changed!=0=>{fire_deed(id,&fire,"Failed",0,Some(signal));super::events::notify();},
+            Ok(_)=>{},
+            Err(error)=>eprintln!("pid2-fire-failure-record-unavailable: {error}"),
+        }
+    }
+    result
 }
 
 pub fn cli(args:&[String]) -> i32 {
