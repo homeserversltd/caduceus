@@ -444,8 +444,9 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         || matches!(actuator_id, "backblaze-status" | "backblaze-snapshots")
     {
         let timeout = match actuator_id {
-            "backblaze-bucket-add" | "backblaze-bucket-credentials" | "backblaze-bucket-verify" | "backblaze-snapshots" => 300,
-            "backblaze-bucket-remove" | "backblaze-bucket-items" | "backblaze-bucket-save" | "backblaze-bucket-run" | "backblaze-status" => 60,
+            "backblaze-status" | "backblaze-snapshots" => 600,
+            "backblaze-bucket-add" | "backblaze-bucket-credentials" | "backblaze-bucket-verify" => 300,
+            "backblaze-bucket-remove" | "backblaze-bucket-items" | "backblaze-bucket-save" | "backblaze-bucket-run" => 60,
             _ => return Err("caduceus-staff-actuator-unmapped".into()),
         };
         let input = json!({"actuator": actuator_id, "metadata": metadata});
