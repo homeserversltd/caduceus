@@ -229,7 +229,7 @@ async fn handle_request(
             recorded: false,
         };
         let result = dispatch(&task_declaration, &task_namespace, &task_request_id, payload, receipt_schema.as_deref(), &mut deed).await;
-        match result {
+        let response = match result {
             Ok(reply) => {
                 let ok = reply.receipt.get("ok").and_then(Value::as_bool) == Some(true);
                 let signal = receipt_signal(&reply.receipt).filter(|signal| ok || *signal != "none")
@@ -250,7 +250,12 @@ async fn handle_request(
                 else { deed.record("refused", &failure.signal, failure.witness.as_ref()); }
                 error_response(failure.status, &task_command, &failure.signal)
             }
-        }
+        };
+        // A completed mutation may have released a resource that held a PID-2
+        // line. Wake only after dispatch (including finally) and deed handling.
+        #[cfg(leaf_pid2)]
+        if mutation_allowed && deed.attempted { crate::pid2::events::notify(); }
+        response
     });
     match task.await {
         Ok(response) => response,

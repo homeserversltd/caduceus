@@ -118,6 +118,10 @@ where
                         let signal=value.get("firstMissingSignal").and_then(serde_json::Value::as_str).unwrap_or("caduceus-generic-actuator-refused");
                         crate::gate::door::record_deed(&declaration,"cli",started.elapsed(),if ok {"success"} else {"refused"},signal,Some(&value));
                     }
+                    #[cfg(leaf_pid2)]
+                    if declaration.get("mutation_allowed").and_then(serde_json::Value::as_bool).unwrap_or(true) {
+                        crate::pid2::events::notify();
+                    }
                     println!("{value}"); if ok {0} else {1}
                 },
                 Err(signal)=>{ eprintln!("{signal}"); 1 }
