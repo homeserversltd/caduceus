@@ -56,35 +56,44 @@ async fn detach_route(
     }
 
     let payload = json!({"role": body.role.as_str()});
-    let response = async {
-        let crossed = crate::gate::blocking_task(COMMAND, move || {
-            crate::gate::snake::crossing_path_with_timeout(
-                "storage/nas/detach",
-                &payload,
-                NAS_DETACH_TIMEOUT,
-            )
-        })
-        .await?;
-        let crossing = crossed.map_err(|signal| crate::gate::service_unavailable(COMMAND, &signal))?;
-        let receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
-            crate::gate::service_unavailable(COMMAND, "caduceus-nas-detach-receipt-missing")
-        })?;
-        if !crate::routes::leaf_schema::accepts("caduceus.nas.detach.v1", &receipt) {
-            return Err(crate::gate::service_unavailable(
-                COMMAND,
-                "caduceus-schema-desync",
-            ));
-        }
+    let context = crate::shared::load_trace::current();
+    let task = tokio::spawn(async move {
+        let response = async {
+            let crossed = crate::gate::blocking_task(COMMAND, move || {
+                crate::shared::load_trace::with_blocking_context(context, || {
+                    crate::gate::snake::crossing_path_with_timeout(
+                        "storage/nas/detach",
+                        &payload,
+                        NAS_DETACH_TIMEOUT,
+                    )
+                })
+            })
+            .await?;
+            let crossing = crossed.map_err(|signal| crate::gate::service_unavailable(COMMAND, &signal))?;
+            let receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
+                crate::gate::service_unavailable(COMMAND, "caduceus-nas-detach-receipt-missing")
+            })?;
+            if !crate::routes::leaf_schema::accepts("caduceus.nas.detach.v1", &receipt) {
+                return Err(crate::gate::service_unavailable(
+                    COMMAND,
+                    "caduceus-schema-desync",
+                ));
+            }
 
-        let status = crate::gate::mutation_status(&receipt);
-        if status == StatusCode::OK {
-            crate::stats::disk_census::request_refresh();
-        }
-        Ok((status, Json(receipt)))
-    }.await;
-    #[cfg(leaf_pid2)]
-    crate::pid2::events::notify();
-    response
+            let status = crate::gate::mutation_status(&receipt);
+            if status == StatusCode::OK {
+                crate::stats::disk_census::request_refresh();
+            }
+            Ok((status, Json(receipt)))
+        }.await;
+        #[cfg(leaf_pid2)]
+        crate::pid2::events::notify();
+        response
+    });
+    match task.await {
+        Ok(response) => response,
+        Err(error) => std::panic::resume_unwind(error.into_panic()),
+    }
 }
 
 pub fn register(router: Router) -> Router {

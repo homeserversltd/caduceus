@@ -509,14 +509,21 @@ async fn vault_unlock_route(
     ExtractJson(body): ExtractJson<crate::gate::VaultUnlockBody>,
 ) -> Result<(StatusCode, axum::Json<serde_json::Value>), (StatusCode, axum::Json<crate::gate::ApiErrorBody>)> {
     let password = body.password;
-    let response = crate::gate::blocking_task("vault unlock", move || {
-        unlock_json(password.as_deref())
-    })
-    .await
-    .map(|value| (StatusCode::OK, axum::Json(value)));
-    #[cfg(leaf_pid2)]
-    crate::pid2::events::notify();
-    response
+    let context = crate::shared::load_trace::current();
+    let task = tokio::spawn(async move {
+        let response = crate::gate::blocking_task("vault unlock", move || {
+            crate::shared::load_trace::with_blocking_context(context, || unlock_json(password.as_deref()))
+        })
+        .await
+        .map(|value| (StatusCode::OK, axum::Json(value)));
+        #[cfg(leaf_pid2)]
+        crate::pid2::events::notify();
+        response
+    });
+    match task.await {
+        Ok(response) => response,
+        Err(error) => std::panic::resume_unwind(error.into_panic()),
+    }
 }
 
 /// Canonical registration seam for this leaf.
