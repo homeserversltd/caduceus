@@ -509,14 +509,14 @@ async fn vault_unlock_route(
     ExtractJson(body): ExtractJson<crate::gate::VaultUnlockBody>,
 ) -> Result<(StatusCode, axum::Json<serde_json::Value>), (StatusCode, axum::Json<crate::gate::ApiErrorBody>)> {
     let password = body.password;
-    let value = crate::gate::blocking_task("vault unlock", move || {
+    let response = crate::gate::blocking_task("vault unlock", move || {
         unlock_json(password.as_deref())
     })
-    .await?;
-    Ok((
-        StatusCode::OK,
-        axum::Json(value),
-    ))
+    .await
+    .map(|value| (StatusCode::OK, axum::Json(value)));
+    #[cfg(leaf_pid2)]
+    crate::pid2::events::notify();
+    response
 }
 
 /// Canonical registration seam for this leaf.

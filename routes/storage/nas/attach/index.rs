@@ -56,30 +56,35 @@ async fn attach_route(
     }
 
     let payload = json!({"role": body.role.as_str()});
-    let crossed = crate::gate::blocking_task(COMMAND, move || {
-        crate::gate::snake::crossing_path_with_timeout(
-            "storage/nas/attach",
-            &payload,
-            NAS_ATTACH_TIMEOUT,
-        )
-    })
-    .await?;
-    let crossing = crossed.map_err(|signal| crate::gate::service_unavailable(COMMAND, &signal))?;
-    let receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
-        crate::gate::service_unavailable(COMMAND, "caduceus-nas-attach-receipt-missing")
-    })?;
-    if !crate::routes::leaf_schema::accepts("caduceus.nas.attach.v1", &receipt) {
-        return Err(crate::gate::service_unavailable(
-            COMMAND,
-            "caduceus-schema-desync",
-        ));
-    }
+    let response = async {
+        let crossed = crate::gate::blocking_task(COMMAND, move || {
+            crate::gate::snake::crossing_path_with_timeout(
+                "storage/nas/attach",
+                &payload,
+                NAS_ATTACH_TIMEOUT,
+            )
+        })
+        .await?;
+        let crossing = crossed.map_err(|signal| crate::gate::service_unavailable(COMMAND, &signal))?;
+        let receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
+            crate::gate::service_unavailable(COMMAND, "caduceus-nas-attach-receipt-missing")
+        })?;
+        if !crate::routes::leaf_schema::accepts("caduceus.nas.attach.v1", &receipt) {
+            return Err(crate::gate::service_unavailable(
+                COMMAND,
+                "caduceus-schema-desync",
+            ));
+        }
 
-    let status = crate::gate::mutation_status(&receipt);
-    if status == StatusCode::OK {
-        crate::stats::disk_census::request_refresh();
-    }
-    Ok((status, Json(receipt)))
+        let status = crate::gate::mutation_status(&receipt);
+        if status == StatusCode::OK {
+            crate::stats::disk_census::request_refresh();
+        }
+        Ok((status, Json(receipt)))
+    }.await;
+    #[cfg(leaf_pid2)]
+    crate::pid2::events::notify();
+    response
 }
 
 pub fn register(router: Router) -> Router {
