@@ -184,37 +184,48 @@ pub fn queued() -> Result<Vec<String>,String> {
 }
 
 pub fn execute(id:&str) -> Result<(),String> {
+    // Claim the specific queued fire before the NAS lease or any crossing.
+    // Duplicate wakeups may dispatch this worker more than once.
+    let (fire,raw,band,action,max) = {
+        let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+        super::tables(&db)?;
+        let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+        let row:Option<(String,Vec<u8>,String,String,i64)>=tx.query_row("SELECT f.fire_id,s.envelope,s.band,s.action,s.max_seconds FROM pid2_fires f JOIN pid2_schedules s ON s.schedule_id=f.schedule_id WHERE f.schedule_id=?1 AND f.state='Queued'",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional().map_err(|e|e.to_string())?;
+        let Some((fire,raw,band,action,max))=row else {return Ok(());};
+        let changed=tx.execute("UPDATE pid2_fires SET state='Running',started_at=?2 WHERE schedule_id=?1 AND fire_id=?3 AND state='Queued'",params![id,super::now(),fire]).map_err(|e|e.to_string())?;
+        if changed!=1 {return Ok(());}
+        tx.commit().map_err(|e|e.to_string())?;
+        (fire,raw,band,action,max)
+    };
     // A NAS fire and a NAS role swap must never cross the staff concurrently.
     // The shared nonblocking lease is held until the crossing has ended.
-    let nas_job=status(id)?.pointer("/schedule/band").and_then(Value::as_str)==Some("storage/backup/nas-sync");
-    let _nas_lease=if nas_job {
+    let _nas_lease=if band=="storage/backup/nas-sync" {
         match super::swap_lease() {
             Ok(lease)=>Some(lease),
             Err(signal) if signal=="pid2-swap-busy"=>{
                 let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
-                let fire:Option<String>=db.query_row("SELECT fire_id FROM pid2_fires WHERE schedule_id=?1 AND state='Queued'",[id],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
-                if let Some(fire)=fire {
-                    let changed=db.execute("UPDATE pid2_fires SET state='Refused',finished_at=?3,first_missing_signal='pid2-routine-held' WHERE schedule_id=?1 AND fire_id=?2 AND state='Queued'",params![id,fire,super::now()]).map_err(|e|e.to_string())?;
-                    drop(db);
-                    if changed!=0 {fire_deed(id,&fire,"Refused",0,Some("pid2-routine-held"));}
-                }
+                let changed=db.execute("UPDATE pid2_fires SET state='Refused',finished_at=?3,first_missing_signal='pid2-routine-held' WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,super::now()]).map_err(|e|e.to_string())?;
+                drop(db);
+                if changed!=0 {fire_deed(id,&fire,"Refused",0,Some("pid2-routine-held"));}
                 return Ok(());
             },
-            Err(signal)=>return Err(signal),
+            Err(signal)=>{
+                let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+                let changed=db.execute("UPDATE pid2_fires SET state='Failed',finished_at=?3,first_missing_signal=?4 WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,super::now(),signal]).map_err(|e|e.to_string())?;
+                drop(db);
+                if changed!=0 {fire_deed(id,&fire,"Failed",0,Some(&signal));}
+                return Err(signal);
+            },
         }
     } else {None};
     let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
-    super::tables(&db)?;
     let tx=db.transaction().map_err(|e|e.to_string())?;
-    let row:Option<(String,Vec<u8>,String,String,i64)>=tx.query_row("SELECT f.fire_id,s.envelope,s.band,s.action,s.max_seconds FROM pid2_fires f JOIN pid2_schedules s ON s.schedule_id=f.schedule_id WHERE f.schedule_id=?1 AND f.state='Queued'",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional().map_err(|e|e.to_string())?;
-    let Some((fire,raw,band,action,max))=row else {return Ok(());};
     let signal=unmet(&tx,&raw)?;let now=super::now();
     if let Some(signal)=signal {
-        tx.execute("UPDATE pid2_fires SET state='Refused',finished_at=?2,first_missing_signal=?3 WHERE schedule_id=?1",params![id,now,signal]).map_err(|e|e.to_string())?;
-        tx.commit().map_err(|e|e.to_string())?;drop(db);fire_deed(id,&fire,"Refused",0,Some(&signal));return Ok(());
+        let changed=tx.execute("UPDATE pid2_fires SET state='Refused',finished_at=?3,first_missing_signal=?4 WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,now,signal]).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;drop(db);if changed!=0 {fire_deed(id,&fire,"Refused",0,Some(&signal));}return Ok(());
     }
     let baseline:Option<(i64,i64)>=tx.query_row("SELECT file_count,total_bytes FROM pid2_sync_baselines WHERE schedule_id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
-    tx.execute("UPDATE pid2_fires SET state='Running',started_at=?2 WHERE schedule_id=?1 AND fire_id=?3 AND state='Queued'",params![id,now,fire]).map_err(|e|e.to_string())?;
     tx.commit().map_err(|e|e.to_string())?;drop(db);
     let started=std::time::Instant::now();
     let input=json!({"action":action,"baseline":baseline.map(|(f,b)|json!({"fileCount":f,"totalBytes":b})),"acceptShrink":false,"dryRun":false});
