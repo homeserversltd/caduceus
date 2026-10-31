@@ -417,10 +417,19 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
 }
 
 fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Result<Value, String> {
-    let walked = if matches!(
-        actuator_id,
-        "backblaze-forgejo-b2-push" | "backblaze-forgejo-migrate"
-    ) {
+    let walked = if actuator_id == "backblaze-forgejo-b2-push" {
+        let input = json!({"actuator": actuator_id, "metadata": metadata});
+        let envelope = json!({
+            "schema": crate::protocol::SCHEMA_ID,
+            "intent_id": format!("caduceus-{band}"),
+            "transition": band,
+            "origin_of_intent": "near",
+            "payload": input,
+            "actuator": actuator_id,
+            "metadata": input["metadata"].clone(),
+        });
+        crate::gate::snake::run(band, &envelope)?
+    } else if actuator_id == "backblaze-forgejo-migrate" {
         crate::gate::snake::crossing_path_with_timeout(band, &metadata, Duration::from_secs(30))?
     } else {
         let input = json!({"actuator": actuator_id, "metadata": metadata});
@@ -440,7 +449,7 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         .cloned()
         .filter(Value::is_object)
         .ok_or_else(|| "caduceus-staff-invalid-receipt".to_string())?;
-    if actuator_id == "backblaze-config"
+    if matches!(actuator_id, "backblaze-config" | "backblaze-forgejo-b2-push")
         && receipt.get("ok").and_then(Value::as_bool) == Some(false)
     {
         return Ok(receipt);

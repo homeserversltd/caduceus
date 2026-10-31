@@ -363,6 +363,7 @@
     ]
   ],
   "routes": [
+    "/api/v1/storage/backup/forgejo/backup-b2",
     "/api/v1/local-ai/card",
     "/api/v1/local-ai/edition",
     "/api/v1/local-ai/library",
@@ -537,6 +538,7 @@
   "administrative": {
     "bands": [
       "local-ai/edition",
+      "storage/backup/forgejo/backup-b2",
       "local-ai/slot",
       "appliance/service",
       "appliance/sudo-passwordless",
@@ -558,6 +560,7 @@
     ],
     "verbs": [
       ["local-ai", "edition"],
+      ["forgejo", "backup-b2"],
       ["local-ai", "slot"],
       [
         "appliance",
@@ -630,6 +633,7 @@
     ],
     "routes": [
       "PUT /api/v1/local-ai/edition",
+      "/api/v1/storage/backup/forgejo/backup-b2",
       "PUT /api/v1/local-ai/slot/brain",
       "PUT /api/v1/local-ai/slot/embed",
       "PUT /api/v1/local-ai/slot/ear",
