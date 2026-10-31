@@ -384,15 +384,30 @@ fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<Value, Stri
     let receipt = crossing.get("receiptPayload")
         .filter(|receipt| receipt.is_object())
         .ok_or_else(|| "vault-open-receipt-invalid".to_string())?;
+    let receipt_ok = receipt.get("ok").and_then(Value::as_bool)
+        .ok_or_else(|| "vault-open-receipt-invalid".to_string())?;
+    let signal = ["error", "firstMissingSignal", "signal", "message"]
+        .iter()
+        .filter_map(|field| receipt.get(*field).and_then(Value::as_str))
+        .map(str::trim)
+        .find(|signal| !signal.is_empty() && !signal.eq_ignore_ascii_case("none"));
+    let timeout_reported = ["error", "firstMissingSignal", "signal", "message"]
+        .iter()
+        .filter_map(|field| receipt.get(*field).and_then(Value::as_str))
+        .any(|signal| {
+            let lower = signal.to_ascii_lowercase();
+            lower.contains("timeout") || lower.contains("timed-out") || lower.contains("timed_out")
+        });
     if receipt.get("mounted").and_then(Value::as_bool) == Some(true) {
         let mut answer = result(true, "vault-unlocked-and-mounted");
-        // Keep downstream failure information without returning the request or raw envelope.
-        if receipt.get("ok").and_then(Value::as_bool) == Some(false)
-            || crossing.get("ok").and_then(Value::as_bool) == Some(false)
-        {
-            answer["warning"] = receipt.get("error")
-                .or_else(|| receipt.get("firstMissingSignal"))
-                .cloned().unwrap_or_else(|| json!("vault-open-rite-or-nas-failed"));
+        // A mounted vault is success; a later failure remains visible, even
+        // when the staff did not provide a usable failure signal.
+        if timeout_reported {
+            answer["warning"] = json!(format!("vault-open-timeout: {seconds} seconds"));
+        } else if let Some(signal) = signal {
+            answer["warning"] = json!(signal);
+        } else if !receipt_ok || crossing.get("ok").and_then(Value::as_bool) == Some(false) {
+            answer["warning"] = json!("vault-open-post-mount-failure-unknown");
         }
         for field in ["rite", "nas", "nas_roles", "init", "boot_rite"] {
             if let Some(value) = receipt.get(field) {
@@ -401,13 +416,6 @@ fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<Value, Stri
         }
         return Ok(answer);
     }
-    let timeout_reported = ["error", "firstMissingSignal", "signal", "message"]
-        .iter()
-        .filter_map(|field| receipt.get(*field).and_then(Value::as_str))
-        .any(|signal| {
-            let lower = signal.to_ascii_lowercase();
-            lower.contains("timeout") || lower.contains("timed-out") || lower.contains("timed_out")
-        });
     if timeout_reported {
         return Err(format!("vault-open-timeout: {seconds} seconds"));
     }
