@@ -251,6 +251,8 @@ async fn handle_request(
                 error_response(failure.status, &task_command, &failure.signal)
             }
         };
+        // Release this door's permit before waking a line it may have held.
+        drop(_permit);
         // A completed mutation may have released a resource that held a PID-2
         // line. Wake only after dispatch (including finally) and deed handling.
         #[cfg(leaf_pid2)]
