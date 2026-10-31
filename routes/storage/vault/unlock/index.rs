@@ -358,7 +358,12 @@ pub fn status_json() -> Value {
         }
     }
 }
-fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<(bool, Option<bool>), String> {
+fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<Value, String> {
+    let declaration: Value = serde_json::from_str(include_str!("index.json"))
+        .map_err(|_| "vault-open-deadline-invalid".to_string())?;
+    let seconds = declaration.get("deadline_seconds").and_then(Value::as_u64)
+        .filter(|seconds| (1..=600).contains(seconds))
+        .ok_or_else(|| "vault-open-deadline-invalid".to_string())?;
     let device = resolve_device(&cfg.device)?;
     let payload = json!({
         "op": "unlock",
@@ -367,26 +372,62 @@ fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<(bool, Opti
         "mountpoint": logical(&mountpoint_path(cfg)),
         "passphrase": passphrase,
     });
-    let receipt = match crate::gate::snake::crossing_path("storage/vault/open", &payload) {
-        Ok(receipt) => receipt,
-        Err(signal) if signal == VAULT_OPEN_KEY_ABSENT_SIGNAL => {
-            return Ok((false, Some(false)));
+    let crossing = crate::gate::snake::crossing_path_with_timeout(
+        "storage/vault/open", &payload, std::time::Duration::from_secs(seconds),
+    ).map_err(|signal| {
+        if signal == "caduceus-agathodaimon-timeout" {
+            format!("vault-open-timeout: {seconds} seconds")
+        } else {
+            "vault-open-crossing-unavailable".to_string()
         }
-        Err(signal)
-            if signal == VAULT_OPEN_UNLOCK_REFUSED_SIGNAL
-                || signal == VAULT_OPEN_MOUNTPOINT_REFUSED_SIGNAL
-                || signal == VAULT_OPEN_MOUNT_REFUSED_SIGNAL =>
-        {
-            return Ok((false, Some(true)));
-        }
-        Err(_) => return Err("vault-open-crossing-unavailable".to_string()),
-    };
-    let ok = receipt
-        .get("ok")
-        .and_then(Value::as_bool)
+    })?;
+    let receipt = crossing.get("receiptPayload")
+        .filter(|receipt| receipt.is_object())
         .ok_or_else(|| "vault-open-receipt-invalid".to_string())?;
-    let present = receipt.get("present").and_then(Value::as_bool);
-    Ok((ok, present))
+    if receipt.get("mounted").and_then(Value::as_bool) == Some(true) {
+        let mut answer = result(true, "vault-unlocked-and-mounted");
+        // Keep downstream failure information without returning the request or raw envelope.
+        if receipt.get("ok").and_then(Value::as_bool) == Some(false)
+            || crossing.get("ok").and_then(Value::as_bool) == Some(false)
+        {
+            answer["warning"] = receipt.get("error")
+                .or_else(|| receipt.get("firstMissingSignal"))
+                .cloned().unwrap_or_else(|| json!("vault-open-rite-or-nas-failed"));
+        }
+        for field in ["rite", "nas", "nas_roles", "init", "boot_rite"] {
+            if let Some(value) = receipt.get(field) {
+                answer[field] = value.clone();
+            }
+        }
+        return Ok(answer);
+    }
+    if crossing.get("ok").and_then(Value::as_bool) != Some(true) {
+        let signal = receipt.get("error").or_else(|| receipt.get("firstMissingSignal"))
+            .and_then(Value::as_str).unwrap_or("caduceus-agathodaimon-refused");
+        if signal == VAULT_OPEN_KEY_ABSENT_SIGNAL {
+            return Ok(if passphrase.is_none() { result(false, "A vault password is required.") } else { result(false, "Unable to unlock the vault.") });
+        }
+        if signal == VAULT_OPEN_UNLOCK_REFUSED_SIGNAL || signal == VAULT_OPEN_MOUNTPOINT_REFUSED_SIGNAL || signal == VAULT_OPEN_MOUNT_REFUSED_SIGNAL {
+            return Ok(result(false, "Unable to unlock the vault."));
+        }
+        return Err("vault-open-crossing-unavailable".to_string());
+    }
+    if receipt.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Ok(result(false, "Unable to unlock the vault."));
+    }
+    if receipt.get("present").and_then(Value::as_bool) == Some(false) && passphrase.is_none() {
+        return Ok(result(false, "A vault password is required."));
+    }
+    if !mapper_path(cfg).exists() {
+        log_internal("unlock", "vault-unlock-unverified");
+        return Ok(result(false, "Unable to unlock the vault."));
+    }
+    if mounted(cfg) {
+        Ok(result(true, "vault-unlocked-and-mounted"))
+    } else {
+        log_internal("unlock", "vault-mount-unverified");
+        Ok(result(false, "Unable to mount the vault."))
+    }
 }
 
 pub fn unlock_json(password: Option<&str>) -> Value {
@@ -402,37 +443,16 @@ pub fn unlock_json(password: Option<&str>) -> Value {
         return result(false, "Unable to unlock the vault.");
     }
     let passphrase = password.filter(|value| !value.is_empty());
-    let (opened, present) = match open_vault(&cfg, passphrase) {
+    match open_vault(&cfg, passphrase) {
         Ok(receipt) => receipt,
+        Err(error) if error.starts_with("vault-open-timeout:") => {
+            log_internal("unlock", &error);
+            result(false, &error)
+        }
         Err(error) => {
-            let signal = if error == VAULT_DEVICE_UNRESOLVABLE_SIGNAL {
-                error.as_str()
-            } else {
-                "vault-open-crossing-unavailable"
-            };
-            log_internal("unlock", signal);
-            return result(false, "Unable to unlock the vault.");
+            log_internal("unlock", &error);
+            result(false, "Unable to unlock the vault.")
         }
-    };
-    if !opened {
-        if present == Some(false) && passphrase.is_none() {
-            return result(false, "A vault password is required.");
-        }
-        log_internal("unlock", "vault-open-refused");
-        return result(false, "Unable to unlock the vault.");
-    }
-    if present == Some(false) && passphrase.is_none() {
-        return result(false, "A vault password is required.");
-    }
-    if !mapper_path(&cfg).exists() {
-        log_internal("unlock", "vault-unlock-unverified");
-        return result(false, "Unable to unlock the vault.");
-    }
-    if mounted(&cfg) {
-        result(true, "vault-unlocked-and-mounted")
-    } else {
-        log_internal("unlock", "vault-mount-unverified");
-        result(false, "Unable to mount the vault.")
     }
 }
 pub fn auto_decrypt_json(enabled: bool) -> Value {
