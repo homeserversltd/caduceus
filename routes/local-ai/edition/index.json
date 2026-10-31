@@ -1,0 +1,1 @@
+{"namespace":"local-ai/edition","admittance":"open","flags":{},"http_method":"PUT","administrative":true,"mutation_allowed":true,"serve":[{"snake":"local-ai/edition","verb":["local-ai","edition"]}],"commands":[],"needs":["local-ai-memory-card"],"ledger_deed":{"organ":"local-ai","verb":"edition","target":"edition"}}

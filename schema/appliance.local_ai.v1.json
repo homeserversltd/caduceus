@@ -25,6 +25,19 @@
       "type": "string",
       "description": "Absolute model shelf directory, born as /home/owner/Models."
     },
+    "edition": {
+      "type": ["string", "null"],
+      "enum": ["memory", null],
+      "description": "Optional owner-selected memory edition."
+    },
+    "card": {
+      "type": "object",
+      "fields": {
+        "vram_gib": {"type": ["integer", "null"]},
+        "tier": {"type": ["string", "null"]}
+      },
+      "unknown_fields_preserved": true
+    },
     "slots": {
       "type": "object",
       "fields": {

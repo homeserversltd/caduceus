@@ -3,7 +3,9 @@
   "profile": "lab",
   "bands": [
     "local-ai/card",
+    "local-ai/edition",
     "local-ai/library",
+    "local-ai/memory",
     "local-ai/slot",
     "appliance/journal-vacuum",
     "appliance/service",
@@ -83,7 +85,9 @@
   ],
   "verbs": [
     ["local-ai", "card"],
+    ["local-ai", "edition"],
     ["local-ai", "library"],
+    ["local-ai", "memory"],
     ["local-ai", "slot"],
     [
       "appliance",
@@ -360,7 +364,9 @@
   ],
   "routes": [
     "/api/v1/local-ai/card",
+    "/api/v1/local-ai/edition",
     "/api/v1/local-ai/library",
+    "/api/v1/local-ai/memory",
     "/api/v1/local-ai/slot/brain",
     "/api/v1/local-ai/slot/embed",
     "/api/v1/local-ai/slot/ear",
@@ -530,6 +536,7 @@
   ],
   "administrative": {
     "bands": [
+      "local-ai/edition",
       "local-ai/slot",
       "appliance/service",
       "appliance/sudo-passwordless",
@@ -550,6 +557,7 @@
       "storage/vault/policy"
     ],
     "verbs": [
+      ["local-ai", "edition"],
       ["local-ai", "slot"],
       [
         "appliance",
@@ -621,6 +629,7 @@
       ]
     ],
     "routes": [
+      "PUT /api/v1/local-ai/edition",
       "PUT /api/v1/local-ai/slot/brain",
       "PUT /api/v1/local-ai/slot/embed",
       "PUT /api/v1/local-ai/slot/ear",

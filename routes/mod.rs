@@ -152,6 +152,10 @@ pub use leaf_network_device_wake as wake_device;
 #[cfg(leaf_network_device_whitelist)]
 pub use leaf_network_device_whitelist as whitelist_device;
 
+#[cfg(any(leaf_local_ai_memory, leaf_local_ai_edition))]
+#[path = "local-ai/support/memory_edition.rs"]
+pub(crate) mod memory_edition_support;
+
 #[cfg(any(leaf_local_ai_card, leaf_local_ai_library, leaf_local_ai_slot_brain, leaf_local_ai_slot_embed, leaf_local_ai_slot_ear))]
 #[path = "local-ai/support/memory_card.rs"]
 pub(crate) mod memory_card_support;
