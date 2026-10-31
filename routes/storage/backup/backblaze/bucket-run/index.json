@@ -1,0 +1,26 @@
+{
+  "namespace": "storage/backup/backblaze/bucket-run",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/backblaze/bucket-run",
+      "verb": [
+        "backblaze",
+        "bucket-run"
+      ]
+    }
+  ],
+  "commands": [
+    "staff intent",
+    "storage backup backblaze bucket run"
+  ],
+  "needs": [
+    "nas"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/backblaze/bucket/run",
+  "body": "required",
+  "receipt": "caduceus.backblaze.bucket-run.v1",
+  "administrative": true
+}

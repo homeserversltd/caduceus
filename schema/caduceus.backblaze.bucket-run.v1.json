@@ -1,0 +1,37 @@
+{
+  "schema": "caduceus.backblaze.bucket-run.v1",
+  "schema_version": "1.0.0",
+  "role": "Backblaze bucket-run staff receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.backblaze.bucket-run.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true
+  },
+  "required": [
+    "ok"
+  ],
+  "fields": {
+    "status": {
+      "type": "string"
+    },
+    "unit": {
+      "type": "string"
+    },
+    "step": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "optional": [
+    "status",
+    "unit",
+    "step",
+    "reason"
+  ],
+  "additionalProperties": true
+}

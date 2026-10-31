@@ -1,0 +1,26 @@
+{
+  "namespace": "storage/backup/backblaze/bucket-credentials",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/backblaze/bucket-credentials",
+      "verb": [
+        "backblaze",
+        "bucket-credentials"
+      ]
+    }
+  ],
+  "commands": [
+    "staff intent",
+    "storage backup backblaze bucket credentials"
+  ],
+  "needs": [
+    "nas"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/backblaze/bucket/credentials",
+  "body": "required",
+  "receipt": "caduceus.backblaze.bucket-credentials.v1",
+  "administrative": true
+}

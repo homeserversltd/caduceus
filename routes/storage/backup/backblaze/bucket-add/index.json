@@ -1,0 +1,26 @@
+{
+  "namespace": "storage/backup/backblaze/bucket-add",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/backblaze/bucket-add",
+      "verb": [
+        "backblaze",
+        "bucket-add"
+      ]
+    }
+  ],
+  "commands": [
+    "staff intent",
+    "storage backup backblaze bucket add"
+  ],
+  "needs": [
+    "nas"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/backblaze/bucket/add",
+  "body": "required",
+  "receipt": "caduceus.backblaze.bucket-add.v1",
+  "administrative": true
+}

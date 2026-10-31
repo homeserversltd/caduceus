@@ -385,6 +385,15 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
             "storage/backup/backblaze-recover",
             metadata,
         ),
+        "backblaze-bucket-add" => staff_actuator_receipt("backblaze-bucket-add", "storage/backup/backblaze/bucket-add", metadata),
+        "backblaze-bucket-credentials" => staff_actuator_receipt("backblaze-bucket-credentials", "storage/backup/backblaze/bucket-credentials", metadata),
+        "backblaze-bucket-verify" => staff_actuator_receipt("backblaze-bucket-verify", "storage/backup/backblaze/bucket-verify", metadata),
+        "backblaze-bucket-remove" => staff_actuator_receipt("backblaze-bucket-remove", "storage/backup/backblaze/bucket-remove", metadata),
+        "backblaze-bucket-items" => staff_actuator_receipt("backblaze-bucket-items", "storage/backup/backblaze/bucket-items", metadata),
+        "backblaze-bucket-save" => staff_actuator_receipt("backblaze-bucket-save", "storage/backup/backblaze/bucket-save", metadata),
+        "backblaze-bucket-run" => staff_actuator_receipt("backblaze-bucket-run", "storage/backup/backblaze/bucket-run", metadata),
+        "backblaze-status" => staff_actuator_receipt("backblaze-status", "storage/backup/backblaze/status", metadata),
+        "backblaze-snapshots" => staff_actuator_receipt("backblaze-snapshots", "storage/backup/backblaze/snapshots", metadata),
         "backblaze-forgejo-b2-push" => staff_actuator_receipt(
             "backblaze-forgejo-b2-push",
             "storage/backup/forgejo/backup-b2",
@@ -431,6 +440,29 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         crate::gate::snake::run(band, &envelope)?
     } else if actuator_id == "backblaze-forgejo-migrate" {
         crate::gate::snake::crossing_path_with_timeout(band, &metadata, Duration::from_secs(30))?
+    } else if actuator_id.starts_with("backblaze-bucket-")
+        || matches!(actuator_id, "backblaze-status" | "backblaze-snapshots")
+    {
+        let timeout = match actuator_id {
+            "backblaze-bucket-add" | "backblaze-bucket-credentials" | "backblaze-bucket-verify" | "backblaze-snapshots" => 300,
+            "backblaze-bucket-remove" | "backblaze-bucket-items" | "backblaze-bucket-save" | "backblaze-bucket-run" | "backblaze-status" => 60,
+            _ => return Err("caduceus-staff-actuator-unmapped".into()),
+        };
+        let input = json!({"actuator": actuator_id, "metadata": metadata});
+        let envelope = json!({
+            "schema": crate::protocol::SCHEMA_ID,
+            "intent_id": format!("caduceus-{band}"),
+            "transition": band,
+            "origin_of_intent": "near",
+            "payload": input,
+            "actuator": actuator_id,
+            "metadata": input["metadata"].clone(),
+        });
+        let runtime = tokio::runtime::Handle::try_current()
+            .map_err(|_| "caduceus-runtime-unavailable".to_string())?;
+        runtime.block_on(crate::gate::snake::execute_ordered_serve_with_timeout(
+            &[json!({"snake": band})], &envelope, Some(Duration::from_secs(timeout)),
+        ))?
     } else {
         let input = json!({"actuator": actuator_id, "metadata": metadata});
         let envelope = json!({
@@ -449,7 +481,8 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         .cloned()
         .filter(Value::is_object)
         .ok_or_else(|| "caduceus-staff-invalid-receipt".to_string())?;
-    if matches!(actuator_id, "backblaze-config" | "backblaze-forgejo-b2-push")
+    if (matches!(actuator_id, "backblaze-config" | "backblaze-forgejo-b2-push" | "backblaze-status" | "backblaze-snapshots")
+        || actuator_id.starts_with("backblaze-bucket-"))
         && receipt.get("ok").and_then(Value::as_bool) == Some(false)
     {
         return Ok(receipt);

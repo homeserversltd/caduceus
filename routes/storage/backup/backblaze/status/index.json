@@ -1,0 +1,25 @@
+{
+  "namespace": "storage/backup/backblaze/status",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/backblaze/status",
+      "verb": [
+        "backblaze",
+        "status"
+      ]
+    }
+  ],
+  "commands": [
+    "staff intent",
+    "storage backup backblaze status"
+  ],
+  "needs": [
+    "nas"
+  ],
+  "http_method": "GET",
+  "http_path": "/api/v1/storage/backup/backblaze/status",
+  "body": "none",
+  "receipt": "caduceus.backblaze.status.v1"
+}

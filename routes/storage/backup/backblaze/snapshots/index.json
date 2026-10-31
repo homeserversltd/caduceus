@@ -1,0 +1,25 @@
+{
+  "namespace": "storage/backup/backblaze/snapshots",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/backblaze/snapshots",
+      "verb": [
+        "backblaze",
+        "snapshots"
+      ]
+    }
+  ],
+  "commands": [
+    "staff intent",
+    "storage backup backblaze snapshots"
+  ],
+  "needs": [
+    "nas"
+  ],
+  "http_method": "GET",
+  "http_path": "/api/v1/storage/backup/backblaze/snapshots",
+  "body": "none",
+  "receipt": "caduceus.backblaze.snapshots.v1"
+}

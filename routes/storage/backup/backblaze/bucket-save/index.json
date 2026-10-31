@@ -1,0 +1,26 @@
+{
+  "namespace": "storage/backup/backblaze/bucket-save",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/backblaze/bucket-save",
+      "verb": [
+        "backblaze",
+        "bucket-save"
+      ]
+    }
+  ],
+  "commands": [
+    "staff intent",
+    "storage backup backblaze bucket save"
+  ],
+  "needs": [
+    "nas"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/backblaze/bucket/save",
+  "body": "required",
+  "receipt": "caduceus.backblaze.bucket-save.v1",
+  "administrative": true
+}
