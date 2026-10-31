@@ -427,6 +427,7 @@ fn main() {
         "caduceus.chord.receipt.v1",
         "caduceus.nas.role.swap.v1",
         "caduceus.nas-sync.hold.v1",
+        "caduceus.forgejo.backup-b2.v1",
         "caduceus.nas-sync.release.v1",
         "caduceus.nas-sync.schedule.disable.v1",
         "caduceus.nas.role.observe.v1",
