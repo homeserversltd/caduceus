@@ -336,6 +336,23 @@ async fn dispatch(
         },
     };
 
+    // A declared stage may share its enclosing route's budget without
+    // duplicating a numeric deadline. Unmarked stages keep their own defaults.
+    let mut effective_serve = serve.to_vec();
+    for step in &mut effective_serve {
+        if step.get("deadline_from_route").and_then(Value::as_bool) == Some(true) {
+            if declaration.get("deadline_seconds").is_none()
+                || step.get("deadline_seconds").is_some()
+                || step.get("snake").and_then(Value::as_str).is_none()
+                || deadline > MAX_CROSSING_DEADLINE
+            {
+                return Err(DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-generic-deadline-invalid"));
+            }
+            step["deadline_seconds"] = json!(deadline.as_secs());
+        }
+    }
+    let serve = effective_serve.as_slice();
+
     let mut envelope = crate::gate::snake::route_envelope(namespace, &payload);
     if let Some(object) = envelope.as_object_mut() {
         object.insert("intent_id".into(), json!(format!("caduceus-{namespace}-{request_id}")));

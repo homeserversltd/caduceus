@@ -401,6 +401,16 @@ fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<Value, Stri
         }
         return Ok(answer);
     }
+    let timeout_reported = ["error", "firstMissingSignal", "signal", "message"]
+        .iter()
+        .filter_map(|field| receipt.get(*field).and_then(Value::as_str))
+        .any(|signal| {
+            let lower = signal.to_ascii_lowercase();
+            lower.contains("timeout") || lower.contains("timed-out") || lower.contains("timed_out")
+        });
+    if timeout_reported {
+        return Err(format!("vault-open-timeout: {seconds} seconds"));
+    }
     if crossing.get("ok").and_then(Value::as_bool) != Some(true) {
         let signal = receipt.get("error").or_else(|| receipt.get("firstMissingSignal"))
             .and_then(Value::as_str).unwrap_or("caduceus-agathodaimon-refused");
