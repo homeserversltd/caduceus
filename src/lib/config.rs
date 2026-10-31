@@ -27,24 +27,23 @@ pub fn read_public_file(relative: &str) -> Result<String, String> {
     fs::read_to_string(&path).map_err(|err| format!("{}: {err}", path.display()))
 }
 
-pub fn read_public_profile_text() -> Result<String, String> {
-    let mut errors = Vec::new();
-    for candidate in [
-        "etc/caduceus/profile.yaml",
-        "etc/caduceus/profile.yml",
-        "etc/caduceus/profile.json",
-    ] {
-        match read_public_file(candidate) {
-            Ok(text) => return Ok(text),
-            Err(err) => errors.push(err),
-        }
-    }
-    Err(format!("caduceus-profile-missing: {}", errors.join("; ")))
+pub(crate) fn carapace() -> &'static Value {
+    static CARAPACE: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    CARAPACE.get_or_init(|| {
+        let value: Value = serde_json::from_str(crate::routes::profile_routes::CARAPACE_JSON)
+            .expect("caduceus-carapace-desync: invalid embedded JSON");
+        assert_eq!(value["schema"].as_str(), Some("caduceus.carapace.v1"), "caduceus-carapace-desync: schema");
+        assert_eq!(value["profile"].as_str(), Some(crate::routes::profile_routes::ACTIVE_PROFILE), "caduceus-carapace-desync: profile");
+        value
+    })
 }
 
-pub fn read_public_profile_value() -> Result<serde_json::Value, String> {
-    let text = read_public_profile_text()?;
-    serde_yaml::from_str(&text).map_err(|err| format!("caduceus-profile-invalid: {err}"))
+pub(crate) fn carapace_with_build_identity() -> Value {
+    let mut value = carapace().clone();
+    let object = value.as_object_mut().expect("caduceus-carapace-desync: object");
+    object.insert("source_sha".into(), json!(option_env!("CADUCEUS_BUILD_SHA")));
+    object.insert("build_env_sha".into(), json!(option_env!("CADUCEUS_BUILD_ENV_SHA")));
+    value
 }
 
 pub fn overlay_birth_profile_fields(value: &mut serde_json::Value) -> Result<(), String> {
@@ -69,9 +68,6 @@ pub fn overlay_birth_profile_fields(value: &mut serde_json::Value) -> Result<(),
     Ok(())
 }
 
-pub fn public_profile_present() -> bool {
-    read_public_profile_text().is_ok()
-}
 
 pub fn read_file_at(absolute: &str) -> Result<String, String> {
     fs::read_to_string(absolute).map_err(|err| format!("{absolute}: {err}"))

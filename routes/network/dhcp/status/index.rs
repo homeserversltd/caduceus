@@ -52,7 +52,7 @@ pub(crate) async fn network_read_route(
             }
         }
         Ok(false) => Err(api_error(command)),
-        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal(command, "caduceus-carapace-desync")),
     }
 }
 
@@ -101,7 +101,7 @@ async fn dhcp_reservations_read_route() -> Result<Json<Value>, (StatusCode, Json
             }
         }
         Ok(false) => Err(api_error(command)),
-        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal(command, "caduceus-carapace-desync")),
     }
 }
 
@@ -133,7 +133,7 @@ async fn dhcp_staff_actuator_route(
                 .map_err(|reason| api_error_signal("staff intent", &reason))
         }
         Ok(false) => Err(api_error("staff intent")),
-        Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal("staff intent", "caduceus-carapace-desync")),
     }
 }
 
@@ -168,7 +168,7 @@ async fn dhcp_reservation_staff_actuator_route(
                 .map_err(|reason| api_error_signal("staff intent", &reason))
         }
         Ok(false) => Err(api_error("staff intent")),
-        Err(_) => Err(api_error_signal("staff intent", "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal("staff intent", "caduceus-carapace-desync")),
     }
 }
 

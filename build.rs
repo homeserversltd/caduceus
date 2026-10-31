@@ -178,19 +178,19 @@ fn walk_json_leaves(root: &Path) -> Vec<serde_json::Value> {
 }
 
 fn defconfig_for_profile(profile: &str) -> Vec<String> {
-    let path = format!("profiles/{profile}/index.yaml");
+    let path = format!("schema/carapace/{profile}.json");
     let text = fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("carapace-defconfig-unreadable:{path}:{error}"));
-    let value: serde_yaml::Value = serde_yaml::from_str(&text)
+    let value: serde_json::Value = serde_json::from_str(&text)
         .unwrap_or_else(|error| panic!("carapace-defconfig-invalid:{path}:{error}"));
     let declared = value
         .get("profile")
-        .and_then(serde_yaml::Value::as_str)
+        .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
     assert_eq!(declared, profile, "carapace-defconfig-profile-mismatch:{path}");
     value
         .get("sclerites")
-        .and_then(serde_yaml::Value::as_sequence)
+        .and_then(serde_json::Value::as_array)
         .unwrap_or_else(|| panic!("carapace-defconfig-sclerites-missing:{path}"))
         .iter()
         .map(|feature| {
@@ -270,14 +270,14 @@ fn main() {
     let birth_certificate = birth_certificate_path(&root);
     let explicit = env::var("CADUCEUS_PROFILE").ok();
     let requested = resolve_build_profile(explicit.as_deref(), &root);
-    let profile_path = format!("profiles/{requested}/index.yaml");
+    let profile_path = format!("schema/carapace/{requested}.json");
     let profile_source = fs::read_to_string(&profile_path)
         .unwrap_or_else(|_| panic!("profile authority must be readable: {profile_path}"));
-    let profile_authority: serde_yaml::Value =
-        serde_yaml::from_str(&profile_source).expect("selected profile index valid YAML");
+    let profile_authority: serde_json::Value =
+        serde_json::from_str(&profile_source).expect("selected carapace valid JSON");
     let active_gui_face = profile_authority
         .get("gui_face")
-        .and_then(serde_yaml::Value::as_str);
+        .and_then(serde_json::Value::as_str);
     println!("cargo:rerun-if-env-changed=CADUCEUS_BUILD_SHA");
     println!("cargo:rerun-if-env-changed=CADUCEUS_BUILD_ENV_SHA");
     println!("cargo:rerun-if-env-changed=CADUCEUS_PROFILE");
@@ -382,6 +382,7 @@ fn main() {
     // Expose the contracted public seats, including release and update-set.
     let seats = [
         "caduceus.beam.v1",
+        "caduceus.carapace.v1",
         "caduceus.docs.seal.v1",
         "caduceus.hermes.alive.v1",
         "caduceus.portals.v2",
@@ -563,7 +564,7 @@ fn main() {
     );
     println!("cargo:rerun-if-changed=carapace/index.json");
     println!("cargo:rerun-if-changed=carapace/index.rs");
-    println!("cargo:rerun-if-changed=profiles");
+    println!("cargo:rerun-if-changed=schema/carapace");
     let model_source = fs::read_to_string("carapace/index.json")
         .expect("carapace feature model must be readable");
     let model: serde_json::Value = serde_json::from_str(&model_source)
@@ -690,6 +691,7 @@ fn main() {
     let mut generated = String::from("pub const ACTIVE_PROFILE: &str = ");
     generated.push_str(&rust_string(&requested));
     generated.push_str(";\n");
+    generated.push_str(&format!("pub const CARAPACE_JSON: &str = {};\n", rust_string(&profile_source)));
     generated.push_str(&format!(
         "pub const ACTIVE_GUI_FACE: Option<&str> = {};\n",
         active_gui_face.map_or_else(|| "None".to_owned(), |face| {
@@ -698,19 +700,18 @@ fn main() {
     ));
     // Accept every declared species face, plus the existing lab-package face.
     let mut gui_faces = BTreeSet::from(["Hyprland".to_owned()]);
-    for entry in fs::read_dir("profiles").expect("profile directory readable") {
+    for entry in fs::read_dir("schema/carapace").expect("carapace directory readable") {
         let path = entry
             .expect("profile directory entry readable")
-            .path()
-            .join("index.yaml");
-        if !path.is_file() {
+            .path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
             continue;
         }
         println!("cargo:rerun-if-changed={}", path.display());
         let text = fs::read_to_string(&path).expect("profile index readable");
-        let value: serde_yaml::Value =
-            serde_yaml::from_str(&text).expect("profile index valid YAML");
-        if let Some(face) = value.get("gui_face").and_then(serde_yaml::Value::as_str) {
+        let value: serde_json::Value =
+            serde_json::from_str(&text).expect("carapace valid JSON");
+        if let Some(face) = value.get("gui_face").and_then(serde_json::Value::as_str) {
             gui_faces.insert(face.to_owned());
         }
     }
@@ -727,7 +728,7 @@ fn main() {
         (Vec<String>, Vec<String>, Vec<String>, String),
     >::new();
     for profile in profiles {
-        let path = format!("profiles/{profile}/index.yaml");
+        let path = format!("schema/carapace/{profile}.json");
         println!("cargo:rerun-if-changed={path}");
         let answers = defconfig_for_profile(profile);
         let resolution = carapace::resolve(&model, &answers)

@@ -51,7 +51,7 @@ async fn setup_route(
         Err(_) => {
             return Err(crate::gate::api_error_signal(
                 COMMAND,
-                "caduceus-profile-missing",
+                "caduceus-carapace-desync",
             ));
         }
     }

@@ -13,7 +13,7 @@ const HARMONIA_PRESS_LONG_DEADLINE: std::time::Duration =
     std::time::Duration::from_secs(24 * 60 * 60);
 
 pub fn load_profile_value() -> Result<Value, String> {
-    config::read_public_profile_value()
+    Ok(config::carapace().clone())
 }
 
 pub fn route(route_key: &str) -> Result<Value, String> {

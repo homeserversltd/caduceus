@@ -132,7 +132,7 @@ pub(crate) fn missing_signal(err: &str) -> &'static str {
     } else if err.contains("identity") {
         "caduceus-identity-missing"
     } else {
-        "caduceus-profile-missing"
+        "caduceus-operation-failed"
     }
 }
 pub(crate) fn service_unavailable(command: &str, signal: &str) -> (StatusCode, Json<ApiErrorBody>) {
@@ -175,7 +175,7 @@ pub(crate) async fn gated_json(
             }
         }
         Ok(false) => Err(api_error(command)),
-        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal(command, "caduceus-carapace-desync")),
     }
 }
 pub(crate) async fn gated_body(
@@ -204,7 +204,7 @@ pub(crate) async fn gated_body(
             }
         }
         Ok(false) => Err(api_error(command)),
-        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal(command, "caduceus-carapace-desync")),
     }
 }
 pub(crate) fn mutation_status(value: &Value) -> StatusCode {
@@ -255,7 +255,7 @@ pub(crate) async fn gated_mutation(
             Ok((mutation_status(&value), Json(value)))
         }
         Ok(false) => Err(api_error(command)),
-        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal(command, "caduceus-carapace-desync")),
     }
 }
 pub(crate) fn document_attendance_admits(
@@ -890,7 +890,7 @@ async fn doors_route() -> Result<Response, (StatusCode, Json<ApiErrorBody>)> {
                 .into_response())
         }
         Ok(false) => Err(api_error("doors read")),
-        Err(_) => Err(api_error_signal("doors read", "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal("doors read", "caduceus-carapace-desync")),
     }
 }
 fn audit_doors() -> Result<(), String> {

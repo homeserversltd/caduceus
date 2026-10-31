@@ -80,7 +80,7 @@ pub(super) async fn status() -> Result<Json<Value>, (StatusCode, Json<crate::gat
         Ok(false) => Err(crate::gate::api_error("gaming provider-keys read")),
         Err(_) => Err(crate::gate::api_error_signal(
             "gaming provider-keys read",
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }
@@ -116,7 +116,7 @@ pub(super) async fn save(
         Ok(false) => Err(crate::gate::api_error("gaming provider-keys save")),
         Err(_) => Err(crate::gate::api_error_signal(
             "gaming provider-keys save",
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }

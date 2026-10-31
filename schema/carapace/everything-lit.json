@@ -1,0 +1,9 @@
+{
+  "schema": "caduceus.carapace.v1",
+  "profile": "everything-lit",
+  "gui_face": null,
+  "mode": "everything-lit",
+  "sclerites": [
+    "*"
+  ]
+}

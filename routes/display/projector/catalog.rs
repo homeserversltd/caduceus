@@ -71,7 +71,7 @@ fn put(connection: &Connection, entry: &KnownProductEntry, importing: bool) -> R
 }
 
 fn legacy_path() -> Result<PathBuf, String> {
-    let profile = config::read_public_profile_value()?;
+    let profile = config::carapace();
     if let Some(path) = profile
         .pointer("/pjlink/catalog_path")
         .and_then(Value::as_str)

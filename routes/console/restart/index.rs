@@ -70,7 +70,7 @@ async fn restart(
         Ok(false) => Err(crate::gate::api_error("console restart")),
         Err(_) => Err(crate::gate::api_error_signal(
             "console restart",
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }

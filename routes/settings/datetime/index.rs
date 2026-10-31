@@ -24,7 +24,7 @@ async fn mutate_http(axum::Json(body): axum::Json<serde_json::Value>) -> Result<
         Ok(false) => Err(crate::gate::api_error(&command)),
         Err(_) => Err(crate::gate::api_error_signal(
             &command,
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }

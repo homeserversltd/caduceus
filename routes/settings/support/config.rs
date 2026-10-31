@@ -36,7 +36,7 @@ where
             result.map(Json).map_err(|e| err(command, e))
         }
         Ok(false) => Err(api_error(command)),
-        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal(command, "caduceus-carapace-desync")),
     }
 }
 async fn mutate<F>(
@@ -59,7 +59,7 @@ where
                 .map_err(|e| err(command, e))
         }
         Ok(false) => Err(api_error(command)),
-        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal(command, "caduceus-carapace-desync")),
     }
 }
 #[derive(Deserialize)]

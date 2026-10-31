@@ -581,7 +581,7 @@ fn read_vpn() -> VpnObservation {
         Ok(false) => {
             return VpnObservation::unavailable("caduceus-stats-vpn-command-not-allowed");
         }
-        Err(_) => return VpnObservation::unavailable("caduceus-profile-missing"),
+        Err(_) => return VpnObservation::unavailable("caduceus-carapace-desync"),
     }
 
     let receipt =

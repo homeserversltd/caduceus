@@ -53,7 +53,7 @@ async fn child_device_named_actuator_route(
         Ok(false) => Err(crate::gate::api_error("staff intent")),
         Err(_) => Err(crate::gate::api_error_signal(
             "staff intent",
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }

@@ -346,7 +346,7 @@ fn normalize_level(level: Option<String>) -> Result<String, String> {
 }
 
 fn profile_defaults() -> (String, String) {
-    let profile = config::read_public_profile_value().unwrap_or_else(|_| json!({}));
+    let profile = config::carapace();
     let body_id = profile
         .get("body_id")
         .or_else(|| profile.get("bodyId"))

@@ -288,7 +288,7 @@ async fn execute(action: &'static str, body: Result<Bytes, BytesRejection>) -> H
         Err(_) => {
             return Err(crate::gate::api_error_signal(
                 &command,
-                "caduceus-profile-missing",
+                "caduceus-carapace-desync",
             ));
         }
     }

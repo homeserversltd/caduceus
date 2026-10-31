@@ -179,7 +179,7 @@ async fn firewall_read(
         )),
         Err(_) => Err(firewall_refusal(
             StatusCode::SERVICE_UNAVAILABLE,
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }
@@ -227,7 +227,7 @@ async fn firewall_register_route(
         Err(_) => {
             return Err(firewall_refusal(
                 StatusCode::SERVICE_UNAVAILABLE,
-                "caduceus-profile-missing",
+                "caduceus-carapace-desync",
             ))
         }
     }
@@ -265,7 +265,7 @@ async fn firewall_unregister_route(
         Err(_) => {
             return Err(firewall_refusal(
                 StatusCode::SERVICE_UNAVAILABLE,
-                "caduceus-profile-missing",
+                "caduceus-carapace-desync",
             ))
         }
     }
@@ -320,7 +320,7 @@ async fn firewall_whitelist_set_route(
         Err(_) => {
             return Err(firewall_refusal(
                 StatusCode::SERVICE_UNAVAILABLE,
-                "caduceus-profile-missing",
+                "caduceus-carapace-desync",
             ))
         }
     }

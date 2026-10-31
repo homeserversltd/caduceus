@@ -182,7 +182,7 @@ async fn handle_request(
             return finish_failure(&declaration, &request_id, started, mutation_allowed, &command, failure);
         }
         Err(_) => {
-            let failure = DoorFailure::new(StatusCode::FORBIDDEN, "caduceus-profile-missing");
+            let failure = DoorFailure::new(StatusCode::FORBIDDEN, "caduceus-carapace-desync");
             return finish_failure(&declaration, &request_id, started, mutation_allowed, &command, failure);
         }
     }

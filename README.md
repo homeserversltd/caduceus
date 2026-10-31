@@ -21,7 +21,7 @@ caduceus serve
 ```
 
 Sync, update, receipts, staff, network, PJLink, and profile-specific routes are
-declared per appliance in `profiles/<name>/index.yaml`. Run `caduceus help` on
+declared per appliance in `schema/carapace/<name>.json`. Run `caduceus help` on
 device for the full list allowed on that body.
 
 ### Cert band (Hestia Anchor household TLS)
@@ -103,21 +103,20 @@ The clone source and consumed grant refuse with these exact signals, one per lin
 
 ## Profiles and roots
 
-Caduceus profiles are authored as YAML: `etc/caduceus/profile.yaml` on device
-roots and `profiles/<name>/index.yaml` in this repository. The `commands` list
-is the authority for which CLI and HTTP routes each appliance may call.
+Caduceus carapaces are authored in `schema/carapace/<name>.json` and compiled
+into each binary. Route leaves and their sclerites select CLI and HTTP routes;
+`GET /api/v1/carapace` reports the compiled declaration and build identity.
 
 The shipped appliance profile names are `homeserver`, `homeconsole`, `tv`,
-`homesi`, and `specula`. The HomeConsole profile lives at `profiles/homeconsole/index.yaml`;
+`homesi`, and `specula`. The HomeConsole carapace lives at `schema/carapace/homeconsole.json`;
 `CADUCEUS_PROFILE=homeconsole` builds its `caduceus-homeconsole-x86_64` Release
 asset. Appliance profile names do not rename verb namespaces such as
 `console/restart`.
 
 The `homesi` profile keeps the Noesis face and includes the TV desktop's sway, pactl, desktop and gtk4 doors.
 
-Local profile roots default to `/etc/caduceus` and `/var/lib/caduceus`. For
-tests and development, set `CADUCEUS_ROOT` to a fixture root containing
-`etc/caduceus`, `etc/appliance/config.json`, and `var/lib/caduceus`. Serving also
+For isolated development, set `CADUCEUS_ROOT` to a fixture root containing
+`etc/appliance/profile.json`, `etc/appliance/config.json`, and `var/lib/caduceus`. Serving also
 requires an isolated `CADUCEUS_STAFF_SOCKET`; `CADUCEUS_ROOT` does not isolate
 external commands, including the maintenance journal vacuum.
 
@@ -142,7 +141,7 @@ directly.
 
 ## Bands
 
-Public command bands are listed in `profiles/*/index.yaml`. Each band may ship a
+Public command bands are selected from route leaves and the carapace. Each band may ship a
 `README.md` explaining what powers it grants — start with **cert** for household
 TLS.
 

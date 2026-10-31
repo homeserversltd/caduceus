@@ -777,7 +777,7 @@ fn require_policy(command: &str, rest: &[String]) -> Result<Vec<String>, i32> {
             Err(2)
         }
         Err(_) => {
-            eprintln!("caduceus-profile-missing");
+            eprintln!("caduceus-carapace-desync");
             Err(1)
         }
     }

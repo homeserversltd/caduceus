@@ -167,7 +167,7 @@ fn dns_mutation_admits(
     match policy::allows_command(command) {
         Ok(true) => {}
         Ok(false) => return Err(api_error(command)),
-        Err(_) => return Err(api_error_signal(command, "caduceus-profile-missing")),
+        Err(_) => return Err(api_error_signal(command, "caduceus-carapace-desync")),
     }
     administrative_admits(headers, body, route)
         .map_err(|signal| api_error_signal(command, &signal))

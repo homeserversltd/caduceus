@@ -3,14 +3,14 @@ use serde_json::{json, Value};
 use std::time::Instant;
 
 pub fn read_json() -> Result<Value, String> {
-    let profile_ok = config::public_profile_present();
+    let profile_ok = config::carapace().is_object();
     let state = config::read_public_file("var/lib/caduceus/state.json")
         .unwrap_or_else(|_| "{}".to_string());
     let route_ok = harmonia::route("update_now").is_ok();
     let first_missing_signal = if profile_ok && route_ok {
         "none"
     } else if !profile_ok {
-        "caduceus-profile-missing"
+        "caduceus-carapace-desync"
     } else {
         "caduceus-harmonia-route-missing:update_now"
     };

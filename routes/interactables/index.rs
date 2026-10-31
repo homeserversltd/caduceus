@@ -25,7 +25,7 @@ pub(crate) async fn route() -> Result<Response, (StatusCode, axum::Json<ApiError
         Ok(false) => Err(api_error("interactable list")),
         Err(_) => Err(api_error_signal(
             "interactable list",
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }

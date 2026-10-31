@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use serde_json::{json, Value};
 
 pub fn read_json() -> Result<Value, String> {
-    let profile = config::public_profile_present();
+    let profile = config::carapace().is_object();
     Ok(json!({
         "schema": "caduceus.health.v1",
         "profilePresent": profile,
@@ -64,7 +64,7 @@ async fn legacy_show_http(
         Ok(false) => Err(crate::gate::api_error("legacy-sbin show")),
         Err(_) => Err(crate::gate::api_error_signal(
             "legacy-sbin show",
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }
@@ -98,7 +98,7 @@ async fn homeserver_show_http(
         Ok(false) => Err(crate::gate::api_error("homeserver-sbin show")),
         Err(_) => Err(crate::gate::api_error_signal(
             "homeserver-sbin show",
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }

@@ -193,7 +193,7 @@ pub(super) async fn history_http(
         }
         Err(_) => axum::response::IntoResponse::into_response(crate::gate::api_error_signal(
             STATS_COMMAND,
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }

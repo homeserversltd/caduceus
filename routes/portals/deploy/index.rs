@@ -68,7 +68,7 @@ fn staff_admitted() -> Result<(), axum::response::Response> {
         )),
         Err(_) => Err(upload_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }
@@ -133,7 +133,7 @@ async fn staff_route(
         Ok(false) => Err(crate::gate::api_error("staff intent")),
         Err(_) => Err(crate::gate::api_error_signal(
             "staff intent",
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }

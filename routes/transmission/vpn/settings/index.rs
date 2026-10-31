@@ -23,7 +23,7 @@ fn profile_admits() -> Result<(), ApiError> {
         Ok(false) => Err(crate::gate::api_error(COMMAND)),
         Err(_) => Err(crate::gate::api_error_signal(
             COMMAND,
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }

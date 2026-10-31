@@ -1,6 +1,0 @@
-schema: caduceus.profile.v1
-profile: bench
-gui_face: null
-mode: everything-lit
-sclerites:
-- '*'

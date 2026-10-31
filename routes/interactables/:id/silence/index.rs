@@ -24,7 +24,7 @@ pub(crate) async fn route(
         Ok(false) => Err(api_error("interactable silence")),
         Err(_) => Err(api_error_signal(
             "interactable silence",
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }

@@ -1,0 +1,46 @@
+{
+  "schema": "caduceus.carapace.v1",
+  "schema_version": "1.0.0",
+  "role": "Caduceus carapace: how one profile's binary is compiled",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.carapace.v1.json",
+    "grant": "Operator-elected public seat for the Caduceus carapace"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Absent optional fields select null primitive behavior",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.carapace.v1"},
+    "profile": {"type": "string"},
+    "gui_face": {"type": ["string", "null"]},
+    "mode": {"type": "string"},
+    "sclerites": {"type": "array", "items": {"type": "string"}},
+    "harmonia_routes": {"type": "object"},
+    "harmonia_profile": {"type": ["string", "null"]},
+    "services": {"type": ["object", "null"]},
+    "pjlink": {"type": ["object", "null"]},
+    "planned_capabilities": {"type": ["array", "null"]},
+    "source_sha": {"type": ["string", "null"]},
+    "build_env_sha": {"type": ["string", "null"]}
+  },
+  "field_types": {
+    "schema": "string",
+    "profile": "string",
+    "gui_face": ["string", "null"],
+    "mode": "string",
+    "sclerites": "array",
+    "harmonia_routes": "object",
+    "harmonia_profile": ["string", "null"],
+    "services": ["object", "null"],
+    "pjlink": ["object", "null"],
+    "planned_capabilities": ["array", "null"],
+    "source_sha": ["string", "null"],
+    "build_env_sha": ["string", "null"]
+  },
+  "required": ["schema", "profile", "mode", "sclerites"],
+  "optional": ["gui_face", "harmonia_routes", "harmonia_profile", "services", "pjlink", "planned_capabilities", "source_sha", "build_env_sha"],
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

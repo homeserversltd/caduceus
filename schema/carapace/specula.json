@@ -1,0 +1,9 @@
+{
+  "schema": "caduceus.carapace.v1",
+  "profile": "specula",
+  "gui_face": null,
+  "mode": "specula",
+  "sclerites": [
+    "*"
+  ]
+}

@@ -12,7 +12,7 @@ mod catalog;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn profile() -> Result<Value, String> {
-    config::read_public_profile_value()
+    Ok(config::carapace().clone())
 }
 
 pub fn devices_json() -> Result<Value, String> {

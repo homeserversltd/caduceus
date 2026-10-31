@@ -48,7 +48,7 @@ async fn dhcp_leases_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBo
         Ok(false) => Err(crate::gate::api_error(command)),
         Err(_) => Err(crate::gate::api_error_signal(
             command,
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }

@@ -132,7 +132,7 @@ pub(crate) async fn vault_unlock_route(
         Err(_) => {
             return Err(api_error_signal(
                 VAULT_ATTENDANCE_COMMAND,
-                "caduceus-profile-missing",
+                "caduceus-carapace-desync",
             ))
         }
     }
@@ -157,7 +157,7 @@ pub(crate) async fn vault_auto_route(
         Err(_) => {
             return Err(api_error_signal(
                 VAULT_ATTENDANCE_COMMAND,
-                "caduceus-profile-missing",
+                "caduceus-carapace-desync",
             ))
         }
     }

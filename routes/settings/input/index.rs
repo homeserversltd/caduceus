@@ -10,7 +10,7 @@ fn admitted(command: &str) -> Result<(), (StatusCode, Json<Value>)> {
     match crate::shared::policy::allows_command(command) {
         Ok(true) => Ok(()),
         Ok(false) => Err((StatusCode::FORBIDDEN, Json(json!({"schema":"caduceus.api.error.v1","ok":false,"command":command,"first_missing_signal":"caduceus-public-action-not-allowed"})))),
-        Err(_) => Err((StatusCode::FORBIDDEN, Json(json!({"schema":"caduceus.api.error.v1","ok":false,"command":command,"first_missing_signal":"caduceus-profile-missing"})))),
+        Err(_) => Err((StatusCode::FORBIDDEN, Json(json!({"schema":"caduceus.api.error.v1","ok":false,"command":command,"first_missing_signal":"caduceus-carapace-desync"})))),
     }
 }
 

@@ -29,7 +29,7 @@ pub async fn execute(
     };
     let allowed = match crate::shared::policy::allows_command(command) {
         Ok(v) => v,
-        Err(_) => return refuse("caduceus-profile-missing"),
+        Err(_) => return refuse("caduceus-carapace-desync"),
     };
     if !allowed {
         return refuse("caduceus-command-not-allowed");

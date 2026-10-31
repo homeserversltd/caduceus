@@ -146,7 +146,7 @@ pub(crate) async fn face_post_with_timeout(
         Ok(false) => Err(crate::gate::api_error("staff intent")),
         Err(_) => Err(crate::gate::api_error_signal(
             "staff intent",
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }

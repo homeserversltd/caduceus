@@ -183,7 +183,7 @@ pub(crate) async fn route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBod
     match policy::allows_command(COMMAND) {
         Ok(true) => Ok(Json(history_json())),
         Ok(false) => Err(api_error(COMMAND)),
-        Err(_) => Err(api_error_signal(COMMAND, "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal(COMMAND, "caduceus-carapace-desync")),
     }
 }
 

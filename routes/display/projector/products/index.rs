@@ -52,7 +52,7 @@ async fn known_add(
                 .map_err(|e| crate::gate::api_error_signal(c, &e))
         }
         Ok(false) => Err(crate::gate::api_error(c)),
-        Err(_) => Err(crate::gate::api_error_signal(c, "caduceus-profile-missing")),
+        Err(_) => Err(crate::gate::api_error_signal(c, "caduceus-carapace-desync")),
     }
 }
 async fn known_http() -> Result<

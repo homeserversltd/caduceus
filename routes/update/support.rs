@@ -33,7 +33,7 @@ pub(crate) async fn update_now_route(
             Ok((status, Json(value)))
         }
         Ok(false) => Err(api_error("update now")),
-        Err(_) => Err(api_error_signal("update now", "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal("update now", "caduceus-carapace-desync")),
     }
 }
 
@@ -93,7 +93,7 @@ pub(crate) async fn receipts_ledger_route(
                 schema: "caduceus.api.error.v1",
                 ok: false,
                 command: "receipts ledger".to_string(),
-                first_missing_signal: "caduceus-profile-missing".to_string(),
+                first_missing_signal: "caduceus-carapace-desync".to_string(),
             }),
         )),
     }
@@ -112,7 +112,7 @@ pub(crate) async fn update_service_status_route(
         Ok(false) => Err(api_error("update service status")),
         Err(_) => Err(api_error_signal(
             "update service status",
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }
@@ -159,7 +159,7 @@ pub(crate) async fn update_service_toggle_route(
                 schema: "caduceus.api.error.v1",
                 ok: false,
                 command: "update service toggle".to_string(),
-                first_missing_signal: "caduceus-profile-missing".to_string(),
+                first_missing_signal: "caduceus-carapace-desync".to_string(),
             }),
         )),
     }

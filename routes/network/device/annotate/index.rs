@@ -172,7 +172,7 @@ async fn network_notes_write_route(
     let command = "network notes write";
     match policy::allows_command(command) {
         Ok(false) => Err(api_error(command)),
-        Err(_) => Err(api_error_signal(command, "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal(command, "caduceus-carapace-desync")),
         Ok(true) => {
             let admission_body = json!({"flags": body.flags.as_ref()});
             administrative_admits(

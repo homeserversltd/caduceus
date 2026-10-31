@@ -103,7 +103,7 @@ pub(crate) async fn route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBod
             result.map(Json).map_err(|e| api_error_signal(COMMAND, &e))
         }
         Ok(false) => Err(api_error(COMMAND)),
-        Err(_) => Err(api_error_signal(COMMAND, "caduceus-profile-missing")),
+        Err(_) => Err(api_error_signal(COMMAND, "caduceus-carapace-desync")),
     }
 }
 

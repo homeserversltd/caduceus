@@ -32,7 +32,7 @@ async fn scan_http(
         Ok(false) => Err(crate::gate::api_error(command)),
         Err(_) => Err(crate::gate::api_error_signal(
             command,
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }

@@ -2,7 +2,7 @@ use crate::shared::config;
 use serde_json::Value;
 
 pub fn load_profile_value() -> Result<Value, String> {
-    config::read_public_profile_value()
+    Ok(config::carapace().clone())
 }
 
 pub fn allows_command(command: &str) -> Result<bool, String> {

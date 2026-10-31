@@ -47,7 +47,7 @@ fn cartridges_mutation_admitted() -> Result<(), (StatusCode, Json<ApiErrorBody>)
                 schema: "caduceus.api.error.v1",
                 ok: false,
                 command: "cartridges mutate".to_string(),
-                first_missing_signal: "caduceus-profile-missing".to_string(),
+                first_missing_signal: "caduceus-carapace-desync".to_string(),
             }),
         )),
     }

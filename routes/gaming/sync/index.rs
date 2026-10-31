@@ -32,7 +32,7 @@ pub(super) async fn sync() -> Result<(StatusCode, Json<Value>), (StatusCode, Jso
         Ok(false) => Err(crate::gate::api_error("gaming sync")),
         Err(_) => Err(crate::gate::api_error_signal(
             "gaming sync",
-            "caduceus-profile-missing",
+            "caduceus-carapace-desync",
         )),
     }
 }
