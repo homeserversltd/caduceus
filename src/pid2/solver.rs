@@ -476,7 +476,7 @@ pub fn quiesce_held(routine: &str, deadline: std::time::Instant) -> Result<(),St
         let response=unit_call_timeout("status",unit,scope,remaining()?)?;
         if response.get("ok").and_then(Value::as_bool)!=Some(true) { return Err("pid2-unit-status-refused".into()); }
         match response.pointer("/readback/active_state").and_then(Value::as_str) {
-            Some("active")=>Ok(true), Some("inactive"|"failed")=>Ok(false), Some(_)=>Err("pid2-unit-transitioning".into()), None=>Err("pid2-unit-state-unobserved".into())
+            Some("inactive"|"failed")=>Ok(false), Some(_)=>Ok(true), None=>Err("pid2-unit-state-unobserved".into())
         }
     };
     for (unit,scope) in rows {
