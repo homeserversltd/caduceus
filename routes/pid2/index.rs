@@ -55,8 +55,38 @@ pub(crate) fn unit_control_with_timeout(payload: &Value, timeout: std::time::Dur
     Ok(receipt)
 }
 
+async fn schedule_list() -> Response { respond(work(crate::pid2::schedule::list).await,None,"schedule-list") }
+async fn schedule_status(Path(id): Path<String>) -> Response { respond(work(move || crate::pid2::schedule::status(&id)).await,None,"schedule-status") }
+async fn schedule_actuator(Json(body):Json<Value>) -> Response {
+    if body.get("actuator").and_then(Value::as_str)!=Some("nas-sync") {return respond(Err("pid2-schedule-actuator-unknown".into()),None,"schedule-actuator");}
+    let metadata=body.get("metadata").cloned().unwrap_or(Value::Null);
+    work(move || crate::pid2::schedule::face(&metadata)).await.map(Json).map_err(|signal|(StatusCode::SERVICE_UNAVAILABLE,Json(json!({"ok":false,"firstMissingSignal":signal}))))
+}
+async fn schedule_command(Path(verb): Path<String>, body: Bytes) -> Response {
+    let value:Value=match serde_json::from_slice(&body) {Ok(v)=>v,Err(e)=>return respond(Err(format!("pid2-invalid-json: {e}")),None,&verb)};
+    if verb=="register" {return respond(work(move || crate::pid2::schedule::register(&body)).await,Some(value),"schedule-register");}
+    if let Err(signal)=crate::protocol::Envelope::parse(value.clone()) {return respond(Err(signal),Some(value),&verb);}
+    let payload=value.get("payload").filter(|v|v.is_object()).unwrap_or(&value).clone();
+    let transition=format!("schedule-{verb}");
+    let result=work(move || {
+        let id=payload.get("schedule_id").and_then(Value::as_str).unwrap_or("");
+        match verb.as_str() {
+            "enable"=>crate::pid2::schedule::set_enabled(id,true,false),
+            "disable"=>crate::pid2::schedule::set_enabled(id,false,false),
+            "update"=>crate::pid2::schedule::update(id,payload.get("calendar").unwrap_or(&payload)),
+            "run"=>crate::pid2::schedule::queue(id,"owner",None),
+            _=>Err("pid2-schedule-action-unknown".into()),
+        }
+    }).await;
+    respond(result,Some(value),&transition)
+}
+
 pub fn register(router: Router) -> Router {
-    router.route("/api/v1/pid2/list", get(list))
+    router.route("/api/v1/pid2/schedule/list", get(schedule_list))
+        .route("/api/v1/pid2/schedule/status/:id", get(schedule_status))
+        .route("/api/v1/pid2/schedule/actuator", post(schedule_actuator))
+        .route("/api/v1/pid2/schedule/:verb", post(schedule_command))
+        .route("/api/v1/pid2/list", get(list))
         .route("/api/v1/pid2/status/:id", get(status))
         .route("/api/v1/pid2/:verb", post(command))
 }

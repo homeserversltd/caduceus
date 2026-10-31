@@ -1,0 +1,26 @@
+{
+  "schema": "caduceus.nas.sync.v1",
+  "schema_version": "1.0.0",
+  "role": "NAS sync staff receipt",
+  "authority": {"owner": "caduceus", "path": "schema/caduceus.nas.sync.v1.json"},
+  "evolution": {"law": "additive-only", "unknown_fields_preserved": true, "missing_field_semantics": "Absent optional fields mean null; only the frozen kernel is required."},
+  "required": ["schema"],
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.nas.sync.v1"},
+    "action": {"type": "string"},
+    "ok": {"type": "boolean"},
+    "outcome": {"type": "string"},
+    "firstMissingSignal": {"type": ["string", "null"]},
+    "reason": {"type": ["string", "null"]},
+    "checks": {"type": "array"},
+    "mutationPerformed": {"type": "boolean"},
+    "rsyncExitCode": {"type": ["integer", "null"]},
+    "rsyncStats": {},
+    "maxDelete": {},
+    "maxDeleteBasis": {},
+    "coldStart": {"type": "boolean"},
+    "finalFileCount": {"type": "integer", "minimum": 0},
+    "finalTotalBytes": {"type": "integer", "minimum": 0}
+  },
+  "additionalProperties": true
+}

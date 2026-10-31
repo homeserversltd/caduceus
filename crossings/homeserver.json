@@ -46,6 +46,7 @@
     "settings/ssh",
     "storage/backup/forgejo/backup-b2",
     "storage/backup/forgejo/credential",
+    "storage/backup/nas-sync",
     "storage/backup/nas-sync/hold",
     "storage/backup/nas-sync/release",
     "storage/backup/nas-sync/schedule/disable",
