@@ -5,7 +5,7 @@ use crate::shared::policy;
 
 async fn route(Json(metadata): Json<Value>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "staff intent";
-    if !crate::gate::roster_allows("POST", "storage/backup/backblaze/bucket-items").unwrap_or(false) {
+    if !crate::gate::roster_allows("POST", "storage/backup/backblaze/bucket/items").unwrap_or(false) {
         return Err(api_error_signal(COMMAND, "caduceus-route-off-roster"));
     }
 

@@ -1,5 +1,5 @@
 {
-  "namespace": "storage/backup/backblaze/bucket-verify",
+  "namespace": "storage/backup/backblaze/bucket/verify",
   "admittance": "open",
   "flags": {},
   "serve": [

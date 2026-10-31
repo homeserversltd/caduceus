@@ -5,14 +5,14 @@ use crate::shared::policy;
 
 async fn route(Json(metadata): Json<Value>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "staff intent";
-    if !crate::gate::roster_allows("POST", "storage/backup/backblaze/bucket-add").unwrap_or(false) {
+    if !crate::gate::roster_allows("POST", "storage/backup/backblaze/bucket/remove").unwrap_or(false) {
         return Err(api_error_signal(COMMAND, "caduceus-route-off-roster"));
     }
 
     match policy::allows_command(COMMAND) {
         Ok(true) => {
             let receipt = blocking_task(COMMAND, move || {
-                crate::routes::staff::named_actuator_json("backblaze-bucket-add", metadata)
+                crate::routes::staff::named_actuator_json("backblaze-bucket-remove", metadata)
             }).await?.map_err(|signal| api_error_signal(COMMAND, &signal))?;
             Ok((mutation_status(&receipt), Json(receipt)))
         }
@@ -22,5 +22,5 @@ async fn route(Json(metadata): Json<Value>) -> Result<(StatusCode, Json<Value>),
 }
 
 pub fn register(router: Router) -> Router {
-    router.route("/api/v1/storage/backup/backblaze/bucket/add", axum::routing::post(route))
+    router.route("/api/v1/storage/backup/backblaze/bucket/remove", axum::routing::post(route))
 }
