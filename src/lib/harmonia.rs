@@ -191,6 +191,23 @@ fn invoke_in_transient_service(argv: &[String]) -> io::Result<InvocationOutput> 
     })
 }
 
+fn bounded_line(text: &str) -> Option<String> {
+    let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
+    let end = line.char_indices().map(|(i, _)| i).take_while(|i| *i <= 256).last().unwrap_or(0);
+    let end = if line.len() <= 256 { line.len() } else { end };
+    Some(line[..end].to_string())
+}
+
+fn child_signal(stdout: &str, stderr: &str, ok: bool) -> String {
+    let json = serde_json::from_str::<Value>(stdout.trim()).ok();
+    let declared = json.as_ref().and_then(|v| v.get("first_missing_signal")).and_then(Value::as_str)
+        .or_else(|| stdout.lines().find_map(|line| line.strip_prefix("first_missing_signal=")));
+    declared.and_then(bounded_line)
+        .or_else(|| bounded_line(stderr))
+        .or_else(|| bounded_line(stdout))
+        .unwrap_or_else(|| if ok { "none" } else { "caduceus-harmonia-command-failed" }.to_string())
+}
+
 pub fn invoke_body_to_json(route_key: &str, code: i32, body: &str) -> Value {
     let mut fields = serde_json::Map::new();
     for line in body.lines() {
@@ -224,7 +241,7 @@ pub fn invoke_body_to_json(route_key: &str, code: i32, body: &str) -> Value {
         "ok": ok,
         "exitCode": code,
         "body": body,
-        "firstMissingSignal": typed_string("first_missing_signal").unwrap_or(if ok { "none" } else { "caduceus-harmonia-command-failed" })
+        "firstMissingSignal": typed_string("first_missing_signal").and_then(bounded_line).unwrap_or_else(|| child_signal(body, "", ok))
     })
 }
 
@@ -242,20 +259,32 @@ fn invoke_argv(route_key: &str, route_value: &Value, argv: &[String]) -> (i32, S
                 // Harmonia receipts are authoritative even when the process refuses.
                 // The refusal receipt is emitted on stdout by contract and must not
                 // be replaced with sudo/stderr text.
+                let signal = child_signal(&result.stdout, &result.stderr, ok);
                 let body = if result.stdout.is_empty() {
-                    result.stderr
-                } else {
+                    signal
+                } else if let Ok(mut value) = serde_json::from_str::<Value>(&result.stdout) {
+                    if let Some(object) = value.as_object_mut() {
+                        if object.get("first_missing_signal").and_then(Value::as_str).and_then(bounded_line).is_some() {
+                            result.stdout
+                        } else {
+                            object.insert("first_missing_signal".to_string(), json!(signal));
+                            value.to_string()
+                        }
+                    } else { format!("{}\nfirst_missing_signal={signal}\n", result.stdout) }
+                } else if result.stdout.lines().any(|line| line.starts_with("first_missing_signal=")) {
                     result.stdout
+                } else {
+                    format!("{}\nfirst_missing_signal={signal}\n", result.stdout)
                 };
-                return (if ok { 0 } else { 1 }, body);
+                return (result.exit_code, body);
             }
             let body = format!(
                 "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute={route_key}\nok={ok}\nexit_code={}\ncommand={}\nfirst_missing_signal={}\n",
                 result.exit_code,
                 bin,
-                if ok { "none" } else { "caduceus-harmonia-command-failed" }
+                child_signal(&result.stdout, &result.stderr, ok)
             );
-            (if ok { 0 } else { 1 }, body)
+            (result.exit_code, body)
         }
         Err(err) => {
             let body = format!(

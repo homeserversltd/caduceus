@@ -49,16 +49,16 @@ pub fn execute_envelope(raw: Value) -> Result<Value, String> {
         .and_then(Value::as_bool)
         .unwrap_or(exit_code == 0);
     let ok = exit_code == 0 && child_ok;
-    let first_missing_signal = parsed_receipt
-        .get("first_missing_signal")
+    let first_missing_signal = child
+        .get("firstMissingSignal")
         .and_then(Value::as_str)
-        .unwrap_or(if ok { "none" } else { "caduceus-harmonia-command-failed" });
+        .unwrap_or(if ok { "none" } else { "caduceus-harmonia-command-failed" }).to_string();
     response["ok"] = Value::Bool(ok);
     response["exitCode"] = json!(exit_code);
     response["receiptPayload"] = parsed_receipt.clone();
     response["rawChildStdout"] = Value::String(stdout);
     response["harmoniaReceipt"] = child;
-    response["first_missing_signal"] = Value::String(first_missing_signal.to_string());
+    response["first_missing_signal"] = Value::String(first_missing_signal);
     Ok(response)
 }
 

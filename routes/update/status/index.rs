@@ -1,6 +1,44 @@
 use crate::shared::config;
 use serde_json::{json, Value};
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::path::Path;
+
+fn write_index(path: &Path, rendered: &[u8]) -> Result<(), String> {
+    let failure = |step: &str| format!("caduceus-harmonia-profile-write-failed:{step}");
+    let metadata = fs::metadata(path).map_err(|_| failure("metadata"))?;
+    let dir = path.parent().ok_or_else(|| failure("directory"))?;
+    let directory = File::open(dir).map_err(|_| failure("directory-open"))?;
+    let temp = dir.join(format!(".index.json.{}.tmp", uuid::Uuid::new_v4()));
+    let mut file = OpenOptions::new().write(true).create_new(true).mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW).open(&temp).map_err(|_| failure("temp-create"))?;
+    let result = (|| {
+        let new_meta = file.metadata().map_err(|_| failure("temp-metadata"))?;
+        if (new_meta.uid(), new_meta.gid()) != (metadata.uid(), metadata.gid()) {
+            let rc = unsafe { libc::fchown(file.as_raw_fd(), metadata.uid(), metadata.gid()) };
+            if rc != 0 { return Err(failure("ownership")); }
+        }
+        file.write_all(rendered).map_err(|_| failure("write"))?;
+        file.set_permissions(fs::Permissions::from_mode(metadata.mode() & 0o7777))
+            .map_err(|_| failure("mode"))?;
+        file.sync_all().map_err(|_| failure("file-fsync"))?;
+        fs::rename(&temp, path).map_err(|_| failure("rename"))?;
+        directory.sync_all().map_err(|_| failure("directory-fsync"))?;
+        let readback = fs::read(path).map_err(|_| failure("readback"))?;
+        if readback != rendered { return Err(failure("compare")); }
+        Ok(())
+    })();
+    if result.is_err() {
+        match fs::remove_file(&temp) {
+            Ok(()) => {},
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {},
+            Err(_) => return Err(failure("temp-cleanup")),
+        }
+    }
+    result
+}
 
 fn valid_module_id(id: &str) -> bool {
     !id.is_empty()
@@ -39,8 +77,7 @@ pub fn toggle_json(module_id: &str, enabled: bool) -> Result<Value, String> {
     let rendered = serde_json::to_string_pretty(&json_value)
         .map_err(|_| "caduceus-harmonia-profile-render-failed".to_string())?
         + "\n";
-    fs::write(&path, rendered.as_bytes())
-        .map_err(|err| format!("caduceus-harmonia-profile-write-failed:{err}"))?;
+    write_index(&path, rendered.as_bytes())?;
     Ok(json!({
         "schema": "caduceus.profile.module.toggle.v1",
         "ok": true,
