@@ -19,6 +19,7 @@
     "mode": {"type": "string"},
     "sclerites": {"type": "array", "items": {"type": "string"}},
     "harmonia_routes": {"type": "object"},
+    "harmonia_profile": {"type": ["string", "null"]},
     "services": {"type": ["object", "null"]},
     "pjlink": {"type": ["object", "null"]},
     "planned_capabilities": {"type": ["array", "null"]},
@@ -32,6 +33,7 @@
     "mode": "string",
     "sclerites": "array",
     "harmonia_routes": "object",
+    "harmonia_profile": ["string", "null"],
     "services": ["object", "null"],
     "pjlink": ["object", "null"],
     "planned_capabilities": ["array", "null"],
@@ -39,6 +41,6 @@
     "build_env_sha": ["string", "null"]
   },
   "required": ["schema", "profile", "mode", "sclerites"],
-  "optional": ["gui_face", "harmonia_routes", "services", "pjlink", "planned_capabilities", "source_sha", "build_env_sha"],
+  "optional": ["gui_face", "harmonia_routes", "harmonia_profile", "services", "pjlink", "planned_capabilities", "source_sha", "build_env_sha"],
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }
