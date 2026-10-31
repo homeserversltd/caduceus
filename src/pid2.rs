@@ -3,38 +3,44 @@ use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 pub(super) static ACTION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-// Linux flock on the existing SQLite inode is independent of SQLite's fcntl locks.
+// PID-2 coordination cannot open and close SQLite's inode directly: POSIX
+// close would drop this process's SQLite record locks, allowing another
+// connection to unlink its still-open WAL. This empty coordination inode lives
+// beside the database, outside systemd's removable RuntimeDirectory, and must
+// never be unlinked while any PID-2 process can hold it.
+fn coordination_file() -> Result<std::fs::File,String> {
+    let path=crate::shared::config::path("var/lib/caduceus/pid2.lock");
+    if let Some(parent)=path.parent() {std::fs::create_dir_all(parent).map_err(|e|format!("pid2-lock-directory: {e}"))?;}
+    std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path).map_err(|e|format!("pid2-lock-open: {e}"))
+}
 pub(super) fn process_action_lock() -> Result<std::fs::File,String> {
     use std::os::fd::AsRawFd;
-    crate::stats::open_db()?;
-    let file=std::fs::OpenOptions::new().read(true).write(true).open(crate::stats::db_path()).map_err(|e|format!("pid2-action-lock-open: {e}"))?;
+    let file=coordination_file()?;
     if unsafe { libc::flock(file.as_raw_fd(),libc::LOCK_EX) } != 0 { return Err(format!("pid2-action-lock: {}",std::io::Error::last_os_error())); }
     Ok(file)
 }
 
 /// Serialize an entire solver walk against routine and boot transitions.
-/// OFD byte 1 is separate from the swap lease (byte 0) and SQLite's locks.
+/// OFD byte 1 is separate from the swap lease (byte 0).
 pub(super) fn walk_lock() -> Result<std::fs::File,String> {
     use std::os::fd::AsRawFd;
-    crate::stats::open_db()?;
-    let file=std::fs::OpenOptions::new().read(true).write(true).open(crate::stats::db_path()).map_err(|e|format!("pid2-walk-lock-open: {e}"))?;
+    let file=coordination_file()?;
     let lock=libc::flock { l_type:libc::F_WRLCK as _, l_whence:libc::SEEK_SET as _, l_start:1, l_len:1, l_pid:0 };
     if unsafe { libc::fcntl(file.as_raw_fd(),libc::F_OFD_SETLKW,&lock) } != 0 { return Err(format!("pid2-walk-lock: {}",std::io::Error::last_os_error())); }
     Ok(file)
 }
 /// A non-blocking cross-process lease for the complete NAS swap chord.
-/// SQLite locks high reserved bytes; this open-file-description lock uses byte 0
-/// of the same inode and is released by the kernel even if the owner dies.
+/// OFD byte 0 is released by the kernel even if the owner dies.
 pub(crate) fn swap_lease() -> Result<std::fs::File,String> {
     use std::os::fd::AsRawFd;
-    crate::stats::open_db()?;
-    let file=std::fs::OpenOptions::new().read(true).write(true).open(crate::stats::db_path()).map_err(|e|format!("pid2-swap-lease-open: {e}"))?;
+    let file=coordination_file()?;
     let lock=libc::flock { l_type:libc::F_WRLCK as _, l_whence:libc::SEEK_SET as _, l_start:0, l_len:1, l_pid:0 };
     if unsafe { libc::fcntl(file.as_raw_fd(),libc::F_OFD_SETLK,&lock) } != 0 { return Err("pid2-swap-busy".into()); }
     Ok(file)
 }
 pub mod solver;
 pub mod events;
+pub mod schedule;
 
 const SCHEMA: &str = "caduceus.pid2.routine.v1";
 
@@ -51,7 +57,10 @@ fn tables(db: &rusqlite::Connection) -> Result<(), String> {
         CREATE TABLE IF NOT EXISTS pid2_completed (routine_id TEXT NOT NULL, line TEXT NOT NULL, PRIMARY KEY(routine_id,line));
         CREATE TABLE IF NOT EXISTS pid2_attempts (routine_id TEXT NOT NULL, line TEXT NOT NULL, attempted_at INTEGER NOT NULL, PRIMARY KEY(routine_id,line));
         CREATE TABLE IF NOT EXISTS pid2_elections (routine_id TEXT NOT NULL, line TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(routine_id,line));
-        CREATE TABLE IF NOT EXISTS pid2_crossings (routine_id TEXT NOT NULL, line TEXT NOT NULL, step_index INTEGER NOT NULL, PRIMARY KEY(routine_id,line,step_index));").map_err(|e| e.to_string())
+        CREATE TABLE IF NOT EXISTS pid2_crossings (routine_id TEXT NOT NULL, line TEXT NOT NULL, step_index INTEGER NOT NULL, PRIMARY KEY(routine_id,line,step_index));
+        CREATE TABLE IF NOT EXISTS pid2_schedules (schedule_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, envelope BLOB NOT NULL, frequency TEXT NOT NULL, time TEXT NOT NULL, weekday TEXT, band TEXT NOT NULL, action TEXT NOT NULL, max_seconds INTEGER NOT NULL, registered_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_fired_slot INTEGER);
+        CREATE TABLE IF NOT EXISTS pid2_fires (schedule_id TEXT PRIMARY KEY, fire_id TEXT NOT NULL, trigger TEXT NOT NULL, state TEXT NOT NULL, queued_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, duration_ms INTEGER, first_missing_signal TEXT, rsync_exit_code INTEGER, final_file_count INTEGER, final_total_bytes INTEGER);
+        CREATE TABLE IF NOT EXISTS pid2_sync_baselines (schedule_id TEXT PRIMARY KEY, file_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, updated_at INTEGER NOT NULL, fire_id TEXT NOT NULL);").map_err(|e| e.to_string())
 }
 
 /// The boot id is compared and runtime rows are cleared atomically; registrations survive.
@@ -74,7 +83,10 @@ pub fn reset_gate() -> Result<bool, String> {
         tx.execute("DELETE FROM pid2_attempts", []).map_err(|e| e.to_string())?;
         tx.execute("DELETE FROM pid2_elections", []).map_err(|e| e.to_string())?;
         tx.execute("DELETE FROM pid2_crossings", []).map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM pid2_fires", []).map_err(|e| e.to_string())?;
         tx.execute("INSERT INTO pid2_boot(id,boot_id,began_at) VALUES(1,?1,?2) ON CONFLICT(id) DO UPDATE SET boot_id=excluded.boot_id,began_at=excluded.began_at", params![boot,now()]).map_err(|e| e.to_string())?;
+    } else {
+        tx.execute("UPDATE pid2_fires SET state='Interrupted',finished_at=?1,first_missing_signal='pid2-fire-interrupted' WHERE state IN ('Queued','Running')", [now()]).map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
     Ok(changed)

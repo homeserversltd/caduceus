@@ -236,6 +236,7 @@ fn execute_command(
     face_path: Value,
     timeout_error: &str,
     spawn_error: &str,
+    terminate_group: bool,
 ) -> Result<Value, String> {
     let Some(context) = crate::shared::load_trace::current() else {
         let mut appended_staff_stamps = 0;
@@ -247,6 +248,7 @@ fn execute_command(
             face_path,
             timeout_error,
             spawn_error,
+            terminate_group,
             None,
             &mut appended_staff_stamps,
         );
@@ -267,6 +269,7 @@ fn execute_command(
         face_path,
         timeout_error,
         spawn_error,
+        terminate_group,
         Some(&context),
         &mut appended_staff_stamps,
     );
@@ -300,10 +303,15 @@ fn execute_command_raw(
     face_path: Value,
     timeout_error: &str,
     spawn_error: &str,
+    terminate_group: bool,
     trace_context: Option<&crate::shared::load_trace::ContextHandle>,
     appended_staff_stamps: &mut usize,
 ) -> Result<Value, String> {
     let (forwarded, raw) = prepare_envelope(outer_envelope)?;
+    if terminate_group {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -347,6 +355,16 @@ fn execute_command_raw(
                 std::thread::sleep(Duration::from_millis(10));
             }
             _ => {
+                if terminate_group {
+                    // Give the sudo monitor a bounded chance to forward TERM.
+                    unsafe { libc::kill(-(child.id() as i32), libc::SIGTERM); }
+                    let grace=Instant::now()+Duration::from_secs(1);
+                    while Instant::now()<grace {
+                        if matches!(child.try_wait(),Ok(Some(_))) {break;}
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL); }
+                }
                 let _ = child.kill();
                 let _ = child.wait();
                 break None;
@@ -490,6 +508,7 @@ fn execute_with_timeout(
         face_path,
         "caduceus-agathodaimon-timeout",
         "caduceus-agathodaimon-cli-unavailable",
+        false,
     )
 }
 fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
@@ -564,6 +583,7 @@ pub fn run_launcher(argv: &[String], envelope: &Value, timeout: Duration) -> Res
         Value::Null,
         "xenos-run-timeout",
         "xenos-launcher-absent",
+        false,
     )
 }
 pub fn run(band: &str, envelope: &Value) -> Result<Value, String> {
@@ -857,6 +877,22 @@ pub fn crossing_path_with_timeout(
     let band = safe_band_path(path)?;
     let envelope = crossing_envelope(&band, input);
     execute_with_timeout(&band, &envelope, timeout)
+}
+
+/// A schedule owns its own deadline; all other crossings retain their limits.
+#[cfg(leaf_pid2)]
+pub fn schedule_crossing(path: &str, metadata: &Value, timeout: Duration) -> Result<Value, String> {
+    if timeout.is_zero() || timeout > Duration::from_secs(86400) {
+        return Err("pid2-schedule-timeout-out-of-range".into());
+    }
+    let band = safe_band_path(path)?;
+    let actuator = band.rsplit('/').next().unwrap_or(&band);
+    let input = json!({"actuator":actuator, "metadata":metadata});
+    let envelope = json!({"schema":crate::protocol::SCHEMA_ID, "intent_id":format!("caduceus-{band}"),
+        "transition":band, "origin_of_intent":"near", "payload":input,
+        "actuator":actuator, "metadata":metadata});
+    let (command,face_path)=band_invocation(&band)?;
+    execute_command(&band,&envelope,command,timeout,face_path,"caduceus-agathodaimon-timeout","caduceus-agathodaimon-cli-unavailable",true)
 }
 
 pub fn crossing_path(path: &str, input: &Value) -> Result<Value, String> {
@@ -1268,7 +1304,7 @@ async fn native_chord_run_steps(
             }).await.map_err(|_| "caduceus-blocking-task-join-failed".to_string())
                 .and_then(|result| result)
         } else if let Some(native) = step.native.as_deref() {
-            let id = resolved_arguments.get("routine_id").and_then(Value::as_str).unwrap_or("").to_owned();
+            let id = resolved_arguments.get("routine_id").or_else(||resolved_arguments.get("schedule_id")).and_then(Value::as_str).unwrap_or("").to_owned();
             let acquired=resolved_arguments.get("acquired").and_then(Value::as_bool);
             let native = native.to_owned();
             let is_swap=routine_id=="storage/nas/role/swap";
@@ -1293,6 +1329,7 @@ async fn native_chord_run_steps(
                             Err(signal)
                         } else { Ok(receipt) }
                     },
+                    "pid2/schedule-disable" => crate::pid2::schedule::set_enabled(&id,false,true),
                     "pid2/release" if is_swap && acquired==Some(false) => Ok(json!({"ok":true,"changed":false})),
                     "pid2/release" if is_swap && acquired==Some(true) => crate::pid2::release_from_swap(&id),
                     "pid2/release" if is_swap => Err("pid2-swap-hold-ownership-missing".into()),

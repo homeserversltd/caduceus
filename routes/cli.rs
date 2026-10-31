@@ -67,6 +67,8 @@ where
         return 0;
     }
     #[cfg(leaf_pid2)]
+    if args.first().is_some_and(|v| v=="schedule") { return crate::pid2::schedule::cli(&args[1..]); }
+    #[cfg(leaf_pid2)]
     if args.as_slice() == ["pid2-owner-sense"] { return crate::pid2::events::owner_sense_cli(); }
     #[cfg(leaf_pid2)]
     if args.first().is_some_and(|v| ["enable", "disable", "start", "stop", "restart", "hold", "release", "status", "list", "pid2-observe-drm"].contains(&v.as_str())) {
@@ -991,6 +993,7 @@ fn print_usage(args: Option<&[String]>) {
     println!("  caduceus help");
     #[cfg(leaf_pid2)]
     {
+        println!("  caduceus schedule list|status|enable|disable|update|run|register");
         println!("  caduceus enable < routine-envelope-on-stdin");
         println!("  caduceus disable <routine-id>");
         println!("  caduceus hold|release <routine-id>");

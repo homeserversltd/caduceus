@@ -411,7 +411,10 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
         "disk-doors" => staff_actuator_receipt("disk-doors", "storage/disk-doors", metadata),
         "wake-on-lan" => staff_actuator_receipt("wake-on-lan", "network/wake-on-lan", metadata),
         "child-device" => staff_actuator_receipt("child-device", "network/child-device", metadata),
-        "nas-sync" => staff_actuator_receipt("nas-sync", "storage/backup/nas-sync", metadata),
+        #[cfg(leaf_pid2)]
+        "nas-sync" => crate::pid2::schedule::face(&metadata),
+        #[cfg(not(leaf_pid2))]
+        "nas-sync" => Err("caduceus-pid2-leaf-unavailable".into()),
         _ => Err("caduceus-staff-actuator-unmapped".to_string()),
     }
 }

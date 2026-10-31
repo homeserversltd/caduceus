@@ -13,14 +13,7 @@
         "hold"
       ]
     },
-    {
-      "stage_id": "schedule-off",
-      "snake": "storage/backup/nas-sync/schedule/disable",
-      "verb": [
-        "schedule",
-        "disable"
-      ]
-    },
+    {"stage_id":"schedule-off", "native":"pid2/schedule-disable", "arguments":{"schedule_id":"nas-sync"}, "required":true},
     {
       "stage_id": "observe-primary",
       "snake": "storage/nas/role/observe",

@@ -174,15 +174,55 @@ pub async fn run() {
         tokio::spawn(watch_commands(tx.clone(),command_wake.clone())),
     ];
     wake(&tx);
+    // The solver has its own coalesced worker: a slow walk never delays the clock.
+    let (solver_tx,mut solver_rx)=mpsc::channel::<()>(1);
+    let solver_command=Arc::new(AtomicBool::new(false));
+    let solver_heartbeat=Arc::new(AtomicBool::new(false));
+    let worker_senses=senses.clone();
+    let worker_command=solver_command.clone();
+    let worker_heartbeat=solver_heartbeat.clone();
+    let solver_task=tokio::spawn(async move {
+        while solver_rx.recv().await.is_some() {
+            let senses=worker_senses.clone();
+            let command=worker_command.swap(false,Ordering::AcqRel);
+            let heartbeat=worker_heartbeat.swap(false,Ordering::AcqRel);
+            match tokio::task::spawn_blocking(move || super::solver::reconcile(&senses,command,heartbeat)).await {
+                Ok(Ok(()))=>{}, Ok(Err(e))=>eprintln!("pid2-reconcile-failed: {e}"), Err(e)=>eprintln!("pid2-reconcile-task-failed: {e}"),
+            }
+        }
+    });
     let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now()+Duration::from_secs(300),Duration::from_secs(300));
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    loop {
-        let heartbeat_wake=tokio::select! { _=heartbeat.tick()=>true, item=rx.recv()=>{if item.is_none(){break} false} };
-        let senses = senses.clone();
-        let command=command_wake.swap(false,Ordering::AcqRel);
-        match tokio::task::spawn_blocking(move || super::solver::reconcile(&senses,command,heartbeat_wake)).await {
-            Ok(Ok(())) => {}, Ok(Err(e)) => eprintln!("pid2-reconcile-failed: {e}"), Err(e) => eprintln!("pid2-reconcile-task-failed: {e}"),
+    let mut catchup=true;
+    let fire_slots=Arc::new(tokio::sync::Semaphore::new(16));
+    'events: loop {
+        let delay=match super::schedule::clock(catchup) {Ok(delay)=>delay,Err(error)=>{eprintln!("pid2-schedule-clock: {error}");Duration::from_secs(300)}};
+        catchup=false;
+        match super::schedule::queued() {
+            Ok(ids)=>for id in ids {
+                let Ok(permit)=fire_slots.clone().try_acquire_owned() else { break; };
+                tokio::task::spawn_blocking(move || {let _permit=permit; if let Err(error)=super::schedule::execute(&id) {eprintln!("pid2-schedule-fire: {error}");}});
+            },
+            Err(error)=>eprintln!("pid2-schedule-queue: {error}"),
         }
+        let clock_deadline=tokio::time::Instant::now()+delay;
+        loop {
+            tokio::select! {
+                _=heartbeat.tick()=>{
+                    // The existing solver heartbeat must not poll schedule rows.
+                    solver_heartbeat.store(true,Ordering::Release);
+                    let _=solver_tx.try_send(());
+                },
+                _=tokio::time::sleep_until(clock_deadline)=>break,
+                item=rx.recv()=>{
+                    if item.is_none() {break 'events;}
+                    break;
+                }
+            }
+        }
+        if command_wake.swap(false,Ordering::AcqRel) {solver_command.store(true,Ordering::Release);}
+        let _=solver_tx.try_send(());
     }
+    solver_task.abort();
     for task in tasks { task.abort(); }
 }
