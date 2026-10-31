@@ -46,6 +46,26 @@ pub(crate) fn carapace_with_build_identity() -> Value {
     value
 }
 
+pub(crate) fn harmonia_profile_index_path() -> Result<String, String> {
+    let text = read_public_file("etc/appliance/profile.json")
+        .map_err(|err| format!("caduceus-birth-certificate-missing: {err}"))?;
+    let birth: Value = serde_json::from_str(&text)
+        .map_err(|err| format!("caduceus-birth-certificate-invalid: {err}"))?;
+    let profile = birth
+        .get("profile")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "caduceus-birth-certificate-profile-missing".to_string())?;
+    let mut components = Path::new(profile).components();
+    if profile.contains('/')
+        || profile.contains('\0')
+        || !matches!(components.next(), Some(std::path::Component::Normal(_)))
+        || components.next().is_some()
+    {
+        return Err("caduceus-birth-certificate-profile-invalid".to_string());
+    }
+    Ok(format!("/etc/harmonia/profiles/{profile}/index.json"))
+}
+
 pub fn overlay_birth_profile_fields(value: &mut serde_json::Value) -> Result<(), String> {
     let text = read_public_file("etc/appliance/profile.json")
         .map_err(|err| format!("caduceus-birth-certificate-missing: {err}"))?;

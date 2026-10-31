@@ -1,5 +1,5 @@
 use crate::gate::{api_error, api_error_signal, ApiErrorBody};
-use crate::shared::{config, harmonia, policy};
+use crate::shared::{config, policy};
 use axum::{http::StatusCode, Json};
 use serde_json::{json, Value};
 use std::{
@@ -19,12 +19,7 @@ fn valid_module_id(id: &str) -> bool {
 }
 
 fn modules_json() -> Result<Value, String> {
-    let public = harmonia::load_profile_value()?;
-    let profile_path = public
-        .get("harmonia_profile")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "caduceus-harmonia-profile-missing".to_string())?;
-    let profile_path = config::path(profile_path);
+    let profile_path = config::path(&config::harmonia_profile_index_path()?);
     let text = fs::read_to_string(&profile_path)
         .map_err(|_| "caduceus-harmonia-profile-unreadable".to_string())?;
     let profile: Value =
@@ -35,13 +30,22 @@ fn modules_json() -> Result<Value, String> {
         .ok_or_else(|| "caduceus-harmonia-profile-modules-missing".to_string())?;
     let enabled_ids = enabled
         .iter()
-        .filter_map(Value::as_str)
+        .filter_map(|module| {
+            module.as_str().or_else(|| {
+                (module.get("enabled").and_then(Value::as_bool) == Some(true))
+                    .then(|| module.get("id").and_then(Value::as_str))
+                    .flatten()
+            })
+        })
         .filter(|id| valid_module_id(id))
         .collect::<BTreeSet<_>>();
     let mut ids = enabled_ids
         .iter()
         .map(|id| (*id).to_string())
         .collect::<BTreeSet<_>>();
+    ids.extend(enabled.iter().filter_map(|module| {
+        module.get("id").and_then(Value::as_str).filter(|id| valid_module_id(id)).map(str::to_owned)
+    }));
     let modules_dir = profile_path
         .parent()
         .ok_or_else(|| "caduceus-harmonia-profile-directory-missing".to_string())?

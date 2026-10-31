@@ -1,16 +1,6 @@
-use crate::shared::harmonia;
+use crate::shared::config;
 use serde_json::{json, Value};
 use std::fs;
-use std::path::Path;
-
-fn harmonia_profile_path() -> Result<String, String> {
-    let profile = harmonia::load_profile_value()?;
-    profile
-        .get("harmonia_profile")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| "caduceus-harmonia-profile-missing".to_string())
-}
 
 fn valid_module_id(id: &str) -> bool {
     !id.is_empty()
@@ -24,9 +14,9 @@ pub fn toggle_json(module_id: &str, enabled: bool) -> Result<Value, String> {
     if !valid_module_id(module_id) {
         return Err("caduceus-profile-module-id-invalid".to_string());
     }
-    let profile_path = harmonia_profile_path()?;
-    let path = Path::new(&profile_path);
-    let text = fs::read_to_string(path)
+    let profile_path = config::harmonia_profile_index_path()?;
+    let path = config::path(&profile_path);
+    let text = fs::read_to_string(&path)
         .map_err(|err| format!("caduceus-harmonia-profile-unreadable:{err}"))?;
     let mut json_value: Value =
         serde_json::from_str(&text).map_err(|_| "caduceus-harmonia-profile-invalid".to_string())?;
@@ -34,20 +24,22 @@ pub fn toggle_json(module_id: &str, enabled: bool) -> Result<Value, String> {
         .get_mut("modules")
         .and_then(|modules| modules.as_array_mut())
         .ok_or_else(|| "caduceus-harmonia-profile-modules-missing".to_string())?;
-    let had_module = modules
-        .iter()
-        .any(|module| module.as_str() == Some(module_id));
-    if enabled && !had_module {
-        modules.push(Value::String(module_id.to_string()));
-    } else if !enabled {
-        modules.retain(|module| module.as_str() != Some(module_id));
+    let existing = modules.iter_mut().find(|module| {
+        module.as_str() == Some(module_id)
+            || module.get("id").and_then(Value::as_str) == Some(module_id)
+    });
+    match existing {
+        Some(Value::Object(object)) => {
+            object.insert("enabled".to_string(), Value::Bool(enabled));
+        }
+        Some(_) if !enabled => modules.retain(|module| module.as_str() != Some(module_id)),
+        None if enabled => modules.push(Value::String(module_id.to_string())),
+        _ => {}
     }
     let rendered = serde_json::to_string_pretty(&json_value)
         .map_err(|_| "caduceus-harmonia-profile-render-failed".to_string())?
         + "\n";
-    let backup_path = path.with_extension("index.json.caduceus-bak");
-    let _ = fs::write(&backup_path, text.as_bytes());
-    fs::write(path, rendered.as_bytes())
+    fs::write(&path, rendered.as_bytes())
         .map_err(|err| format!("caduceus-harmonia-profile-write-failed:{err}"))?;
     Ok(json!({
         "schema": "caduceus.profile.module.toggle.v1",

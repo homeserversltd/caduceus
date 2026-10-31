@@ -3,7 +3,6 @@
   "profile": "homesi",
   "gui_face": "Noesis",
   "mode": "homesi",
-  "harmonia_profile": "/etc/harmonia/profiles/homesi/index.json",
   "services": {
     "update": {
       "timer": "harmonia.timer",

@@ -3,7 +3,6 @@
   "profile": "tv",
   "gui_face": "Sway",
   "mode": "tv",
-  "harmonia_profile": "/etc/harmonia/profiles/tv/index.json",
   "planned_capabilities": [
     "pjlink"
   ],

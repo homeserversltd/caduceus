@@ -3,7 +3,6 @@
   "profile": "homeconsole",
   "gui_face": "Arcadia",
   "mode": "homeconsole",
-  "harmonia_profile": "/etc/harmonia/profiles/homeconsole/index.json",
   "services": {
     "update": {
       "timer": "harmonia.timer",

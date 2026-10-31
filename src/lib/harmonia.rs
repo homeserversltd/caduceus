@@ -316,15 +316,12 @@ pub fn invoke_with_args(route_key: &str, args: &[String]) -> (i32, String) {
 }
 
 pub fn invoke_update_module(module_id: &str, apply: bool) -> (i32, String) {
-    let profile_ref = match load_profile_value()
-        .ok()
-        .and_then(|profile| profile.get("harmonia_profile").and_then(Value::as_str).map(str::to_owned))
-    {
-        Some(profile_ref) => profile_ref,
-        None => {
+    let profile_ref = match config::harmonia_profile_index_path() {
+        Ok(profile_ref) => profile_ref,
+        Err(err) => {
             return (
                 1,
-                "schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute=update_module\nok=false\nfirst_missing_signal=caduceus-harmonia-profile-missing\n".to_string(),
+                format!("schema=caduceus.harmonia.invoke.v1\nmutation=true\nroute=update_module\nok=false\nfirst_missing_signal={err}\n"),
             )
         }
     };

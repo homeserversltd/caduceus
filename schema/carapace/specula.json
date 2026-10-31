@@ -3,6 +3,61 @@
   "profile": "specula",
   "gui_face": null,
   "mode": "specula",
+  "harmonia_routes": {
+    "interactable_list": {
+      "bin": "/usr/local/bin/harmonia",
+      "args": [
+        "interactable",
+        "list",
+        "--json"
+      ],
+      "raw_json": true
+    },
+    "interactable_run": {
+      "bin": "/usr/local/bin/harmonia",
+      "args": [
+        "interactable",
+        "run"
+      ],
+      "positional": true,
+      "raw_json": true
+    },
+    "interactable_silence": {
+      "bin": "/usr/local/bin/harmonia",
+      "args": [
+        "interactable",
+        "silence"
+      ],
+      "positional": true,
+      "raw_json": true
+    },
+    "interactable_unsilence": {
+      "bin": "/usr/local/bin/harmonia",
+      "args": [
+        "interactable",
+        "unsilence"
+      ],
+      "positional": true,
+      "raw_json": true
+    },
+    "update_now": {
+      "bin": "/usr/local/bin/harmonia",
+      "args": [
+        "update",
+        "--apply"
+      ]
+    },
+    "update_check": {
+      "bin": "/usr/local/bin/harmonia",
+      "args": [
+        "update"
+      ]
+    },
+    "update_module": {
+      "bin": "/usr/local/bin/harmonia",
+      "raw_json": true
+    }
+  },
   "sclerites": [
     "*"
   ]
