@@ -94,7 +94,11 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>, changed: Arc<Notify>) {
             Err::<(),String>("pid2-owner-child-exited".into())
         }.await;
         online.store(false,Ordering::Release); wake(&tx);
+        // This identity cannot become root or owner within this process.  Do
+        // not let unrelated systemd activity re-arm a permanently failed sense.
+        let wrong_uid=matches!(&connected, Err(error) if error=="pid2-owner-sense-wrong-uid");
         if let Err(error)=connected { eprintln!("pid2-owner-systemd-watch: {error}"); }
+        if wrong_uid { return; }
         if tx.is_closed() { return; }
         tokio::select! { _=tokio::time::sleep(Duration::from_secs(300))=>{}, _=changed.notified()=>{} }
     }
