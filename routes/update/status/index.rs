@@ -8,6 +8,7 @@ use std::path::Path;
 
 fn write_index(path: &Path, rendered: &[u8]) -> Result<(), String> {
     let failure = |step: &str| format!("caduceus-harmonia-profile-write-failed:{step}");
+    let unconfirmed = |step: &str| format!("caduceus-harmonia-profile-write-unconfirmed:{step}");
     let metadata = fs::metadata(path).map_err(|_| failure("metadata"))?;
     let dir = path.parent().ok_or_else(|| failure("directory"))?;
     let directory = File::open(dir).map_err(|_| failure("directory-open"))?;
@@ -25,19 +26,16 @@ fn write_index(path: &Path, rendered: &[u8]) -> Result<(), String> {
             .map_err(|_| failure("mode"))?;
         file.sync_all().map_err(|_| failure("file-fsync"))?;
         fs::rename(&temp, path).map_err(|_| failure("rename"))?;
-        directory.sync_all().map_err(|_| failure("directory-fsync"))?;
-        let readback = fs::read(path).map_err(|_| failure("readback"))?;
-        if readback != rendered { return Err(failure("compare")); }
         Ok(())
     })();
-    if result.is_err() {
-        match fs::remove_file(&temp) {
-            Ok(()) => {},
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {},
-            Err(_) => return Err(failure("temp-cleanup")),
-        }
+    if let Err(error) = result {
+        let _ = fs::remove_file(&temp);
+        return Err(error);
     }
-    result
+    directory.sync_all().map_err(|_| unconfirmed("directory-fsync"))?;
+    let readback = fs::read(path).map_err(|_| unconfirmed("readback"))?;
+    if readback != rendered { return Err(unconfirmed("compare")); }
+    Ok(())
 }
 
 fn valid_module_id(id: &str) -> bool {

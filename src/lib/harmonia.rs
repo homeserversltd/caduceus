@@ -198,14 +198,27 @@ fn bounded_line(text: &str) -> Option<String> {
     Some(line[..end].to_string())
 }
 
+fn child_reported_failure(stdout: &str) -> bool {
+    match serde_json::from_str::<Value>(stdout.trim()) {
+        Ok(value) => value.get("ok").and_then(Value::as_bool) == Some(false),
+        Err(_) => stdout.lines().any(|line| line.trim() == "ok=false"),
+    }
+}
+
 fn child_signal(stdout: &str, stderr: &str, ok: bool) -> String {
     let json = serde_json::from_str::<Value>(stdout.trim()).ok();
     let declared = json.as_ref().and_then(|v| v.get("first_missing_signal")).and_then(Value::as_str)
-        .or_else(|| stdout.lines().find_map(|line| line.strip_prefix("first_missing_signal=")));
-    declared.and_then(bounded_line)
-        .or_else(|| bounded_line(stderr))
-        .or_else(|| bounded_line(stdout))
-        .unwrap_or_else(|| if ok { "none" } else { "caduceus-harmonia-command-failed" }.to_string())
+        .and_then(bounded_line)
+        .or_else(|| stdout.lines().filter_map(|line| line.strip_prefix("first_missing_signal=")).find_map(bounded_line));
+
+    if let Some(signal) = declared {
+        return signal;
+    }
+    if ok && !child_reported_failure(stdout) {
+        return "none".to_string();
+    }
+    bounded_line(stderr).or_else(|| bounded_line(stdout))
+        .unwrap_or_else(|| "caduceus-harmonia-command-failed".to_string())
 }
 
 pub fn invoke_body_to_json(route_key: &str, code: i32, body: &str) -> Value {
@@ -224,7 +237,7 @@ pub fn invoke_body_to_json(route_key: &str, code: i32, body: &str) -> Value {
             .and_then(Value::as_str)
             .or_else(|| fields.get(key).and_then(Value::as_str))
     };
-    let ok = json_fields
+    let ok = code == 0 && json_fields
         .as_ref()
         .and_then(|value| value.get("ok"))
         .and_then(Value::as_bool)
@@ -234,7 +247,7 @@ pub fn invoke_body_to_json(route_key: &str, code: i32, body: &str) -> Value {
                 .and_then(Value::as_str)
                 .map(|value| value == "true")
         })
-        .unwrap_or(code == 0);
+        .unwrap_or(true);
     json!({
         "schema": typed_string("schema").unwrap_or("caduceus.harmonia.invoke.v1"),
         "route": route_key,
@@ -250,7 +263,7 @@ fn invoke_argv(route_key: &str, route_value: &Value, argv: &[String]) -> (i32, S
     let output = invoke_in_transient_service(argv);
     match output {
         Ok(result) => {
-            let ok = result.success;
+            let ok = result.success && !child_reported_failure(&result.stdout);
             if route_value
                 .get("raw_json")
                 .and_then(Value::as_bool)
@@ -271,7 +284,7 @@ fn invoke_argv(route_key: &str, route_value: &Value, argv: &[String]) -> (i32, S
                             value.to_string()
                         }
                     } else { format!("{}\nfirst_missing_signal={signal}\n", result.stdout) }
-                } else if result.stdout.lines().any(|line| line.starts_with("first_missing_signal=")) {
+                } else if result.stdout.lines().filter_map(|line| line.strip_prefix("first_missing_signal=")).any(|value| bounded_line(value).is_some()) {
                     result.stdout
                 } else {
                     format!("{}\nfirst_missing_signal={signal}\n", result.stdout)
