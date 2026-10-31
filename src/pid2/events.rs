@@ -1,11 +1,40 @@
 //! Coalesced event wakes; observations are always re-read by the solver.
 use futures_util::StreamExt;
-use std::{ffi::CString, io::Write, os::fd::{AsRawFd, FromRawFd, OwnedFd}, sync::{Arc, atomic::{AtomicBool, Ordering}}, time::Duration};
+use std::{collections::HashSet, ffi::CString, io::Write, os::fd::{AsRawFd, FromRawFd, OwnedFd}, sync::{Arc, OnceLock, atomic::{AtomicBool, Ordering}}, time::Duration};
 use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, BufReader}, sync::{mpsc, Notify}};
-use zbus::{Connection, MatchRule, MessageStream, Proxy, message::Type};
+use zbus::{Connection, Message, MatchRule, MessageStream, Proxy, message::Type, zvariant::OwnedObjectPath};
 
 type Wake = mpsc::Sender<()>;
 fn wake(tx: &Wake) { let _ = tx.try_send(()); }
+
+// systemd's bus label escaping: every byte outside [A-Za-z0-9] becomes _xx.
+fn unit_path(unit: &str) -> String {
+    let label: String = unit.bytes().map(|b| if b.is_ascii_alphanumeric() { (b as char).to_string() } else { format!("_{b:02x}") }).collect();
+    format!("/org/freedesktop/systemd1/unit/{label}")
+}
+// Declared units, by name and by bus path, read once from the routine seat.
+fn declared() -> &'static (HashSet<String>, HashSet<String>) {
+    static DECLARED: OnceLock<(HashSet<String>, HashSet<String>)> = OnceLock::new();
+    DECLARED.get_or_init(|| {
+        let names: HashSet<String> = crate::routes::leaf_schema::declaration(super::SCHEMA).and_then(|seat| seat.get("unit_enum")).and_then(|v| v.as_array())
+            .map(|units| units.iter().filter_map(|u| u.get("unit").and_then(|v| v.as_str()).map(str::to_owned)).collect()).unwrap_or_default();
+        let paths = names.iter().map(|unit| unit_path(unit)).collect();
+        (names, paths)
+    })
+}
+// Only a signal about a declared unit wakes the solver. Its own status reads
+// open logind sessions and transient units; their signals are not news.
+fn concerns_declared(message: &Message) -> bool {
+    let header = message.header();
+    let (names, paths) = declared();
+    match header.member().map(|m| m.as_str()) {
+        Some("PropertiesChanged") => header.path().is_some_and(|p| paths.contains(p.as_str())),
+        Some("UnitNew" | "UnitRemoved") => message.body().deserialize::<(String, OwnedObjectPath)>().is_ok_and(|(unit, _)| names.contains(&unit)),
+        Some("JobNew") => message.body().deserialize::<(u32, OwnedObjectPath, String)>().is_ok_and(|(_, _, unit)| names.contains(&unit)),
+        Some("JobRemoved") => message.body().deserialize::<(u32, OwnedObjectPath, String, String)>().is_ok_and(|(_, _, unit, _)| names.contains(&unit)),
+        _ => true,
+    }
+}
 
 fn owner_uid() -> Result<u32, String> {
     let name = CString::new("owner").map_err(|e| e.to_string())?;
@@ -35,7 +64,7 @@ async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>, owner_changed: Arc<Not
             online.store(true,Ordering::Release); wake(&tx); owner_changed.notify_one();
             loop {
                 let item = tokio::select! { item=managers.next()=>item, item=changes.next()=>item };
-                match item { Some(Ok(_)) => { wake(&tx); owner_changed.notify_one(); }, Some(Err(e)) => return Err(e.to_string()), None => return Err("pid2-systemd-stream-closed".into()) }
+                match item { Some(Ok(message)) => if concerns_declared(&message) { wake(&tx); owner_changed.notify_one(); }, Some(Err(e)) => return Err(e.to_string()), None => return Err("pid2-systemd-stream-closed".into()) }
             }
         }.await;
         online.store(false,Ordering::Release); wake(&tx);
@@ -56,7 +85,7 @@ async fn owner_child() -> Result<(),String> {
     loop {
         let item=tokio::select! { item=managers.next()=>item, item=changes.next()=>item };
         match item {
-            Some(Ok(_)) => { writeln!(std::io::stdout(),"wake").and_then(|_|std::io::stdout().flush()).map_err(|e|e.to_string())?; },
+            Some(Ok(message)) => if concerns_declared(&message) { writeln!(std::io::stdout(),"wake").and_then(|_|std::io::stdout().flush()).map_err(|e|e.to_string())?; },
             Some(Err(e)) => return Err(e.to_string()), None => return Err("pid2-owner-stream-closed".into()),
         }
     }
