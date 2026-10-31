@@ -1,0 +1,17 @@
+{
+  "schema": "caduceus.forgejo.backup-b2.v1",
+  "schema_version": "1.0.0",
+  "role": "Forgejo Backblaze backup staff receipt",
+  "authority": {"owner": "caduceus", "path": "schema/caduceus.forgejo.backup-b2.v1.json"},
+  "evolution": {"law": "additive-only", "unknown_fields_preserved": true},
+  "required": ["ok"],
+  "fields": {
+    "plan": {"type": "object", "description": "Requested inclusion and exclusion plan."},
+    "status": {"type": "string", "description": "Acceptance status for a backup run."},
+    "unit": {"type": "string", "description": "Unit accepting a backup run."},
+    "step": {"type": "string", "description": "Refused step, when applicable."},
+    "reason": {"type": "string", "description": "Refusal reason, when applicable."}
+  },
+  "optional": ["plan", "status", "unit", "step", "reason"],
+  "additionalProperties": true
+}

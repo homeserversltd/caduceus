@@ -1,0 +1,13 @@
+{
+  "namespace": "storage/backup/forgejo/backup-b2",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "storage/backup/forgejo/backup-b2", "verb": ["forgejo", "backup-b2"]}],
+  "commands": ["staff intent", "storage backup forgejo backup-b2"],
+  "needs": ["nas"],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/forgejo/backup-b2",
+  "body": "required",
+  "receipt": "caduceus.forgejo.backup-b2.v1",
+  "administrative": true
+}
