@@ -384,8 +384,7 @@ fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<Value, Stri
     let receipt = crossing.get("receiptPayload")
         .filter(|receipt| receipt.is_object())
         .ok_or_else(|| "vault-open-receipt-invalid".to_string())?;
-    let receipt_ok = receipt.get("ok").and_then(Value::as_bool)
-        .ok_or_else(|| "vault-open-receipt-invalid".to_string())?;
+    let receipt_ok = receipt.get("ok").and_then(Value::as_bool);
     let signal = ["error", "firstMissingSignal", "signal", "message"]
         .iter()
         .filter_map(|field| receipt.get(*field).and_then(Value::as_str))
@@ -406,7 +405,7 @@ fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<Value, Stri
             answer["warning"] = json!(format!("vault-open-timeout: {seconds} seconds"));
         } else if let Some(signal) = signal {
             answer["warning"] = json!(signal);
-        } else if !receipt_ok || crossing.get("ok").and_then(Value::as_bool) == Some(false) {
+        } else if receipt_ok != Some(true) || crossing.get("ok").and_then(Value::as_bool) == Some(false) {
             answer["warning"] = json!("vault-open-post-mount-failure-unknown");
         }
         for field in ["rite", "nas", "nas_roles", "init", "boot_rite"] {
@@ -419,9 +418,9 @@ fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<Value, Stri
     if timeout_reported {
         return Err(format!("vault-open-timeout: {seconds} seconds"));
     }
+    let receipt_ok = receipt_ok.ok_or_else(|| "vault-open-receipt-invalid".to_string())?;
     if crossing.get("ok").and_then(Value::as_bool) != Some(true) {
-        let signal = receipt.get("error").or_else(|| receipt.get("firstMissingSignal"))
-            .and_then(Value::as_str).unwrap_or("caduceus-agathodaimon-refused");
+        let signal = signal.unwrap_or("caduceus-agathodaimon-refused");
         if signal == VAULT_OPEN_KEY_ABSENT_SIGNAL {
             return Ok(if passphrase.is_none() { result(false, "A vault password is required.") } else { result(false, "Unable to unlock the vault.") });
         }
@@ -430,7 +429,7 @@ fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<Value, Stri
         }
         return Err("vault-open-crossing-unavailable".to_string());
     }
-    if receipt.get("ok").and_then(Value::as_bool) != Some(true) {
+    if !receipt_ok {
         return Ok(result(false, "Unable to unlock the vault."));
     }
     if receipt.get("present").and_then(Value::as_bool) == Some(false) && passphrase.is_none() {
