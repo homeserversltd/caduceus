@@ -1,6 +1,6 @@
 //! Short-lived CLI client of the running actuator's existing staff socket.
 use serde_json::{json, Value};
-use std::io::{self, IsTerminal, Read, Write};
+use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
@@ -9,7 +9,6 @@ const INPUT_LIMIT: u64 = 1024 * 1024;
 const RESPONSE_LIMIT: u64 = 32 * 1024 * 1024;
 
 fn input(required: bool) -> Result<Option<Vec<u8>>, String> {
-    if !required && io::stdin().is_terminal() { return Ok(None); }
     let mut bytes = Vec::new();
     io::stdin().take(INPUT_LIMIT + 1).read_to_end(&mut bytes)
         .map_err(|_| "caduceus-cli-stdin-unreadable".to_string())?;
@@ -59,6 +58,13 @@ fn prompt_pin() -> Result<Option<String>, String> {
 fn pin_required() -> bool {
     crate::shared::config::get_json("global.admin.pin_required").ok()
         .and_then(|value| value.get("value").and_then(Value::as_bool)).unwrap_or(false)
+}
+fn attendance_input() -> Result<Option<Vec<u8>>, String> {
+    if pin_required() && std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty").is_err() {
+        input(false)
+    } else {
+        Ok(None)
+    }
 }
 fn attend(body: &mut Value) -> Result<bool, String> {
     if !pin_required() {
@@ -130,7 +136,7 @@ fn mutation(path: &str, mut value: Value, original: Option<Vec<u8>>, timeout: Du
     output(exchange("POST", path, &body, timeout))
 }
 pub(crate) fn swap() -> i32 {
-    let raw = match input(false) { Ok(raw) => raw, Err(signal) => { eprintln!("{signal}"); return 1; } };
+    let raw = match attendance_input() { Ok(raw) => raw, Err(signal) => { eprintln!("{signal}"); return 1; } };
     let value = match parse_input(raw.as_deref()) { Ok(value) => value, Err(signal) => { eprintln!("{signal}"); return 1; } };
     mutation("/api/v1/storage/nas/role/swap", value, raw, Duration::from_secs(1900))
 }
@@ -145,7 +151,7 @@ pub(crate) fn pid2(args: &[String]) -> i32 {
             mutation("/api/v1/pid2/enable", value, raw, Duration::from_secs(300))
         }
         [verb, id] if ["disable", "start", "stop", "restart", "hold", "release"].contains(&verb.as_str()) => {
-            let raw = match input(false) { Ok(raw) => raw, Err(signal) => { eprintln!("{signal}"); return 1; } };
+            let raw = match attendance_input() { Ok(raw) => raw, Err(signal) => { eprintln!("{signal}"); return 1; } };
             let supplied = match parse_input(raw.as_deref()) { Ok(value) => value, Err(signal) => { eprintln!("{signal}"); return 1; } };
             let mut body = json!({"schema":crate::protocol::SCHEMA_ID,"intent_id":format!("cli:pid2:{verb}"),"transition":format!("pid2-{verb}"),"origin_of_intent":"near","payload":{}});
             if let Some(object) = supplied.as_object() {
