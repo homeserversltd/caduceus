@@ -1,5 +1,5 @@
 //! Coalesced event wakes; observations are always re-read by the solver.
-use futures_util::StreamExt;
+use futures_util::{FutureExt, StreamExt};
 use std::{collections::{HashMap, HashSet, VecDeque}, ffi::CString, io::Write, os::fd::{AsRawFd, FromRawFd, OwnedFd}, sync::{Arc, OnceLock, atomic::{AtomicBool, Ordering}}, time::Duration};
 use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, AsyncReadExt, BufReader}, sync::{mpsc, Notify}};
 use zbus::{Connection, Message, MatchRule, MessageStream, Proxy, message::Type, zvariant::{OwnedObjectPath, OwnedValue}};
@@ -107,6 +107,60 @@ fn manager_owner_changed(message: &Message) -> bool {
         message.body().deserialize::<(String,String,String)>().is_ok_and(|(name,_,_)|name=="org.freedesktop.systemd1")
 }
 
+// Establish a receive-order barrier and apply already delivered later events
+// before making a snapshot available to the solver.
+async fn settled_scope(conn: &Connection, scope: &str, events: &mut MessageStream, manager_owner: &str, pending: &mut VecDeque<Message>) -> Result<zbus::message::Sequence, String> {
+    let (_,mut barrier)=snapshot_scope(conn,scope,events,manager_owner,pending).await?;
+    loop {
+        let query=conn.call_method(Some("org.freedesktop.DBus"),"/org/freedesktop/DBus",Some("org.freedesktop.DBus"),"GetNameOwner",&("org.freedesktop.systemd1",));
+        tokio::pin!(query);
+        let reply=loop {
+            tokio::select! {
+                biased;
+                result=&mut query => break result.map_err(|e|e.to_string())?,
+                item=events.next() => match item {
+                    Some(Ok(message)) if manager_owner_changed(&message) => return Err("pid2-systemd-owner-changed".into()),
+                    Some(Ok(message)) if message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
+                        if pending.len()>=256 { return Err("pid2-snapshot-signal-overflow".into()); }
+                        pending.push_back(message);
+                    },
+                    Some(Ok(_)) => {},
+                    Some(Err(error)) => return Err(error.to_string()),
+                    None => return Err("pid2-systemd-stream-closed".into()),
+                }
+            }
+        };
+        let current: String=reply.body().deserialize().map_err(|e|e.to_string())?;
+        if current!=manager_owner { return Err("pid2-systemd-owner-changed".into()); }
+        loop {
+            let item=if let Some(message)=pending.pop_front() { Some(Some(Ok(message))) } else { events.next().now_or_never() };
+            match item {
+                None => return Ok(barrier),
+                Some(Some(Ok(message))) if manager_owner_changed(&message) => return Err("pid2-systemd-owner-changed".into()),
+                Some(Some(Ok(message))) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
+                    let reloading=message.header().member().is_some_and(|m|m.as_str()=="Reloading");
+                    let invalidated=if reloading { false } else {
+                        match update_scope(scope,&message) {
+                            Ok(_) => false,
+                            Err(error) if error=="pid2-unit-state-invalidated" => true,
+                            Err(error) if error=="pid2-unit-not-watched" => false,
+                            Err(error) => return Err(error),
+                        }
+                    };
+                    if reloading || invalidated {
+                        let (_,position)=snapshot_scope(conn,scope,events,manager_owner,pending).await?;
+                        barrier=position;
+                        break;
+                    }
+                },
+                Some(Some(Ok(_))) => {},
+                Some(Some(Err(error))) => return Err(error.to_string()),
+                Some(None) => return Err("pid2-systemd-stream-closed".into()),
+            }
+        }
+    }
+}
+
 fn owner_uid() -> Result<u32, String> {
     let name = CString::new("owner").map_err(|e| e.to_string())?;
     let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
@@ -146,7 +200,7 @@ async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>) {
             let conn = Connection::system().await.map_err(|e|e.to_string())?;
             let (mut events,manager_owner) = streams(&conn,"system").await?;
             let mut pending=VecDeque::new();
-            let (_,mut barrier) = snapshot_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?;
+            let mut barrier = settled_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?;
             crate::stats::indicators::unit_state::set_online("system",true);
             online.store(true,Ordering::Release); wake(&tx);
             loop {
@@ -155,10 +209,18 @@ async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>) {
                     Some(Ok(message)) if manager_owner_changed(&message) => return Err("pid2-systemd-owner-changed".into()),
                     Some(Ok(message)) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
                         let reloading = message.header().member().is_some_and(|m| m.as_str()=="Reloading");
-                        let changed = if reloading { let (changed,position)=snapshot_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?; barrier=position; changed } else {
+                        let changed = if reloading {
+                            crate::stats::indicators::unit_state::set_online("system",false); online.store(false,Ordering::Release); wake(&tx);
+                            barrier=settled_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?;
+                            crate::stats::indicators::unit_state::set_online("system",true); online.store(true,Ordering::Release); true
+                        } else {
                             match update_scope("system",&message) {
                                 Ok(changed) => changed,
-                                Err(error) if error=="pid2-unit-state-invalidated" => { let (changed,position)=snapshot_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?; barrier=position; changed },
+                                Err(error) if error=="pid2-unit-state-invalidated" => {
+                                    crate::stats::indicators::unit_state::set_online("system",false); online.store(false,Ordering::Release); wake(&tx);
+                                    barrier=settled_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?;
+                                    crate::stats::indicators::unit_state::set_online("system",true); online.store(true,Ordering::Release); true
+                                },
                                 Err(error) => { eprintln!("pid2-system-signal: {error}"); false }
                             }
                         };
@@ -194,7 +256,7 @@ async fn owner_child() -> Result<(),String> {
     let conn=zbus::connection::Builder::address(address.as_str()).map_err(|e|e.to_string())?.build().await.map_err(|e|e.to_string())?;
     let (mut events,manager_owner)=streams(&conn,"owner").await?;
     let mut pending=VecDeque::new();
-    let (_,mut barrier)=snapshot_scope(&conn,"owner",&mut events,&manager_owner,&mut pending).await?;
+    let mut barrier=settled_scope(&conn,"owner",&mut events,&manager_owner,&mut pending).await?;
     emit_owner_states()?;
     writeln!(std::io::stdout(),"ready").and_then(|_|std::io::stdout().flush()).map_err(|e|e.to_string())?;
     loop {
@@ -204,10 +266,22 @@ async fn owner_child() -> Result<(),String> {
             Some(Ok(message)) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
                 let reloading = message.header().member().is_some_and(|m| m.as_str()=="Reloading");
                 let job = message.header().member().is_some_and(|m| m.as_str()=="JobRemoved");
-                let changed = if reloading { let (changed,position)=snapshot_scope(&conn,"owner",&mut events,&manager_owner,&mut pending).await?; barrier=position; changed } else {
+                let changed = if reloading {
+                    writeln!(std::io::stdout(),"syncing").and_then(|_|std::io::stdout().flush()).map_err(|e|e.to_string())?;
+                    barrier=settled_scope(&conn,"owner",&mut events,&manager_owner,&mut pending).await?;
+                    emit_owner_states()?;
+                    writeln!(std::io::stdout(),"ready").and_then(|_|std::io::stdout().flush()).map_err(|e|e.to_string())?;
+                    false
+                } else {
                     match update_scope("owner",&message) {
                         Ok(changed) => changed,
-                        Err(error) if error=="pid2-unit-state-invalidated" => { let (changed,position)=snapshot_scope(&conn,"owner",&mut events,&manager_owner,&mut pending).await?; barrier=position; changed },
+                        Err(error) if error=="pid2-unit-state-invalidated" => {
+                            writeln!(std::io::stdout(),"syncing").and_then(|_|std::io::stdout().flush()).map_err(|e|e.to_string())?;
+                            barrier=settled_scope(&conn,"owner",&mut events,&manager_owner,&mut pending).await?;
+                            emit_owner_states()?;
+                            writeln!(std::io::stdout(),"ready").and_then(|_|std::io::stdout().flush()).map_err(|e|e.to_string())?;
+                            false
+                        },
                         Err(error) if error=="pid2-unit-not-watched" => false,
                         Err(error) => return Err(error),
                     }
@@ -250,6 +324,7 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>) {
                 bytes.pop();
                 let line=String::from_utf8(bytes).map_err(|_|"pid2-owner-child-protocol-invalid")?;
                 match line.as_str() {
+                    "syncing" if online.load(Ordering::Acquire) => { crate::stats::indicators::unit_state::set_online("owner",false); online.store(false,Ordering::Release); wake(&tx); },
                     "ready" => { crate::stats::indicators::unit_state::set_online("owner",true); online.store(true,Ordering::Release); eprintln!("pid2-owner-sense-online"); wake(&tx); },
                     "job" if online.load(Ordering::Acquire) => { wake(&tx); },
                     _ => {
