@@ -322,23 +322,13 @@ pub fn request_unit(action: &str, unit: &str) -> Result<Value, String> {
 }
 
 pub fn cli(args: &[String]) -> i32 {
-    use std::io::Read;
-    let result = match args {
-        [verb] if verb == "enable" => {
-            let mut raw = Vec::new();
-            std::io::stdin().take(1024*1024+1).read_to_end(&mut raw).map_err(|e| e.to_string()).and_then(|_| if raw.len()>1024*1024 {Err("pid2-envelope-too-large".into())} else {enable(&raw)})
+    if let [verb, pattern] = args {
+        if verb == "pid2-observe-drm" {
+            return match solver::observe_drm(pattern) {
+                Ok(value) => { println!("{}", json!({"observer":"drm-connector","pattern":pattern,"value":value})); 0 }
+                Err(error) => { eprintln!("{error}"); 1 }
+            };
         }
-        [verb] if verb == "list" => list(),
-        [verb, pattern] if verb == "pid2-observe-drm" => solver::observe_drm(pattern).map(|value| json!({"observer":"drm-connector","pattern":pattern,"value":value})),
-        [verb,id] if verb == "status" => status(id),
-        [verb,id] if verb == "disable" => disable(id),
-        [verb,id] if verb == "hold" => hold(id),
-        [verb,id] if verb == "release" => release(id),
-        [verb,id] if ["start","stop","restart"].contains(&verb.as_str()) => request_unit(verb,id),
-        _ => Err("pid2-arguments-invalid".into()),
-    };
-    match result {
-        Ok(value) => { println!("{value}"); 0 }
-        Err(error) => { eprintln!("{error}"); 1 }
     }
+    crate::routes::cli::cli_staff::pid2(args)
 }

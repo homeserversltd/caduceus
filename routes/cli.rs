@@ -38,6 +38,8 @@ use crate::routes::{
 };
 use crate::shared::config;
 use crate::shared::policy;
+#[path = "cli_staff.rs"]
+pub(crate) mod cli_staff;
 #[cfg(any(
     leaf_settings_appearance,
     leaf_settings_child_device,
@@ -108,29 +110,7 @@ where
         }
         if namespace == "storage/nas/role/swap" && args.len()==4 {
             if let Err(code)=require_policy("storage nas role swap",&[]) { return code; }
-            let finally=declaration.get("finally").and_then(serde_json::Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
-            let receipt=declaration.get("receipt").and_then(serde_json::Value::as_str).unwrap_or("caduceus.chord.receipt.v1");
-            let timeout=declaration.get("deadline_seconds").and_then(serde_json::Value::as_u64).unwrap_or(1800);
-            let runtime=match tokio::runtime::Runtime::new() { Ok(runtime)=>runtime, Err(error)=>{eprintln!("{error}");return 1;} };
-            let started=std::time::Instant::now();
-            return match runtime.block_on(crate::gate::snake::execute_native_chord(namespace,serve,finally,&raw,receipt,std::time::Duration::from_secs(timeout))) {
-                Ok(value)=>{
-                    let ok=value.get("ok").and_then(serde_json::Value::as_bool)==Some(true);
-                    if value.get("changed").and_then(serde_json::Value::as_bool)!=Some(false) {
-                        let signal=value.get("firstMissingSignal").and_then(serde_json::Value::as_str).unwrap_or("caduceus-generic-actuator-refused");
-                        crate::gate::door::record_deed(&declaration,"cli",started.elapsed(),if ok {"success"} else {"refused"},signal,Some(&value));
-                    }
-                    #[cfg(leaf_pid2)]
-                    if ok && value.get("changed").and_then(serde_json::Value::as_bool)==Some(true) && declaration.get("mutation_allowed").and_then(serde_json::Value::as_bool).unwrap_or(true) {
-                        crate::pid2::events::notify();
-                    }
-                    println!("{value}"); if ok {0} else {1}
-                },
-                Err(signal)=>{
-                    eprintln!("{signal}");
-                    1
-                }
-            };
+            return cli_staff::swap();
         }
     }
     // Legacy dispatch remains below; the declaration pass is admission only.
