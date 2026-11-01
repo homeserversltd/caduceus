@@ -161,7 +161,7 @@ pub fn enable(raw: &[u8]) -> Result<Value, String> {
     drop(db);
     drop(process_guard);
     drop(action_guard);
-    if changed != 0 { solver::deed("enable",id,"success",None); events::notify(); }
+    if changed != 0 { solver::deed("enable",id,"success",None); events::notify_routine(id); }
     Ok(json!({"ok":true,"routine_id":id,"enabled":true,"changed":changed!=0,"readback":status(id)?}))
 }
 
@@ -176,7 +176,7 @@ pub fn disable(id: &str) -> Result<Value, String> {
     drop(db);
     drop(process_guard);
     drop(action_guard);
-    if changed != 0 { solver::deed("disable",id,"success",None); events::notify(); }
+    if changed != 0 { solver::deed("disable",id,"success",None); events::notify_routine(id); }
     Ok(json!({"ok":true,"routine_id":id,"changed":changed != 0,"readback":status(id)?}))
 }
 
@@ -216,7 +216,7 @@ fn change_hold(id: &str, hold: bool) -> Result<Value, String> {
     };
     tx.commit().map_err(|e|e.to_string())?;
     drop(db); drop(process_guard); drop(guard);
-    if changed { solver::deed(if hold {"hold"} else {"release"},id,"success",None); events::notify(); }
+    if changed { solver::deed(if hold {"hold"} else {"release"},id,"success",None); events::notify_routine(id); }
     Ok(json!({"ok":true,"routine_id":id,"held":hold && registered,"changed":changed,"acquired":hold && registered && !was_held}))
 }
 pub fn hold(id: &str) -> Result<Value,String> {
@@ -344,7 +344,7 @@ pub fn request_unit(action: &str, unit: &str) -> Result<Value, String> {
     drop(db);
     drop(process_guard);
     drop(action_guard);
-    if changed != 0 { solver::deed(action,unit,"queued",None); events::notify(); }
+    if changed != 0 { solver::deed(action,unit,"queued",None); events::notify_unit(scope,unit); }
     Ok(json!({"ok":true,"unit":unit,"scope":scope,"desired":desired,"life":life,"readback":status(unit)?}))
 }
 

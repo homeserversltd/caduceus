@@ -2,7 +2,7 @@
 use super::{now, tables};
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
-use std::{collections::HashSet, path::Path, sync::atomic::{AtomicU64,Ordering}};
+use std::{collections::{BTreeMap,HashMap,HashSet,VecDeque}, path::Path, sync::atomic::{AtomicU64,Ordering}};
 static REVISION: AtomicU64 = AtomicU64::new(0);
 
 fn line(routine: &str, name: &str) -> Result<Option<(Option<String>, String)>, String> {
@@ -292,8 +292,8 @@ fn device_present(properties: &Value) -> Result<bool, String> {
     Ok(false)
 }
 
-struct Visiting { active: HashSet<(String,String)>, attempted: HashSet<(String,String)>, command: bool, heartbeat: bool }
-fn resolve_line(routine: &str, name: &str, senses: &super::events::Senses, visiting: &mut Visiting) -> Result<(),String> {
+struct Visiting { active: HashSet<(String,String)>, attempted: HashSet<(String,String)>, retry: HashSet<(String,String)> }
+fn resolve_line(routine: &str, name: &str, _senses: &super::events::Senses, _visiting: &mut Visiting) -> Result<(),String> {
     let raw: Option<Vec<u8>> = {
         let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
         db.query_row("SELECT envelope FROM pid2_registrations WHERE routine_id=?1 AND enabled=1",[routine],|r|r.get(0)).optional().map_err(|e|e.to_string())?
@@ -301,8 +301,7 @@ fn resolve_line(routine: &str, name: &str, senses: &super::events::Senses, visit
     let raw=raw.ok_or("pid2-required-routine-unavailable")?;
     let value:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
     let found=value.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten().find(|stage|stage.get("line").and_then(Value::as_str)==Some(name));
-    if let Some(item)=found { stage(routine,item,senses,visiting)?; }
-    Ok(())
+    if found.is_some() && !held(routine)? { Ok(()) } else { Err("pid2-required-line-unavailable".into()) }
 }
 
 fn needs(routine: &str, stage_line: &str, need: &Value, senses: &super::events::Senses, visiting: &mut Visiting, separate_election: bool) -> Result<Option<String>, String> {
@@ -441,7 +440,7 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
                 let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
                 db.query_row("SELECT attempted_at FROM pid2_attempts WHERE routine_id=?1 AND line=?2",params![routine,name],|r|r.get(0)).optional().map_err(|e|e.to_string())?
             };
-            if visiting.attempted.contains(&key) || previous.is_some_and(|at| !visiting.command && (!visiting.heartbeat || now().saturating_sub(at)<300)) { return Ok(()); }
+            if visiting.attempted.contains(&key) || (previous.is_some() && !visiting.retry.contains(&key)) { return Ok(()); }
             let _action=super::ACTION_LOCK.lock().map_err(|_|"pid2-action-lock-poisoned")?;
             let _process=super::process_action_lock()?;
             if held(routine)? { return Ok(()); }
@@ -576,7 +575,7 @@ pub fn owner_answer(routine: &str, name: &str, answer: &str) -> Result<Value, St
     if routine.is_empty() || name.is_empty() || !["true","false","yes","no"].contains(&answer) { return Err("pid2-owner-answer-invalid".into()); }
     let _walk=super::walk_lock()?;
     if held(routine)? { return Err("pid2-routine-held".into()); }
-    if write_line_changed(routine,name,Some(answer),"Answered",None)? { super::events::notify(); }
+    if write_line_changed(routine,name,Some(answer),"Answered",None)? { super::events::notify_line(routine,name); }
     Ok(json!({"ok":true,"routine_id":routine,"line":name,"value":answer}))
 }
 
@@ -616,7 +615,8 @@ pub fn quiesce_held(routine: &str, deadline: std::time::Instant) -> Result<(),St
     Ok(())
 }
 
-fn reconcile_stops(senses: &super::events::Senses) -> Result<(),String> {
+fn reconcile_stops(senses: &super::events::Senses, keys:&[super::events::DirtyKey]) -> Result<(),String> {
+    use super::events::DirtyKey;
     let mut previous=(String::new(),String::new(),String::new());
     loop {
         let item: Option<(String,String,String,String,Option<String>)> = {
@@ -625,6 +625,7 @@ fn reconcile_stops(senses: &super::events::Senses) -> Result<(),String> {
         };
         let Some((unit,scope,routine,_,_))=item else { break; };
         previous=(unit.clone(),scope.clone(),routine.clone());
+        if !keys.iter().any(|key|match key { DirtyKey::All|DirtyKey::Startup=>true, DirtyKey::Routine(id)=>id==&routine, DirtyKey::Unit(s,u)|DirtyKey::Job(s,u)=>s==&scope && u==&unit, DirtyKey::Sense(s)|DirtyKey::Unavailable(s)=>s==&scope, _=>false }) { continue; }
         let _guard=super::ACTION_LOCK.lock().map_err(|_|"pid2-action-lock-poisoned")?;
     let _process_guard=super::process_action_lock()?;
         let (desired,life,receipt)=program(&routine,&unit,&scope)?;
@@ -649,42 +650,132 @@ fn reconcile_stops(senses: &super::events::Senses) -> Result<(),String> {
     Ok(())
 }
 
-pub fn reconcile(senses: &super::events::Senses, command: bool, heartbeat: bool) -> Result<(), String> {
-    let _walk=super::walk_lock()?;
-    let mut visiting=Visiting { active:HashSet::new(), attempted:HashSet::new(), command, heartbeat };
-    for _ in 0..64 {
-        let before=REVISION.load(Ordering::Relaxed);
-        reconcile_stops(senses)?;
-        reconcile_routines(senses,&mut visiting)?;
-        let after=REVISION.load(Ordering::Relaxed);
-        if after==before { return Ok(()); }
-    }
-    Err("pid2-reconcile-iteration-limit".into())
-}
+type LineKey=(String,String);
 
-fn reconcile_routines(senses: &super::events::Senses, visiting: &mut Visiting) -> Result<(), String> {
-    let mut after = String::new();
-    loop {
-        let next: Option<(String,Vec<u8>)> = {
-            let db = crate::stats::open_db()?.lock().map_err(|_| "pid2-database-lock-poisoned")?;
-            tables(&db)?;
-            db.query_row("SELECT routine_id,envelope FROM pid2_registrations WHERE enabled=1 AND routine_id>?1 ORDER BY routine_id LIMIT 1", [&after], |r| Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e| e.to_string())?
-        };
-        let Some((id,raw)) = next else { break; };
-        after = id.clone();
-        if held(&id)? { continue; }
-        let envelope: Value = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
-        for item in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten() {
-            for action in item.get("actions").and_then(Value::as_array).into_iter().flatten() {
-                if let Some(unit)=action.get("unit").and_then(Value::as_str) {
-                    if let Ok(scope)=unit_scope(unit) { let _=program(&id,unit,&scope)?; }
+fn stage_dependencies(routine:&str,stage:&Value)->HashSet<LineKey> {
+    let mut out=HashSet::new();
+    for key in ["needs","until"] {
+        for need in stage.get(key).and_then(Value::as_array).into_iter().flatten() {
+            if let Some(line)=need.get("when_line").and_then(Value::as_str) {out.insert((routine.to_owned(),line.to_owned()));}
+            if need.get("kind").and_then(Value::as_str)==Some("await-line") {
+                if let Some(line)=need.get("line").and_then(Value::as_str) {out.insert((need.get("routine_id").and_then(Value::as_str).unwrap_or(routine).to_owned(),line.to_owned()));}
+            }
+            if need.get("kind").and_then(Value::as_str)==Some("await-owner") {
+                if let Some(line)=need.get("line").and_then(Value::as_str) {
+                    // An answer stored on this same line is an external input,
+                    // not a recursive producer dependency.
+                    if stage.get("line").and_then(Value::as_str)!=Some(line) {out.insert((routine.to_owned(),line.to_owned()));}
                 }
             }
         }
-        for item in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten() {
-            if let Err(error) = stage(&id,item,senses,visiting) {
-                if let Some(name)=item.get("line").and_then(Value::as_str) { write_line(&id,name,None,"Held",Some(&error))?; }
+    }
+    if let Some(line)=stage.pointer("/select/line").and_then(Value::as_str) {out.insert((routine.to_owned(),line.to_owned()));}
+    for action in stage.get("actions").and_then(Value::as_array).into_iter().flatten() {
+        if let Some(line)=action.get("when_line").and_then(Value::as_str) {out.insert((routine.to_owned(),line.to_owned()));}
+    }
+    out
+}
+
+fn stage_matches(routine:&str,stage:&Value,key:&super::events::DirtyKey)->bool {
+    use super::events::DirtyKey;
+    match key {
+        DirtyKey::All|DirtyKey::Startup=>return true,
+        DirtyKey::Routine(id)=>return id==routine || stage_dependencies(routine,stage).iter().any(|(r,_)|r==id),
+        DirtyKey::Line(id,line)=>return (id==routine && stage.get("line").and_then(Value::as_str)==Some(line)) || stage_dependencies(routine,stage).contains(&(id.clone(),line.clone())),
+        DirtyKey::Schedule=>return false,
+        _=>{},
+    }
+    let conditions=["needs","until"].into_iter().flat_map(|name|stage.get(name).and_then(Value::as_array).into_iter().flatten());
+    for need in conditions {
+        let kind=need.get("kind").and_then(Value::as_str).unwrap_or("");
+        let matches=match key {
+            DirtyKey::Mount(path)=>kind=="await-mount" && need.get("path").and_then(Value::as_str).is_some_and(|p|Path::new(p)==path),
+            DirtyKey::Device(subsystem,device)=>{
+                if kind=="observe" {subsystem=="drm"} else if kind=="await-device" {
+                    let properties=need.get("properties");
+                    let same=properties.and_then(|p|p.get("SUBSYSTEM")).and_then(Value::as_str).is_none_or(|v|v==subsystem);
+                    let path=properties.and_then(|p|p.get("DEVPATH")).and_then(Value::as_str);
+                    same && (device.is_empty() || path.is_none_or(|v|Path::new(v).starts_with(device) || Path::new(device).starts_with(v)))
+                } else {false}
+            },
+            DirtyKey::Unit(scope,unit)=>kind=="await-ready" && need.get("unit").and_then(Value::as_str)==Some(unit) && unit_scope(unit).is_ok_and(|s|s==*scope),
+            DirtyKey::Sense(scope)|DirtyKey::Offline(scope)|DirtyKey::Unavailable(scope)=>match scope.as_str() {
+                "mount"=>kind=="await-mount", "udev"=>kind=="await-device" || kind=="observe",
+                "system"|"owner"=>kind=="await-ready" && need.get("unit").and_then(Value::as_str).is_some_and(|u|unit_scope(u).is_ok_and(|s|s==*scope)), _=>false,
+            },
+            _=>false,
+        };
+        if matches {return true;}
+    }
+    for action in stage.get("actions").and_then(Value::as_array).into_iter().flatten() {
+        if let Some(name)=action.get("unit").and_then(Value::as_str) {
+            if match key {DirtyKey::Unit(scope,unit)|DirtyKey::Job(scope,unit)=>unit==name && unit_scope(name).is_ok_and(|s|s==*scope),DirtyKey::Sense(scope)|DirtyKey::Unavailable(scope)=>unit_scope(name).is_ok_and(|s|s==*scope),_=>false} {return true;}
+        }
+    }
+    false
+}
+
+fn line_snapshot(routine:&str,name:&str)->Result<Option<(Option<String>,String,Option<String>)>,String> {
+    let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+    db.query_row("SELECT value,state,reason FROM pid2_lines WHERE routine_id=?1 AND line=?2",params![routine,name],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(|e|e.to_string())
+}
+
+pub(super) fn reconcile(senses:&super::events::Senses,keys:Vec<super::events::DirtyKey>)->Result<(),String> {
+    use super::events::DirtyKey;
+    let _walk=super::walk_lock()?;
+    reconcile_stops(senses,&keys)?;
+    let registrations:Vec<(String,Vec<u8>)>={
+        let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+        tables(&db)?;
+        let mut q=db.prepare("SELECT routine_id,envelope FROM pid2_registrations WHERE enabled=1 ORDER BY routine_id").map_err(|e|e.to_string())?;
+        let rows=q.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+        rows
+    };
+    let mut stages=BTreeMap::<LineKey,Value>::new();
+    let mut reverse=HashMap::<LineKey,HashSet<LineKey>>::new();
+    for (routine,raw) in registrations {
+        let envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+        for stage in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten() {
+            let Some(name)=stage.get("line").and_then(Value::as_str) else {continue;};
+            let line=(routine.clone(),name.to_owned());
+            for dependency in stage_dependencies(&routine,stage) {reverse.entry(dependency).or_default().insert(line.clone());}
+            stages.insert(line,stage.clone());
+        }
+    }
+    let mut queued=HashSet::new(); let mut retry=HashSet::new();
+    for (line,stage) in &stages {
+        for key in &keys {
+            if stage_matches(&line.0,stage,key) {
+                queued.insert(line.clone());
+                if !matches!(key,DirtyKey::Startup|DirtyKey::Offline(_)|DirtyKey::Unavailable(_)|DirtyKey::Job(_,_)|DirtyKey::Schedule) {retry.insert(line.clone());}
             }
+        }
+    }
+    // Refresh selected producers before selected consumers. Persisted line
+    // values can predate this wake, particularly on the startup full walk.
+    // Fail closed on a cycle rather than act on those stale values.
+    let mut pending=queued.clone();
+    let mut queue=VecDeque::new();
+    while !pending.is_empty() {
+        let next=stages.iter().find_map(|(line,stage)| {
+            if !pending.contains(line) {return None;}
+            if stage_dependencies(&line.0,stage).iter().any(|parent|pending.contains(parent)) {None} else {Some(line.clone())}
+        }).ok_or("pid2-dependency-cycle")?;
+        pending.remove(&next);
+        queue.push_back(next);
+    }
+    let mut visiting=Visiting{active:HashSet::new(),attempted:HashSet::new(),retry};
+    let mut remaining=stages.len().saturating_mul(64).max(1);
+    while let Some(line)=queue.pop_front() {
+        queued.remove(&line);
+        if remaining==0 {return Err("pid2-reconcile-iteration-limit".into());} remaining-=1;
+        let Some(item)=stages.get(&line) else {continue;};
+        let before=line_snapshot(&line.0,&line.1)?;
+        if let Err(error)=stage(&line.0,item,senses,&mut visiting) {write_line(&line.0,&line.1,None,"Held",Some(&error))?;}
+        let after=line_snapshot(&line.0,&line.1)?;
+        if before!=after {
+            if queued.insert(line.clone()) {queue.push_back(line.clone());}
+            if let Some(children)=reverse.get(&line) {let mut children:Vec<_>=children.iter().collect(); children.sort(); for child in children {if visiting.retry.contains(&line) {visiting.retry.insert(child.clone());} if queued.insert(child.clone()) {queue.push_back(child.clone());}}}
         }
     }
     Ok(())
