@@ -37,6 +37,7 @@ async fn snapshot_scope(conn: &Connection, scope: &str, events: &mut MessageStre
             biased;
             result=&mut call => break result.map_err(|e|e.to_string())?,
             item=events.next() => match item {
+                Some(Ok(message)) if manager_owner_changed(&message) => return Err("pid2-systemd-owner-changed".into()),
                 Some(Ok(message)) if message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
                     if pending.len()>=256 { return Err("pid2-snapshot-signal-overflow".into()); }
                     pending.push_back(message);
@@ -97,6 +98,15 @@ fn concerns_declared(message: &Message) -> bool {
     }
 }
 
+fn manager_owner_changed(message: &Message) -> bool {
+    let header=message.header();
+    header.sender().is_some_and(|s|s.as_str()=="org.freedesktop.DBus") &&
+        header.path().is_some_and(|p|p.as_str()=="/org/freedesktop/DBus") &&
+        header.interface().is_some_and(|i|i.as_str()=="org.freedesktop.DBus") &&
+        header.member().is_some_and(|m|m.as_str()=="NameOwnerChanged") &&
+        message.body().deserialize::<(String,String,String)>().is_ok_and(|(name,_,_)|name=="org.freedesktop.systemd1")
+}
+
 fn owner_uid() -> Result<u32, String> {
     let name = CString::new("owner").map_err(|e| e.to_string())?;
     let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
@@ -113,6 +123,8 @@ async fn streams(conn: &Connection, scope: &str) -> Result<(MessageStream,String
     let mut incoming=MessageStream::from(conn);
     incoming.set_max_queued(1024);
     let bus=Proxy::new(conn,"org.freedesktop.DBus","/org/freedesktop/DBus","org.freedesktop.DBus").await.map_err(|e|e.to_string())?;
+    let owner_rule=MatchRule::builder().msg_type(Type::Signal).sender("org.freedesktop.DBus").map_err(|e|e.to_string())?.path("/org/freedesktop/DBus").map_err(|e|e.to_string())?.interface("org.freedesktop.DBus").map_err(|e|e.to_string())?.member("NameOwnerChanged").map_err(|e|e.to_string())?.add_arg("org.freedesktop.systemd1").map_err(|e|e.to_string())?.build();
+    let _: ()=bus.call("AddMatch",&(owner_rule.to_string(),)).await.map_err(|e|e.to_string())?;
     let owner: String=bus.call("GetNameOwner",&("org.freedesktop.systemd1",)).await.map_err(|e|e.to_string())?;
     let proxy = Proxy::new(conn,"org.freedesktop.systemd1","/org/freedesktop/systemd1","org.freedesktop.systemd1.Manager").await.map_err(|e|e.to_string())?;
     for member in ["UnitNew", "UnitRemoved", "JobRemoved", "Reloading"] {
@@ -134,12 +146,13 @@ async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>) {
             let conn = Connection::system().await.map_err(|e|e.to_string())?;
             let (mut events,manager_owner) = streams(&conn,"system").await?;
             let mut pending=VecDeque::new();
-            let (changed,mut barrier) = snapshot_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?;
+            let (_,mut barrier) = snapshot_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?;
             crate::stats::indicators::unit_state::set_online("system",true);
-            online.store(true,Ordering::Release); if changed { wake(&tx); }
+            online.store(true,Ordering::Release); wake(&tx);
             loop {
                 let item = if let Some(message)=pending.pop_front() { Some(Ok(message)) } else { events.next().await };
                 match item {
+                    Some(Ok(message)) if manager_owner_changed(&message) => return Err("pid2-systemd-owner-changed".into()),
                     Some(Ok(message)) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
                         let reloading = message.header().member().is_some_and(|m| m.as_str()=="Reloading");
                         let changed = if reloading { let (changed,position)=snapshot_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?; barrier=position; changed } else {
@@ -187,6 +200,7 @@ async fn owner_child() -> Result<(),String> {
     loop {
         let item=if let Some(message)=pending.pop_front() { Some(Ok(message)) } else { events.next().await };
         match item {
+            Some(Ok(message)) if manager_owner_changed(&message) => return Err("pid2-systemd-owner-changed".into()),
             Some(Ok(message)) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
                 let reloading = message.header().member().is_some_and(|m| m.as_str()=="Reloading");
                 let job = message.header().member().is_some_and(|m| m.as_str()=="JobRemoved");
@@ -228,7 +242,6 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>) {
             let mut child=command.spawn().map_err(|e|e.to_string())?;
             let stdout=child.stdout.take().ok_or("pid2-owner-child-pipe-missing")?;
             let mut lines=BufReader::new(stdout);
-            let mut snapshot_changed=false;
             loop {
                 let mut bytes=Vec::new();
                 let count=(&mut lines).take(4097).read_until(b'\n',&mut bytes).await.map_err(|e|e.to_string())?;
@@ -237,7 +250,7 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>) {
                 bytes.pop();
                 let line=String::from_utf8(bytes).map_err(|_|"pid2-owner-child-protocol-invalid")?;
                 match line.as_str() {
-                    "ready" => { crate::stats::indicators::unit_state::set_online("owner",true); online.store(true,Ordering::Release); eprintln!("pid2-owner-sense-online"); if snapshot_changed { wake(&tx); } },
+                    "ready" => { crate::stats::indicators::unit_state::set_online("owner",true); online.store(true,Ordering::Release); eprintln!("pid2-owner-sense-online"); wake(&tx); },
                     "job" if online.load(Ordering::Acquire) => { wake(&tx); },
                     _ => {
                         let frame: serde_json::Value = serde_json::from_str(&line).map_err(|_|"pid2-owner-child-protocol-invalid")?;
@@ -246,7 +259,7 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>) {
                         if !scoped_units("owner").contains(unit) { return Err("pid2-owner-child-unit-undeclared".into()); }
                         let state: crate::stats::indicators::unit_state::UnitState = serde_json::from_value(frame.get("state").cloned().ok_or("pid2-owner-child-state-missing")?).map_err(|e|e.to_string())?;
                         if crate::stats::indicators::unit_state::set("owner",unit,state) {
-                            if online.load(Ordering::Acquire) { wake(&tx); } else { snapshot_changed=true; }
+                            if online.load(Ordering::Acquire) { wake(&tx); }
                         }
                     },
                 }
