@@ -73,7 +73,7 @@ async fn schedule_command(Path(verb): Path<String>, body: Bytes) -> Response {
         match verb.as_str() {
             "enable"=>crate::pid2::schedule::set_enabled(id,true,false),
             "disable"=>crate::pid2::schedule::set_enabled(id,false,false),
-            "update"=>crate::pid2::schedule::update(id,payload.get("calendar").unwrap_or(&payload)),
+            "update"=>crate::pid2::schedule::update(id,&payload),
             "run"=>crate::pid2::schedule::queue(id,"owner",None),
             _=>Err("pid2-schedule-action-unknown".into()),
         }

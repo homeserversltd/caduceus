@@ -13,12 +13,13 @@
     "timestamp": {"type": "string"},
     "schedule": {"type": ["object", "null"], "properties": {
       "schedule_id": {"type": "string"},
+      "enabled": {"type": ["boolean", "null"]},
       "calendar": {"type": "object", "properties": {
         "frequency": {"type": "string", "enum": ["daily", "weekly"]},
         "time": {"type": "string"}, "weekday": {"type": ["string", "null"]}
       }, "additionalProperties": true},
       "job": {"type": "object", "properties": {
-        "band": {"type": "string"}, "action": {"type": "string"},
+        "band": {"type": "string"}, "action": {"type": "string"}, "payload": {"type": ["object", "null"], "additionalProperties": true},
         "max_seconds": {"type": "integer", "minimum": 1, "maximum": 86400, "default": 21600}
       }, "additionalProperties": true},
       "needs": {"type": "array", "items": {"type": "object", "properties": {

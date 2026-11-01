@@ -549,14 +549,14 @@ pub async fn run() {
     let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now()+Duration::from_secs(300),Duration::from_secs(300));
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut catchup=true;
-    let fire_slots=Arc::new(tokio::sync::Semaphore::new(16));
+    let fire_slots=Arc::new(tokio::sync::Semaphore::new(1));
     'events: loop {
         let delay=match super::schedule::clock(catchup) {Ok(delay)=>delay,Err(error)=>{eprintln!("pid2-schedule-clock: {error}");Duration::from_secs(300)}};
         catchup=false;
         match super::schedule::queued() {
             Ok(ids)=>for id in ids {
                 let Ok(permit)=fire_slots.clone().try_acquire_owned() else { break; };
-                tokio::task::spawn_blocking(move || {let _permit=permit; if let Err(error)=super::schedule::execute(&id) {eprintln!("pid2-schedule-fire: {error}");}});
+                tokio::task::spawn_blocking(move || {let result=super::schedule::execute(&id);drop(permit);match result {Ok(true)=>super::events::notify(),Ok(false)=>{},Err(error)=>eprintln!("pid2-schedule-fire: {error}")}});
             },
             Err(error)=>eprintln!("pid2-schedule-queue: {error}"),
         }

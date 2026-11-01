@@ -60,7 +60,18 @@ fn tables(db: &rusqlite::Connection) -> Result<(), String> {
         CREATE TABLE IF NOT EXISTS pid2_crossings (routine_id TEXT NOT NULL, line TEXT NOT NULL, step_index INTEGER NOT NULL, PRIMARY KEY(routine_id,line,step_index));
         CREATE TABLE IF NOT EXISTS pid2_schedules (schedule_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, envelope BLOB NOT NULL, frequency TEXT NOT NULL, time TEXT NOT NULL, weekday TEXT, band TEXT NOT NULL, action TEXT NOT NULL, max_seconds INTEGER NOT NULL, registered_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_fired_slot INTEGER);
         CREATE TABLE IF NOT EXISTS pid2_fires (schedule_id TEXT PRIMARY KEY, fire_id TEXT NOT NULL, trigger TEXT NOT NULL, state TEXT NOT NULL, queued_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, duration_ms INTEGER, first_missing_signal TEXT, rsync_exit_code INTEGER, final_file_count INTEGER, final_total_bytes INTEGER);
-        CREATE TABLE IF NOT EXISTS pid2_sync_baselines (schedule_id TEXT PRIMARY KEY, file_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, updated_at INTEGER NOT NULL, fire_id TEXT NOT NULL);").map_err(|e| e.to_string())
+        CREATE TABLE IF NOT EXISTS pid2_sync_baselines (schedule_id TEXT PRIMARY KEY, file_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, updated_at INTEGER NOT NULL, fire_id TEXT NOT NULL);").map_err(|e| e.to_string())?;
+    for (table,name) in [("pid2_fires","slot"),("pid2_fires","queue_order"),("pid2_schedules","retry_slot"),("pid2_schedules","retry_queued_at"),("pid2_schedules","retry_order"),("pid2_schedules","interrupted_slot")] {
+        let present=||db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name=?2)",params![table,name],|r|r.get::<_,bool>(0)).map_err(|e|e.to_string());
+        if !present()? {
+            if let Err(error)=db.execute(&format!("ALTER TABLE {table} ADD COLUMN {name} INTEGER"),[]) {
+                // Another process may have completed this exact migration
+                // between our schema read and ALTER. Other failures stand.
+                if !present()? {return Err(error.to_string());}
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The boot id is compared and runtime rows are cleared atomically; registrations survive.
@@ -75,6 +86,20 @@ pub fn reset_gate() -> Result<bool, String> {
     let tx = db.transaction().map_err(|e| e.to_string())?;
     let previous: Option<String> = tx.query_row("SELECT boot_id FROM pid2_boot WHERE id=1", [], |r| r.get(0)).optional().map_err(|e| e.to_string())?;
     let changed = previous.as_deref() != Some(boot);
+    let interrupted={
+        let mut query=tx.prepare("SELECT f.schedule_id,f.fire_id,f.slot,f.trigger,f.queued_at,COALESCE(f.queue_order,f.rowid),s.frequency,s.time,s.weekday,f.state FROM pid2_fires f LEFT JOIN pid2_schedules s ON s.schedule_id=f.schedule_id WHERE f.state IN ('Queued','Running','Interrupted') ORDER BY f.queued_at,COALESCE(f.queue_order,f.rowid),f.rowid").map_err(|e|e.to_string())?;
+        let rows=query.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,Option<i64>>(2)?,r.get::<_,String>(3)?,r.get::<_,i64>(4)?,r.get::<_,i64>(5)?,r.get::<_,Option<String>>(6)?,r.get::<_,Option<String>>(7)?,r.get::<_,Option<String>>(8)?,r.get::<_,String>(9)?))).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+        rows
+    };
+    if changed {tx.execute("UPDATE pid2_schedules SET interrupted_slot=NULL WHERE interrupted_slot IS NOT NULL",[]).map_err(|e|e.to_string())?;}
+    // Keep only the unfinished slot and FIFO position on its schedule;
+    // the boot still deletes every fire row. Legacy fires had no slot.
+    for (id,_,slot,trigger,queued_at,order,frequency,time,weekday,_) in &interrupted {
+        let retry=if trigger=="owner" {None} else {slot.or_else(||frequency.as_ref().zip(time.as_ref()).and_then(|(frequency,time)|schedule::slot_at(frequency,time,weekday.clone(),*queued_at)))};
+        if let Some(slot)=retry {
+            tx.execute("UPDATE pid2_schedules SET retry_slot=COALESCE(retry_slot,?2),retry_queued_at=COALESCE(retry_queued_at,?3),retry_order=COALESCE(retry_order,?4),interrupted_slot=CASE WHEN ?5 THEN interrupted_slot WHEN interrupted_slot IS NULL OR interrupted_slot<?2 THEN ?2 ELSE interrupted_slot END WHERE schedule_id=?1",params![id,slot,queued_at,order,changed]).map_err(|e|e.to_string())?;
+        }
+    }
     if changed {
         tx.execute("DELETE FROM pid2_lines", []).map_err(|e| e.to_string())?;
         tx.execute("DELETE FROM pid2_programs", []).map_err(|e| e.to_string())?;
@@ -89,6 +114,8 @@ pub fn reset_gate() -> Result<bool, String> {
         tx.execute("UPDATE pid2_fires SET state='Interrupted',finished_at=?1,first_missing_signal='pid2-fire-interrupted' WHERE state IN ('Queued','Running')", [now()]).map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
+    drop(db);
+    if changed {for (id,fire,_,_,_,_,_,_,_,state) in interrupted { if state!="Interrupted" {schedule::fire_deed(&id,&fire,"Interrupted",0,Some("pid2-fire-interrupted-by-boot"));} }}
     Ok(changed)
 }
 

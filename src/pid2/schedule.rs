@@ -6,7 +6,7 @@ use std::time::Duration;
 
 const SCHEMA: &str = "caduceus.pid2.schedule.v1";
 
-fn fire_deed(id:&str,fire:&str,outcome:&str,duration_ms:i64,signal:Option<&str>) {
+pub(super) fn fire_deed(id:&str,fire:&str,outcome:&str,duration_ms:i64,signal:Option<&str>) {
     let _=crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({"organ":"pid2","kind":"schedule-fire","level":"info","ok":signal.is_none(),"message":"schedule fire","correlation_id":fire,"attributes_redacted":{"who":"caduceus","verb":"schedule-fire","target":id,"outcome":outcome,"duration_ms":duration_ms,"fire_id":fire,"first_missing_signal":signal}}));
 }
 
@@ -37,11 +37,19 @@ fn previous_slot(cal: &Calendar, now: i64) -> Option<i64> {
     let today=Local.timestamp_opt(now,0).single()?.date_naive();
     (0..=14).filter_map(|n|today.checked_sub_signed(chrono::Duration::days(n))).filter_map(|d|slot_for(d,cal)).filter(|s|*s<=now).max()
 }
+pub(super) fn slot_at(frequency:&str,time:&str,weekday:Option<String>,at:i64) -> Option<i64> {
+    previous_slot(&Calendar{frequency:frequency.into(),time:time.into(),weekday},at)
+}
 fn next_slot(cal: &Calendar, now: i64) -> Option<i64> {
     let today=Local.timestamp_opt(now,0).single()?.date_naive();
     (0..=14).filter_map(|n|today.checked_add_signed(chrono::Duration::days(n))).filter_map(|d|slot_for(d,cal)).filter(|s|*s>now).min()
 }
 fn cal_from_row(frequency:String,time:String,weekday:Option<String>) -> Calendar { Calendar{frequency,time,weekday} }
+// A malformed present flag is preserved in the envelope, but must never
+// silently arm a schedule. Missing/null retains the primitive behavior.
+fn enabled_value(value:Option<&Value>) -> Option<bool> {
+    match value {None|Some(Value::Null)=>None,Some(Value::Bool(value))=>Some(*value),Some(_)=>Some(false)}
+}
 fn fire_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     Ok(json!({"fire_id":row.get::<_,String>(0)?,"trigger":row.get::<_,String>(1)?,"state":row.get::<_,String>(2)?,
         "queued_at":row.get::<_,i64>(3)?,"started_at":row.get::<_,Option<i64>>(4)?,"finished_at":row.get::<_,Option<i64>>(5)?,
@@ -83,6 +91,7 @@ pub fn register(raw:&[u8]) -> Result<Value,String> {
     }
     let spec=envelope.get("schedule").ok_or("pid2-schedule-unusable")?;
     let id=spec.get("schedule_id").and_then(Value::as_str).filter(|s|!s.is_empty()).ok_or("pid2-schedule-id-unusable")?;
+    let enabled=enabled_value(spec.get("enabled"));
     let cal=calendar(spec.get("calendar").unwrap_or(&Value::Null))?;
     let job=spec.get("job").unwrap_or(&Value::Null);
     let band=job.get("band").and_then(Value::as_str).filter(|s|!s.is_empty()).ok_or("pid2-schedule-band-unusable")?;
@@ -92,7 +101,7 @@ pub fn register(raw:&[u8]) -> Result<Value,String> {
     let now=super::now(); let slot=previous_slot(&cal,now);
     let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
     super::tables(&db)?;
-    let changed=db.execute("INSERT INTO pid2_schedules(schedule_id,enabled,envelope,frequency,time,weekday,band,action,max_seconds,registered_at,updated_at,last_fired_slot) VALUES(?1,1,?2,?3,?4,?5,?6,?7,?8,?9,?9,?10) ON CONFLICT(schedule_id) DO UPDATE SET envelope=excluded.envelope,frequency=excluded.frequency,time=excluded.time,weekday=excluded.weekday,band=excluded.band,action=excluded.action,max_seconds=excluded.max_seconds,updated_at=excluded.updated_at,last_fired_slot=excluded.last_fired_slot WHERE pid2_schedules.envelope IS NOT excluded.envelope OR pid2_schedules.frequency IS NOT excluded.frequency OR pid2_schedules.time IS NOT excluded.time OR pid2_schedules.weekday IS NOT excluded.weekday OR pid2_schedules.band IS NOT excluded.band OR pid2_schedules.action IS NOT excluded.action OR pid2_schedules.max_seconds IS NOT excluded.max_seconds",params![id,raw,cal.frequency,cal.time,cal.weekday,band,action,max as i64,now,slot]).map_err(|e|e.to_string())?;
+    let changed=db.execute("INSERT INTO pid2_schedules(schedule_id,enabled,envelope,frequency,time,weekday,band,action,max_seconds,registered_at,updated_at,last_fired_slot) VALUES(?1,COALESCE(?11,1),?2,?3,?4,?5,?6,?7,?8,?9,?9,?10) ON CONFLICT(schedule_id) DO UPDATE SET enabled=COALESCE(?11,pid2_schedules.enabled),envelope=excluded.envelope,frequency=excluded.frequency,time=excluded.time,weekday=excluded.weekday,band=excluded.band,action=excluded.action,max_seconds=excluded.max_seconds,updated_at=excluded.updated_at WHERE pid2_schedules.envelope IS NOT excluded.envelope OR pid2_schedules.frequency IS NOT excluded.frequency OR pid2_schedules.time IS NOT excluded.time OR pid2_schedules.weekday IS NOT excluded.weekday OR pid2_schedules.band IS NOT excluded.band OR pid2_schedules.action IS NOT excluded.action OR pid2_schedules.max_seconds IS NOT excluded.max_seconds OR (?11 IS NOT NULL AND pid2_schedules.enabled IS NOT ?11)",params![id,raw,cal.frequency,cal.time,cal.weekday,band,action,max as i64,now,slot,enabled]).map_err(|e|e.to_string())?;
     drop(db); if changed!=0 {super::solver::deed("schedule-register",id,"success",None);super::events::notify();}
     Ok(json!({"ok":true,"readback":status(id)?}))
 }
@@ -111,15 +120,16 @@ pub fn update(id:&str,patch:&Value) -> Result<Value,String> {
     let row:Option<(Vec<u8>,String,String,Option<String>,bool)>=tx.query_row("SELECT envelope,frequency,time,weekday,enabled FROM pid2_schedules WHERE schedule_id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional().map_err(|e|e.to_string())?;
     let (raw,frequency,time,weekday,old_enabled)=row.ok_or("pid2-schedule-not-found")?;
     let mut input=json!({"frequency":frequency,"time":time,"weekday":weekday});
-    for key in ["frequency","time","weekday","at","day"] {if let Some(v)=patch.get(key) {input[key]=v.clone();}}
-    if patch.get("time").is_none() {if let Some(v)=patch.get("at") {input["time"]=v.clone();}}
-    if patch.get("weekday").is_none() {if let Some(v)=patch.get("day") {input["weekday"]=v.clone();}}
-    let cal=calendar(&input)?; let enabled=patch.get("enabled").and_then(Value::as_bool).unwrap_or(old_enabled);
+    let calendar_patch=patch.get("calendar").filter(|v|v.is_object()).unwrap_or(patch);
+    for key in ["frequency","time","weekday","at","day"] {if let Some(v)=calendar_patch.get(key) {input[key]=v.clone();}}
+    if calendar_patch.get("time").is_none() {if let Some(v)=calendar_patch.get("at") {input["time"]=v.clone();}}
+    if calendar_patch.get("weekday").is_none() {if let Some(v)=calendar_patch.get("day") {input["weekday"]=v.clone();}}
+    let cal=calendar(&input)?; let enabled=enabled_value(patch.get("enabled").or_else(||calendar_patch.get("enabled"))).unwrap_or(old_enabled);
     let mut envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
     let target=envelope.pointer_mut("/schedule/calendar").and_then(Value::as_object_mut).ok_or("pid2-schedule-calendar-unusable")?;
     target.insert("frequency".into(),json!(cal.frequency));target.insert("time".into(),json!(cal.time));target.insert("weekday".into(),json!(cal.weekday));
     let encoded=serde_json::to_vec(&envelope).map_err(|e|e.to_string())?;
-    let changed=tx.execute("UPDATE pid2_schedules SET envelope=?2,frequency=?3,time=?4,weekday=?5,enabled=?6,updated_at=?7,last_fired_slot=?8 WHERE schedule_id=?1 AND (frequency IS NOT ?3 OR time IS NOT ?4 OR weekday IS NOT ?5 OR enabled IS NOT ?6)",params![id,encoded,cal.frequency,cal.time,cal.weekday,enabled,super::now(),previous_slot(&cal,super::now())]).map_err(|e|e.to_string())?;
+    let changed=tx.execute("UPDATE pid2_schedules SET envelope=?2,frequency=?3,time=?4,weekday=?5,enabled=?6,updated_at=?7 WHERE schedule_id=?1 AND (frequency IS NOT ?3 OR time IS NOT ?4 OR weekday IS NOT ?5 OR enabled IS NOT ?6)",params![id,encoded,cal.frequency,cal.time,cal.weekday,enabled,super::now()]).map_err(|e|e.to_string())?;
     tx.commit().map_err(|e|e.to_string())?;drop(db);
     if changed!=0 {super::solver::deed("schedule-update",id,"success",None);super::events::notify();}
     Ok(json!({"ok":true,"readback":status(id)?}))
@@ -138,6 +148,10 @@ fn unmet(tx:&rusqlite::Transaction<'_>,raw:&[u8]) -> Result<Option<String>,Strin
     }
     Ok(None)
 }
+fn advance_slot(tx:&rusqlite::Transaction<'_>,id:&str,fire:&str) -> Result<(),String> {
+    tx.execute("UPDATE pid2_schedules SET last_fired_slot=CASE WHEN last_fired_slot IS NULL OR last_fired_slot<(SELECT slot FROM pid2_fires WHERE schedule_id=?1 AND fire_id=?2) THEN (SELECT slot FROM pid2_fires WHERE schedule_id=?1 AND fire_id=?2) ELSE last_fired_slot END,retry_slot=CASE WHEN retry_slot=(SELECT slot FROM pid2_fires WHERE schedule_id=?1 AND fire_id=?2) THEN NULL ELSE retry_slot END,retry_queued_at=CASE WHEN retry_slot=(SELECT slot FROM pid2_fires WHERE schedule_id=?1 AND fire_id=?2) THEN NULL ELSE retry_queued_at END,retry_order=CASE WHEN retry_slot=(SELECT slot FROM pid2_fires WHERE schedule_id=?1 AND fire_id=?2) THEN NULL ELSE retry_order END WHERE schedule_id=?1 AND EXISTS(SELECT 1 FROM pid2_fires WHERE schedule_id=?1 AND fire_id=?2 AND slot IS NOT NULL AND (last_fired_slot IS NULL OR slot>last_fired_slot OR slot=retry_slot))",params![id,fire]).map_err(|e|e.to_string())?;
+    Ok(())
+}
 pub fn queue(id:&str,trigger:&str,slot:Option<i64>) -> Result<Value,String> {
     let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?; super::tables(&db)?;
     let tx=db.transaction().map_err(|e|e.to_string())?;
@@ -146,8 +160,9 @@ pub fn queue(id:&str,trigger:&str,slot:Option<i64>) -> Result<Value,String> {
     if active {drop(tx);drop(db);fire_deed(id,&uuid::Uuid::new_v4().simple().to_string(),"Refused",0,Some("pid2-schedule-fire-running"));return Err("pid2-schedule-fire-running".into());}
     let signal=unmet(&tx,&raw)?; let fire_id=uuid::Uuid::new_v4().simple().to_string(); let now=super::now();
     let state=if signal.is_some() {"Refused"} else {"Queued"};
-    tx.execute("INSERT INTO pid2_fires(schedule_id,fire_id,trigger,state,queued_at,finished_at,first_missing_signal) VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(schedule_id) DO UPDATE SET fire_id=excluded.fire_id,trigger=excluded.trigger,state=excluded.state,queued_at=excluded.queued_at,started_at=NULL,finished_at=excluded.finished_at,duration_ms=NULL,first_missing_signal=excluded.first_missing_signal,rsync_exit_code=NULL,final_file_count=NULL,final_total_bytes=NULL",params![id,fire_id,trigger,state,now,if signal.is_some(){Some(now)}else{None},signal]).map_err(|e|e.to_string())?;
-    if let Some(slot)=slot {tx.execute("UPDATE pid2_schedules SET last_fired_slot=?2 WHERE schedule_id=?1",params![id,slot]).map_err(|e|e.to_string())?;}
+    let order:i64=tx.query_row("SELECT COALESCE(MAX(queue_order),0)+1 FROM pid2_fires",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+    tx.execute("INSERT INTO pid2_fires(schedule_id,fire_id,trigger,state,queued_at,finished_at,first_missing_signal,slot,queue_order) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(schedule_id) DO UPDATE SET fire_id=excluded.fire_id,trigger=excluded.trigger,state=excluded.state,queued_at=excluded.queued_at,started_at=NULL,finished_at=excluded.finished_at,duration_ms=NULL,first_missing_signal=excluded.first_missing_signal,rsync_exit_code=NULL,final_file_count=NULL,final_total_bytes=NULL,slot=excluded.slot,queue_order=excluded.queue_order",params![id,fire_id,trigger,state,now,if signal.is_some(){Some(now)}else{None},signal,slot,order]).map_err(|e|e.to_string())?;
+    if signal.is_some() {advance_slot(&tx,id,&fire_id)?;}
     tx.commit().map_err(|e|e.to_string())?;drop(db);
     if let Some(signal)=signal {fire_deed(id,&fire_id,"Refused",0,Some(&signal));return Err(signal);}
     super::events::notify();Ok(json!({"ok":true,"fire_id":fire_id,"state":"Queued"}))
@@ -157,18 +172,15 @@ pub fn queue(id:&str,trigger:&str,slot:Option<i64>) -> Result<Value,String> {
 pub fn clock(catchup:bool) -> Result<Duration,String> {
     let Some(db)=super::read_db()? else {return Ok(Duration::from_secs(86400*365));};
     if !super::table_exists(&db,"pid2_schedules")? {return Ok(Duration::from_secs(86400*365));}
-    let mut q=db.prepare("SELECT schedule_id,frequency,time,weekday,last_fired_slot FROM pid2_schedules WHERE enabled=1 ORDER BY schedule_id").map_err(|e|e.to_string())?;
-    let rows=q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,Option<i64>>(4)?))).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+    let mut q=db.prepare("SELECT schedule_id,frequency,time,weekday,last_fired_slot,retry_slot,interrupted_slot FROM pid2_schedules WHERE enabled=1 ORDER BY retry_queued_at IS NULL,retry_queued_at,retry_order,schedule_id").map_err(|e|e.to_string())?;
+    let rows=q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,Option<i64>>(4)?,r.get::<_,Option<i64>>(5)?,r.get::<_,Option<i64>>(6)?))).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
     drop(q);drop(db);let now=super::now();let mut earliest=None;
-    for (id,frequency,time,weekday,last) in rows {
+    for (id,frequency,time,weekday,last,retry,interrupted) in rows {
         let cal=cal_from_row(frequency,time,weekday);
-        if let Some(slot)=previous_slot(&cal,now).filter(|slot|last.is_some_and(|last|*slot>last)) {
-            if let Err(signal)=queue(&id,if catchup {"catch-up"} else {"calendar"},Some(slot)) {
-                if signal=="pid2-schedule-fire-running" {
-                    let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
-                    db.execute("UPDATE pid2_schedules SET last_fired_slot=?2 WHERE schedule_id=?1",params![id,slot]).map_err(|e|e.to_string())?;
-                }
-            }
+        let current=||previous_slot(&cal,now).filter(|slot|last.is_some_and(|last|*slot>last) && interrupted.is_none_or(|blocked|*slot>blocked));
+        if let Some(slot)=retry.filter(|slot|interrupted.is_none_or(|blocked|*slot>blocked)).or_else(current) {
+            let already_held={let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;db.query_row("SELECT EXISTS(SELECT 1 FROM pid2_fires WHERE schedule_id=?1 AND (state IN ('Queued','Running') OR (state='Interrupted' AND slot=?2)))",params![id,slot],|r|r.get::<_,bool>(0)).map_err(|e|e.to_string())?};
+            if !already_held { let _=queue(&id,if catchup || retry==Some(slot) {"catch-up"} else {"calendar"},Some(slot)); }
         }
         if let Some(next)=next_slot(&cal,now) {earliest=Some(earliest.map_or(next,|old:i64|old.min(next)));}
     }
@@ -178,12 +190,12 @@ pub fn clock(catchup:bool) -> Result<Duration,String> {
 pub fn queued() -> Result<Vec<String>,String> {
     let Some(db)=super::read_db()? else {return Ok(vec![]);};
     if !super::table_exists(&db,"pid2_fires")? {return Ok(vec![]);}
-    let mut q=db.prepare("SELECT schedule_id FROM pid2_fires WHERE state='Queued'").map_err(|e|e.to_string())?;
+    let mut q=db.prepare("SELECT schedule_id FROM pid2_fires WHERE state='Queued' ORDER BY queued_at, queue_order, rowid").map_err(|e|e.to_string())?;
     let rows=q.query_map([],|r|r.get(0)).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
     Ok(rows)
 }
 
-pub fn execute(id:&str) -> Result<(),String> {
+pub fn execute(id:&str) -> Result<bool,String> {
     // Claim the specific queued fire before the NAS lease or any crossing.
     // Duplicate wakeups may dispatch this worker more than once.
     let (fire,raw,band,action,max) = {
@@ -191,24 +203,27 @@ pub fn execute(id:&str) -> Result<(),String> {
         super::tables(&db)?;
         let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
         let row:Option<(String,Vec<u8>,String,String,i64)>=tx.query_row("SELECT f.fire_id,s.envelope,s.band,s.action,s.max_seconds FROM pid2_fires f JOIN pid2_schedules s ON s.schedule_id=f.schedule_id WHERE f.schedule_id=?1 AND f.state='Queued'",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional().map_err(|e|e.to_string())?;
-        let Some((fire,raw,band,action,max))=row else {return Ok(());};
-        let changed=tx.execute("UPDATE pid2_fires SET state='Running',started_at=?2 WHERE schedule_id=?1 AND fire_id=?3 AND state='Queued'",params![id,super::now(),fire]).map_err(|e|e.to_string())?;
-        if changed!=1 {return Ok(());}
+        let Some((fire,raw,band,action,max))=row else {return Ok(false);};
+        let changed=tx.execute("UPDATE pid2_fires SET state='Running',started_at=?2 WHERE schedule_id=?1 AND fire_id=?3 AND state='Queued' AND NOT EXISTS(SELECT 1 FROM pid2_fires WHERE state='Running') AND schedule_id=(SELECT schedule_id FROM pid2_fires WHERE state='Queued' ORDER BY queued_at,queue_order,rowid LIMIT 1)",params![id,super::now(),fire]).map_err(|e|e.to_string())?;
+        if changed!=1 {return Ok(false);}
         tx.commit().map_err(|e|e.to_string())?;
         (fire,raw,band,action,max)
     };
-    let result=(|| -> Result<(),String> {
+    let result=(|| -> Result<bool,String> {
     // A NAS fire and a NAS role swap must never cross the staff concurrently.
     // The shared nonblocking lease is held until the crossing has ended.
     let _nas_lease=if band=="storage/backup/nas-sync" {
         match super::swap_lease() {
             Ok(lease)=>Some(lease),
             Err(signal) if signal=="pid2-swap-busy"=>{
-                let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
-                let changed=db.execute("UPDATE pid2_fires SET state='Refused',finished_at=?3,first_missing_signal='pid2-routine-held' WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,super::now()]).map_err(|e|e.to_string())?;
+                let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+                let tx=db.transaction().map_err(|e|e.to_string())?;
+                let changed=tx.execute("UPDATE pid2_fires SET state='Refused',finished_at=?3,first_missing_signal='pid2-routine-held' WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,super::now()]).map_err(|e|e.to_string())?;
+                if changed!=0 {advance_slot(&tx,id,&fire)?;}
+                tx.commit().map_err(|e|e.to_string())?;
                 drop(db);
                 if changed!=0 {fire_deed(id,&fire,"Refused",0,Some("pid2-routine-held"));}
-                return Ok(());
+                return Ok(changed!=0);
             },
             Err(signal)=>return Err(signal),
         }
@@ -218,12 +233,18 @@ pub fn execute(id:&str) -> Result<(),String> {
     let signal=unmet(&tx,&raw)?;let now=super::now();
     if let Some(signal)=signal {
         let changed=tx.execute("UPDATE pid2_fires SET state='Refused',finished_at=?3,first_missing_signal=?4 WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,now,signal]).map_err(|e|e.to_string())?;
-        tx.commit().map_err(|e|e.to_string())?;drop(db);if changed!=0 {fire_deed(id,&fire,"Refused",0,Some(&signal));}return Ok(());
+        if changed!=0 {advance_slot(&tx,id,&fire)?;}
+        tx.commit().map_err(|e|e.to_string())?;drop(db);if changed!=0 {fire_deed(id,&fire,"Refused",0,Some(&signal));}return Ok(changed!=0);
     }
     let baseline:Option<(i64,i64)>=tx.query_row("SELECT file_count,total_bytes FROM pid2_sync_baselines WHERE schedule_id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
     tx.commit().map_err(|e|e.to_string())?;drop(db);
     let started=std::time::Instant::now();
-    let input=json!({"action":action,"baseline":baseline.map(|(f,b)|json!({"fileCount":f,"totalBytes":b})),"acceptShrink":false,"dryRun":false});
+    let mut input=json!({"action":action,"baseline":baseline.map(|(f,b)|json!({"fileCount":f,"totalBytes":b})),"acceptShrink":false,"dryRun":false});
+    let envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+    if let Some(payload)=envelope.pointer("/schedule/job/payload").and_then(Value::as_object) {
+        let target=input.as_object_mut().ok_or("pid2-schedule-input-unusable")?;
+        for (key,value) in payload { if !matches!(key.as_str(),"action"|"baseline"|"acceptShrink"|"dryRun") {target.insert(key.clone(),value.clone());} }
+    }
     let result=crate::gate::snake::schedule_crossing(&band,&input,Duration::from_secs(max as u64));
     let (state,signal,exit,counts)=match result {
         Err(signal)=>("Failed",Some(signal),None,None),
@@ -241,21 +262,26 @@ pub fn execute(id:&str) -> Result<(),String> {
     let elapsed=started.elapsed().as_millis().min(i64::MAX as u128) as i64;
     let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;let tx=db.transaction().map_err(|e|e.to_string())?;
     let changed=tx.execute("UPDATE pid2_fires SET state=?3,finished_at=?4,duration_ms=?5,first_missing_signal=?6,rsync_exit_code=?7,final_file_count=?8,final_total_bytes=?9 WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,state,super::now(),elapsed,signal,exit,counts.map(|v|v.0),counts.map(|v|v.1)]).map_err(|e|e.to_string())?;
+    if changed!=0 {advance_slot(&tx,id,&fire)?;}
     if changed!=0 {if let Some((f,b))=counts {tx.execute("INSERT INTO pid2_sync_baselines(schedule_id,file_count,total_bytes,updated_at,fire_id) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(schedule_id) DO UPDATE SET file_count=excluded.file_count,total_bytes=excluded.total_bytes,updated_at=excluded.updated_at,fire_id=excluded.fire_id",params![id,f,b,super::now(),fire]).map_err(|e|e.to_string())?;}}
     tx.commit().map_err(|e|e.to_string())?;drop(db);
-    if changed!=0 {fire_deed(id,&fire,state,elapsed,signal.as_deref());super::events::notify();}
-    Ok(())
+    if changed!=0 {fire_deed(id,&fire,state,elapsed,signal.as_deref());}
+    Ok(changed!=0)
     })();
     if let Err(signal)=&result {
         // The cached connection or its mutex may itself be the failure.  Use
         // a fresh write connection and touch only the claimed running fire.
         let recovery=(|| -> Result<usize,String> {
-            let db=rusqlite::Connection::open_with_flags(crate::stats::db_path(),rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e|e.to_string())?;
+            let mut db=rusqlite::Connection::open_with_flags(crate::stats::db_path(),rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e|e.to_string())?;
             db.busy_timeout(Duration::from_secs(5)).map_err(|e|e.to_string())?;
-            db.execute("UPDATE pid2_fires SET state='Failed',finished_at=?3,first_missing_signal=?4 WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,super::now(),signal]).map_err(|e|e.to_string())
+            let tx=db.transaction().map_err(|e|e.to_string())?;
+            let changed=tx.execute("UPDATE pid2_fires SET state='Failed',finished_at=?3,first_missing_signal=?4 WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,super::now(),signal]).map_err(|e|e.to_string())?;
+            if changed!=0 {advance_slot(&tx,id,&fire)?;}
+            tx.commit().map_err(|e|e.to_string())?;
+            Ok(changed)
         })();
         match recovery {
-            Ok(changed) if changed!=0=>{fire_deed(id,&fire,"Failed",0,Some(signal));super::events::notify();},
+            Ok(changed) if changed!=0=>{fire_deed(id,&fire,"Failed",0,Some(signal));return Ok(true);},
             Ok(_)=>{},
             Err(error)=>eprintln!("pid2-fire-failure-record-unavailable: {error}"),
         }
@@ -273,7 +299,7 @@ pub fn cli(args:&[String]) -> i32 {
         [verb,id] if verb=="enable"=>set_enabled(id,true,false),
         [verb,id] if verb=="disable"=>set_enabled(id,false,false),
         [verb,id] if verb=="run"=>queue(id,"owner",None),
-        [verb,id] if verb=="update"=>std::io::stdin().take(1024*1024+1).read_to_end(&mut raw).map_err(|e|e.to_string()).and_then(|_|if raw.len()>1024*1024 {Err("pid2-envelope-too-large".into())} else {serde_json::from_slice::<Value>(&raw).map_err(|e|e.to_string()).and_then(|v|update(id,v.get("calendar").unwrap_or(&v)))}),
+        [verb,id] if verb=="update"=>std::io::stdin().take(1024*1024+1).read_to_end(&mut raw).map_err(|e|e.to_string()).and_then(|_|if raw.len()>1024*1024 {Err("pid2-envelope-too-large".into())} else {serde_json::from_slice::<Value>(&raw).map_err(|e|e.to_string()).and_then(|v|update(id,&v))}),
         _=>Err("pid2-schedule-arguments-invalid".into()),
     };
     match result {Ok(value)=>{println!("{value}");0},Err(signal)=>{eprintln!("{signal}");1}}
