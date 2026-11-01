@@ -95,36 +95,105 @@ fn require_current_stage(routine: &str, expected_stage: &Value) -> Result<(),Str
     if !current.pointer("/routine/stages").and_then(Value::as_array).is_some_and(|stages|stages.contains(expected_stage)) { return Err("pid2-routine-changed".into()); }
     Ok(())
 }
-fn ensure_running(routine: &str, unit: &str, scope: &str, expected_stage: &Value) -> Result<bool,String> {
+fn needs_token(line: &str, trace: &[Value]) -> String {
+    format!("{}\0{:x}",line,md5::compute(serde_json::to_vec(trace).unwrap_or_default()))
+}
+
+fn attempt_receipt(kind:&str, mark:&(String,u64)) -> String {
+    json!({"kind":kind,"sense":mark.0,"sequence":mark.1}).to_string()
+}
+fn receipt_mark(receipt:Option<&str>) -> Option<(String,u64)> {
+    let value:Value=serde_json::from_str(receipt?).ok()?;
+    Some((value.get("sense")?.as_str()?.to_owned(),value.get("sequence")?.as_u64()?))
+}
+fn failed_receipt(cause: &str, needs: &str, mark:Option<&(String,u64)>) -> String {
+    json!({"cause":cause,"needs":needs,"sense":mark.map(|m|&m.0),"sequence":mark.map(|m|m.1)}).to_string()
+}
+
+fn failed_cause(receipt: Option<&str>) -> String {
+    let Some(receipt)=receipt else { return "pid2-unit-failed".into(); };
+    serde_json::from_str::<Value>(receipt).ok().and_then(|v|v.get("cause").and_then(Value::as_str).map(str::to_owned)).unwrap_or_else(||receipt.to_owned())
+}
+
+fn rearm_changed_needs(routine: &str, stage: &Value, token: &str) -> Result<(),String> {
+    for action in stage.get("actions").and_then(Value::as_array).into_iter().flatten() {
+        let Some(unit)=action.get("unit").and_then(Value::as_str) else { continue; };
+        let Ok(scope)=unit_scope(unit) else { continue; };
+        let (_,life,receipt)=program(routine,unit,&scope)?;
+        if life!="Failed" { continue; }
+        let old=receipt.as_deref().and_then(|r|serde_json::from_str::<Value>(r).ok());
+        if old.as_ref().and_then(|v|v.get("needs")).and_then(Value::as_str).is_some_and(|n|n!=token && n.split('\0').next()==token.split('\0').next()) {
+            program_state(routine,unit,&scope,"Waiting",None)?;
+        }
+    }
+    Ok(())
+}
+
+fn ensure_running(routine: &str, unit: &str, scope: &str, expected_stage: &Value, needs: &str) -> Result<bool,String> {
     // The caller holds the cross-process walk lock for the entire walk;
     // unit commands and hold/release acquire it before changing intent.
     if held(routine)? { return Err("pid2-routine-held".into()); }
     require_current_stage(routine,expected_stage)?;
     let (desired,mut life,receipt) = program(routine,unit,scope)?;
+    if life == "Failed" {
+        let cause=failed_cause(receipt.as_deref());
+        if cause.starts_with("pid2-stop") || desired!="Run" { return Err(cause); }
+        let mark=receipt_mark(receipt.as_deref());
+        let current=super::events::transition_mark();
+        let (active,inactive)=super::events::unit_transitions(scope,unit);
+        let floor=mark.as_ref().filter(|m|m.0==current.0).map(|m|m.1).unwrap_or(0);
+        return match running(unit,scope) {
+            Ok(true) if mark.is_some() && active>inactive && active>floor && (mark.as_ref().is_some_and(|m|m.0==current.0) || inactive>floor) => {
+                let observed=(current.0,inactive);
+                program_state(routine,unit,scope,"Running",Some(&attempt_receipt("pid2-started",&observed)))?; Ok(true)
+            },
+            _ => Err(cause),
+        };
+    }
     if desired != "Run" { return Err("pid2-program-stopped-by-owner".into()); }
     if life == "Stopping" {
         if receipt.as_deref() != Some("stop-accepted") {
             match unit_call("stop",unit,scope) {
                 Ok(reply) if reply.get("ok").and_then(Value::as_bool)==Some(true) => { program_state(routine,unit,scope,"Stopping",Some("stop-accepted"))?; return Ok(false); },
-                Ok(_) => { program_state(routine,unit,scope,"Stopping",Some("pid2-stop-refused"))?; return Err("pid2-stop-refused".into()); },
-                Err(error) => { program_state(routine,unit,scope,"Stopping",Some(&error))?; return Err(error); }
+                Ok(_) => { program_state(routine,unit,scope,"Failed",Some(&failed_receipt("pid2-stop-refused",needs,None)))?; return Err("pid2-stop-refused".into()); },
+                Err(error) => { let cause=format!("pid2-stop: {error}"); program_state(routine,unit,scope,"Failed",Some(&failed_receipt(&cause,needs,None)))?; return Err(cause); }
             }
         }
         if running(unit,scope)? { return Ok(false); }
         life = "Queued".into();
     }
     match running(unit,scope) {
-        Ok(true) => { program_state(routine,unit,scope,"Running",Some("active"))?; Ok(true) },
+        Ok(true) => {
+            if (life=="Starting" || life=="Running") && receipt_mark(receipt.as_deref()).is_some() {
+                let mark=receipt_mark(receipt.as_deref()).expect("checked");
+                program_state(routine,unit,scope,"Running",Some(&attempt_receipt("pid2-started",&mark)))?;
+            } else { program_state(routine,unit,scope,"Running",Some("active"))?; }
+            Ok(true)
+        },
         Ok(false) => {
+            let mark=receipt_mark(receipt.as_deref());
+            let current=super::events::transition_mark();
+            let (_,inactive)=super::events::unit_transitions(scope,unit);
+            let settled=mark.as_ref().is_some_and(|m| inactive>if m.0==current.0 {m.1} else {0});
+            if (life=="Starting" && settled) || life=="Running" {
+                let error=if life=="Starting" {"pid2-start-unit-not-active"} else {"pid2-unit-stopped-unexpectedly"};
+                let failed_mark=super::events::transition_mark();
+                program_state(routine,unit,scope,"Failed",Some(&failed_receipt(error,needs,Some(&failed_mark))))?;
+                return Err(error.into());
+            }
             if life != "Starting" {
+                let mark=super::events::transition_mark();
+                program_state(routine,unit,scope,"Starting",Some(&attempt_receipt("start-ordered",&mark)))?;
                 match unit_call("start",unit,scope) {
-                    Ok(reply) if reply.get("ok").and_then(Value::as_bool)==Some(true) => program_state(routine,unit,scope,"Starting",Some("start-accepted"))?,
-                    Ok(_) => { program_state(routine,unit,scope,"Held",Some("pid2-start-refused"))?; return Err("pid2-start-refused".into()); },
-                    Err(error) => { program_state(routine,unit,scope,"Held",Some(&error))?; return Err(error); }
+                    Ok(reply) if reply.get("ok").and_then(Value::as_bool)==Some(true) => program_state(routine,unit,scope,"Starting",Some(&attempt_receipt("start-accepted",&mark)))?,
+                    Ok(_) => { let failed_mark=super::events::transition_mark(); program_state(routine,unit,scope,"Failed",Some(&failed_receipt("pid2-start-refused",needs,Some(&failed_mark))))?; return Err("pid2-start-refused".into()); },
+                    Err(error) => { let failed_mark=super::events::transition_mark(); program_state(routine,unit,scope,"Failed",Some(&failed_receipt(&error,needs,Some(&failed_mark))))?; return Err(error); }
                 }
             }
             Ok(false)
         },
+        Err(error) if error == "pid2-unit-transitioning" && life == "Starting" => Ok(false),
+        Err(error) if life=="Starting" || life=="Running" => Err(error),
         Err(error) => { program_state(routine,unit,scope,"Held",Some(&error))?; Err(error) }
     }
 }
@@ -332,19 +401,29 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
         return write_line(routine,name,Some("true"),"Done",None);
     }
     let mut value = None;
+    let mut need_trace=Vec::new();
     for need in stage.get("needs").and_then(Value::as_array).into_iter().flatten() {
         if let Some(branch)=need.get("when_line").and_then(Value::as_str) {
             resolve_line(routine,branch,senses,visiting)?;
             let selected=line(routine,branch)?.and_then(|x|x.0).ok_or("pid2-need-branch-unobserved")?;
             let expected=need.get("when_value").and_then(Value::as_str).unwrap_or("true");
+            need_trace.push(json!({"branch":branch,"selected":selected,"expected":expected}));
             if selected != expected { continue; }
         }
-        match needs(routine,name,need,senses,visiting,separate_election) {
+        let observed=needs(routine,name,need,senses,visiting,separate_election);
+        let mut declared=serde_json::Map::new();
+        for key in ["kind","properties","path","routine_id","line","value","unit","scope","observer","pattern","seat","readiness"] {
+            if let Some(v)=need.get(key) { declared.insert(key.into(),v.clone()); }
+        }
+        need_trace.push(json!({"need":declared,"observation":match &observed { Ok(value)=>json!({"value":value}),Err(reason)=>json!({"reason":reason}) }}));
+        match observed {
             Ok(Some(v)) => value=Some(v),
             Ok(None) => {},
-            Err(reason) => { write_line(routine,name,None,"Waiting",Some(&reason))?; return Ok(()); }
+            Err(reason) => { rearm_changed_needs(routine,stage,&needs_token(name,&need_trace))?; write_line(routine,name,None,"Waiting",Some(&reason))?; return Ok(()); }
         }
     }
+    let needs_fingerprint=needs_token(name,&need_trace);
+    rearm_changed_needs(routine,stage,&needs_fingerprint)?;
     if crossings.is_some() || until.is_some() {
         let done: bool = {
             let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
@@ -428,7 +507,16 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
         return write_line(routine,name,Some("true"),"Done",None);
     }
     if let Some(select) = stage.get("select").filter(|v| !v.is_null()) {
-        if let Some((Some(existing),state)) = line(routine,name)? {
+        if separate_election {
+            let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+            let tx=db.transaction().map_err(|e|e.to_string())?;
+            tx.execute("INSERT OR IGNORE INTO pid2_elections(routine_id,line,value) SELECT routine_id,line,value FROM pid2_lines WHERE routine_id=?1 AND line=?2 AND state='Observed' AND value IS NOT NULL AND NOT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",params![routine,name]).map_err(|e|e.to_string())?;
+            let changed=tx.execute("UPDATE pid2_lines SET state='Done' WHERE routine_id=?1 AND line=?2 AND state='Observed' AND EXISTS(SELECT 1 FROM pid2_elections WHERE routine_id=?1 AND line=?2) AND NOT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",params![routine,name]).map_err(|e|e.to_string())?;
+            tx.commit().map_err(|e|e.to_string())?;
+            value=db.query_row("SELECT value FROM pid2_elections WHERE routine_id=?1 AND line=?2",params![routine,name],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+            drop(db);
+            if changed!=0 { REVISION.fetch_add(1,Ordering::Relaxed); }
+        } else if let Some((Some(existing),state)) = line(routine,name)? {
             if state == "Observed" { value=Some(existing); }
         }
         if value.is_none() {
@@ -436,8 +524,14 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
             resolve_line(routine,source,senses,visiting)?;
             let source_value = line(routine,source)?.and_then(|v|v.0).ok_or("pid2-select-source-not-observed")?;
             let chosen = select.get("map").and_then(|m|m.get(&source_value)).and_then(Value::as_str).ok_or("pid2-select-value-undefined")?;
-            write_line(routine,name,Some(chosen),"Observed",None)?;
-            value=Some(chosen.to_owned());
+            if separate_election {
+                let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+                db.execute("INSERT OR IGNORE INTO pid2_elections(routine_id,line,value) SELECT ?1,?2,?3 WHERE NOT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",params![routine,name,chosen]).map_err(|e|e.to_string())?;
+                value=db.query_row("SELECT value FROM pid2_elections WHERE routine_id=?1 AND line=?2",params![routine,name],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+            } else {
+                write_line(routine,name,Some(chosen),"Observed",None)?;
+                value=Some(chosen.to_owned());
+            }
         }
     }
     let mut ordered: Vec<Result<usize,(String,String)>> = Vec::new();
@@ -460,7 +554,8 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
         ordered.push(Ok(index));
     }
     let outcomes: Vec<Result<bool,String>> = std::thread::scope(|threads| {
-        let jobs: Vec<_>=units.iter().map(|(unit,scope)| threads.spawn(move || ensure_running(routine,unit,scope,stage))).collect();
+        let needs_fingerprint=&needs_fingerprint;
+        let jobs: Vec<_>=units.iter().map(|(unit,scope)| threads.spawn(move || ensure_running(routine,unit,scope,stage,needs_fingerprint))).collect();
         jobs.into_iter().map(|job|job.join().unwrap_or_else(|_|Err("pid2-unit-attempt-panicked".into()))).collect()
     });
     for result in ordered {
@@ -474,7 +569,7 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
         };
         if let Some((state,reason))=problem { return write_line(routine,name,None,&state,Some(&reason)); }
     }
-    write_line(routine,name,Some(value.as_deref().unwrap_or("true")),if value.is_some(){"Observed"}else{"Done"},None)
+    write_line(routine,name,Some(value.as_deref().unwrap_or("true")),if value.is_some() && !separate_election {"Observed"}else{"Done"},None)
 }
 
 pub fn owner_answer(routine: &str, name: &str, answer: &str) -> Result<Value, String> {
@@ -533,19 +628,21 @@ fn reconcile_stops(senses: &super::events::Senses) -> Result<(),String> {
         let _guard=super::ACTION_LOCK.lock().map_err(|_|"pid2-action-lock-poisoned")?;
     let _process_guard=super::process_action_lock()?;
         let (desired,life,receipt)=program(&routine,&unit,&scope)?;
-        if desired!="Stop" { continue; }
-        if !senses.online(&scope) { program_state(&routine,&unit,&scope,"Held",Some("pid2-systemd-sense-unavailable"))?; continue; }
+        if desired!="Stop" || life=="Failed" { continue; }
+        if !senses.online(&scope) { if life!="Stopping" { program_state(&routine,&unit,&scope,"Held",Some("pid2-systemd-sense-unavailable"))?; } continue; }
         match unit_status(&unit,&scope) {
             Ok(status) => match status.pointer("/readback/active_state").and_then(Value::as_str) {
                 Some("inactive" | "failed") => program_state(&routine,&unit,&scope,"Held",Some("stopped"))?,
                 Some(_) if life=="Stopping" && receipt.as_deref()==Some("stop-accepted") => {},
                 Some(_) => match unit_call("stop",&unit,&scope) {
                     Ok(reply) if reply.get("ok").and_then(Value::as_bool)==Some(true) => program_state(&routine,&unit,&scope,"Stopping",Some("stop-accepted"))?,
-                    Ok(_) => program_state(&routine,&unit,&scope,"Held",Some("pid2-stop-refused"))?,
-                    Err(error) => program_state(&routine,&unit,&scope,"Held",Some(&error))?,
+                    Ok(_) => program_state(&routine,&unit,&scope,"Failed",Some("pid2-stop-refused"))?,
+                    Err(error) => program_state(&routine,&unit,&scope,"Failed",Some(&error))?,
                 },
+                None if life=="Stopping" => {},
                 None => program_state(&routine,&unit,&scope,"Held",Some("pid2-unit-state-unobserved"))?,
             },
+            Err(_) if life=="Stopping" => {},
             Err(error) => program_state(&routine,&unit,&scope,"Held",Some(&error))?,
         }
     }

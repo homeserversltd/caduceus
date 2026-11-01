@@ -1,11 +1,40 @@
 //! Coalesced event wakes; observations are always re-read by the solver.
 use futures_util::{FutureExt, StreamExt};
-use std::{collections::{HashMap, HashSet, VecDeque}, ffi::CString, io::{Read, Seek, SeekFrom, Write}, os::fd::{AsRawFd, FromRawFd, OwnedFd}, path::PathBuf, sync::{Arc, OnceLock, RwLock, atomic::{AtomicBool, Ordering}}, time::Duration};
+use std::{collections::{HashMap, HashSet, VecDeque}, ffi::CString, io::{Read, Seek, SeekFrom, Write}, os::fd::{AsRawFd, FromRawFd, OwnedFd}, path::PathBuf, sync::{Arc, Mutex, OnceLock, RwLock, atomic::{AtomicBool, Ordering}}, time::Duration};
 use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, AsyncReadExt, BufReader, Interest}, sync::{mpsc, Notify}};
 use zbus::{Connection, Message, MatchRule, MessageStream, Proxy, message::Type, zvariant::{OwnedObjectPath, OwnedValue}};
 
 type Wake = mpsc::Sender<()>;
 fn wake(tx: &Wake) { let _ = tx.try_send(()); }
+
+// Only the latest active/non-active observations are retained for each declared
+// unit. A failure stores a sequence fence so an earlier active observation cannot
+// be mistaken for a later recovery; reconnects require a new non-active baseline.
+struct UnitTransitions { session:String, sequence:u64, rows:HashMap<(String,String),(u64,u64)> }
+impl Default for UnitTransitions {
+    fn default()->Self { Self{session:uuid::Uuid::new_v4().to_string(),sequence:0,rows:HashMap::new()} }
+}
+fn transitions() -> &'static Mutex<UnitTransitions> {
+    static TRANSITIONS:OnceLock<Mutex<UnitTransitions>>=OnceLock::new();
+    TRANSITIONS.get_or_init(||Mutex::new(UnitTransitions::default()))
+}
+fn record_transition(scope:&str,unit:&str) {
+    let Some(state)=crate::stats::indicators::unit_state::get(scope,unit) else { return; };
+    let Some(active)=state.active_state.as_deref() else { return; };
+    if !matches!(active,"active"|"inactive"|"failed") { return; }
+    if let Ok(mut events)=transitions().lock() {
+        events.sequence=events.sequence.saturating_add(1);
+        let sequence=events.sequence;
+        let row=events.rows.entry((scope.to_owned(),unit.to_owned())).or_default();
+        if active=="active" { row.0=sequence; } else { row.1=sequence; }
+    }
+}
+pub(super) fn transition_mark() -> (String,u64) {
+    transitions().lock().map(|e|(e.session.clone(),e.sequence)).unwrap_or((String::new(),u64::MAX))
+}
+pub(super) fn unit_transitions(scope:&str,unit:&str) -> (u64,u64) {
+    transitions().lock().ok().and_then(|e|e.rows.get(&(scope.to_owned(),unit.to_owned())).copied()).unwrap_or_default()
+}
 
 // systemd's bus label escaping: every byte outside [A-Za-z0-9] becomes _xx.
 fn unit_path(unit: &str) -> String {
@@ -49,8 +78,16 @@ async fn snapshot_scope(conn: &Connection, scope: &str, events: &mut MessageStre
         }
     };
     let rows: Vec<crate::stats::indicators::unit_state::UnitRow> = reply.body().deserialize().map_err(|e|e.to_string())?;
+    let watched=scoped_units(scope);
+    let settled:HashSet<String>=watched.iter().filter(|unit|rows.iter().find(|row|&row.0==*unit).is_none_or(|row|row.7==0)).cloned().collect();
+    let before:HashMap<String,Option<String>>=watched.iter().map(|unit|(unit.clone(),crate::stats::indicators::unit_state::get(scope,unit).and_then(|s|s.active_state))).collect();
     pending.retain(|message|message.recv_position()>reply.recv_position());
-    Ok((!crate::stats::indicators::unit_state::snapshot(scope, &scoped_units(scope), rows).is_empty(),reply.recv_position()))
+    let changed=crate::stats::indicators::unit_state::snapshot(scope, &watched, rows);
+    for unit in settled {
+        let active=crate::stats::indicators::unit_state::get(scope,&unit).and_then(|s|s.active_state);
+        if active.as_deref().is_some_and(|a|matches!(a,"inactive"|"failed")) || before.get(&unit)!=Some(&active) { record_transition(scope,&unit); }
+    }
+    Ok((!changed.is_empty(),reply.recv_position()))
 }
 fn update_scope(scope: &str, message: &Message) -> Result<bool, String> {
     use crate::stats::indicators::unit_state;
@@ -64,11 +101,17 @@ fn update_scope(scope: &str, message: &Message) -> Result<bool, String> {
             if invalidated.iter().any(|v| v == "ActiveState" || v == "SubState") { return Err("pid2-unit-state-invalidated".into()); }
             let active = changed.remove("ActiveState").map(|v| String::try_from(v).map(Some).map_err(|e| e.to_string())).transpose()?;
             let sub = changed.remove("SubState").map(|v| String::try_from(v).map(Some).map_err(|e| e.to_string())).transpose()?;
-            Ok(unit_state::update(scope, &unit, active, sub, None))
+            let before=unit_state::get(scope,&unit).and_then(|v|v.active_state);
+            let updated=unit_state::update(scope, &unit, active, sub, None);
+            if updated && before!=unit_state::get(scope,&unit).and_then(|v|v.active_state) { record_transition(scope,&unit); }
+            Ok(updated)
         },
         Some("UnitRemoved") => {
             let (unit, _): (String, OwnedObjectPath) = message.body().deserialize().map_err(|e| e.to_string())?;
-            Ok(unit_state::update(scope, &unit, Some(Some("inactive".into())), Some(Some("dead".into())), Some(Some("unloaded".into()))))
+            let before=unit_state::get(scope,&unit).and_then(|v|v.active_state);
+            let updated=unit_state::update(scope, &unit, Some(Some("inactive".into())), Some(Some("dead".into())), Some(Some("unloaded".into())));
+            if updated && before.as_deref()!=Some("inactive") { record_transition(scope,&unit); }
+            Ok(updated)
         },
         Some("UnitNew") => {
             let (unit, _): (String, OwnedObjectPath) = message.body().deserialize().map_err(|e| e.to_string())?;
@@ -333,7 +376,10 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>) {
                         let unit = frame.get("unit").and_then(|v|v.as_str()).ok_or("pid2-owner-child-unit-missing")?;
                         if !scoped_units("owner").contains(unit) { return Err("pid2-owner-child-unit-undeclared".into()); }
                         let state: crate::stats::indicators::unit_state::UnitState = serde_json::from_value(frame.get("state").cloned().ok_or("pid2-owner-child-state-missing")?).map_err(|e|e.to_string())?;
+                        let before=crate::stats::indicators::unit_state::get("owner",unit).and_then(|v|v.active_state);
+                        let active=state.active_state.clone();
                         if crate::stats::indicators::unit_state::set("owner",unit,state) {
+                            if before!=active { record_transition("owner",unit); }
                             if online.load(Ordering::Acquire) { wake(&tx); }
                         }
                     },
