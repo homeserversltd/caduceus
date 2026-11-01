@@ -1,5 +1,5 @@
 //! In-process snapshot of systemd units observed by the subscribed managers.
-use std::{collections::{HashMap, HashSet}, sync::{OnceLock, RwLock}};
+use std::{collections::{HashMap, HashSet}, sync::{OnceLock, RwLock, atomic::{AtomicBool, Ordering}}};
 use zbus::zvariant::OwnedObjectPath;
 
 pub(crate) type UnitRow = (String, String, String, String, String, String, OwnedObjectPath, u32, String, OwnedObjectPath);
@@ -18,7 +18,22 @@ impl UnitState {
 }
 
 static STATES: OnceLock<RwLock<HashMap<(String, String), UnitState>>> = OnceLock::new();
+static SYSTEM_ONLINE: AtomicBool = AtomicBool::new(false);
+static OWNER_ONLINE: AtomicBool = AtomicBool::new(false);
 fn states() -> &'static RwLock<HashMap<(String, String), UnitState>> { STATES.get_or_init(|| RwLock::new(HashMap::new())) }
+
+pub(crate) fn set_online(scope: &str, online: bool) {
+    match scope { "system" => &SYSTEM_ONLINE, "owner" => &OWNER_ONLINE, _ => return }.store(online, Ordering::Release);
+}
+
+pub(crate) fn observed(scope: &str, unit: &str) -> Option<UnitState> {
+    let online = match scope { "system" => &SYSTEM_ONLINE, "owner" => &OWNER_ONLINE, _ => return None };
+    if !online.load(Ordering::Acquire) { return None; }
+    let state = get(scope, unit)?;
+    if !online.load(Ordering::Acquire) { return None; }
+    if state.active_state.is_none() || state.sub_state.is_none() || state.load_state.is_none() { return None; }
+    Some(state)
+}
 
 pub(crate) fn get(scope: &str, unit: &str) -> Option<UnitState> {
     states().read().ok()?.get(&(scope.to_owned(), unit.to_owned())).cloned()

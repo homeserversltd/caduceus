@@ -48,18 +48,17 @@ fn unit_call(action: &str, unit: &str, scope: &str) -> Result<Value, String> {
 }
 fn unit_call_timeout(action: &str, unit: &str, scope: &str, timeout: std::time::Duration) -> Result<Value, String> {
     if unit_scope(unit)? != scope { return Err("pid2-unit-scope-mismatch".into()); }
-    if action != "status" && unit_entry(unit)?.get("observe_only").and_then(Value::as_bool)==Some(true) { return Err("pid2-unit-observe-only".into()); }
+    if action == "status" { return Err("pid2-status-must-use-cache".into()); }
+    if unit_entry(unit)?.get("observe_only").and_then(Value::as_bool)==Some(true) { return Err("pid2-unit-observe-only".into()); }
     let result = crate::routes::leaf_pid2::unit_control_with_timeout(&json!({"action":action,"unit":unit,"scope":scope}),timeout);
-    if action != "status" { deed(action, unit, if result.is_ok() {"attempted"} else {"held"}, result.as_ref().err().map(String::as_str)); }
+    deed(action, unit, if result.is_ok() {"attempted"} else {"held"}, result.as_ref().err().map(String::as_str));
     result
 }
 
 pub(super) fn unit_status(unit: &str, scope: &str) -> Result<Value, String> {
-    let response = unit_call("status",unit,scope)?;
-    if response.get("ok").and_then(Value::as_bool) != Some(true) {
-        return Err(response.get("first_missing_signal").and_then(Value::as_str).unwrap_or("pid2-unit-status-refused").to_owned());
-    }
-    Ok(response)
+    if unit_scope(unit)? != scope { return Err("pid2-unit-scope-mismatch".into()); }
+    let state=crate::stats::indicators::unit_state::observed(scope,unit).ok_or("pid2-unit-state-unobserved")?;
+    Ok(json!({"ok":true,"readback":{"active_state":state.active_state,"sub_state":state.sub_state,"load_state":state.load_state,"unit_file_state":null}}))
 }
 
 fn running(unit: &str, scope: &str) -> Result<bool, String> {
@@ -359,15 +358,18 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
                 let payload=step.get("payload").filter(|v|v.is_object()).ok_or("pid2-staff-payload-invalid")?;
                 // The generic crossing is also an entry to unit/control;
                 // enforce the same enum wall as the action and status paths.
+                let mut status_read=None;
                 if crate::gate::snake::safe_band_path(band)? == "unit/control" {
                     let unit=payload.get("unit").and_then(Value::as_str).ok_or("pid2-action-unit-missing")?;
                     let scope=unit_scope(unit)?;
                     if payload.get("scope").and_then(Value::as_str)!=Some(scope.as_str()) { return Err("pid2-unit-scope-mismatch".into()); }
-                    if payload.get("action").and_then(Value::as_str)!=Some("status") && unit_entry(unit)?.get("observe_only").and_then(Value::as_bool)==Some(true) { return Err("pid2-unit-observe-only".into()); }
+                    if payload.get("action").and_then(Value::as_str)==Some("status") { status_read=Some(unit_status(unit,&scope)); }
+                    else if unit_entry(unit)?.get("observe_only").and_then(Value::as_bool)==Some(true) { return Err("pid2-unit-observe-only".into()); }
                 }
                 let seconds=step.get("deadline_seconds").and_then(Value::as_u64).unwrap_or(180);
                 if !(1..=600).contains(&seconds) { return Err("pid2-staff-deadline-out-of-range".into()); }
-                let result=crate::gate::snake::crossing_path_with_timeout(band,payload,std::time::Duration::from_secs(seconds));
+                let result=if let Some(status)=status_read { status.map(|receipt|json!({"ok":true,"converged":true,"receiptPayload":receipt})) }
+                    else { crate::gate::snake::crossing_path_with_timeout(band,payload,std::time::Duration::from_secs(seconds)) };
                 let signal=match result {
                     Err(signal)=>Some(signal),
                     Ok(reply)=>{
@@ -476,7 +478,8 @@ pub fn quiesce_held(routine: &str, deadline: std::time::Instant) -> Result<(),St
         if left.is_zero() {Err("pid2-native-stage-timeout".into())} else {Ok(left.min(std::time::Duration::from_secs(300)))}
     };
     let active = |unit: &str, scope: &str| -> Result<bool,String> {
-        let response=unit_call_timeout("status",unit,scope,remaining()?)?;
+        remaining()?;
+        let response=unit_status(unit,scope)?;
         if response.get("ok").and_then(Value::as_bool)!=Some(true) { return Err("pid2-unit-status-refused".into()); }
         match response.pointer("/readback/active_state").and_then(Value::as_str) {
             Some("inactive"|"failed")=>Ok(false), Some(_)=>Ok(true), None=>Err("pid2-unit-state-unobserved".into())

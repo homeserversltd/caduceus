@@ -1,6 +1,6 @@
 //! Coalesced event wakes; observations are always re-read by the solver.
-use futures_util::{stream::SelectAll, StreamExt};
-use std::{collections::{HashMap, HashSet}, ffi::CString, io::Write, os::fd::{AsRawFd, FromRawFd, OwnedFd}, sync::{Arc, OnceLock, atomic::{AtomicBool, Ordering}}, time::Duration};
+use futures_util::StreamExt;
+use std::{collections::{HashMap, HashSet, VecDeque}, ffi::CString, io::Write, os::fd::{AsRawFd, FromRawFd, OwnedFd}, sync::{Arc, OnceLock, atomic::{AtomicBool, Ordering}}, time::Duration};
 use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, AsyncReadExt, BufReader}, sync::{mpsc, Notify}};
 use zbus::{Connection, Message, MatchRule, MessageStream, Proxy, message::Type, zvariant::{OwnedObjectPath, OwnedValue}};
 
@@ -27,10 +27,29 @@ fn scoped_units(scope: &str) -> HashSet<String> {
         .map(|units| units.iter().filter(|u| u.get("scope").and_then(|v| v.as_str()) == Some(scope))
             .filter_map(|u| u.get("unit").and_then(|v| v.as_str()).map(str::to_owned)).collect()).unwrap_or_default()
 }
-async fn snapshot_scope(conn: &Connection, scope: &str) -> Result<bool, String> {
-    let manager = Proxy::new(conn,"org.freedesktop.systemd1","/org/freedesktop/systemd1","org.freedesktop.systemd1.Manager").await.map_err(|e| e.to_string())?;
-    let rows: Vec<crate::stats::indicators::unit_state::UnitRow> = manager.call("ListUnits", &()).await.map_err(|e| e.to_string())?;
-    Ok(!crate::stats::indicators::unit_state::snapshot(scope, &scoped_units(scope), rows).is_empty())
+async fn snapshot_scope(conn: &Connection, scope: &str, events: &mut MessageStream, manager_owner: &str, pending: &mut VecDeque<Message>) -> Result<(bool,zbus::message::Sequence), String> {
+    // Drain the bus while ListUnits is in flight. Reload can announce many
+    // unrelated units; letting their bounded queue fill would block its reply.
+    let call=conn.call_method(Some("org.freedesktop.systemd1"),"/org/freedesktop/systemd1",Some("org.freedesktop.systemd1.Manager"),"ListUnits",&());
+    tokio::pin!(call);
+    let reply=loop {
+        tokio::select! {
+            biased;
+            result=&mut call => break result.map_err(|e|e.to_string())?,
+            item=events.next() => match item {
+                Some(Ok(message)) if message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
+                    if pending.len()>=256 { return Err("pid2-snapshot-signal-overflow".into()); }
+                    pending.push_back(message);
+                },
+                Some(Ok(_)) => {},
+                Some(Err(error)) => return Err(error.to_string()),
+                None => return Err("pid2-systemd-stream-closed".into()),
+            }
+        }
+    };
+    let rows: Vec<crate::stats::indicators::unit_state::UnitRow> = reply.body().deserialize().map_err(|e|e.to_string())?;
+    pending.retain(|message|message.recv_position()>reply.recv_position());
+    Ok((!crate::stats::indicators::unit_state::snapshot(scope, &scoped_units(scope), rows).is_empty(),reply.recv_position()))
 }
 fn update_scope(scope: &str, message: &Message) -> Result<bool, String> {
     use crate::stats::indicators::unit_state;
@@ -52,7 +71,7 @@ fn update_scope(scope: &str, message: &Message) -> Result<bool, String> {
         },
         Some("UnitNew") => {
             let (unit, _): (String, OwnedObjectPath) = message.body().deserialize().map_err(|e| e.to_string())?;
-            Ok(unit_state::update(scope, &unit, Some(None), Some(None), Some(Some("loaded".into()))))
+            Ok(unit_state::update(scope, &unit, None, None, Some(Some("loaded".into()))))
         },
         Some("JobRemoved") => {
             let (_, _, unit, _): (u32, OwnedObjectPath, String, String) = message.body().deserialize().map_err(|e| e.to_string())?;
@@ -88,39 +107,45 @@ fn owner_uid() -> Result<u32, String> {
     Ok(pwd.pw_uid)
 }
 
-async fn streams(conn: &Connection, scope: &str) -> Result<(SelectAll<MessageStream>,SelectAll<MessageStream>),String> {
+async fn streams(conn: &Connection, scope: &str) -> Result<(MessageStream,String),String> {
+    // One receive-ordered stream prevents Manager and PropertiesChanged signals
+    // from overtaking one another after a reload or a collected unit's return.
+    let mut incoming=MessageStream::from(conn);
+    incoming.set_max_queued(1024);
+    let bus=Proxy::new(conn,"org.freedesktop.DBus","/org/freedesktop/DBus","org.freedesktop.DBus").await.map_err(|e|e.to_string())?;
+    let owner: String=bus.call("GetNameOwner",&("org.freedesktop.systemd1",)).await.map_err(|e|e.to_string())?;
     let proxy = Proxy::new(conn,"org.freedesktop.systemd1","/org/freedesktop/systemd1","org.freedesktop.systemd1.Manager").await.map_err(|e|e.to_string())?;
-    let mut manager_stream = SelectAll::new();
     for member in ["UnitNew", "UnitRemoved", "JobRemoved", "Reloading"] {
         let rule = MatchRule::builder().msg_type(Type::Signal).sender("org.freedesktop.systemd1").map_err(|e|e.to_string())?.path("/org/freedesktop/systemd1").map_err(|e|e.to_string())?.interface("org.freedesktop.systemd1.Manager").map_err(|e|e.to_string())?.member(member).map_err(|e|e.to_string())?.build();
-        manager_stream.push(MessageStream::for_match_rule(rule,conn,Some(64)).await.map_err(|e|e.to_string())?);
+        let _: ()=bus.call("AddMatch",&(rule.to_string(),)).await.map_err(|e|e.to_string())?;
     }
-    let mut changed_stream = SelectAll::new();
     for unit in scoped_units(scope) {
         let path = unit_path(&unit);
         let rule = MatchRule::builder().msg_type(Type::Signal).sender("org.freedesktop.systemd1").map_err(|e|e.to_string())?.path(path.as_str()).map_err(|e|e.to_string())?.interface("org.freedesktop.DBus.Properties").map_err(|e|e.to_string())?.member("PropertiesChanged").map_err(|e|e.to_string())?.build();
-        changed_stream.push(MessageStream::for_match_rule(rule,conn,Some(64)).await.map_err(|e|e.to_string())?);
+        let _: ()=bus.call("AddMatch",&(rule.to_string(),)).await.map_err(|e|e.to_string())?;
     }
     let _: () = proxy.call("Subscribe", &()).await.map_err(|e|e.to_string())?;
-    Ok((manager_stream,changed_stream))
+    Ok((incoming,owner))
 }
 
 async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>) {
     loop {
         let connected: Result<(),String> = async {
             let conn = Connection::system().await.map_err(|e|e.to_string())?;
-            let (mut managers,mut changes) = streams(&conn,"system").await?;
-            let changed = snapshot_scope(&conn,"system").await?;
+            let (mut events,manager_owner) = streams(&conn,"system").await?;
+            let mut pending=VecDeque::new();
+            let (changed,mut barrier) = snapshot_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?;
+            crate::stats::indicators::unit_state::set_online("system",true);
             online.store(true,Ordering::Release); if changed { wake(&tx); }
             loop {
-                let item = tokio::select! { item=managers.next()=>item, item=changes.next()=>item };
+                let item = if let Some(message)=pending.pop_front() { Some(Ok(message)) } else { events.next().await };
                 match item {
-                    Some(Ok(message)) if concerns_declared(&message) => {
+                    Some(Ok(message)) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
                         let reloading = message.header().member().is_some_and(|m| m.as_str()=="Reloading");
-                        let changed = if reloading { snapshot_scope(&conn,"system").await? } else {
+                        let changed = if reloading { let (changed,position)=snapshot_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?; barrier=position; changed } else {
                             match update_scope("system",&message) {
                                 Ok(changed) => changed,
-                                Err(error) if error=="pid2-unit-state-invalidated" => snapshot_scope(&conn,"system").await?,
+                                Err(error) if error=="pid2-unit-state-invalidated" => { let (changed,position)=snapshot_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?; barrier=position; changed },
                                 Err(error) => { eprintln!("pid2-system-signal: {error}"); false }
                             }
                         };
@@ -131,6 +156,7 @@ async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>) {
                 }
             }
         }.await;
+        crate::stats::indicators::unit_state::set_online("system",false);
         online.store(false,Ordering::Release); wake(&tx);
         if let Err(error)=connected { eprintln!("pid2-system-systemd-watch: {error}"); }
         if tx.is_closed() { return; }
@@ -153,20 +179,21 @@ async fn owner_child() -> Result<(),String> {
     if unsafe { libc::geteuid() } != uid { return Err("pid2-owner-child-wrong-uid".into()); }
     let address=format!("unix:path=/run/user/{uid}/bus");
     let conn=zbus::connection::Builder::address(address.as_str()).map_err(|e|e.to_string())?.build().await.map_err(|e|e.to_string())?;
-    let (mut managers,mut changes)=streams(&conn,"owner").await?;
-    snapshot_scope(&conn,"owner").await?;
+    let (mut events,manager_owner)=streams(&conn,"owner").await?;
+    let mut pending=VecDeque::new();
+    let (_,mut barrier)=snapshot_scope(&conn,"owner",&mut events,&manager_owner,&mut pending).await?;
     emit_owner_states()?;
     writeln!(std::io::stdout(),"ready").and_then(|_|std::io::stdout().flush()).map_err(|e|e.to_string())?;
     loop {
-        let item=tokio::select! { item=managers.next()=>item, item=changes.next()=>item };
+        let item=if let Some(message)=pending.pop_front() { Some(Ok(message)) } else { events.next().await };
         match item {
-            Some(Ok(message)) if concerns_declared(&message) => {
+            Some(Ok(message)) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
                 let reloading = message.header().member().is_some_and(|m| m.as_str()=="Reloading");
                 let job = message.header().member().is_some_and(|m| m.as_str()=="JobRemoved");
-                let changed = if reloading { snapshot_scope(&conn,"owner").await? } else {
+                let changed = if reloading { let (changed,position)=snapshot_scope(&conn,"owner",&mut events,&manager_owner,&mut pending).await?; barrier=position; changed } else {
                     match update_scope("owner",&message) {
                         Ok(changed) => changed,
-                        Err(error) if error=="pid2-unit-state-invalidated" => snapshot_scope(&conn,"owner").await?,
+                        Err(error) if error=="pid2-unit-state-invalidated" => { let (changed,position)=snapshot_scope(&conn,"owner",&mut events,&manager_owner,&mut pending).await?; barrier=position; changed },
                         Err(error) if error=="pid2-unit-not-watched" => false,
                         Err(error) => return Err(error),
                     }
@@ -210,7 +237,7 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>) {
                 bytes.pop();
                 let line=String::from_utf8(bytes).map_err(|_|"pid2-owner-child-protocol-invalid")?;
                 match line.as_str() {
-                    "ready" => { online.store(true,Ordering::Release); eprintln!("pid2-owner-sense-online"); if snapshot_changed { wake(&tx); } },
+                    "ready" => { crate::stats::indicators::unit_state::set_online("owner",true); online.store(true,Ordering::Release); eprintln!("pid2-owner-sense-online"); if snapshot_changed { wake(&tx); } },
                     "job" if online.load(Ordering::Acquire) => { wake(&tx); },
                     _ => {
                         let frame: serde_json::Value = serde_json::from_str(&line).map_err(|_|"pid2-owner-child-protocol-invalid")?;
@@ -227,6 +254,7 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>) {
             let _=child.wait().await;
             Err::<(),String>("pid2-owner-child-exited".into())
         }.await;
+        crate::stats::indicators::unit_state::set_online("owner",false);
         online.store(false,Ordering::Release); wake(&tx);
         // This identity cannot become root or owner within this process.  Do
         // not let unrelated systemd activity re-arm a permanently failed sense.
