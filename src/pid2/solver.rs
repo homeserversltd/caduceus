@@ -161,6 +161,28 @@ pub fn observe_drm(pattern: &str) -> Result<String, String> {
     Ok("absent".into())
 }
 
+pub(super) fn watched_mounts() -> Result<HashSet<std::path::PathBuf>,String> {
+    let Some(db)=super::read_db()? else { return Ok(HashSet::new()); };
+    if !super::table_exists(&db,"pid2_registrations")? { return Ok(HashSet::new()); }
+    let mut result=HashSet::new();
+    let mut query=db.prepare("SELECT envelope FROM pid2_registrations WHERE enabled=1").map_err(|e|e.to_string())?;
+    let mut rows=query.query([]).map_err(|e|e.to_string())?;
+    while let Some(row)=rows.next().map_err(|e|e.to_string())? {
+        let raw:Vec<u8>=row.get(0).map_err(|e|e.to_string())?;
+        let envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+        for stage in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten() {
+            for key in ["needs","until"] {
+                for need in stage.get(key).and_then(Value::as_array).into_iter().flatten() {
+                    if need.get("kind").and_then(Value::as_str)==Some("await-mount") {
+                        if let Some(path)=need.get("path").and_then(Value::as_str) { result.insert(std::path::PathBuf::from(path)); }
+                    }
+                }
+            }
+        }
+    }
+    Ok(result)
+}
+
 fn mount_point(path: &str) -> Result<bool, String> {
     let content = std::fs::read_to_string("/proc/self/mountinfo").map_err(|e| format!("pid2-mountinfo-unavailable: {e}"))?;
     let target = Path::new(path);
@@ -235,7 +257,9 @@ fn needs(routine: &str, stage_line: &str, need: &Value, senses: &super::events::
         }
         "await-mount" => {
             let path = need.get("path").and_then(Value::as_str).ok_or("pid2-mount-path-missing")?;
-            if mount_point(path)? { Ok(None) } else { Err("pid2-await-mount".into()) }
+            let cached=senses.mounts.read().map_err(|_|"pid2-mount-cache-lock-poisoned")?;
+            let present=match cached.as_ref() { Some(mounts)=>mounts.contains(Path::new(path)), None=>mount_point(path).map_err(|error|format!("pid2-await-mount-unsensed: {error}"))? };
+            if present { Ok(None) } else if cached.is_some() { Err("pid2-await-mount".into()) } else { Err("pid2-await-mount-unsensed".into()) }
         }
         "await-line" => {
             let other = need.get("routine_id").and_then(Value::as_str).unwrap_or(routine);

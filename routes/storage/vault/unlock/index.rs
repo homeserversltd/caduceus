@@ -553,8 +553,6 @@ async fn vault_unlock_route(
         })
         .await
         .map(|value| (StatusCode::OK, axum::Json(value)));
-        #[cfg(leaf_pid2)]
-        crate::pid2::events::notify();
         response
     });
     match task.await {

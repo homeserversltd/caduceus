@@ -86,8 +86,6 @@ async fn attach_route(
             }
             Ok((status, Json(receipt)))
         }.await;
-        #[cfg(leaf_pid2)]
-        crate::pid2::events::notify();
         response
     });
     match task.await {

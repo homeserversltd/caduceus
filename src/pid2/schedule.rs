@@ -92,8 +92,8 @@ pub fn register(raw:&[u8]) -> Result<Value,String> {
     let now=super::now(); let slot=previous_slot(&cal,now);
     let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
     super::tables(&db)?;
-    db.execute("INSERT INTO pid2_schedules(schedule_id,enabled,envelope,frequency,time,weekday,band,action,max_seconds,registered_at,updated_at,last_fired_slot) VALUES(?1,1,?2,?3,?4,?5,?6,?7,?8,?9,?9,?10) ON CONFLICT(schedule_id) DO UPDATE SET envelope=excluded.envelope,frequency=excluded.frequency,time=excluded.time,weekday=excluded.weekday,band=excluded.band,action=excluded.action,max_seconds=excluded.max_seconds,updated_at=excluded.updated_at,last_fired_slot=excluded.last_fired_slot",params![id,raw,cal.frequency,cal.time,cal.weekday,band,action,max as i64,now,slot]).map_err(|e|e.to_string())?;
-    drop(db); super::solver::deed("schedule-register",id,"success",None); super::events::notify();
+    let changed=db.execute("INSERT INTO pid2_schedules(schedule_id,enabled,envelope,frequency,time,weekday,band,action,max_seconds,registered_at,updated_at,last_fired_slot) VALUES(?1,1,?2,?3,?4,?5,?6,?7,?8,?9,?9,?10) ON CONFLICT(schedule_id) DO UPDATE SET envelope=excluded.envelope,frequency=excluded.frequency,time=excluded.time,weekday=excluded.weekday,band=excluded.band,action=excluded.action,max_seconds=excluded.max_seconds,updated_at=excluded.updated_at,last_fired_slot=excluded.last_fired_slot WHERE pid2_schedules.envelope IS NOT excluded.envelope OR pid2_schedules.frequency IS NOT excluded.frequency OR pid2_schedules.time IS NOT excluded.time OR pid2_schedules.weekday IS NOT excluded.weekday OR pid2_schedules.band IS NOT excluded.band OR pid2_schedules.action IS NOT excluded.action OR pid2_schedules.max_seconds IS NOT excluded.max_seconds",params![id,raw,cal.frequency,cal.time,cal.weekday,band,action,max as i64,now,slot]).map_err(|e|e.to_string())?;
+    drop(db); if changed!=0 {super::solver::deed("schedule-register",id,"success",None);super::events::notify();}
     Ok(json!({"ok":true,"readback":status(id)?}))
 }
 
@@ -119,7 +119,7 @@ pub fn update(id:&str,patch:&Value) -> Result<Value,String> {
     let target=envelope.pointer_mut("/schedule/calendar").and_then(Value::as_object_mut).ok_or("pid2-schedule-calendar-unusable")?;
     target.insert("frequency".into(),json!(cal.frequency));target.insert("time".into(),json!(cal.time));target.insert("weekday".into(),json!(cal.weekday));
     let encoded=serde_json::to_vec(&envelope).map_err(|e|e.to_string())?;
-    let changed=tx.execute("UPDATE pid2_schedules SET envelope=?2,frequency=?3,time=?4,weekday=?5,enabled=?6,updated_at=?7,last_fired_slot=?8 WHERE schedule_id=?1",params![id,encoded,cal.frequency,cal.time,cal.weekday,enabled,super::now(),previous_slot(&cal,super::now())]).map_err(|e|e.to_string())?;
+    let changed=tx.execute("UPDATE pid2_schedules SET envelope=?2,frequency=?3,time=?4,weekday=?5,enabled=?6,updated_at=?7,last_fired_slot=?8 WHERE schedule_id=?1 AND (frequency IS NOT ?3 OR time IS NOT ?4 OR weekday IS NOT ?5 OR enabled IS NOT ?6)",params![id,encoded,cal.frequency,cal.time,cal.weekday,enabled,super::now(),previous_slot(&cal,super::now())]).map_err(|e|e.to_string())?;
     tx.commit().map_err(|e|e.to_string())?;drop(db);
     if changed!=0 {super::solver::deed("schedule-update",id,"success",None);super::events::notify();}
     Ok(json!({"ok":true,"readback":status(id)?}))

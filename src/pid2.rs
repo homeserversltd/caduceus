@@ -313,12 +313,11 @@ pub fn request_unit(action: &str, unit: &str) -> Result<Value, String> {
     // Release is contractually a re-walk with Run intent; do not acknowledge
     // a Stop during the hold only to silently overwrite it on release.
     if is_held { return Err("pid2-routine-held".into()); }
-    db.execute("INSERT INTO pid2_programs(unit,scope,routine_id,desired,life,updated_at) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(unit,scope,routine_id) DO UPDATE SET desired=excluded.desired,life=excluded.life,last_receipt=NULL,updated_at=excluded.updated_at", params![unit,scope,routine_id,desired,life,now()]).map_err(|e| e.to_string())?;
+    let changed=db.execute("INSERT INTO pid2_programs(unit,scope,routine_id,desired,life,updated_at) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(unit,scope,routine_id) DO UPDATE SET desired=excluded.desired,life=excluded.life,last_receipt=NULL,updated_at=excluded.updated_at WHERE pid2_programs.desired IS NOT excluded.desired OR pid2_programs.life IS NOT excluded.life OR pid2_programs.last_receipt IS NOT NULL", params![unit,scope,routine_id,desired,life,now()]).map_err(|e| e.to_string())?;
     drop(db);
     drop(process_guard);
     drop(action_guard);
-    solver::deed(action,unit,"queued",None);
-    events::notify();
+    if changed != 0 { solver::deed(action,unit,"queued",None); events::notify(); }
     Ok(json!({"ok":true,"unit":unit,"scope":scope,"desired":desired,"life":life,"readback":status(unit)?}))
 }
 

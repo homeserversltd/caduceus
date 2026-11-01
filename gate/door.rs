@@ -229,6 +229,8 @@ async fn handle_request(
             recorded: false,
         };
         let result = dispatch(&task_declaration, &task_namespace, &task_request_id, payload, receipt_schema.as_deref(), &mut deed).await;
+        #[cfg(leaf_pid2)]
+        let changed = mutation_allowed && result.as_ref().is_ok_and(|reply| reply.status.is_success() && reply.changed == Some(true) && reply.receipt.get("ok").and_then(Value::as_bool)==Some(true) && reply.receipt.get("converged").and_then(Value::as_bool)!=Some(false));
         let response = match result {
             Ok(reply) => {
                 let ok = reply.receipt.get("ok").and_then(Value::as_bool) == Some(true);
@@ -253,10 +255,9 @@ async fn handle_request(
         };
         // Release this door's permit before waking a line it may have held.
         drop(_permit);
-        // A completed mutation may have released a resource that held a PID-2
-        // line. Wake only after dispatch (including finally) and deed handling.
+        // Only a successful, evidenced change wakes the solver.
         #[cfg(leaf_pid2)]
-        if mutation_allowed && deed.attempted { crate::pid2::events::notify(); }
+        if changed { crate::pid2::events::notify(); }
         response
     });
     match task.await {

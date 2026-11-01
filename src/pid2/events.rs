@@ -1,7 +1,7 @@
 //! Coalesced event wakes; observations are always re-read by the solver.
 use futures_util::{FutureExt, StreamExt};
-use std::{collections::{HashMap, HashSet, VecDeque}, ffi::CString, io::Write, os::fd::{AsRawFd, FromRawFd, OwnedFd}, sync::{Arc, OnceLock, atomic::{AtomicBool, Ordering}}, time::Duration};
-use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, AsyncReadExt, BufReader}, sync::{mpsc, Notify}};
+use std::{collections::{HashMap, HashSet, VecDeque}, ffi::CString, io::{Read, Seek, SeekFrom, Write}, os::fd::{AsRawFd, FromRawFd, OwnedFd}, path::PathBuf, sync::{Arc, OnceLock, RwLock, atomic::{AtomicBool, Ordering}}, time::Duration};
+use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, AsyncReadExt, BufReader, Interest}, sync::{mpsc, Notify}};
 use zbus::{Connection, Message, MatchRule, MessageStream, Proxy, message::Type, zvariant::{OwnedObjectPath, OwnedValue}};
 
 type Wake = mpsc::Sender<()>;
@@ -429,13 +429,54 @@ async fn watch_fd(make: fn()->Result<AsyncFd<OwnedFd>,String>, label: &'static s
         tokio::time::sleep(Duration::from_secs(300)).await;
     }
 }
-pub struct Senses { pub system: Arc<AtomicBool>, pub owner: Arc<AtomicBool>, pub udev: Arc<AtomicBool> }
+// The cache contains only mountpoint names, not the mountinfo body.  Its
+// fixed byte bound prevents retaining an unbounded kernel snapshot.
+fn mount_snapshot(file: &std::fs::File) -> Result<HashSet<PathBuf>,String> {
+    let mut file=file;
+    file.seek(SeekFrom::Start(0)).map_err(|e|format!("pid2-mountinfo-seek: {e}"))?;
+    let mut content=String::new();
+    std::io::Read::take(&mut file,16*1024*1024+1).read_to_string(&mut content).map_err(|e|format!("pid2-mountinfo-read: {e}"))?;
+    if content.len()>16*1024*1024 { return Err("pid2-mountinfo-too-large".into()); }
+    Ok(content.lines().filter_map(|line|line.split_whitespace().nth(4)).map(|path|PathBuf::from(path.replace("\\040"," ").replace("\\011","\t").replace("\\012","\n").replace("\\134","\\"))).collect())
+}
+
+async fn watch_mounts(tx: Wake, mounts: Arc<RwLock<Option<HashSet<PathBuf>>>>) {
+    let watched = (|| -> Result<AsyncFd<std::fs::File>,String> {
+        let file=std::fs::File::open("/proc/self/mountinfo").map_err(|e|e.to_string())?;
+        AsyncFd::with_interest(file,Interest::PRIORITY).map_err(|e|e.to_string())
+    })();
+    let result: Result<(),String> = async {
+        let fd=watched?;
+        let initial=mount_snapshot(fd.get_ref())?;
+        *mounts.write().map_err(|_|"pid2-mount-cache-lock-poisoned")?=Some(initial);
+        wake(&tx);
+        loop {
+            let mut ready=fd.ready(Interest::PRIORITY).await.map_err(|e|e.to_string())?;
+            let next=mount_snapshot(fd.get_ref())?;
+            let watched=super::solver::watched_mounts()?;
+            let changed={
+                let mut cache=mounts.write().map_err(|_|"pid2-mount-cache-lock-poisoned")?;
+                let changed=cache.as_ref().is_none_or(|old|watched.iter().any(|path|old.contains(path)!=next.contains(path)));
+                *cache=Some(next);
+                changed
+            };
+            ready.clear_ready();
+            if changed { wake(&tx); }
+        }
+    }.await;
+    if let Ok(mut cache)=mounts.write() { *cache=None; }
+    wake(&tx);
+    if let Err(error)=result { eprintln!("pid2-mount-watch: {error}"); }
+}
+
+pub struct Senses { pub system: Arc<AtomicBool>, pub owner: Arc<AtomicBool>, pub udev: Arc<AtomicBool>, pub mounts: Arc<RwLock<Option<HashSet<PathBuf>>>> }
 impl Senses { pub fn online(&self, scope: &str) -> bool { match scope { "system"=>self.system.load(Ordering::Acquire), "owner"=>self.owner.load(Ordering::Acquire), "udev"=>self.udev.load(Ordering::Acquire), _=>false } } }
 pub async fn run() {
     let (tx,mut rx) = mpsc::channel::<()>(1);
     let command_wake=Arc::new(AtomicBool::new(false));
-    let senses = Arc::new(Senses { system:Arc::new(AtomicBool::new(false)),owner:Arc::new(AtomicBool::new(false)),udev:Arc::new(AtomicBool::new(false)) });
+    let senses = Arc::new(Senses { system:Arc::new(AtomicBool::new(false)),owner:Arc::new(AtomicBool::new(false)),udev:Arc::new(AtomicBool::new(false)),mounts:Arc::new(RwLock::new(None)) });
     let tasks = [
+        tokio::spawn(watch_mounts(tx.clone(),senses.mounts.clone())),
         tokio::spawn(watch_systemd(tx.clone(),senses.system.clone())),
         tokio::spawn(watch_owner(tx.clone(),senses.owner.clone())),
         tokio::spawn(watch_fd(udev_socket,"udev",tx.clone(),senses.udev.clone())),
