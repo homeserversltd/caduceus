@@ -76,3 +76,40 @@ pub(crate) fn update(scope: &str, unit: &str, active: Option<Option<String>>, su
     if let Some(value) = load { state.load_state = value; }
     *state != old
 }
+
+// Statistics has its own connection, lifetime, and key space.  Its availability
+// must never invalidate or overwrite the system scope used by the sequencer.
+static STATS_ONLINE: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn stats_online(online: bool) {
+    STATS_ONLINE.store(online, Ordering::Release);
+}
+
+pub(crate) fn stats_is_online() -> bool {
+    STATS_ONLINE.load(Ordering::Acquire)
+}
+
+pub(crate) fn stats_observed(unit: &str) -> Option<UnitState> {
+    if !STATS_ONLINE.load(Ordering::Acquire) { return None; }
+    let state = get("stats", unit)?;
+    if !STATS_ONLINE.load(Ordering::Acquire) { return None; }
+    if state.active_state.is_none() || state.sub_state.is_none() || state.load_state.is_none() { return None; }
+    Some(state)
+}
+
+// Discard departed names; the statistics cache is bounded by its watched set.
+pub(crate) fn stats_retain(watched: &HashSet<String>) {
+    if let Ok(mut stored) = states().write() {
+        stored.retain(|(scope, unit), _| scope != "stats" || watched.contains(unit));
+    }
+}
+
+pub(crate) fn stats_file_state(unit: &str, state: Option<String>, not_found: bool) {
+    if let Ok(mut stored) = states().write() {
+        if let Some(row) = stored.get_mut(&("stats".to_owned(), unit.to_owned())) {
+            row.unit_file_state = state;
+            if not_found { row.load_state = Some("not-found".into()); }
+            else if row.load_state.as_deref() == Some("not-found") { row.load_state = Some("unloaded".into()); }
+        }
+    }
+}

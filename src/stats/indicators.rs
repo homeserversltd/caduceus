@@ -3,6 +3,8 @@
 pub(crate) mod internet;
 #[path = "../pid2/unit_state.rs"]
 pub(crate) mod unit_state;
+#[path = "unit_subscription.rs"]
+mod unit_subscription;
 
 use serde_json::{json, Value};
 use std::{
@@ -15,7 +17,6 @@ use std::{
         unix::{ffi::OsStrExt, net::UnixStream},
     },
     path::{Path, PathBuf},
-    process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex, RwLock,
@@ -34,8 +35,6 @@ const TRANSMISSION_STATUS_TIMEOUT: Duration = VPN_CADENCE;
 const PUBLIC_IP_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const PUBLIC_IP_RETRY: Duration = Duration::from_secs(300);
 const CONFIG_MAX_BYTES: u64 = 1024 * 1024;
-const SYSTEMCTL_TIMEOUT: Duration = Duration::from_millis(900);
-const SYSTEMCTL_OUTPUT_MAX: usize = 256 * 1024;
 const LOCAL_HTTP_HEADER_MAX: usize = 16 * 1024;
 const LOCAL_HTTP_BODY_MAX: usize = 256 * 1024;
 const LOCAL_HTTP_TIMEOUT: Duration = Duration::from_secs(2);
@@ -1661,6 +1660,7 @@ fn collect_services() -> ServicesObservation {
     let shown = match crate::shared::config::show_json() {
         Ok(value) => value,
         Err(_) => {
+            unit_subscription::configure(BTreeSet::new());
             return ServicesObservation::unavailable(
                 "caduceus-stats-services-config-unavailable",
             )
@@ -1671,6 +1671,7 @@ fn collect_services() -> ServicesObservation {
         .and_then(|document| document.pointer("/tabs/portals/data/portals"))
         .and_then(Value::as_array)
     else {
+        unit_subscription::configure(BTreeSet::new());
         return ServicesObservation::unavailable("caduceus-stats-services-portals-unavailable");
     };
     let mut drafts = Vec::new();
@@ -1750,6 +1751,7 @@ fn collect_services() -> ServicesObservation {
         });
     }
     if drafts.is_empty() {
+        unit_subscription::configure(BTreeSet::new());
         return ServicesObservation::unavailable(
             config_signal
                 .as_deref()
@@ -1758,13 +1760,14 @@ fn collect_services() -> ServicesObservation {
     }
     unique_units.insert("tailscaled.service".to_owned());
     if unique_units.len() > 256 {
+        unit_subscription::configure(BTreeSet::new());
         return ServicesObservation::unavailable("caduceus-stats-services-unit-limit-exceeded");
     }
-    let command = systemctl_show(&unique_units.into_iter().collect::<Vec<_>>());
-    let (states, command_signal) = match command {
-        Ok(states) => (states, None),
-        Err(signal) => (BTreeMap::new(), Some(signal.to_owned())),
-    };
+    unit_subscription::configure(unique_units.clone());
+    let states: BTreeMap<String, UnitObservation> = unique_units.iter().filter_map(|unit|
+        cached_unit_observation(unit).map(|observation| (unit.clone(), observation))
+    ).collect();
+    let command_signal: Option<String> = None;
     let mut units = BTreeMap::new();
     let mut first_missing_signal = config_signal.or(command_signal.clone());
     for draft in &drafts {
@@ -1859,151 +1862,19 @@ fn collect_services() -> ServicesObservation {
     }
 }
 
-fn systemctl_show(units: &[String]) -> Result<BTreeMap<String, UnitObservation>, &'static str> {
-    if units.is_empty() {
-        return Ok(BTreeMap::new());
-    }
-    let mut command = Command::new("systemctl");
-    command
-        .args([
-            "show",
-            "--no-pager",
-            "--plain",
-            "-p",
-            "Id",
-            "-p",
-            "ActiveState",
-            "-p",
-            "UnitFileState",
-            "-p",
-            "LoadState",
-        ])
-        .args(units)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    let mut child = command
-        .spawn()
-        .map_err(|_| "caduceus-stats-services-systemctl-unavailable")?;
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or("caduceus-stats-services-systemctl-output-unavailable")?;
-    let fd = stdout.as_raw_fd();
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err("caduceus-stats-services-systemctl-output-unavailable");
-    }
-    let started = Instant::now();
-    let mut output = Vec::new();
-    let mut exited = None;
-    let mut eof = false;
-    loop {
-        let mut buffer = [0u8; 8192];
-        match stdout.read(&mut buffer) {
-            Ok(0) => eof = true,
-            Ok(count) => {
-                if output.len().saturating_add(count) > SYSTEMCTL_OUTPUT_MAX {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err("caduceus-stats-services-systemctl-output-too-large");
-                }
-                output.extend_from_slice(&buffer[..count]);
-            }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("caduceus-stats-services-systemctl-output-failed");
-            }
-        }
-        if exited.is_none() {
-            match child.try_wait() {
-                Ok(status) => exited = status,
-                Err(_) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err("caduceus-stats-services-systemctl-wait-failed");
-                }
-            }
-        }
-        if exited.is_some() && eof {
-            break;
-        }
-        if started.elapsed() >= SYSTEMCTL_TIMEOUT {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("caduceus-stats-services-systemctl-timeout");
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
-    if !exited.is_some_and(|status| status.success()) {
-        return Err("caduceus-stats-services-systemctl-failed");
-    }
-    parse_systemctl_show(&output)
-}
-
-fn parse_systemctl_show(bytes: &[u8]) -> Result<BTreeMap<String, UnitObservation>, &'static str> {
-    let text = std::str::from_utf8(bytes)
-        .map_err(|_| "caduceus-stats-services-systemctl-output-invalid")?;
-    let mut groups = Vec::<BTreeMap<String, String>>::new();
-    let mut current = BTreeMap::new();
-    for line in text.lines() {
-        if line.is_empty() {
-            if !current.is_empty() {
-                groups.push(std::mem::take(&mut current));
-            }
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
-            return Err("caduceus-stats-services-systemctl-output-invalid");
-        };
-        current.insert(key.to_owned(), value.to_owned());
-    }
-    if !current.is_empty() {
-        groups.push(current);
-    }
-    let mut result = BTreeMap::new();
-    for group in groups {
-        let Some(id) = group.get("Id").filter(|id| !id.is_empty()) else {
-            continue;
-        };
-        let not_found = group.get("LoadState").map(String::as_str) == Some("not-found");
-        let active_state = group
-            .get("ActiveState")
-            .filter(|value| !value.is_empty() && !not_found)
-            .cloned();
-        let (enabled, enabled_signal) = match group.get("UnitFileState").map(String::as_str) {
-            Some("enabled" | "enabled-runtime" | "linked" | "linked-runtime") => {
-                (Some(true), None)
-            }
-            Some(
-                "disabled" | "masked" | "masked-runtime" | "static" | "indirect"
-                | "generated" | "transient",
-            ) => (Some(false), None),
-            _ => (
-                None,
-                named_signal("caduceus-stats-services-unit-enabled-state-unobserved"),
-            ),
-        };
-        let first_missing_signal = if not_found {
-            named_signal("caduceus-stats-services-unit-not-found")
-        } else if active_state.is_none() {
-            named_signal("caduceus-stats-services-unit-state-unobserved")
-        } else {
-            enabled_signal
-        };
-        result.insert(
-            id.clone(),
-            UnitObservation {
-                active_state,
-                enabled,
-                first_missing_signal,
-            },
-        );
-    }
-    Ok(result)
+fn cached_unit_observation(unit: &str) -> Option<UnitObservation> {
+    let state = unit_state::stats_observed(unit)?;
+    let not_found = state.load_state.as_deref() == Some("not-found");
+    let active_state = if not_found { None } else { state.active_state };
+    let (enabled, enabled_signal) = match state.unit_file_state.as_deref() {
+        Some("enabled" | "enabled-runtime" | "linked" | "linked-runtime") => (Some(true), None),
+        Some("disabled" | "masked" | "masked-runtime" | "static" | "indirect" | "generated" | "transient") => (Some(false), None),
+        _ => (None, named_signal("caduceus-stats-services-unit-enabled-state-unobserved")),
+    };
+    let first_missing_signal = if not_found {
+        named_signal("caduceus-stats-services-unit-not-found")
+    } else if active_state.is_none() {
+        named_signal("caduceus-stats-services-unit-state-unobserved")
+    } else { enabled_signal };
+    Some(UnitObservation { active_state, enabled, first_missing_signal })
 }
