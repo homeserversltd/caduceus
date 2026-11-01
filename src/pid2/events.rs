@@ -1,8 +1,8 @@
 //! Coalesced event wakes; observations are always re-read by the solver.
-use futures_util::StreamExt;
-use std::{collections::HashSet, ffi::CString, io::Write, os::fd::{AsRawFd, FromRawFd, OwnedFd}, sync::{Arc, OnceLock, atomic::{AtomicBool, Ordering}}, time::Duration};
-use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, BufReader}, sync::{mpsc, Notify}};
-use zbus::{Connection, Message, MatchRule, MessageStream, Proxy, message::Type, zvariant::OwnedObjectPath};
+use futures_util::{stream::SelectAll, StreamExt};
+use std::{collections::{HashMap, HashSet}, ffi::CString, io::Write, os::fd::{AsRawFd, FromRawFd, OwnedFd}, sync::{Arc, OnceLock, atomic::{AtomicBool, Ordering}}, time::Duration};
+use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, AsyncReadExt, BufReader}, sync::{mpsc, Notify}};
+use zbus::{Connection, Message, MatchRule, MessageStream, Proxy, message::Type, zvariant::{OwnedObjectPath, OwnedValue}};
 
 type Wake = mpsc::Sender<()>;
 fn wake(tx: &Wake) { let _ = tx.try_send(()); }
@@ -22,17 +22,59 @@ fn declared() -> &'static (HashSet<String>, HashSet<String>) {
         (names, paths)
     })
 }
+fn scoped_units(scope: &str) -> HashSet<String> {
+    crate::routes::leaf_schema::declaration(super::SCHEMA).and_then(|seat| seat.get("unit_enum")).and_then(|v| v.as_array())
+        .map(|units| units.iter().filter(|u| u.get("scope").and_then(|v| v.as_str()) == Some(scope))
+            .filter_map(|u| u.get("unit").and_then(|v| v.as_str()).map(str::to_owned)).collect()).unwrap_or_default()
+}
+async fn snapshot_scope(conn: &Connection, scope: &str) -> Result<bool, String> {
+    let manager = Proxy::new(conn,"org.freedesktop.systemd1","/org/freedesktop/systemd1","org.freedesktop.systemd1.Manager").await.map_err(|e| e.to_string())?;
+    let rows: Vec<crate::stats::indicators::unit_state::UnitRow> = manager.call("ListUnits", &()).await.map_err(|e| e.to_string())?;
+    Ok(!crate::stats::indicators::unit_state::snapshot(scope, &scoped_units(scope), rows).is_empty())
+}
+fn update_scope(scope: &str, message: &Message) -> Result<bool, String> {
+    use crate::stats::indicators::unit_state;
+    let header = message.header();
+    match header.member().map(|m| m.as_str()) {
+        Some("PropertiesChanged") => {
+            let path = header.path().ok_or("pid2-unit-path-missing")?;
+            let unit = scoped_units(scope).into_iter().find(|u| unit_path(u) == path.as_str()).ok_or("pid2-unit-not-watched")?;
+            let (interface, mut changed, invalidated): (String, HashMap<String, OwnedValue>, Vec<String>) = message.body().deserialize().map_err(|e| format!("pid2-unit-signal-invalid: {e}"))?;
+            if interface != "org.freedesktop.systemd1.Unit" { return Ok(false); }
+            if invalidated.iter().any(|v| v == "ActiveState" || v == "SubState") { return Err("pid2-unit-state-invalidated".into()); }
+            let active = changed.remove("ActiveState").map(|v| String::try_from(v).map(Some).map_err(|e| e.to_string())).transpose()?;
+            let sub = changed.remove("SubState").map(|v| String::try_from(v).map(Some).map_err(|e| e.to_string())).transpose()?;
+            Ok(unit_state::update(scope, &unit, active, sub, None))
+        },
+        Some("UnitRemoved") => {
+            let (unit, _): (String, OwnedObjectPath) = message.body().deserialize().map_err(|e| e.to_string())?;
+            Ok(unit_state::update(scope, &unit, Some(Some("inactive".into())), Some(Some("dead".into())), Some(Some("unloaded".into()))))
+        },
+        Some("UnitNew") => {
+            let (unit, _): (String, OwnedObjectPath) = message.body().deserialize().map_err(|e| e.to_string())?;
+            Ok(unit_state::update(scope, &unit, Some(None), Some(None), Some(Some("loaded".into()))))
+        },
+        Some("JobRemoved") => {
+            let (_, _, unit, _): (u32, OwnedObjectPath, String, String) = message.body().deserialize().map_err(|e| e.to_string())?;
+            Ok(scoped_units(scope).contains(&unit))
+        },
+        _ => Ok(false),
+    }
+}
 // Only a signal about a declared unit wakes the solver. Its own status reads
 // open logind sessions and transient units; their signals are not news.
 fn concerns_declared(message: &Message) -> bool {
     let header = message.header();
     let (names, paths) = declared();
     match header.member().map(|m| m.as_str()) {
-        Some("PropertiesChanged") => header.path().is_some_and(|p| paths.contains(p.as_str())),
+        Some("PropertiesChanged") => header.path().is_some_and(|p| paths.contains(p.as_str())) &&
+            message.body().deserialize::<(String, HashMap<String, OwnedValue>, Vec<String>)>().is_ok_and(|(interface, changed, invalidated)| {
+                interface == "org.freedesktop.systemd1.Unit" && ["ActiveState", "SubState"].iter().any(|key| changed.contains_key(*key) || invalidated.iter().any(|value| value == key))
+            }),
         Some("UnitNew" | "UnitRemoved") => message.body().deserialize::<(String, OwnedObjectPath)>().is_ok_and(|(unit, _)| names.contains(&unit)),
-        Some("JobNew") => message.body().deserialize::<(u32, OwnedObjectPath, String)>().is_ok_and(|(_, _, unit)| names.contains(&unit)),
         Some("JobRemoved") => message.body().deserialize::<(u32, OwnedObjectPath, String, String)>().is_ok_and(|(_, _, unit, _)| names.contains(&unit)),
-        _ => true,
+        Some("Reloading") => message.body().deserialize::<(bool,)>().is_ok_and(|(active,)| !active),
+        _ => false,
     }
 }
 
@@ -46,25 +88,47 @@ fn owner_uid() -> Result<u32, String> {
     Ok(pwd.pw_uid)
 }
 
-async fn streams(conn: &Connection) -> Result<(MessageStream,MessageStream),String> {
+async fn streams(conn: &Connection, scope: &str) -> Result<(SelectAll<MessageStream>,SelectAll<MessageStream>),String> {
     let proxy = Proxy::new(conn,"org.freedesktop.systemd1","/org/freedesktop/systemd1","org.freedesktop.systemd1.Manager").await.map_err(|e|e.to_string())?;
-    let managers = MatchRule::builder().msg_type(Type::Signal).sender("org.freedesktop.systemd1").map_err(|e|e.to_string())?.path("/org/freedesktop/systemd1").map_err(|e|e.to_string())?.interface("org.freedesktop.systemd1.Manager").map_err(|e|e.to_string())?.build();
-    let changes = MatchRule::builder().msg_type(Type::Signal).sender("org.freedesktop.systemd1").map_err(|e|e.to_string())?.path_namespace("/org/freedesktop/systemd1").map_err(|e|e.to_string())?.interface("org.freedesktop.DBus.Properties").map_err(|e|e.to_string())?.member("PropertiesChanged").map_err(|e|e.to_string())?.build();
-    let manager_stream = MessageStream::for_match_rule(managers,conn,Some(64)).await.map_err(|e|e.to_string())?;
-    let changed_stream = MessageStream::for_match_rule(changes,conn,Some(64)).await.map_err(|e|e.to_string())?;
+    let mut manager_stream = SelectAll::new();
+    for member in ["UnitNew", "UnitRemoved", "JobRemoved", "Reloading"] {
+        let rule = MatchRule::builder().msg_type(Type::Signal).sender("org.freedesktop.systemd1").map_err(|e|e.to_string())?.path("/org/freedesktop/systemd1").map_err(|e|e.to_string())?.interface("org.freedesktop.systemd1.Manager").map_err(|e|e.to_string())?.member(member).map_err(|e|e.to_string())?.build();
+        manager_stream.push(MessageStream::for_match_rule(rule,conn,Some(64)).await.map_err(|e|e.to_string())?);
+    }
+    let mut changed_stream = SelectAll::new();
+    for unit in scoped_units(scope) {
+        let path = unit_path(&unit);
+        let rule = MatchRule::builder().msg_type(Type::Signal).sender("org.freedesktop.systemd1").map_err(|e|e.to_string())?.path(path.as_str()).map_err(|e|e.to_string())?.interface("org.freedesktop.DBus.Properties").map_err(|e|e.to_string())?.member("PropertiesChanged").map_err(|e|e.to_string())?.build();
+        changed_stream.push(MessageStream::for_match_rule(rule,conn,Some(64)).await.map_err(|e|e.to_string())?);
+    }
     let _: () = proxy.call("Subscribe", &()).await.map_err(|e|e.to_string())?;
     Ok((manager_stream,changed_stream))
 }
 
-async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>, owner_changed: Arc<Notify>) {
+async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>) {
     loop {
         let connected: Result<(),String> = async {
             let conn = Connection::system().await.map_err(|e|e.to_string())?;
-            let (mut managers,mut changes) = streams(&conn).await?;
-            online.store(true,Ordering::Release); wake(&tx); owner_changed.notify_one();
+            let (mut managers,mut changes) = streams(&conn,"system").await?;
+            let changed = snapshot_scope(&conn,"system").await?;
+            online.store(true,Ordering::Release); if changed { wake(&tx); }
             loop {
                 let item = tokio::select! { item=managers.next()=>item, item=changes.next()=>item };
-                match item { Some(Ok(message)) => if concerns_declared(&message) { wake(&tx); owner_changed.notify_one(); }, Some(Err(e)) => return Err(e.to_string()), None => return Err("pid2-systemd-stream-closed".into()) }
+                match item {
+                    Some(Ok(message)) if concerns_declared(&message) => {
+                        let reloading = message.header().member().is_some_and(|m| m.as_str()=="Reloading");
+                        let changed = if reloading { snapshot_scope(&conn,"system").await? } else {
+                            match update_scope("system",&message) {
+                                Ok(changed) => changed,
+                                Err(error) if error=="pid2-unit-state-invalidated" => snapshot_scope(&conn,"system").await?,
+                                Err(error) => { eprintln!("pid2-system-signal: {error}"); false }
+                            }
+                        };
+                        if changed { wake(&tx); }
+                    },
+                    Some(Ok(_)) => {},
+                    Some(Err(e)) => return Err(e.to_string()), None => return Err("pid2-systemd-stream-closed".into())
+                }
             }
         }.await;
         online.store(false,Ordering::Release); wake(&tx);
@@ -74,18 +138,43 @@ async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>, owner_changed: Arc<Not
     }
 }
 
-// The owner child has no database and only relays bus subscription events.
+// The owner child has no database and relays only bounded observed unit states.
+fn emit_owner_states() -> Result<(),String> {
+    for unit in scoped_units("owner") {
+        if let Some(state) = crate::stats::indicators::unit_state::get("owner", &unit) {
+            let line = serde_json::json!({"kind":"state","unit":unit,"state":state});
+            writeln!(std::io::stdout(),"{line}").map_err(|e|e.to_string())?;
+        }
+    }
+    std::io::stdout().flush().map_err(|e|e.to_string())
+}
 async fn owner_child() -> Result<(),String> {
     let uid=owner_uid()?;
     if unsafe { libc::geteuid() } != uid { return Err("pid2-owner-child-wrong-uid".into()); }
     let address=format!("unix:path=/run/user/{uid}/bus");
     let conn=zbus::connection::Builder::address(address.as_str()).map_err(|e|e.to_string())?.build().await.map_err(|e|e.to_string())?;
-    let (mut managers,mut changes)=streams(&conn).await?;
+    let (mut managers,mut changes)=streams(&conn,"owner").await?;
+    snapshot_scope(&conn,"owner").await?;
+    emit_owner_states()?;
     writeln!(std::io::stdout(),"ready").and_then(|_|std::io::stdout().flush()).map_err(|e|e.to_string())?;
     loop {
         let item=tokio::select! { item=managers.next()=>item, item=changes.next()=>item };
         match item {
-            Some(Ok(message)) => if concerns_declared(&message) { writeln!(std::io::stdout(),"wake").and_then(|_|std::io::stdout().flush()).map_err(|e|e.to_string())?; },
+            Some(Ok(message)) if concerns_declared(&message) => {
+                let reloading = message.header().member().is_some_and(|m| m.as_str()=="Reloading");
+                let job = message.header().member().is_some_and(|m| m.as_str()=="JobRemoved");
+                let changed = if reloading { snapshot_scope(&conn,"owner").await? } else {
+                    match update_scope("owner",&message) {
+                        Ok(changed) => changed,
+                        Err(error) if error=="pid2-unit-state-invalidated" => snapshot_scope(&conn,"owner").await?,
+                        Err(error) if error=="pid2-unit-not-watched" => false,
+                        Err(error) => return Err(error),
+                    }
+                };
+                if changed { emit_owner_states()?; }
+                if changed && job { writeln!(std::io::stdout(),"job").and_then(|_|std::io::stdout().flush()).map_err(|e|e.to_string())?; }
+            },
+            Some(Ok(_)) => {},
             Some(Err(e)) => return Err(e.to_string()), None => return Err("pid2-owner-stream-closed".into()),
         }
     }
@@ -98,7 +187,7 @@ pub fn owner_sense_cli() -> i32 {
     match runtime.block_on(owner_child()) { Ok(())=>0, Err(error)=>{eprintln!("pid2-owner-child: {error}");1} }
 }
 
-async fn watch_owner(tx: Wake, online: Arc<AtomicBool>, changed: Arc<Notify>) {
+async fn watch_owner(tx: Wake, online: Arc<AtomicBool>) {
     loop {
         let connected = async {
             let executable=std::env::current_exe().map_err(|e|e.to_string())?;
@@ -111,12 +200,28 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>, changed: Arc<Notify>) {
             command.arg("pid2-owner-sense").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).kill_on_drop(true);
             let mut child=command.spawn().map_err(|e|e.to_string())?;
             let stdout=child.stdout.take().ok_or("pid2-owner-child-pipe-missing")?;
-            let mut lines=BufReader::new(stdout).lines();
-            while let Some(line)=lines.next_line().await.map_err(|e|e.to_string())? {
+            let mut lines=BufReader::new(stdout);
+            let mut snapshot_changed=false;
+            loop {
+                let mut bytes=Vec::new();
+                let count=(&mut lines).take(4097).read_until(b'\n',&mut bytes).await.map_err(|e|e.to_string())?;
+                if count==0 { break; }
+                if count>4096 || bytes.last()!=Some(&b'\n') { return Err("pid2-owner-child-line-too-long".into()); }
+                bytes.pop();
+                let line=String::from_utf8(bytes).map_err(|_|"pid2-owner-child-protocol-invalid")?;
                 match line.as_str() {
-                    "ready" => { online.store(true,Ordering::Release); eprintln!("pid2-owner-sense-online"); wake(&tx); },
-                    "wake" if online.load(Ordering::Acquire) => { wake(&tx); },
-                    _ => return Err("pid2-owner-child-protocol-invalid".into()),
+                    "ready" => { online.store(true,Ordering::Release); eprintln!("pid2-owner-sense-online"); if snapshot_changed { wake(&tx); } },
+                    "job" if online.load(Ordering::Acquire) => { wake(&tx); },
+                    _ => {
+                        let frame: serde_json::Value = serde_json::from_str(&line).map_err(|_|"pid2-owner-child-protocol-invalid")?;
+                        if frame.get("kind").and_then(|v|v.as_str()) != Some("state") { return Err("pid2-owner-child-protocol-invalid".into()); }
+                        let unit = frame.get("unit").and_then(|v|v.as_str()).ok_or("pid2-owner-child-unit-missing")?;
+                        if !scoped_units("owner").contains(unit) { return Err("pid2-owner-child-unit-undeclared".into()); }
+                        let state: crate::stats::indicators::unit_state::UnitState = serde_json::from_value(frame.get("state").cloned().ok_or("pid2-owner-child-state-missing")?).map_err(|e|e.to_string())?;
+                        if crate::stats::indicators::unit_state::set("owner",unit,state) {
+                            if online.load(Ordering::Acquire) { wake(&tx); } else { snapshot_changed=true; }
+                        }
+                    },
                 }
             }
             let _=child.wait().await;
@@ -129,7 +234,7 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>, changed: Arc<Notify>) {
         if let Err(error)=connected { eprintln!("pid2-owner-systemd-watch: {error}"); }
         if wrong_uid { return; }
         if tx.is_closed() { return; }
-        tokio::select! { _=tokio::time::sleep(Duration::from_secs(300))=>{}, _=changed.notified()=>{} }
+        tokio::time::sleep(Duration::from_secs(300)).await;
     }
 }
 
@@ -145,14 +250,26 @@ fn udev_socket() -> Result<AsyncFd<OwnedFd>, String> {
     AsyncFd::new(fd).map_err(|e|e.to_string())
 }
 
+fn relevant_udev(data: &[u8]) -> bool {
+    let mut subsystem = false;
+    let mut action = false;
+    for field in data.split(|byte| *byte == 0) {
+        if matches!(field, b"SUBSYSTEM=block" | b"SUBSYSTEM=drm") { subsystem = true; }
+        if matches!(field, b"ACTION=add" | b"ACTION=remove" | b"ACTION=change") { action = true; }
+    }
+    subsystem && action
+}
+
 fn wake_address() -> Result<std::os::unix::net::SocketAddr, String> {
     use std::{hash::{Hash,Hasher},os::linux::net::SocketAddrExt};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     crate::stats::db_path().hash(&mut hasher);
     std::os::unix::net::SocketAddr::from_abstract_name(format!("caduceus-pid2-{:016x}",hasher.finish())).map_err(|e|e.to_string())
 }
+static LOCAL_WAKE: OnceLock<Notify> = OnceLock::new();
 pub fn notify() {
-    if let (Ok(addr),Ok(socket)) = (wake_address(),std::os::unix::net::UnixDatagram::unbound()) { let _ = socket.send_to_addr(&[1],&addr); }
+    if let Some(local) = LOCAL_WAKE.get() { local.notify_one(); }
+    else if let (Ok(addr),Ok(socket)) = (wake_address(),std::os::unix::net::UnixDatagram::unbound()) { let _ = socket.send_to_addr(&[1],&addr); }
 }
 async fn watch_commands(tx: Wake, command_wake: Arc<AtomicBool>) {
     let result = (|| -> Result<tokio::net::UnixDatagram,String> {
@@ -162,9 +279,16 @@ async fn watch_commands(tx: Wake, command_wake: Arc<AtomicBool>) {
         tokio::net::UnixDatagram::from_std(socket).map_err(|e|e.to_string())
     })();
     let socket = match result { Ok(s)=>s, Err(e)=>{ eprintln!("pid2-command-watch: {e}"); return; } };
+    let local = LOCAL_WAKE.get_or_init(Notify::new);
     wake(&tx);
     let mut buf = [0u8;1];
-    while socket.recv(&mut buf).await.is_ok() { command_wake.store(true,Ordering::Release); wake(&tx); }
+    loop {
+        tokio::select! {
+            result = socket.recv(&mut buf) => if result.is_err() { break; },
+            _ = local.notified() => {},
+        }
+        command_wake.store(true,Ordering::Release); wake(&tx);
+    }
 }
 async fn watch_fd(make: fn()->Result<AsyncFd<OwnedFd>,String>, label: &'static str, tx: Wake, online: Arc<AtomicBool>) {
     loop {
@@ -175,7 +299,7 @@ async fn watch_fd(make: fn()->Result<AsyncFd<OwnedFd>,String>, label: &'static s
                     let mut ready = match fd.readable().await { Ok(ready)=>ready, Err(_)=>break };
                     let mut buf = [0u8; 16384];
                     let count = unsafe { libc::read(fd.get_ref().as_raw_fd(),buf.as_mut_ptr().cast(),buf.len()) };
-                    if count > 0 { wake(&tx); } else {
+                    if count > 0 { if relevant_udev(&buf[..count as usize]) { wake(&tx); } } else {
                         let err=std::io::Error::last_os_error();
                         if count == 0 || err.kind()!=std::io::ErrorKind::WouldBlock { break; }
                         ready.clear_ready();
@@ -195,10 +319,9 @@ pub async fn run() {
     let (tx,mut rx) = mpsc::channel::<()>(1);
     let command_wake=Arc::new(AtomicBool::new(false));
     let senses = Arc::new(Senses { system:Arc::new(AtomicBool::new(false)),owner:Arc::new(AtomicBool::new(false)),udev:Arc::new(AtomicBool::new(false)) });
-    let owner_changed=Arc::new(Notify::new());
     let tasks = [
-        tokio::spawn(watch_systemd(tx.clone(),senses.system.clone(),owner_changed.clone())),
-        tokio::spawn(watch_owner(tx.clone(),senses.owner.clone(),owner_changed)),
+        tokio::spawn(watch_systemd(tx.clone(),senses.system.clone())),
+        tokio::spawn(watch_owner(tx.clone(),senses.owner.clone())),
         tokio::spawn(watch_fd(udev_socket,"udev",tx.clone(),senses.udev.clone())),
         tokio::spawn(watch_commands(tx.clone(),command_wake.clone())),
     ];

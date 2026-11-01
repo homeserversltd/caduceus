@@ -15,13 +15,17 @@ fn held(routine: &str) -> Result<bool,String> {
     db.query_row("SELECT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",[routine],|r|r.get(0)).map_err(|e|e.to_string())
 }
 
-fn write_line(routine: &str, name: &str, value: Option<&str>, state: &str, reason: Option<&str>) -> Result<(), String> {
+fn write_line_changed(routine: &str, name: &str, value: Option<&str>, state: &str, reason: Option<&str>) -> Result<bool, String> {
     let db = crate::stats::open_db()?.lock().map_err(|_| "pid2-database-lock-poisoned")?;
     // An observation is a boot-scoped election: no wake may replace it.
     let changed = db.execute("INSERT INTO pid2_lines(routine_id,line,value,state,observed_at,reason) SELECT ?1,?2,?3,?4,?5,?6 WHERE NOT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1) ON CONFLICT(routine_id,line) DO UPDATE SET value=excluded.value,state=excluded.state,observed_at=excluded.observed_at,reason=excluded.reason WHERE pid2_lines.state <> 'Observed' AND (pid2_lines.value IS NOT excluded.value OR pid2_lines.state IS NOT excluded.state OR pid2_lines.reason IS NOT excluded.reason)",params![routine,name,value,state,now(),reason]).map_err(|e| e.to_string())?;
     drop(db);
     if changed != 0 { REVISION.fetch_add(1,Ordering::Relaxed); deed("line", &format!("{routine}/{name}"), state, reason); }
-    Ok(())
+    Ok(changed != 0)
+}
+
+fn write_line(routine: &str, name: &str, value: Option<&str>, state: &str, reason: Option<&str>) -> Result<(), String> {
+    write_line_changed(routine, name, value, state, reason).map(|_| ())
 }
 
 pub(super) fn deed(verb: &str, target: &str, outcome: &str, signal: Option<&str>) {
@@ -451,8 +455,7 @@ pub fn owner_answer(routine: &str, name: &str, answer: &str) -> Result<Value, St
     if routine.is_empty() || name.is_empty() || !["true","false","yes","no"].contains(&answer) { return Err("pid2-owner-answer-invalid".into()); }
     let _walk=super::walk_lock()?;
     if held(routine)? { return Err("pid2-routine-held".into()); }
-    write_line(routine,name,Some(answer),"Answered",None)?;
-    super::events::notify();
+    if write_line_changed(routine,name,Some(answer),"Answered",None)? { super::events::notify(); }
     Ok(json!({"ok":true,"routine_id":routine,"line":name,"value":answer}))
 }
 

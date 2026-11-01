@@ -1,6 +1,8 @@
 //! Native, independently cached blocks for the Coronatio indicator surface.
 #[path = "internet.rs"]
 pub(crate) mod internet;
+#[path = "../pid2/unit_state.rs"]
+pub(crate) mod unit_state;
 
 use serde_json::{json, Value};
 use std::{

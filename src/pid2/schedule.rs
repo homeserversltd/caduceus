@@ -243,8 +243,8 @@ pub fn execute(id:&str) -> Result<(),String> {
     let changed=tx.execute("UPDATE pid2_fires SET state=?3,finished_at=?4,duration_ms=?5,first_missing_signal=?6,rsync_exit_code=?7,final_file_count=?8,final_total_bytes=?9 WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,state,super::now(),elapsed,signal,exit,counts.map(|v|v.0),counts.map(|v|v.1)]).map_err(|e|e.to_string())?;
     if changed!=0 {if let Some((f,b))=counts {tx.execute("INSERT INTO pid2_sync_baselines(schedule_id,file_count,total_bytes,updated_at,fire_id) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(schedule_id) DO UPDATE SET file_count=excluded.file_count,total_bytes=excluded.total_bytes,updated_at=excluded.updated_at,fire_id=excluded.fire_id",params![id,f,b,super::now(),fire]).map_err(|e|e.to_string())?;}}
     tx.commit().map_err(|e|e.to_string())?;drop(db);
-    if changed!=0 {fire_deed(id,&fire,state,elapsed,signal.as_deref());}
-    super::events::notify();Ok(())
+    if changed!=0 {fire_deed(id,&fire,state,elapsed,signal.as_deref());super::events::notify();}
+    Ok(())
     })();
     if let Err(signal)=&result {
         // The cached connection or its mutex may itself be the failure.  Use
