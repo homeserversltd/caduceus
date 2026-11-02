@@ -1,0 +1,13 @@
+{
+  "namespace": "storage/backup/ledger",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "storage/backup/ledger", "verb": ["backup", "ledger"]}],
+  "commands": ["storage backup ledger"],
+  "needs": ["nas"],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/ledger",
+  "body": "optional",
+  "receipt": "caduceus.backup.ledger.v1",
+  "mutation_allowed": false
+}

@@ -2,6 +2,10 @@
   "schema": "appliance.crossings.v1",
   "profile": "homeserver",
   "bands": [
+    "storage/backup/ledger",
+    "storage/nas/drives",
+    "storage/nas/list",
+    "storage/backup/forgejo/skip-check",
     "appliance/service/start",
     "appliance/service/stop",
     "appliance/service/restart",
@@ -83,6 +87,10 @@
     "update/sources-reseed"
   ],
   "verbs": [
+    ["backup", "ledger"],
+    ["nas", "drives"],
+    ["nas", "list"],
+    ["forgejo", "skip-check"],
     ["service", "start"],
     ["service", "stop"],
     ["service", "restart"],
@@ -267,6 +275,10 @@
     ]
   ],
   "routes": [
+    "/api/v1/storage/backup/ledger",
+    "/api/v1/storage/nas/drives",
+    "/api/v1/storage/nas/list",
+    "/api/v1/storage/backup/forgejo/skip-check",
     "/api/v1/storage/backup/backblaze/bucket/add",
     "/api/v1/storage/backup/backblaze/bucket/credentials",
     "/api/v1/storage/backup/backblaze/bucket/verify",
@@ -369,6 +381,8 @@
   ],
   "administrative": {
     "bands": [
+      "storage/nas/list",
+      "storage/backup/forgejo/skip-check",
       "appliance/service/start",
       "appliance/service/stop",
       "appliance/service/restart",
@@ -410,6 +424,8 @@
       "transmission/up"
     ],
     "verbs": [
+      ["nas", "list"],
+      ["forgejo", "skip-check"],
       ["service", "start"],
       ["service", "stop"],
       ["service", "restart"],
@@ -469,6 +485,8 @@
       ]
     ],
     "routes": [
+      "/api/v1/storage/nas/list",
+      "/api/v1/storage/backup/forgejo/skip-check",
       "/api/v1/storage/backup/backblaze/bucket/add",
       "/api/v1/storage/backup/backblaze/bucket/credentials",
       "/api/v1/storage/backup/backblaze/bucket/verify",

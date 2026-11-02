@@ -288,6 +288,8 @@ const TAILSCALE_AUTHKEY_HTTP_PATH: &str = "/api/v1/network/tailscale/authkey";
 const TAILSCALE_TAILNET_HTTP_PATH: &str = "/api/v1/network/tailscale/tailnet";
 const STATS_ADMIN_HTTP_PATH: &str = "/api/v1/appliance/stats/admin";
 const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
+    "/api/v1/storage/nas/list",
+    "/api/v1/storage/backup/forgejo/skip-check",
     "/api/v1/access/pin/mode",
     "/api/v1/access/sudo/mode",
     STATS_ADMIN_HTTP_PATH,

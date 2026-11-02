@@ -1,0 +1,14 @@
+{
+  "namespace": "storage/backup/forgejo/skip-check",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "storage/backup/forgejo/skip-check", "verb": ["forgejo", "skip-check"]}],
+  "commands": ["storage backup forgejo skip-check"],
+  "needs": ["nas"],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/forgejo/skip-check",
+  "body": "required",
+  "receipt": "caduceus.forgejo.skip-check.v1",
+  "administrative": true,
+  "mutation_allowed": false
+}

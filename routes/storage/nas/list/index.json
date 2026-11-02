@@ -1,0 +1,14 @@
+{
+  "namespace": "storage/nas/list",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "storage/nas/list", "verb": ["nas", "list"]}],
+  "commands": ["storage nas list"],
+  "needs": ["nas"],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/nas/list",
+  "body": "required",
+  "receipt": "caduceus.nas.list.v1",
+  "administrative": true,
+  "mutation_allowed": false
+}
