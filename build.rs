@@ -425,6 +425,7 @@ fn main() {
         "caduceus.nas.setup.v1",
         "caduceus.nas.attach.v1",
         "caduceus.nas.detach.v1",
+        "caduceus.chord.v1",
         "caduceus.chord.receipt.v1",
         "caduceus.nas.role.swap.v1",
         "caduceus.nas-sync.hold.v1",
