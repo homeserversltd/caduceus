@@ -1415,7 +1415,8 @@ async fn native_chord_run_steps(
                     .or_else(|| stage_declaration.as_ref().and_then(|d| d.get("receipt").and_then(Value::as_str)
                         .or_else(|| d.pointer("/flags/receiptSchema").and_then(Value::as_str))).map(ToOwned::to_owned));
                 let schema_ok = expected_schema.as_deref().is_none_or(|schema| crate::routes::leaf_schema::accepts(schema, &receipt));
-                if !schema_ok {
+                if !schema_ok && result.get("firstMissingSignal").and_then(Value::as_str)
+                    != Some("caduceus-agathodaimon-output-too-large") {
                     state.changed = None;
                     ("stage-refused", receipt, Some("caduceus-schema-desync".to_owned()))
                 } else {
