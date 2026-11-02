@@ -125,7 +125,7 @@ fn refresh_units()->Result<(),String> {
             let rows=q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,Vec<u8>>(1)?))).map_err(|e|e.to_string())?;
             for row in rows {
                 let (routine,raw)=row.map_err(|e|e.to_string())?;
-                let envelope:Value=match serde_json::from_slice(&raw) {Ok(value)=>value,Err(_)=>{eprintln!("pid2-unit-config-invalid routine={routine:?}");continue;}};
+                let envelope:Value=match serde_json::from_slice(&raw) {Ok(value)=>value,Err(_)=>{let name:String=routine.chars().take(48).collect();eprintln!("pid2-unit-config-invalid routine_prefix={name:?} routine_bytes={} routine_md5={:x}",routine.len(),md5::compute(routine.as_bytes()));continue;}};
                 for need in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten().flat_map(|s|["needs","until"].into_iter().flat_map(move |key|s.get(key).and_then(Value::as_array).into_iter().flatten())) {
                     if need.get("kind").and_then(Value::as_str)==Some("observe-unit") {
                         if let Some(name)=need.get("unit").and_then(Value::as_str) {
@@ -500,10 +500,12 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::w
             let mut reconfigure_pending=false;
             loop {
                 if reconfigure_pending && bytes.is_empty() {return Err("pid2-unit-watch-reconfigured".into());}
-                let mut bounded=(&mut lines).take(4097u64.saturating_sub(bytes.len() as u64));
-                let count=tokio::select! {
-                    result=config.changed()=>{result.map_err(|_|"pid2-unit-config-closed")?;if let Err(error)=refresh_units(){eprintln!("pid2-owner-unit-config: {error}");continue;}reconfigure_pending=watched!=scoped_units("owner");continue;},
-                    result=bounded.read_until(b'\n',&mut bytes)=>result.map_err(|e|e.to_string())?,
+                let count=if bytes.last()==Some(&b'\n') {bytes.len()} else {
+                    let mut bounded=(&mut lines).take(4097u64.saturating_sub(bytes.len() as u64));
+                    tokio::select! {
+                        result=config.changed()=>{result.map_err(|_|"pid2-unit-config-closed")?;if let Err(error)=refresh_units(){eprintln!("pid2-owner-unit-config: {error}");continue;}reconfigure_pending=watched!=scoped_units("owner");continue;},
+                        result=bounded.read_until(b'\n',&mut bytes)=>result.map_err(|e|e.to_string())?,
+                    }
                 };
                 if count==0 { break; }
                 if bytes.len()>4096 || bytes.last()!=Some(&b'\n') { return Err("pid2-owner-child-line-too-long".into()); }
