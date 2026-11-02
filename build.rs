@@ -408,6 +408,7 @@ fn main() {
         "harmonia.ledger.entry.v1",
         "caduceus.receipts.ledger.v1",
         "appliance.xenia.v1",
+        "appliance.xenia.install.v1",
         "appliance.local_ai.v1",
         "coronatio.face-surface.v1",
         "harmonia.engine.source_resolution.v1",

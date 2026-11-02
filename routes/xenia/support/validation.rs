@@ -126,6 +126,9 @@ fn declaration_equal(existing: &Value, entry: &Value) -> Result<bool> {
 fn source(manifest: &Value) -> Result<bool> {
     let source = &manifest["source"];
     seat::field(XENIA, "source", source, "E", "manifest.source")?;
+    if source["kind"].as_str() == Some("clone") {
+        return Err(refuse("E", "manifest.source.kind", "clone-road-retired"));
+    }
     if source
         .get("candidates")
         .is_some_and(|value| !value.is_null())
