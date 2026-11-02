@@ -1,6 +1,6 @@
 {
   "schema": "appliance.xenia.install.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "role": "Receipt from the Xenia staff launcher for a release install or uninstall.",
   "authority": {"owner": "caduceus", "path": "schema/appliance.xenia.install.v1.json"},
   "evolution": {"law": "additive-only", "missing_field_semantics": "Absent optional fields select null primitive behavior", "unknown_fields_preserved": true},
@@ -9,6 +9,7 @@
     "verb": {"type": "string", "enum": ["install", "uninstall"]},
     "id": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 64},
     "ok": {"type": "boolean"},
+    "changed": {"type": "boolean"},
     "road": {"type": "string", "const": "release"},
     "source_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
     "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
@@ -17,7 +18,7 @@
     "health": {"type": ["object", "null"], "fields": {"ok": {"type": "boolean"}, "source_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"}, "endpoint": {"type": ["string", "null"], "pattern": "^127\\.0\\.0\\.1:[0-9]+$"}}, "required": ["ok", "source_sha", "endpoint"]},
     "signal": {"type": "string", "minLength": 1}
   },
-  "required": ["schema", "verb", "id", "ok", "road", "source_sha", "sha256", "unit", "active", "health", "signal"],
+  "required": ["schema", "verb", "id", "ok", "changed", "road", "source_sha", "sha256", "unit", "active", "health", "signal"],
   "optional": [],
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }

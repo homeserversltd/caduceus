@@ -276,7 +276,8 @@ fn cgroup_pids(path: &Path, out: &mut BTreeSet<u32>) -> Result<()> {
 }
 
 pub fn runtime(entry: &Value) -> Result<Value> {
-    if entry["kind"].as_str() != Some("cartridge-process") {
+    if entry["kind"].as_str() != Some("cartridge-process")
+        && entry.pointer("/source/kind").and_then(Value::as_str) != Some("own-service") {
         return Ok(
             json!({"state": "not-process", "unit": null, "listeners": [], "health": "unobserved"}),
         );
@@ -284,7 +285,13 @@ pub fn runtime(entry: &Value) -> Result<Value> {
     let id = entry["id"]
         .as_str()
         .ok_or_else(|| observation("status", "entry.id", "entry-id-absent"))?;
-    let unit = format!("{id}.service");
+    let own_service = entry.pointer("/source/kind").and_then(Value::as_str) == Some("own-service");
+    let unit = if own_service {
+        entry.pointer("/install/unit").and_then(Value::as_str)
+            .filter(|unit| unit.ends_with(".service") && !unit.starts_with('-')
+                && unit.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.@:-\\".contains(&b)))
+            .ok_or_else(|| observation("status", "entry.install.unit", "own-service-unit-invalid"))?.to_owned()
+    } else { format!("{id}.service") };
     let props = unit_properties(&unit)?;
     if props.get("LoadState").map(String::as_str) == Some("not-found") {
         return Ok(
@@ -312,7 +319,14 @@ pub fn runtime(entry: &Value) -> Result<Value> {
             "active-unit-cgroup-absent",
         ));
     }
-    let observed_listeners = census_listeners(id)?;
+    let observed_listeners = if own_service {
+        let port = entry.pointer("/transport/declared").and_then(Value::as_str)
+            .and_then(|value| value.parse::<std::net::SocketAddr>().ok())
+            .filter(|address| address.ip().is_loopback() && address.port() != 0)
+            .map(|address| address.port())
+            .ok_or_else(|| observation("status", "entry.transport.declared", "own-service-port-invalid"))?;
+        sockets()?.into_iter().filter(|listener| listener.loopback && listener.port == Some(port)).collect()
+    } else { census_listeners(id)? };
     let inodes = observed_listeners
         .iter()
         .map(|listener| listener.inode)

@@ -731,9 +731,6 @@ fn compatibility(manifest: &Value) -> Result<()> {
 }
 
 pub fn validate(body: &Value) -> Result<Candidate> {
-    if body.pointer("/manifest/source/kind").and_then(Value::as_str) == Some("own-service") {
-        return Err(refuse("E", "manifest.source.kind", "own-service-admission-not-yet-available"));
-    }
     validate_only(body)
 }
 

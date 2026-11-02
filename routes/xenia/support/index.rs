@@ -46,6 +46,7 @@ pub struct Refusal {
     pub field: String,
     pub message: String,
     pub suggestion: String,
+    pub receipt: Option<Value>,
 }
 pub type Result<T> = std::result::Result<T, Refusal>;
 
@@ -56,11 +57,14 @@ impl Refusal {
             field: field.into(),
             message: message.into(),
             suggestion: suggestion.into(),
+            receipt: None,
         }
     }
     pub fn value(&self) -> Value {
-        json!({"schema": VERDICT, "ok": false, "verdict": "refused", "check": self.check,
-            "field": self.field, "message": self.message, "suggestion": self.suggestion})
+        let mut value = json!({"schema": VERDICT, "ok": false, "verdict": "refused", "check": self.check,
+            "field": self.field, "message": self.message, "suggestion": self.suggestion});
+        if let Some(receipt) = &self.receipt { value["receipt"] = receipt.clone(); }
+        value
     }
 }
 

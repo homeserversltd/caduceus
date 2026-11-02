@@ -235,7 +235,8 @@ struct Seat {
 }
 
 fn ensure_process_seat(proposed: &Value, id: &str) -> Result<Option<Seat>> {
-    if proposed["kind"].as_str() != Some("cartridge-process") {
+    if proposed["kind"].as_str() != Some("cartridge-process")
+        || proposed.pointer("/source/kind").and_then(Value::as_str) == Some("own-service") {
         return Ok(None);
     }
     let owner = proposed["install"]["owner"].as_str().ok_or_else(|| {
@@ -450,10 +451,71 @@ fn write(path: &str, value: &Value) -> Result<()> {
         .map_err(|e| observation("transaction", path, e))
 }
 
+fn launcher(verb: &str, id: &str) -> Result<Value> {
+    let argv = vec![crate::gate::snake::XENOS_LAUNCHER_PATH.to_owned(), verb.to_owned(), id.to_owned()];
+    let envelope = crate::gate::snake::route_envelope(&format!("xenia/{verb}"), &json!({"id": id}));
+    let walked = crate::gate::snake::run_launcher(&argv, &envelope, std::time::Duration::from_secs(300))
+        .map_err(|error| observation("transaction", "launcher", error))?;
+    let receipt = walked.get("receiptPayload").cloned()
+        .ok_or_else(|| observation("transaction", "launcher", "install-receipt-absent"))?;
+    seat::form("appliance.xenia.install.v1", None, &receipt, "transaction", "receipt")?;
+    if receipt["id"].as_str() != Some(id) || receipt["verb"].as_str() != Some(verb) {
+        return Err(observation("transaction", "receipt", "install-receipt-identity-mismatch"));
+    }
+    let ok = receipt["ok"].as_bool().unwrap_or(false);
+    if walked["ok"].as_bool() != Some(ok) {
+        return Err(observation("transaction", "receipt", "install-receipt-exit-mismatch"));
+    }
+    if !ok {
+        let signal = receipt["signal"].as_str().filter(|signal| *signal != "none")
+            .unwrap_or("install-receipt-signal-absent");
+        let mut error = Refusal::new("transaction", "launcher", signal, "Correct the launcher signal and repeat this door.");
+        error.receipt = Some(receipt);
+        return Err(error);
+    }
+    if receipt["signal"] != "none" {
+        return Err(observation("transaction", "receipt.signal", "install-receipt-success-signal-mismatch"));
+    }
+    if verb == "install" && receipt["source_sha"].as_str().is_none() {
+        return Err(observation("transaction", "receipt.source_sha", "install-source-sha-absent"));
+    }
+    Ok(receipt)
+}
+
+fn xenia_lock() -> Result<std::sync::MutexGuard<'static, ()>> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().map_err(|_| observation("transaction", "xenia.lock", "xenia-lock-poisoned"))
+}
+
+fn rollback_admit(previous: &House, current: &mut House, id: &str, register_was_present: bool, entry_changed: bool, row_changed: bool) -> Result<()> {
+    if row_changed {
+        let tabs = current.config["tabs"].as_object_mut().ok_or_else(|| observation("transaction", "tabs", "tabs-map-invalid"))?;
+        match previous.config["tabs"].get(id) { Some(row) => { tabs.insert(id.into(), row.clone()); }, None => { tabs.remove(id); } }
+        write(CONFIG, &current.config)?;
+    }
+    if entry_changed {
+        current.register["xenoi"].as_object_mut().ok_or_else(|| observation("transaction", "xenoi", "register-map-invalid"))?.remove(id);
+        let mut comparison = current.register.clone();
+        comparison["written_at"] = previous.register["written_at"].clone();
+        if !register_was_present && comparison == previous.register {
+            match fs::remove_file(config::path(REGISTER)) {
+                Ok(()) => {},
+                Err(error) if error.kind() == ErrorKind::NotFound => {},
+                Err(error) => return Err(observation("transaction", REGISTER, format!("register-rollback-failed: {error}"))),
+            }
+        } else {
+            current.register["written_at"] = json!(chrono::Utc::now().timestamp());
+            write(REGISTER, &current.register)?;
+        }
+    }
+    Ok(())
+}
+
 /// Called after network validation, under the same process-wide config lock.
 /// A changed snapshot is refused rather than validating new bytes using stale
 /// remote evidence. Repeating the call observes and validates the new world.
 pub fn admit(before: &House, proposed: &Value, row: &Value) -> Result<Value> {
+    let _xenia = xenia_lock()?;
     let _lock =
         config::transaction_lock().map_err(|e| observation("transaction", "config.lock", e))?;
     let register_path = config::path(REGISTER);
@@ -521,27 +583,69 @@ pub fn admit(before: &House, proposed: &Value, row: &Value) -> Result<Value> {
             return Err(seat_error);
         }
     };
-    // Entry rename precedes row rename. If this fails, the existing entry is
-    // deliberately retained; an identical repeat repairs just the missing row.
+    // The launcher reads the paired declaration itself; both writes precede it.
     if row_changed {
-        current.config["tabs"]
-            .as_object_mut()
-            .unwrap()
-            .insert(id.into(), row.clone());
-        write(CONFIG, &current.config)?;
+        current.config["tabs"].as_object_mut().unwrap().insert(id.into(), row.clone());
+        if let Err(error) = write(CONFIG, &current.config) {
+            if let Err(rollback) = rollback_admit(before, &mut current, id, register_was_present, entry_changed, true) {
+                return Err(observation("transaction", "house", format!("admit-rollback-failed: {}; original: {}", rollback.message, error.message)));
+            }
+            return Err(error);
+        }
     }
-    let mut result = json!({"entry": entry, "tabs": row, "changed": entry_changed || row_changed || seat.as_ref().is_some_and(|seat| seat.changed),
+    let own_service = proposed.pointer("/source/kind").and_then(Value::as_str) == Some("own-service");
+    let mut config_guard = Some(_lock);
+    let receipt = if own_service { None } else {
+        let expected_entry = current.register["xenoi"][id].clone();
+        let expected_row = current.config["tabs"][id].clone();
+        drop(config_guard.take());
+        let launched = launcher("install", id);
+        config_guard = Some(config::transaction_lock().map_err(|e| observation("transaction", "config.lock", e))?);
+        current = read()?;
+        if current.register["xenoi"].get(id) != Some(&expected_entry)
+            || current.config["tabs"].get(id) != Some(&expected_row) {
+            return Err(observation("transaction", "house", "house-changed-during-install: preserve concurrent changes"));
+        }
+        match launched {
+            Ok(receipt) => Some(receipt),
+            Err(mut error) => {
+                if let Err(rollback) = rollback_admit(before, &mut current, id, register_was_present, entry_changed, row_changed) {
+                    error.message = format!("{}; admit-rollback-failed: {}", error.message, rollback.message);
+                }
+                return Err(error);
+            }
+        }
+    };
+    let mut entry = entry;
+    let mut stamp_changed = false;
+    if let Some(receipt) = &receipt {
+        let installed = json!({"version": proposed["version"], "source_sha": receipt["source_sha"],
+            "kit_band": null, "proved_at": chrono::Utc::now().timestamp(),
+            "health": if receipt.pointer("/health/ok").and_then(Value::as_bool) == Some(true) { "healthy" } else { "unknown" }});
+        seat::field(XENIA, "installed", &installed, "transaction", "installed")?;
+        if receipt["changed"] == true || entry.pointer("/installed/source_sha") != Some(&receipt["source_sha"]) {
+            entry["installed"] = installed;
+            current.register["xenoi"][id] = entry.clone();
+            current.register["written_at"] = json!(chrono::Utc::now().timestamp());
+            write(REGISTER, &current.register)?;
+            stamp_changed = true;
+        }
+    }
+    let mut result = json!({"entry": entry, "tabs": row, "changed": entry_changed || row_changed || stamp_changed || seat.as_ref().is_some_and(|seat| seat.changed) || receipt.as_ref().is_some_and(|value| value["changed"] == true),
         "attempt": {"entry": if entry_changed {"renamed"} else {"unchanged"}, "row": if row_changed {"renamed"} else {"unchanged"}},
         "final": {"entry_present": true, "row_present": true, "converged": true}});
+    if let Some(receipt) = receipt { result["receipt"] = receipt; }
     if let Some(seat) = seat {
         result["seat"] = seat.value;
         result["observed"] = json!({"seat": seat.observed});
         result["attempt"]["seat"] = json!(seat.attempt);
     }
+    drop(config_guard);
     Ok(result)
 }
 
 pub fn observe(id: &str, field: &str, snapshot: &Value) -> Result<Value> {
+    let _xenia = xenia_lock()?;
     let _lock =
         config::transaction_lock().map_err(|e| observation("transaction", "config.lock", e))?;
     let mut current = read()?;
@@ -585,6 +689,7 @@ pub fn observe(id: &str, field: &str, snapshot: &Value) -> Result<Value> {
 
 pub fn remove(id: &str) -> Result<Value> {
     seat::field(XENIA, "id", &json!(id), "C", "id")?;
+    let _xenia = xenia_lock()?;
     let _lock =
         config::transaction_lock().map_err(|e| observation("transaction", "config.lock", e))?;
     let mut current = read()?;
@@ -593,6 +698,21 @@ pub fn remove(id: &str) -> Result<Value> {
         return Ok(
             json!({"changed": false, "seat_retained": true, "final": {"entry_present": false, "native_row_preserved": true, "converged": true}}),
         );
+    };
+    let mut config_guard = Some(_lock);
+    let receipt = if entry.pointer("/source/kind").and_then(Value::as_str) == Some("own-service") {
+        None
+    } else {
+        let expected_row = current.config["tabs"].get(id).cloned();
+        drop(config_guard.take());
+        let receipt = launcher("uninstall", id)?;
+        config_guard = Some(config::transaction_lock().map_err(|e| observation("transaction", "config.lock", e))?);
+        current = read()?;
+        if current.register["xenoi"].get(id) != Some(&entry)
+            || current.config["tabs"].get(id) != expected_row.as_ref() {
+            return Err(observation("transaction", "house", "house-changed-during-uninstall: preserve concurrent changes"));
+        }
+        Some(receipt)
     };
     let row_changed = current.config["tabs"]
         .as_object_mut()
@@ -609,9 +729,10 @@ pub fn remove(id: &str) -> Result<Value> {
         .remove(id);
     current.register["written_at"] = json!(chrono::Utc::now().timestamp());
     write(REGISTER, &current.register)?;
-    Ok(
-        json!({"entry": entry, "changed": true, "seat_retained": true,
+    let mut result = json!({"entry": entry, "changed": true, "seat_retained": true,
         "attempt": {"row": if row_changed {"removed"} else {"already-absent"}, "entry": "removed"},
-        "final": {"entry_present": false, "row_present": false, "converged": true}}),
-    )
+        "final": {"entry_present": false, "row_present": false, "converged": true}});
+    if let Some(receipt) = receipt { result["receipt"] = receipt; }
+    drop(config_guard);
+    Ok(result)
 }

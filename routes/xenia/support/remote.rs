@@ -67,7 +67,7 @@ fn commit_reference(reference: &str) -> Option<(String, String)> {
         None => return None,
     };
     let lookup_tag = if bare {
-        format!("sha-{sha}")
+        sha.to_owned()
     } else {
         reference.to_owned()
     };
@@ -419,7 +419,7 @@ pub fn release(manifest: &Value) -> Result<Value> {
     let mut release_response = https(release_url(lookup_tag)?.as_str(), &token)?;
     if commit.as_ref().is_some_and(|(_, _)| reference.len() == 40) && release_response.status == 404
     {
-        release_response = https(release_url(reference)?.as_str(), &token)?;
+        release_response = https(release_url(&format!("sha-{reference}"))?.as_str(), &token)?;
     }
     if release_response.status != 200 {
         return Err(observation(
@@ -434,6 +434,7 @@ pub fn release(manifest: &Value) -> Result<Value> {
     let tag_matches = match commit.as_ref().filter(|_| reference.len() == 40) {
         Some((tag, sha)) => {
             tag_name == Some(reference) || tag_name == Some(tag.as_str()) || tag_name == Some(sha)
+                || tag_name == Some(format!("sha-{sha}").as_str())
         }
         None => tag_name == Some(reference),
     };
