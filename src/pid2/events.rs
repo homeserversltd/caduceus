@@ -5,8 +5,14 @@ use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, AsyncReadExt, BufReader, Intere
 use zbus::{Connection, Message, MatchRule, MessageStream, Proxy, message::Type, zvariant::{OwnedObjectPath, OwnedValue}};
 
 #[derive(Clone,Debug,Eq,Hash,PartialEq,serde::Serialize,serde::Deserialize)]
+pub(super) enum DeviceState {
+    Unknown,
+    Absent,
+    Known { facts:Vec<(String,String)>, connector:Option<String> },
+}
+#[derive(Clone,Debug,Eq,Hash,PartialEq,serde::Serialize,serde::Deserialize)]
 pub(super) enum DirtyKey {
-    All, Startup, Unit(String,String), Job(String,String), Sense(String), Mount(PathBuf), Device(String,String),
+    All, Startup, Unit(String,String), Job(String,String), Sense(String), Mount(PathBuf), Device(String,String,DeviceState,DeviceState),
     Routine(String), Line(String,String), Schedule, Offline(String), Unavailable(String),
 }
 #[derive(Default)]
@@ -14,11 +20,24 @@ struct Pending { keys:HashSet<DirtyKey>, full:bool }
 #[derive(Clone)]
 struct Wake { tx:mpsc::Sender<()>, pending:Arc<Mutex<Pending>>, offline:Arc<std::sync::atomic::AtomicU8> }
 impl Wake {
+    // Preserve a failed walk's inputs without generating a self-wake.  They
+    // join the next real event; overflow remains one bounded full walk.
+    fn retain(&self,keys:Vec<DirtyKey>) {
+        if let Ok(mut pending)=self.pending.lock() {
+            for key in keys {
+                if pending.full {break;}
+                if key==DirtyKey::All {pending.full=true; pending.keys.clear();}
+                else if pending.keys.len()>=512 && !pending.keys.contains(&key) {
+                    pending.full=true; pending.keys.clear(); super::solver::deed("dirty-overflow","pid2","full-walk",None);
+                } else {pending.keys.insert(key);}
+            }
+        }
+    }
     fn push(&self,key:DirtyKey) {
         if let Ok(mut pending)=self.pending.lock() {
             if !pending.full {
                 if key==DirtyKey::All { pending.full=true; pending.keys.clear(); }
-                else if pending.keys.len()>=512 { pending.full=true; pending.keys.clear(); super::solver::deed("dirty-overflow","pid2","full-walk",None); }
+                else if pending.keys.len()>=512 && !pending.keys.contains(&key) { pending.full=true; pending.keys.clear(); super::solver::deed("dirty-overflow","pid2","full-walk",None); }
                 else { pending.keys.insert(key); }
             }
         }
@@ -29,8 +48,9 @@ impl Wake {
         if let Ok(mut pending)=self.pending.lock() {
             self.offline.fetch_or(bit,Ordering::AcqRel);
             if !pending.full {
-                if pending.keys.len()>=512 { pending.full=true; pending.keys.clear(); super::solver::deed("dirty-overflow","pid2","full-walk",None); }
-                else { pending.keys.insert(DirtyKey::Unavailable(scope.to_owned())); }
+                let key=DirtyKey::Unavailable(scope.to_owned());
+                if pending.keys.len()>=512 && !pending.keys.contains(&key) { pending.full=true; pending.keys.clear(); super::solver::deed("dirty-overflow","pid2","full-walk",None); }
+                else { pending.keys.insert(key); }
             }
         }
         let _=self.tx.try_send(());
@@ -457,7 +477,7 @@ fn udev_socket() -> Result<AsyncFd<OwnedFd>, String> {
     AsyncFd::new(fd).map_err(|e|e.to_string())
 }
 
-fn udev_change(data: &[u8]) -> Result<Option<(String,String)>,()> {
+fn udev_change(data: &[u8]) -> Result<Option<(String,String,String)>,()> {
     // Group 2 carries a libudev monitor header, followed by its property block.
     if data.len()<40 || &data[..8]!=b"libudev\0" || &data[8..12]!=[0xfe,0xed,0xca,0xfe] { return Err(()); }
     let word=|offset:usize| u32::from_ne_bytes(data[offset..offset+4].try_into().unwrap()) as usize;
@@ -467,13 +487,14 @@ fn udev_change(data: &[u8]) -> Result<Option<(String,String)>,()> {
     for field in data[offset..offset+length].split(|byte|*byte==0).filter(|field|!field.is_empty()) {
         let value=std::str::from_utf8(field).map_err(|_|())?;
         let (key,value)=value.split_once('=').ok_or(())?;
-        match key { "SUBSYSTEM"=>subsystem=Some(value), "DEVPATH"=>device=Some(value), "ACTION"=>action=Some(value), _=>{} }
+        let slot=match key { "SUBSYSTEM"=>Some(&mut subsystem), "DEVPATH"=>Some(&mut device), "ACTION"=>Some(&mut action), _=>None };
+        if let Some(slot)=slot {if slot.is_some_and(|old|old!=value) {return Err(());} *slot=Some(value);}
     }
     let subsystem=subsystem.ok_or(())?;
     if subsystem!="block" && subsystem!="drm" { return Ok(None); }
     let device=device.filter(|v|v.starts_with('/') && v.len()<=4096).ok_or(())?;
-    if action.is_none() { return Err(()); }
-    Ok(Some((subsystem.to_owned(),device.to_owned())))
+    let action=action.ok_or(())?;
+    Ok(Some((subsystem.to_owned(),device.to_owned(),action.to_owned())))
 }
 
 fn wake_address() -> Result<std::os::unix::net::SocketAddr, String> {
@@ -483,17 +504,66 @@ fn wake_address() -> Result<std::os::unix::net::SocketAddr, String> {
     std::os::unix::net::SocketAddr::from_abstract_name(format!("caduceus-pid2-{:016x}",hasher.finish())).map_err(|e|e.to_string())
 }
 static LOCAL_WAKE: OnceLock<Wake> = OnceLock::new();
-fn notify_key(key:DirtyKey) {
-    if let Some(local)=LOCAL_WAKE.get() { local.push(key); }
-    else if let (Ok(addr),Ok(socket),Ok(bytes))=(wake_address(),std::os::unix::net::UnixDatagram::unbound(),serde_json::to_vec(&key)) {
-        if let Err(error)=socket.send_to_addr(&bytes,&addr) { eprintln!("pid2-command-wake-undelivered: {error}"); }
+// The datagram is only a hint. Separate processes keep a bounded coalesced
+// dirty set in PID 2's SQLite until serve collects it on a wake or heartbeat.
+fn persist_wake(key:&DirtyKey) -> Result<(),String> {
+    let mut encoded=serde_json::to_string(key).map_err(|e|e.to_string())?;
+    if encoded.len()>4096 {encoded=serde_json::to_string(&DirtyKey::All).map_err(|e|e.to_string())?;}
+    let all=serde_json::to_string(&DirtyKey::All).map_err(|e|e.to_string())?;
+    let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+    super::tables(&db)?;
+    let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+    let count:i64=tx.query_row("SELECT count(*) FROM pid2_dirty_wakes",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+    let is_all:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM pid2_dirty_wakes WHERE key=?1)",[&all],|r|r.get(0)).map_err(|e|e.to_string())?;
+    let already:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM pid2_dirty_wakes WHERE key=?1)",[&encoded],|r|r.get(0)).map_err(|e|e.to_string())?;
+    let overflow=encoded!=all && !is_all && !already && count>=512;
+    if encoded==all || overflow {
+        tx.execute("DELETE FROM pid2_dirty_wakes",[]).map_err(|e|e.to_string())?;
+        tx.execute("INSERT INTO pid2_dirty_wakes(key,queued_at) VALUES(?1,?2)",rusqlite::params![all,super::now()]).map_err(|e|e.to_string())?;
+    } else {
+        let key=if is_all {&all} else {&encoded};
+        // REPLACE allocates a new AUTOINCREMENT id. An acknowledgement of an
+        // older snapshot cannot delete a later occurrence of the same key.
+        tx.execute("INSERT OR REPLACE INTO pid2_dirty_wakes(key,queued_at) VALUES(?1,?2)",rusqlite::params![key,super::now()]).map_err(|e|e.to_string())?;
     }
+    tx.commit().map_err(|e|e.to_string())?;
+    drop(db);
+    if overflow {super::solver::deed("dirty-overflow","pid2","full-walk",None);}
+    Ok(())
 }
+fn pending_wakes() -> Result<Vec<(i64,DirtyKey)>,String> {
+    let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+    let mut q=db.prepare("SELECT id,key FROM pid2_dirty_wakes ORDER BY id").map_err(|e|e.to_string())?;
+    let rows=q.query_map([],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?))).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+    Ok(rows.into_iter().map(|(id,raw)|(id,serde_json::from_str(&raw).unwrap_or(DirtyKey::All))).collect())
+}
+fn acknowledge_wakes(rows:&[(i64,DirtyKey)]) -> Result<(),String> {
+    if rows.is_empty() {return Ok(());}
+    let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+    let tx=db.transaction().map_err(|e|e.to_string())?;
+    for (id,_) in rows {tx.execute("DELETE FROM pid2_dirty_wakes WHERE id=?1",[id]).map_err(|e|e.to_string())?;}
+    tx.commit().map_err(|e|e.to_string())
+}
+fn wakes_waiting()->Result<bool,String> {
+    let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+    db.query_row("SELECT EXISTS(SELECT 1 FROM pid2_dirty_wakes)",[],|r|r.get(0)).map_err(|e|e.to_string())
+}
+fn notify_key_result(key:DirtyKey) -> Result<(),String> {
+    if let Some(local)=LOCAL_WAKE.get() { local.push(key); }
+    else {
+        persist_wake(&key).map_err(|error|format!("pid2-command-wake-persist-failed: {error}"))?;
+        if let (Ok(addr),Ok(socket),Ok(bytes))=(wake_address(),std::os::unix::net::UnixDatagram::unbound(),serde_json::to_vec(&key)) {
+            if let Err(error)=socket.send_to_addr(&bytes,&addr) { eprintln!("pid2-command-wake-undelivered: {error}"); }
+        }
+    }
+    Ok(())
+}
+fn notify_key(key:DirtyKey) {if let Err(error)=notify_key_result(key) {eprintln!("{error}");}}
 pub fn notify() { notify_key(DirtyKey::All); }
-pub(super) fn notify_routine(id:&str) { notify_key(DirtyKey::Routine(id.to_owned())); }
-pub(super) fn notify_line(id:&str,line:&str) { notify_key(DirtyKey::Line(id.to_owned(),line.to_owned())); }
-pub(super) fn notify_unit(scope:&str,name:&str) { notify_key(DirtyKey::Unit(scope.to_owned(),name.to_owned())); }
-pub(super) fn notify_schedule() { notify_key(DirtyKey::Schedule); }
+pub(super) fn notify_routine(id:&str) -> Result<(),String> { notify_key_result(DirtyKey::Routine(id.to_owned())) }
+pub(super) fn notify_line(id:&str,line:&str) -> Result<(),String> { notify_key_result(DirtyKey::Line(id.to_owned(),line.to_owned())) }
+pub(super) fn notify_unit(scope:&str,name:&str) -> Result<(),String> { notify_key_result(DirtyKey::Unit(scope.to_owned(),name.to_owned())) }
+pub(super) fn notify_schedule() -> Result<(),String> { notify_key_result(DirtyKey::Schedule) }
 async fn watch_commands(tx: Wake) {
     let result = (|| -> Result<tokio::net::UnixDatagram,String> {
         let addr = wake_address()?;
@@ -506,12 +576,15 @@ async fn watch_commands(tx: Wake) {
     let mut buf = [0u8;16384];
     loop {
         match socket.recv(&mut buf).await {
-            Ok(n)=>tx.push(serde_json::from_slice(&buf[..n]).unwrap_or(DirtyKey::All)),
+            Ok(_)=>{let _=tx.tx.try_send(());},
             Err(_)=>break,
         }
     }
 }
 async fn watch_fd(make: fn()->Result<AsyncFd<OwnedFd>,String>, label: &'static str, tx: Wake, online: Arc<AtomicBool>) {
+    // A missing history entry is unknown.  Clearing at the bound or on a
+    // sense discontinuity cannot turn a potentially relevant event away.
+    let mut history=HashMap::<(String,String),DeviceState>::new();
     loop {
         match make() {
             Ok(fd) => {
@@ -521,14 +594,23 @@ async fn watch_fd(make: fn()->Result<AsyncFd<OwnedFd>,String>, label: &'static s
                     let mut buf = [0u8; 16384];
                     let count = unsafe { libc::recv(fd.get_ref().as_raw_fd(),buf.as_mut_ptr().cast(),buf.len(),libc::MSG_TRUNC) };
                     if count > 0 {
-                        if count as usize>buf.len() { sense(&tx,"udev"); }
+                        if count as usize>buf.len() { history.clear(); sense(&tx,"udev"); }
                         else { match udev_change(&buf[..count as usize]) {
-                            Ok(Some((subsystem,device)))=>tx.push(DirtyKey::Device(subsystem,device)),
-                            Ok(None)=>{}, Err(())=>sense(&tx,"udev"),
+                            Ok(Some((subsystem,device,action)))=>{
+                                let identity=(subsystem.clone(),device.clone());
+                                let before=history.get(&identity).cloned().unwrap_or(DeviceState::Unknown);
+                                let after=if action=="remove" {DeviceState::Absent} else {super::solver::event_device_facts(&subsystem,&device)};
+                                if action=="remove" {history.remove(&identity);} else {
+                                    if history.len()>=512 && !history.contains_key(&identity) {history.clear();}
+                                    history.insert(identity,after.clone());
+                                }
+                                tx.push(DirtyKey::Device(subsystem,device,before,after));
+                            },
+                            Ok(None)=>{}, Err(())=>{history.clear();sense(&tx,"udev");},
                         }}
                     } else {
                         let err=std::io::Error::last_os_error();
-                        if count<0 && err.raw_os_error()==Some(libc::ENOBUFS) { sense(&tx,"udev"); continue; }
+                        if count<0 && err.raw_os_error()==Some(libc::ENOBUFS) { history.clear(); sense(&tx,"udev"); continue; }
                         if count == 0 || err.kind()!=std::io::ErrorKind::WouldBlock { break; }
                         ready.clear_ready();
                     }
@@ -536,7 +618,7 @@ async fn watch_fd(make: fn()->Result<AsyncFd<OwnedFd>,String>, label: &'static s
             }
             Err(error) => eprintln!("pid2-{label}-watch: {error}"),
         }
-        online.store(false,Ordering::Release); tx.offline(label);
+        history.clear(); online.store(false,Ordering::Release); tx.offline(label);
         if tx.closed() { return; }
         tokio::time::sleep(Duration::from_secs(300)).await;
     }
@@ -602,13 +684,19 @@ pub async fn run() {
     let solver_task=tokio::spawn(async move {
         while solver_rx.recv().await.is_some() {
             let senses=worker_senses.clone();
-            let keys=match worker_wake.pending.lock() {
+            // Preserve the in-memory dirty set if the durable observation fails.
+            let durable=match pending_wakes() {Ok(rows)=>rows,Err(error)=>{eprintln!("pid2-command-wake-read-failed: {error}");continue;}};
+            let mut keys=match worker_wake.pending.lock() {
                 Ok(mut pending)=>{ worker_wake.offline.swap(0,Ordering::AcqRel); if pending.full { pending.full=false; pending.keys.clear(); vec![DirtyKey::All] } else { pending.keys.drain().collect() } },
                 Err(_)=>vec![DirtyKey::All],
             };
+            let local=keys.clone();
+            keys.extend(durable.iter().map(|(_,key)|key.clone()));
             if keys.is_empty() { continue; }
             match tokio::task::spawn_blocking(move || super::solver::reconcile(&senses,keys)).await {
-                Ok(Ok(()))=>{}, Ok(Err(e))=>eprintln!("pid2-reconcile-failed: {e}"), Err(e)=>eprintln!("pid2-reconcile-task-failed: {e}"),
+                Ok(Ok(()))=>{if let Err(error)=acknowledge_wakes(&durable) {eprintln!("pid2-command-wake-ack-failed: {error}");}},
+                Ok(Err(e))=>{worker_wake.retain(local);eprintln!("pid2-reconcile-failed: {e}");},
+                Err(e)=>{worker_wake.retain(local);eprintln!("pid2-reconcile-task-failed: {e}");},
             }
         }
     });
@@ -622,7 +710,7 @@ pub async fn run() {
         match super::schedule::queued() {
             Ok(ids)=>for id in ids {
                 let Ok(permit)=fire_slots.clone().try_acquire_owned() else { break; };
-                tokio::task::spawn_blocking(move || {let result=super::schedule::execute(&id);drop(permit);match result {Ok(true)=>super::events::notify_schedule(),Ok(false)=>{},Err(error)=>eprintln!("pid2-schedule-fire: {error}")}});
+                tokio::task::spawn_blocking(move || {let result=super::schedule::execute(&id);drop(permit);match result {Ok(true)=>{if let Err(error)=super::events::notify_schedule() {eprintln!("pid2-schedule-wake: {error}");}},Ok(false)=>{},Err(error)=>eprintln!("pid2-schedule-fire: {error}")}});
             },
             Err(error)=>eprintln!("pid2-schedule-queue: {error}"),
         }
@@ -630,12 +718,14 @@ pub async fn run() {
         loop {
             tokio::select! {
                 _=heartbeat.tick()=>{
-                    // The existing solver heartbeat must not poll schedule rows.
+                    // The heartbeat checks only our durable wake set, not the world.
+                    let durable=match wakes_waiting() {Ok(changed)=>changed,Err(error)=>{eprintln!("pid2-command-wake-read-failed: {error}");false}};
                     let bits=tx.offline.load(Ordering::Acquire);
                     for (scope,bit) in [("system",1),("owner",2),("udev",4),("mount",8)] {
                         let is_offline=if scope=="mount" { senses.mounts.read().map_or(true,|m|m.is_none()) } else { !senses.online(scope) };
                         if bits&bit!=0 || is_offline { tx.push(DirtyKey::Offline(scope.to_owned())); }
                     }
+                    if durable {break;}
                 },
                 _=tokio::time::sleep_until(clock_deadline)=>break,
                 item=rx.recv()=>{

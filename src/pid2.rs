@@ -58,6 +58,7 @@ fn tables(db: &rusqlite::Connection) -> Result<(), String> {
         CREATE TABLE IF NOT EXISTS pid2_attempts (routine_id TEXT NOT NULL, line TEXT NOT NULL, attempted_at INTEGER NOT NULL, PRIMARY KEY(routine_id,line));
         CREATE TABLE IF NOT EXISTS pid2_elections (routine_id TEXT NOT NULL, line TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(routine_id,line));
         CREATE TABLE IF NOT EXISTS pid2_crossings (routine_id TEXT NOT NULL, line TEXT NOT NULL, step_index INTEGER NOT NULL, PRIMARY KEY(routine_id,line,step_index));
+        CREATE TABLE IF NOT EXISTS pid2_dirty_wakes (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, queued_at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS pid2_schedules (schedule_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, envelope BLOB NOT NULL, frequency TEXT NOT NULL, time TEXT NOT NULL, weekday TEXT, band TEXT NOT NULL, action TEXT NOT NULL, max_seconds INTEGER NOT NULL, registered_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_fired_slot INTEGER);
         CREATE TABLE IF NOT EXISTS pid2_fires (schedule_id TEXT PRIMARY KEY, fire_id TEXT NOT NULL, trigger TEXT NOT NULL, state TEXT NOT NULL, queued_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, duration_ms INTEGER, first_missing_signal TEXT, rsync_exit_code INTEGER, final_file_count INTEGER, final_total_bytes INTEGER);
         CREATE TABLE IF NOT EXISTS pid2_sync_baselines (schedule_id TEXT PRIMARY KEY, file_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, updated_at INTEGER NOT NULL, fire_id TEXT NOT NULL);").map_err(|e| e.to_string())?;
@@ -161,7 +162,7 @@ pub fn enable(raw: &[u8]) -> Result<Value, String> {
     drop(db);
     drop(process_guard);
     drop(action_guard);
-    if changed != 0 { solver::deed("enable",id,"success",None); events::notify_routine(id); }
+    if changed != 0 { events::notify_routine(id)?; solver::deed("enable",id,"success",None); }
     Ok(json!({"ok":true,"routine_id":id,"enabled":true,"changed":changed!=0,"readback":status(id)?}))
 }
 
@@ -176,7 +177,7 @@ pub fn disable(id: &str) -> Result<Value, String> {
     drop(db);
     drop(process_guard);
     drop(action_guard);
-    if changed != 0 { solver::deed("disable",id,"success",None); events::notify_routine(id); }
+    if changed != 0 { events::notify_routine(id)?; solver::deed("disable",id,"success",None); }
     Ok(json!({"ok":true,"routine_id":id,"changed":changed != 0,"readback":status(id)?}))
 }
 
@@ -216,7 +217,7 @@ fn change_hold(id: &str, hold: bool) -> Result<Value, String> {
     };
     tx.commit().map_err(|e|e.to_string())?;
     drop(db); drop(process_guard); drop(guard);
-    if changed { solver::deed(if hold {"hold"} else {"release"},id,"success",None); events::notify_routine(id); }
+    if changed { events::notify_routine(id)?; solver::deed(if hold {"hold"} else {"release"},id,"success",None); }
     Ok(json!({"ok":true,"routine_id":id,"held":hold && registered,"changed":changed,"acquired":hold && registered && !was_held}))
 }
 pub fn hold(id: &str) -> Result<Value,String> {
@@ -344,7 +345,7 @@ pub fn request_unit(action: &str, unit: &str) -> Result<Value, String> {
     drop(db);
     drop(process_guard);
     drop(action_guard);
-    if changed != 0 { solver::deed(action,unit,"queued",None); events::notify_unit(scope,unit); }
+    if changed != 0 { events::notify_unit(scope,unit)?; solver::deed(action,unit,"queued",None); }
     Ok(json!({"ok":true,"unit":unit,"scope":scope,"desired":desired,"life":life,"readback":status(unit)?}))
 }
 

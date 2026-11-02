@@ -261,6 +261,37 @@ fn mount_point(path: &str) -> Result<bool, String> {
     }))
 }
 
+fn device_facts(path:&Path, name:&str, subsystem:&str, prefix:&str) -> std::collections::BTreeMap<String,String> {
+    let mut actual=std::collections::BTreeMap::<String,String>::new();
+    actual.insert("SUBSYSTEM".into(),subsystem.into());
+    actual.insert("SYSNAME".into(),name.into());
+    if let Ok(path)=path.canonicalize() {if let Ok(relative)=path.strip_prefix("/sys") {actual.insert("DEVPATH".into(),format!("/{}",relative.display()));}}
+    if let Ok(uevent)=std::fs::read_to_string(path.join("uevent")) {
+        for line in uevent.lines() {if let Some((k,v))=line.split_once('=') {actual.insert(k.into(),v.into());}}
+    }
+    if let Ok(dev)=std::fs::read_to_string(path.join("dev")) {
+        if let Ok(data)=std::fs::read_to_string(format!("/run/udev/data/{prefix}{}",dev.trim())) {
+            for line in data.lines().filter_map(|line|line.strip_prefix("E:")) {if let Some((k,v))=line.split_once('=') {actual.insert(k.into(),v.into());}}
+        }
+    }
+    actual
+}
+
+// Read only the device named by an event.  A missing class entry, a parent
+// event or an oversized observation is unknown, never a negative match.
+pub(super) fn event_device_facts(subsystem:&str,device:&str)->super::events::DeviceState {
+    use super::events::DeviceState;
+    let (class,prefix)=match subsystem {"block"=>("/sys/class/block","b"),"drm"=>("/sys/class/drm","c"),_=>return DeviceState::Unknown};
+    let Some(name)=Path::new(device).file_name().and_then(|n|n.to_str()) else {return DeviceState::Unknown;};
+    let path=Path::new(class).join(name);
+    let expected=Path::new("/sys").join(device.trim_start_matches('/'));
+    if path.canonicalize().ok().zip(expected.canonicalize().ok()).is_none_or(|(a,b)|a!=b) {return DeviceState::Unknown;}
+    let connector=if subsystem=="drm" && path.join("status").exists() {Some(name.to_owned())} else {None};
+    let facts:Vec<_>=device_facts(&path,name,subsystem,prefix).into_iter().collect();
+    if facts.iter().map(|(k,v)|k.len()+v.len()).sum::<usize>()>16384 {return DeviceState::Unknown;}
+    DeviceState::Known{facts,connector}
+}
+
 fn device_present(properties: &Value) -> Result<bool, String> {
     let wanted = properties.as_object().filter(|m| !m.is_empty()).ok_or("pid2-device-properties-missing")?;
     let mut observed_directory = false;
@@ -272,19 +303,7 @@ fn device_present(properties: &Value) -> Result<bool, String> {
             let entry = entry.map_err(|e| format!("pid2-device-observation-failed: {e}"))?;
             let path = entry.path();
             if !path.is_dir() { continue; }
-            let mut actual = std::collections::BTreeMap::<String,String>::new();
-            actual.insert("SUBSYSTEM".into(), subsystem.into());
-            actual.insert("SYSNAME".into(), entry.file_name().to_string_lossy().into_owned());
-            if let Ok(path) = path.canonicalize() { if let Ok(relative) = path.strip_prefix("/sys") { actual.insert("DEVPATH".into(), format!("/{}",relative.display())); } }
-            if let Ok(uevent) = std::fs::read_to_string(path.join("uevent")) {
-                for line in uevent.lines() { if let Some((k,v))=line.split_once('=') { actual.insert(k.into(),v.into()); } }
-            }
-            if let Ok(dev) = std::fs::read_to_string(path.join("dev")) {
-                let udev_path = format!("/run/udev/data/{prefix}{}", dev.trim());
-                if let Ok(data) = std::fs::read_to_string(udev_path) {
-                    for line in data.lines().filter_map(|line| line.strip_prefix("E:")) { if let Some((k,v))=line.split_once('=') { actual.insert(k.into(),v.into()); } }
-                }
-            }
+            let actual=device_facts(&path,&entry.file_name().to_string_lossy(),subsystem,prefix);
             if wanted.iter().all(|(key,value)| value.as_str().is_some_and(|v| actual.get(key).is_some_and(|observed|observed==v))) { return Ok(true); }
         }
     }
@@ -575,7 +594,7 @@ pub fn owner_answer(routine: &str, name: &str, answer: &str) -> Result<Value, St
     if routine.is_empty() || name.is_empty() || !["true","false","yes","no"].contains(&answer) { return Err("pid2-owner-answer-invalid".into()); }
     let _walk=super::walk_lock()?;
     if held(routine)? { return Err("pid2-routine-held".into()); }
-    if write_line_changed(routine,name,Some(answer),"Answered",None)? { super::events::notify_line(routine,name); }
+    if write_line_changed(routine,name,Some(answer),"Answered",None)? { super::events::notify_line(routine,name)?; }
     Ok(json!({"ok":true,"routine_id":routine,"line":name,"value":answer}))
 }
 
@@ -676,6 +695,26 @@ fn stage_dependencies(routine:&str,stage:&Value)->HashSet<LineKey> {
     out
 }
 
+fn device_side_may_match(need:&Value,side:&super::events::DeviceState)->bool {
+    use super::events::DeviceState;
+    match side {
+        DeviceState::Unknown=>true,
+        DeviceState::Absent=>false,
+        DeviceState::Known{facts,connector}=>{
+            if need.get("kind").and_then(Value::as_str)==Some("observe") {
+                let pattern=need.get("pattern").and_then(Value::as_str).unwrap_or("*-HDMI-*");
+                return connector.as_ref().is_none_or(|name|glob(pattern,name));
+            }
+            need.get("properties").and_then(Value::as_object).is_none_or(|wanted|wanted.iter().all(|(key,value)| {
+                match (facts.iter().find(|(name,_)|name==key),value.as_str()) {
+                    (Some((_,actual)),Some(expected))=>actual==expected,
+                    _=>true,
+                }
+            }))
+        },
+    }
+}
+
 fn stage_matches(routine:&str,stage:&Value,key:&super::events::DirtyKey)->bool {
     use super::events::DirtyKey;
     match key {
@@ -690,12 +729,12 @@ fn stage_matches(routine:&str,stage:&Value,key:&super::events::DirtyKey)->bool {
         let kind=need.get("kind").and_then(Value::as_str).unwrap_or("");
         let matches=match key {
             DirtyKey::Mount(path)=>kind=="await-mount" && need.get("path").and_then(Value::as_str).is_some_and(|p|Path::new(p)==path),
-            DirtyKey::Device(subsystem,device)=>{
-                if kind=="observe" {subsystem=="drm"} else if kind=="await-device" {
+            DirtyKey::Device(subsystem,device,before,after)=>{
+                if kind=="observe" {subsystem=="drm" && (device_side_may_match(need,before) || device_side_may_match(need,after))} else if kind=="await-device" {
                     let properties=need.get("properties");
                     let same=properties.and_then(|p|p.get("SUBSYSTEM")).and_then(Value::as_str).is_none_or(|v|v==subsystem);
                     let path=properties.and_then(|p|p.get("DEVPATH")).and_then(Value::as_str);
-                    same && (device.is_empty() || path.is_none_or(|v|Path::new(v).starts_with(device) || Path::new(device).starts_with(v)))
+                    same && (device.is_empty() || path.is_none_or(|v|Path::new(v).starts_with(device) || Path::new(device).starts_with(v))) && (device_side_may_match(need,before) || device_side_may_match(need,after))
                 } else {false}
             },
             DirtyKey::Unit(scope,unit)=>kind=="await-ready" && need.get("unit").and_then(Value::as_str)==Some(unit) && unit_scope(unit).is_ok_and(|s|s==*scope),
@@ -774,7 +813,8 @@ pub(super) fn reconcile(senses:&super::events::Senses,keys:Vec<super::events::Di
         if let Err(error)=stage(&line.0,item,senses,&mut visiting) {write_line(&line.0,&line.1,None,"Held",Some(&error))?;}
         let after=line_snapshot(&line.0,&line.1)?;
         if before!=after {
-            if queued.insert(line.clone()) {queue.push_back(line.clone());}
+            // A changed result dirties its consumers, not its own input.  A
+            // second visit to this line requires a new key that it names.
             if let Some(children)=reverse.get(&line) {let mut children:Vec<_>=children.iter().collect(); children.sort(); for child in children {if visiting.retry.contains(&line) {visiting.retry.insert(child.clone());} if queued.insert(child.clone()) {queue.push_back(child.clone());}}}
         }
     }

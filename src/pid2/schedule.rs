@@ -102,7 +102,7 @@ pub fn register(raw:&[u8]) -> Result<Value,String> {
     let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
     super::tables(&db)?;
     let changed=db.execute("INSERT INTO pid2_schedules(schedule_id,enabled,envelope,frequency,time,weekday,band,action,max_seconds,registered_at,updated_at,last_fired_slot) VALUES(?1,COALESCE(?11,1),?2,?3,?4,?5,?6,?7,?8,?9,?9,?10) ON CONFLICT(schedule_id) DO UPDATE SET enabled=COALESCE(?11,pid2_schedules.enabled),envelope=excluded.envelope,frequency=excluded.frequency,time=excluded.time,weekday=excluded.weekday,band=excluded.band,action=excluded.action,max_seconds=excluded.max_seconds,updated_at=excluded.updated_at WHERE pid2_schedules.envelope IS NOT excluded.envelope OR pid2_schedules.frequency IS NOT excluded.frequency OR pid2_schedules.time IS NOT excluded.time OR pid2_schedules.weekday IS NOT excluded.weekday OR pid2_schedules.band IS NOT excluded.band OR pid2_schedules.action IS NOT excluded.action OR pid2_schedules.max_seconds IS NOT excluded.max_seconds OR (?11 IS NOT NULL AND pid2_schedules.enabled IS NOT ?11)",params![id,raw,cal.frequency,cal.time,cal.weekday,band,action,max as i64,now,slot,enabled]).map_err(|e|e.to_string())?;
-    drop(db); if changed!=0 {super::solver::deed("schedule-register",id,"success",None);super::events::notify_schedule();}
+    drop(db); if changed!=0 {super::events::notify_schedule()?;super::solver::deed("schedule-register",id,"success",None);}
     Ok(json!({"ok":true,"readback":status(id)?}))
 }
 
@@ -111,7 +111,7 @@ pub fn set_enabled(id:&str,enabled:bool,missing_noop:bool) -> Result<Value,Strin
     let exists:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM pid2_schedules WHERE schedule_id=?1)",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
     if !exists && !missing_noop {return Err("pid2-schedule-not-found".into());}
     let changed=db.execute("UPDATE pid2_schedules SET enabled=?2,updated_at=?3 WHERE schedule_id=?1 AND enabled<>?2",params![id,enabled,super::now()]).map_err(|e|e.to_string())?;
-    drop(db); if changed!=0 {super::solver::deed(if enabled {"schedule-enable"} else {"schedule-disable"},id,"success",None);super::events::notify_schedule();}
+    drop(db); if changed!=0 {super::events::notify_schedule()?;super::solver::deed(if enabled {"schedule-enable"} else {"schedule-disable"},id,"success",None);}
     Ok(json!({"ok":true,"changed":changed!=0,"readback":status(id)?}))
 }
 pub fn update(id:&str,patch:&Value) -> Result<Value,String> {
@@ -131,7 +131,7 @@ pub fn update(id:&str,patch:&Value) -> Result<Value,String> {
     let encoded=serde_json::to_vec(&envelope).map_err(|e|e.to_string())?;
     let changed=tx.execute("UPDATE pid2_schedules SET envelope=?2,frequency=?3,time=?4,weekday=?5,enabled=?6,updated_at=?7 WHERE schedule_id=?1 AND (frequency IS NOT ?3 OR time IS NOT ?4 OR weekday IS NOT ?5 OR enabled IS NOT ?6)",params![id,encoded,cal.frequency,cal.time,cal.weekday,enabled,super::now()]).map_err(|e|e.to_string())?;
     tx.commit().map_err(|e|e.to_string())?;drop(db);
-    if changed!=0 {super::solver::deed("schedule-update",id,"success",None);super::events::notify_schedule();}
+    if changed!=0 {super::events::notify_schedule()?;super::solver::deed("schedule-update",id,"success",None);}
     Ok(json!({"ok":true,"readback":status(id)?}))
 }
 
@@ -165,7 +165,7 @@ pub fn queue(id:&str,trigger:&str,slot:Option<i64>) -> Result<Value,String> {
     if signal.is_some() {advance_slot(&tx,id,&fire_id)?;}
     tx.commit().map_err(|e|e.to_string())?;drop(db);
     if let Some(signal)=signal {fire_deed(id,&fire_id,"Refused",0,Some(&signal));return Err(signal);}
-    super::events::notify_schedule();Ok(json!({"ok":true,"fire_id":fire_id,"state":"Queued"}))
+    super::events::notify_schedule()?;Ok(json!({"ok":true,"fire_id":fire_id,"state":"Queued"}))
 }
 
 /// Return the next clock delay and queue any missed slots. No periodic polling.
