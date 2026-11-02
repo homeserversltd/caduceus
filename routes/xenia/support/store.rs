@@ -729,7 +729,8 @@ pub fn remove(id: &str) -> Result<Value> {
         );
     };
     let mut config_guard = Some(_lock);
-    let receipt = if entry.pointer("/source/kind").and_then(Value::as_str) == Some("own-service") {
+    // Legacy clone registrations remain removable; the retired launcher refuses them.
+    let receipt = if matches!(entry.pointer("/source/kind").and_then(Value::as_str), Some("own-service" | "clone")) {
         None
     } else {
         let expected_row = current.config["tabs"].get(id).cloned();
