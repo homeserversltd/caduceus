@@ -47,14 +47,14 @@ struct HttpsResponse {
 /// Normalize only full commit references; return the lookup tag and the
 /// underlying commit identity without letting the tag become that identity.
 fn commit_reference(reference: &str) -> Option<(String, String)> {
-    let (sha, bare) = match reference.strip_prefix("sha-") {
+    let sha = match reference.strip_prefix("sha-") {
         Some(sha)
             if sha.len() == 40
                 && sha
                     .bytes()
                     .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
         {
-            (sha, false)
+            sha
         }
         Some(_) => return None,
         None if reference.len() == 40
@@ -62,16 +62,11 @@ fn commit_reference(reference: &str) -> Option<(String, String)> {
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
         {
-            (reference, true)
+            reference
         }
         None => return None,
     };
-    let lookup_tag = if bare {
-        sha.to_owned()
-    } else {
-        reference.to_owned()
-    };
-    Some((lookup_tag, sha.to_owned()))
+    Some((sha.to_owned(), sha.to_owned()))
 }
 
 fn https(url: &str, token: &str) -> Result<HttpsResponse> {
@@ -416,11 +411,7 @@ pub fn release(manifest: &Value) -> Result<Value> {
         .as_ref()
         .map(|(tag, _)| tag.as_str())
         .unwrap_or(reference);
-    let mut release_response = https(release_url(lookup_tag)?.as_str(), &token)?;
-    if commit.as_ref().is_some_and(|(_, _)| reference.len() == 40) && release_response.status == 404
-    {
-        release_response = https(release_url(&format!("sha-{reference}"))?.as_str(), &token)?;
-    }
+    let release_response = https(release_url(lookup_tag)?.as_str(), &token)?;
     if release_response.status != 200 {
         return Err(observation(
             "F",
@@ -431,13 +422,7 @@ pub fn release(manifest: &Value) -> Result<Value> {
     let release: Value = serde_json::from_slice(&release_response.body)
         .map_err(|e| observation("F", "release", e.to_string()))?;
     let tag_name = release["tag_name"].as_str();
-    let tag_matches = match commit.as_ref().filter(|_| reference.len() == 40) {
-        Some((tag, sha)) => {
-            tag_name == Some(reference) || tag_name == Some(tag.as_str()) || tag_name == Some(sha)
-                || tag_name == Some(format!("sha-{sha}").as_str())
-        }
-        None => tag_name == Some(reference),
-    };
+    let tag_matches = tag_name == Some(lookup_tag);
     if !tag_matches {
         return Err(observation("F", "release.tag_name", "release-ref-mismatch"));
     }

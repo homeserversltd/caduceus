@@ -463,8 +463,14 @@ fn launcher(verb: &str, id: &str) -> Result<Value> {
         return Err(observation("transaction", "receipt", "install-receipt-identity-mismatch"));
     }
     let ok = receipt["ok"].as_bool().unwrap_or(false);
-    if walked["ok"].as_bool() != Some(ok) {
-        return Err(observation("transaction", "receipt", "install-receipt-exit-mismatch"));
+    let exit_matches = if ok { walked["ok"].as_bool() == Some(true) } else {
+        walked["ok"].as_bool() == Some(false)
+            && matches!(walked.pointer("/refusal/exitCode").and_then(Value::as_i64), Some(1 | 2))
+    };
+    if !exit_matches {
+        let mut error = observation("transaction", "receipt", "install-receipt-exit-mismatch");
+        error.receipt = Some(receipt);
+        return Err(error);
     }
     if !ok {
         let signal = receipt["signal"].as_str().filter(|signal| *signal != "none")
@@ -601,16 +607,33 @@ pub fn admit(before: &House, proposed: &Value, row: &Value) -> Result<Value> {
         drop(config_guard.take());
         let launched = launcher("install", id);
         config_guard = Some(config::transaction_lock().map_err(|e| observation("transaction", "config.lock", e))?);
-        current = read()?;
-        if current.register["xenoi"].get(id) != Some(&expected_entry)
-            || current.config["tabs"].get(id) != Some(&expected_row) {
-            return Err(observation("transaction", "house", "house-changed-during-install: preserve concurrent changes"));
-        }
+        current = read().map_err(|mut error| {
+            error.message = format!("install-returned-house-read-failed: {}", error.message);
+            error.receipt = match &launched { Ok(value) => Some(value.clone()), Err(failure) => failure.receipt.clone() };
+            error
+        })?;
+        let entry_matches = current.register["xenoi"].get(id) == Some(&expected_entry);
+        let row_matches = current.config["tabs"].get(id) == Some(&expected_row);
         match launched {
-            Ok(receipt) => Some(receipt),
+            Ok(receipt) if entry_matches && row_matches => Some(receipt),
+            Ok(receipt) => {
+                let mut error = observation("transaction", "house", "house-changed-during-install: install succeeded; concurrent changes preserved");
+                error.receipt = Some(receipt);
+                return Err(error);
+            }
             Err(mut error) => {
-                if let Err(rollback) = rollback_admit(before, &mut current, id, register_was_present, entry_changed, row_changed) {
-                    error.message = format!("{}; admit-rollback-failed: {}", error.message, rollback.message);
+                let confirmed_failure = error.receipt.as_ref().is_some_and(|value| value["ok"] == false)
+                    && error.message != "install-receipt-exit-mismatch";
+                if confirmed_failure {
+                    if let Err(rollback) = rollback_admit(before, &mut current, id, register_was_present,
+                        entry_changed && entry_matches, row_changed && row_matches) {
+                        error.message = format!("{}; admit-rollback-failed: {}", error.message, rollback.message);
+                    }
+                } else {
+                    error.message = format!("{}; install-outcome-unknown: declaration preserved", error.message);
+                }
+                if !entry_matches || !row_matches {
+                    error.message = format!("{}; house-changed-during-install: concurrent changes preserved", error.message);
                 }
                 return Err(error);
             }
@@ -622,12 +645,18 @@ pub fn admit(before: &House, proposed: &Value, row: &Value) -> Result<Value> {
         let installed = json!({"version": proposed["version"], "source_sha": receipt["source_sha"],
             "kit_band": null, "proved_at": chrono::Utc::now().timestamp(),
             "health": if receipt.pointer("/health/ok").and_then(Value::as_bool) == Some(true) { "healthy" } else { "unknown" }});
-        seat::field(XENIA, "installed", &installed, "transaction", "installed")?;
+        seat::field(XENIA, "installed", &installed, "transaction", "installed").map_err(|mut error| {
+            error.message = format!("install-succeeded-stamp-invalid: {}", error.message);
+            error.receipt = Some(receipt.clone()); error
+        })?;
         if receipt["changed"] == true || entry.pointer("/installed/source_sha") != Some(&receipt["source_sha"]) {
             entry["installed"] = installed;
             current.register["xenoi"][id] = entry.clone();
             current.register["written_at"] = json!(chrono::Utc::now().timestamp());
-            write(REGISTER, &current.register)?;
+            write(REGISTER, &current.register).map_err(|mut error| {
+                error.message = format!("install-succeeded-stamp-write-failed: {}", error.message);
+                error.receipt = Some(receipt.clone()); error
+            })?;
             stamp_changed = true;
         }
     }
@@ -707,20 +736,29 @@ pub fn remove(id: &str) -> Result<Value> {
         drop(config_guard.take());
         let receipt = launcher("uninstall", id)?;
         config_guard = Some(config::transaction_lock().map_err(|e| observation("transaction", "config.lock", e))?);
-        current = read()?;
+        current = read().map_err(|mut error| {
+            error.message = format!("uninstall-succeeded-house-read-failed: {}", error.message);
+            error.receipt = Some(receipt.clone()); error
+        })?;
         if current.register["xenoi"].get(id) != Some(&entry)
             || current.config["tabs"].get(id) != expected_row.as_ref() {
-            return Err(observation("transaction", "house", "house-changed-during-uninstall: preserve concurrent changes"));
+            let mut error = observation("transaction", "house", "house-changed-during-uninstall: uninstall succeeded; concurrent changes preserved");
+            error.receipt = Some(receipt);
+            return Err(error);
         }
         Some(receipt)
     };
+    let previous_row = current.config["tabs"].get(id).cloned();
     let row_changed = current.config["tabs"]
         .as_object_mut()
         .unwrap()
         .remove(id)
         .is_some();
     if row_changed {
-        write(CONFIG, &current.config)?;
+        write(CONFIG, &current.config).map_err(|mut error| {
+            if let Some(receipt) = &receipt { error.message = format!("uninstall-succeeded-row-write-failed: {}", error.message); error.receipt = Some(receipt.clone()); }
+            error
+        })?;
     }
     // The config row is durably absent before removing ownership from register.
     current.register["xenoi"]
@@ -728,7 +766,16 @@ pub fn remove(id: &str) -> Result<Value> {
         .unwrap()
         .remove(id);
     current.register["written_at"] = json!(chrono::Utc::now().timestamp());
-    write(REGISTER, &current.register)?;
+    if let Err(mut error) = write(REGISTER, &current.register) {
+        if let Some(row) = previous_row {
+            current.config["tabs"].as_object_mut().unwrap().insert(id.into(), row);
+            if let Err(rollback) = write(CONFIG, &current.config) {
+                error.message = format!("{}; remove-row-rollback-failed: {}", error.message, rollback.message);
+            }
+        }
+        if let Some(receipt) = &receipt { error.message = format!("uninstall-succeeded-register-write-failed: {}", error.message); error.receipt = Some(receipt.clone()); }
+        return Err(error);
+    }
     let mut result = json!({"entry": entry, "changed": true, "seat_retained": true,
         "attempt": {"row": if row_changed {"removed"} else {"already-absent"}, "entry": "removed"},
         "final": {"entry_present": false, "row_present": false, "converged": true}});
