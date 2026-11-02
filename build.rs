@@ -605,6 +605,21 @@ fn main() {
     };
 
     let leaf_entries = walk_json_leaves(Path::new("routes"));
+    let chord_seat_path = "schema/caduceus.chord.v1.json";
+    println!("cargo:rerun-if-changed={chord_seat_path}");
+    let chord_seat: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(chord_seat_path).expect("caduceus.chord.v1 seat unreadable")
+    ).expect("caduceus.chord.v1 seat invalid");
+    let stage_seat = &chord_seat["$defs"]["stage"];
+    let stage_required = stage_seat["required"].as_array().expect("caduceus.chord.v1 stage required missing");
+    let stage_kinds = stage_seat["oneOf"].as_array().expect("caduceus.chord.v1 kinds missing")
+        .iter().map(|kind| kind["required"][0].as_str().expect("caduceus.chord.v1 kind invalid"))
+        .collect::<Vec<_>>();
+    let checks = &stage_seat["checks"];
+    let stage_id_field = checks["id"].as_str().expect("caduceus.chord.v1 id check missing");
+    let arguments_field = checks["arguments"].as_str().expect("caduceus.chord.v1 arguments check missing");
+    let depends_field = checks["depends_on"].as_str().expect("caduceus.chord.v1 dependency check missing");
+    let markers = checks["markers"].as_array().expect("caduceus.chord.v1 markers missing");
     // Chord references and dependencies may name earlier stages only.
     fn check_chord_refs(value: &serde_json::Value, seen: &BTreeSet<String>, namespace: &str) {
         match value {
@@ -627,20 +642,42 @@ fn main() {
     }
     for entry in &leaf_entries {
         let namespace = entry["namespace"].as_str().unwrap_or("unknown");
+        let serve = entry.get("serve").and_then(serde_json::Value::as_array);
+        let finally = entry.get("finally").and_then(serde_json::Value::as_array);
+        let is_generic = !Path::new(&format!("routes/{namespace}/index.rs")).is_file();
+        let is_chord = serve.is_some_and(|steps| steps.len() != 1)
+            || finally.is_some_and(|steps| !steps.is_empty())
+            || serve.into_iter().chain(finally).flatten().any(|step| {
+                markers.iter().any(|field| field.as_str().is_some_and(|field| step.get(field).is_some()))
+            });
         let mut seen = BTreeSet::new();
         let mut ordinal = 0usize;
         for list in ["serve", "finally"] {
             if let Some(steps) = entry.get(list).and_then(serde_json::Value::as_array) {
                 for step in steps {
-                    if let Some(args) = step.get("arguments") { check_chord_refs(args, &seen, namespace); }
-                    if let Some(dependencies) = step.get("depends_on").and_then(serde_json::Value::as_array) {
+                    if is_generic && is_chord {
+                        for field in stage_required {
+                            let name = field.as_str().expect("caduceus.chord.v1 required field invalid");
+                            assert!(step.get(name).and_then(serde_json::Value::as_str).is_some_and(|s| !s.is_empty()),
+                                "{namespace}: caduceus.chord.v1 missing {name}");
+                        }
+                        assert!(stage_kinds.iter().filter(|kind| step.get(**kind).is_some()).count() == 1,
+                            "{namespace}: caduceus.chord.v1 stage must have exactly one kind");
+                        assert!(stage_kinds.iter().filter_map(|kind| step.get(*kind)).all(|value| value.as_str().is_some_and(|name| !name.is_empty())),
+                            "{namespace}: caduceus.chord.v1 stage kind must be a nonempty string");
+                        if let Some(value) = step.get(depends_field).filter(|value| !value.is_null()) {
+                            assert!(value.is_array(), "{namespace}: caduceus.chord.v1 {depends_field} must be an array");
+                        }
+                    }
+                    if let Some(args) = step.get(arguments_field) { check_chord_refs(args, &seen, namespace); }
+                    if let Some(dependencies) = step.get(depends_field).and_then(serde_json::Value::as_array) {
                         for dependency in dependencies {
                             let id = dependency.as_str().expect("chord dependency must be a stage id");
                             assert!(seen.contains(id), "{namespace}: dependency names non-earlier stage {id}");
                         }
                     }
                     let fallback = format!("step-{ordinal}");
-                    let id = step.get("stage_id").and_then(serde_json::Value::as_str).unwrap_or(&fallback);
+                    let id = step.get(stage_id_field).and_then(serde_json::Value::as_str).unwrap_or(&fallback);
                     assert!(seen.insert(id.to_owned()), "{namespace}: duplicate stage {id}");
                     ordinal += 1;
                 }

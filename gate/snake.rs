@@ -1251,8 +1251,17 @@ async fn native_chord_run_steps(
             continue;
         }
 
+        let leaf_deadline = crate::routes::selected_declaration(routine_id)
+            .and_then(|source| serde_json::from_str::<Value>(source).ok())
+            .and_then(|declaration| declaration.get("deadline_seconds").and_then(Value::as_u64))
+            .unwrap_or(total_deadline.as_secs());
+        let deadline_cap = if !is_finally && raw_step.get("receipt").and_then(Value::as_str) == Some("caduceus.chord.receipt.v1") {
+            leaf_deadline
+        } else {
+            leaf_deadline.min(600)
+        };
         let stage_timeout = match step.deadline_seconds {
-            Some(0) | Some(601..) => {
+            Some(seconds) if seconds == 0 || seconds > deadline_cap => {
                 let signal = "caduceus-snake-timeout-out-of-range";
                 state.stages.push(native_chord_stage_row(
                     &step_id,

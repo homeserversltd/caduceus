@@ -64,6 +64,7 @@
     "caduceus.nas.setup.v1": {"file": "schema/caduceus.nas.setup.v1.json", "schema_version": "1.0.0"},
     "caduceus.nas.attach.v1": {"file": "schema/caduceus.nas.attach.v1.json", "schema_version": "1.0.0"},
     "caduceus.nas.detach.v1": {"file": "schema/caduceus.nas.detach.v1.json", "schema_version": "1.0.0"},
+    "caduceus.chord.v1": {"file": "schema/caduceus.chord.v1.json", "schema_version": "1.0.0"},
     "caduceus.chord.receipt.v1": {"file": "schema/caduceus.chord.receipt.v1.json", "schema_version": "1.0.0"},
     "caduceus.nas.role.swap.v1": {"file": "schema/caduceus.nas.role.swap.v1.json", "schema_version": "1.0.0"},
     "caduceus.nas.role.observe.v1": {"file": "schema/caduceus.nas.role.observe.v1.json", "schema_version": "1.0.0"},

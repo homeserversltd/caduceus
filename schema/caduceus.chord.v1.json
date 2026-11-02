@@ -1,0 +1,36 @@
+{
+  "schema": "caduceus.chord.v1",
+  "schema_version": "1.0.0",
+  "role": "chord declaration",
+  "authority": {"owner": "caduceus", "path": "schema/caduceus.chord.v1.json"},
+  "evolution": {"law": "additive-only", "unknown_fields_preserved": true},
+  "required": ["serve"],
+  "fields": {
+    "serve": {"type": "array", "items": {"$ref": "#/$defs/stage"}},
+    "finally": {"type": "array", "items": {"$ref": "#/$defs/stage"}}
+  },
+  "optional": ["finally"],
+  "$defs": {
+    "stage": {
+      "type": "object",
+      "required": ["stage_id"],
+      "oneOf": [{"required": ["snake"]}, {"required": ["rust"]}, {"required": ["native"]}],
+      "checks": {"id": "stage_id", "arguments": "arguments", "depends_on": "depends_on", "markers": ["stage_id", "arguments", "required", "depends_on", "deadline_seconds"]},
+      "fields": {
+        "stage_id": {"type": "string", "description": "Unique within the leaf."},
+        "snake": {"type": "string", "description": "Snake band path."},
+        "rust": {"type": "string", "description": "Rust primitive name."},
+        "native": {"type": "string", "enum": ["pid2/hold", "pid2/schedule-disable", "pid2/release"]},
+        "arguments": {"type": "object", "default": {}, "description": "Values may reference request.payload.<path> or stages.<earlier-stage-id>.receipt.<path> using a $ref object."},
+        "required": {"type": "boolean", "default": true},
+        "depends_on": {"type": "array", "items": {"type": "string"}, "description": "Earlier stage ids."},
+        "deadline_seconds": {"type": "integer", "minimum": 1, "description": "At most 600 for a stop; a snake chord step may use up to the leaf deadline."},
+        "receipt": {"type": "string", "description": "Stage receipt seat id."}
+      },
+      "optional": ["arguments", "required", "depends_on", "deadline_seconds", "receipt"],
+      "additionalProperties": true
+    }
+  },
+  "aggregate_receipt": "caduceus.chord.receipt.v1",
+  "additionalProperties": true
+}
