@@ -1,0 +1,1 @@
+{"namespace":"local-ai/nap","admittance":"open","flags":{},"http_method":"POST","administrative":false,"mutation_allowed":true,"routine_callable":true,"serve":[{"snake":"local-ai/nap","verb":["local-ai","nap"]}],"commands":[],"needs":["local-ai-nap"],"ledger_deed":{"organ":"local-ai","verb":"nap","target":"memory"}}

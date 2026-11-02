@@ -14,6 +14,7 @@
     "console-management",
     "gtk4",
     "local-ai-memory-card",
+    "local-ai-nap",
     "hermes",
     "portals"
   ],
@@ -173,6 +174,9 @@
     },
     "local-ai-memory-card": {
       "description": "HomeSI GPU memory-card card, library and slot doors."
+    },
+    "local-ai-nap": {
+      "description": "Local AI maintenance route."
     },
     "gtk4": {
       "description": "GTK4 face and unfinished HomeTV Updates screen debt."

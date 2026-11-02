@@ -29,7 +29,9 @@ pub(crate) fn call(namespace: &str, payload: Option<&Value>, keep: &[String], se
     let path=declaration.get("http_path").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(||format!("/api/v1/{namespace}"));
     let method=declaration.get("http_method").and_then(Value::as_str);
     if declaration.get("administrative").and_then(Value::as_bool)==Some(true) || super::administrative_routes_match(method,&path).map_err(|_|"pid2-route-classification-unavailable")? {return Err("pid2-route-administrative-refused".into());}
-    if method!=Some("GET") || declaration.get("mutation_allowed").and_then(Value::as_bool)!=Some(false) {return Err("pid2-route-not-a-read".into());}
+    let read = method==Some("GET") && declaration.get("mutation_allowed").and_then(Value::as_bool)==Some(false);
+    let routine_callable = declaration.get("routine_callable").and_then(Value::as_bool)==Some(true);
+    if !read && !routine_callable {return Err("pid2-route-not-a-read".into());}
     let router=super::router();
     let body=payload.map(serde_json::to_vec).transpose().map_err(|_|"pid2-route-payload-invalid")?.unwrap_or_default();
     let request=Request::builder().method(method.unwrap_or("GET")).uri(&path).header("content-type","application/json").body(Body::from(body)).map_err(|_|"pid2-route-request-invalid")?;

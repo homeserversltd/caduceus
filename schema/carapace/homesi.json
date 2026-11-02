@@ -74,6 +74,7 @@
     "gtk4",
     "nmcli",
     "local-ai-memory-card",
+    "local-ai-nap",
     "hermes",
     "portals"
   ]

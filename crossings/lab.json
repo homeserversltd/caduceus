@@ -15,6 +15,7 @@
     "local-ai/edition",
     "local-ai/library",
     "local-ai/memory",
+    "local-ai/nap",
     "local-ai/slot",
     "appliance/journal-vacuum",
     "appliance/service",
@@ -106,6 +107,7 @@
     ["local-ai", "edition"],
     ["local-ai", "library"],
     ["local-ai", "memory"],
+    ["local-ai", "nap"],
     ["local-ai", "slot"],
     [
       "appliance",
@@ -395,6 +397,7 @@
     "/api/v1/local-ai/edition",
     "/api/v1/local-ai/library",
     "/api/v1/local-ai/memory",
+    "/api/v1/local-ai/nap",
     "/api/v1/local-ai/slot/brain",
     "/api/v1/local-ai/slot/embed",
     "/api/v1/local-ai/slot/ear",
