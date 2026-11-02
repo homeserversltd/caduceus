@@ -1,0 +1,10 @@
+{
+  "schema": "caduceus.nas.drives.v1",
+  "schema_version": "1.0.0",
+  "role": "NAS drives staff read receipt",
+  "authority": {"owner": "caduceus", "path": "schema/caduceus.nas.drives.v1.json"},
+  "evolution": {"law": "additive-only", "unknown_fields_preserved": true},
+  "required": ["schema", "ok"],
+  "optional": ["drives", "firstMissingSignal", "outcome"],
+  "additionalProperties": true
+}
