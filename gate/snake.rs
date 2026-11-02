@@ -8,6 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
+const MAX_CHORD_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_CROSSING_TIMEOUT: Duration = Duration::from_secs(600);
 const MAX_STREAMED_CROSSING_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 pub const XENOS_LAUNCHER_PATH: &str = "/usr/local/sbin/agathodaimon/caduceus-xenos-run";
@@ -237,6 +238,7 @@ fn execute_command(
     timeout_error: &str,
     spawn_error: &str,
     terminate_group: bool,
+    output_bound: usize,
 ) -> Result<Value, String> {
     let Some(context) = crate::shared::load_trace::current() else {
         let mut appended_staff_stamps = 0;
@@ -249,6 +251,7 @@ fn execute_command(
             timeout_error,
             spawn_error,
             terminate_group,
+            output_bound,
             None,
             &mut appended_staff_stamps,
         );
@@ -270,6 +273,7 @@ fn execute_command(
         timeout_error,
         spawn_error,
         terminate_group,
+        output_bound,
         Some(&context),
         &mut appended_staff_stamps,
     );
@@ -304,6 +308,7 @@ fn execute_command_raw(
     timeout_error: &str,
     spawn_error: &str,
     terminate_group: bool,
+    output_bound: usize,
     trace_context: Option<&crate::shared::load_trace::ContextHandle>,
     appended_staff_stamps: &mut usize,
 ) -> Result<Value, String> {
@@ -336,7 +341,7 @@ fn execute_command_raw(
     let stdout_reader = std::thread::spawn(move || {
         let mut bytes = Vec::new();
         stdout
-            .take((MAX_OUTPUT_BYTES + 1) as u64)
+            .take((output_bound + 1) as u64)
             .read_to_end(&mut bytes)
             .map(|_| bytes)
     });
@@ -384,8 +389,20 @@ fn execute_command_raw(
         stdout.ok_or_else(|| "caduceus-agathodaimon-cli-stdout-read-failed".to_string())?;
     let stderr =
         stderr.ok_or_else(|| "caduceus-agathodaimon-cli-stderr-read-failed".to_string())?;
-    if stdout.len() > MAX_OUTPUT_BYTES {
-        return Err("caduceus-agathodaimon-output-too-large".into());
+    if stdout.len() > output_bound {
+        let signal = "caduceus-agathodaimon-output-too-large";
+        let receipt = json!({"ok":false,"firstMissingSignal":signal,
+            "bound_bytes":output_bound,"read_bytes":stdout.len()});
+        let mut stamped = forwarded.clone();
+        let object = stamped.as_object_mut().ok_or_else(|| "protocol-envelope-not-object".to_string())?;
+        if object.contains_key("caduceusReceipt") {
+            return Err("caduceus-envelope-stamp-collision".into());
+        }
+        object.insert("caduceusReceipt".into(), json!({"schema":"caduceus.staff.v1",
+            "stepReceipt":receipt,"ok":false,"bandPath":band,"firstMissingSignal":signal}));
+        return Ok(json!({"ok":false,"profile":active_profile(),"bandPath":band,
+            "facePath":face_path,"receiptPayload":receipt,"rawEnvelope":forwarded,
+            "envelope":stamped,"refusal":receipt,"firstMissingSignal":signal}));
     }
     let stdout = String::from_utf8_lossy(&stdout).into_owned();
     let stderr = String::from_utf8_lossy(&stderr)
@@ -499,6 +516,14 @@ fn execute_with_timeout(
     outer_envelope: &Value,
     timeout: Duration,
 ) -> Result<Value, String> {
+    execute_with_timeout_and_bound(band, outer_envelope, timeout, MAX_OUTPUT_BYTES)
+}
+fn execute_with_timeout_and_bound(
+    band: &str,
+    outer_envelope: &Value,
+    timeout: Duration,
+    output_bound: usize,
+) -> Result<Value, String> {
     let (command, face_path) = band_invocation(band)?;
     execute_command(
         band,
@@ -509,6 +534,7 @@ fn execute_with_timeout(
         "caduceus-agathodaimon-timeout",
         "caduceus-agathodaimon-cli-unavailable",
         false,
+        output_bound,
     )
 }
 fn execute(band: &str, outer_envelope: &Value) -> Result<Value, String> {
@@ -584,6 +610,7 @@ pub fn run_launcher(argv: &[String], envelope: &Value, timeout: Duration) -> Res
         "xenos-run-timeout",
         "xenos-launcher-absent",
         false,
+        MAX_OUTPUT_BYTES,
     )
 }
 pub fn run(band: &str, envelope: &Value) -> Result<Value, String> {
@@ -892,7 +919,7 @@ pub fn schedule_crossing(path: &str, metadata: &Value, timeout: Duration) -> Res
         "transition":band, "origin_of_intent":"near", "payload":input,
         "actuator":actuator, "metadata":metadata});
     let (command,face_path)=band_invocation(&band)?;
-    execute_command(&band,&envelope,command,timeout,face_path,"caduceus-agathodaimon-timeout","caduceus-agathodaimon-cli-unavailable",true)
+    execute_command(&band,&envelope,command,timeout,face_path,"caduceus-agathodaimon-timeout","caduceus-agathodaimon-cli-unavailable",true,MAX_OUTPUT_BYTES)
 }
 
 pub fn crossing_path(path: &str, input: &Value) -> Result<Value, String> {
@@ -1320,10 +1347,12 @@ async fn native_chord_run_steps(
         };
 
         let result = if let Some(stage_snake) = snake {
+            let output_bound = if raw_step.get("receipt").and_then(Value::as_str)
+                == Some("caduceus.chord.receipt.v1") { MAX_CHORD_OUTPUT_BYTES } else { MAX_OUTPUT_BYTES };
             let context = crate::shared::load_trace::current();
             tokio::task::spawn_blocking(move || {
                 crate::shared::load_trace::with_blocking_context(context, || {
-                    execute_with_timeout(&stage_snake, &stage_envelope, stage_timeout)
+                    execute_with_timeout_and_bound(&stage_snake, &stage_envelope, stage_timeout, output_bound)
                 })
             }).await.map_err(|_| "caduceus-blocking-task-join-failed".to_string())
                 .and_then(|result| result)
@@ -1395,7 +1424,8 @@ async fn native_chord_run_steps(
                     .or_else(|| stage_declaration.as_ref().and_then(|d| d.get("receipt").and_then(Value::as_str)
                         .or_else(|| d.pointer("/flags/receiptSchema").and_then(Value::as_str))).map(ToOwned::to_owned));
                 let schema_ok = expected_schema.as_deref().is_none_or(|schema| crate::routes::leaf_schema::accepts(schema, &receipt));
-                if !schema_ok {
+                if !schema_ok && result.get("firstMissingSignal").and_then(Value::as_str)
+                    != Some("caduceus-agathodaimon-output-too-large") {
                     state.changed = None;
                     ("stage-refused", receipt, Some("caduceus-schema-desync".to_owned()))
                 } else {
