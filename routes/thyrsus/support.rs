@@ -259,15 +259,12 @@ fn invoke(verb: Verb, args: Vec<String>, secret: Secret) -> Result<Value, &'stat
         (written, secret)
     });
     let deadline = Instant::now() + DEADLINE;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
+    let status = match crate::shared::child_wait::until(&mut child, deadline) {
+        Ok(Some(status)) => Some(status),
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            None
         }
     };
     let (written, secret) = writer.join().map_err(|_| "thyrsus-staff-stdin-failed")?;

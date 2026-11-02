@@ -1,6 +1,7 @@
 pub mod agathodaimon;
 pub mod attendance;
 pub mod command;
+pub mod child_wait;
 pub mod config;
 pub mod harmonia;
 pub mod hyalos;

@@ -303,8 +303,8 @@ fn run_readonly_nmcli(args: &[String]) -> Result<(String, Vec<String>), String> 
 
 fn wait_child(c: &mut Child) -> Result<(String, Vec<String>), String> {
     let start = std::time::Instant::now();
-    loop {
-        if let Some(s) = c.try_wait().map_err(|_| "wifi-nmcli-wait-failed")? {
+    match crate::shared::child_wait::until(c, start + COMMAND_TIMEOUT).map_err(|_| "wifi-nmcli-wait-failed")? {
+        Some(s) => {
             let mut b = Vec::new();
             c.stdout
                 .take()
@@ -315,14 +315,13 @@ fn wait_child(c: &mut Child) -> Result<(String, Vec<String>), String> {
             if !s.success() {
                 return Err("wifi-nmcli-failed".into());
             }
-            return Ok((String::from_utf8_lossy(&b).into(), Vec::new()));
+            Ok((String::from_utf8_lossy(&b).into(), Vec::new()))
         }
-        if start.elapsed() >= COMMAND_TIMEOUT {
+        None => {
             let _ = c.kill();
             let _ = c.wait();
-            return Err("wifi-nmcli-timeout".into());
+            Err("wifi-nmcli-timeout".into())
         }
-        std::thread::sleep(Duration::from_millis(10))
     }
 }
 fn parse_result(a: &str, s: &str) -> Value {

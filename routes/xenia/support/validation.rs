@@ -382,17 +382,12 @@ fn check_permissions(id: &str) -> Result<()> {
         reader.take(65_537).read_to_end(&mut output).map(|_| output)
     });
     let deadline = Instant::now() + Duration::from_secs(5);
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
+    let status = match crate::shared::child_wait::until(&mut child, deadline) {
+        Ok(Some(status)) => Some(status),
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            None
         }
     };
     let output = reader.join().ok().and_then(std::result::Result::ok);
@@ -684,12 +679,9 @@ fn own_service(manifest: &Value) -> Result<()> {
         pipe.take(1025).read_to_end(&mut bytes).map(|_| bytes)
     });
     let deadline = Instant::now() + Duration::from_secs(5);
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
-            _ => { let _ = child.kill(); let _ = child.wait(); break None; }
-        }
+    let status = match crate::shared::child_wait::until(&mut child, deadline) {
+        Ok(Some(status)) => Some(status),
+        _ => { let _ = child.kill(); let _ = child.wait(); None }
     };
     let output = reader.join().ok().and_then(std::result::Result::ok).unwrap_or_default();
     if !status.is_some_and(|s| s.success()) || output.len() > 1024 || output != b"loaded\n" {

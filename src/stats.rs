@@ -1321,17 +1321,17 @@ fn refresh_nvidia_gpu_cache() -> Option<(bool, String)> {
     .stderr(Stdio::null());
     let mut child = c.spawn().ok()?;
     let start = Instant::now();
-    loop {
-        if let Some(status) = child.try_wait().ok()? {
-            let output = child.wait_with_output().ok()?;
-            return Some((status.success(), String::from_utf8(output.stdout).ok()?));
-        }
-        if start.elapsed() >= Duration::from_millis(900) {
+    let status = match crate::shared::child_wait::until(&mut child, start + Duration::from_millis(900)).ok()? {
+        Some(status) => status,
+        None => {
             let _ = child.kill();
+            let _ = child.wait();
             return None;
         }
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    };
+    let mut output = Vec::new();
+    std::io::Read::read_to_end(&mut child.stdout.take()?, &mut output).ok()?;
+    Some((status.success(), String::from_utf8(output).ok()?))
 }
 fn nvidia_gpu_output(output: &str) -> NvidiaGpuCache {
     let mut cache = NvidiaGpuCache {

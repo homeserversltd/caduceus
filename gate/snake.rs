@@ -353,27 +353,18 @@ fn execute_command_raw(
             .map(|_| bytes)
     });
     let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(10));
+    let status = match crate::shared::child_wait::until(&mut child, deadline) {
+        Ok(Some(status)) => Some(status),
+        _ => {
+            if terminate_group {
+                // Give the sudo monitor a bounded chance to forward TERM.
+                unsafe { libc::kill(-(child.id() as i32), libc::SIGTERM); }
+                let _ = crate::shared::child_wait::grace(&mut child, Duration::from_secs(1));
+                unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL); }
             }
-            _ => {
-                if terminate_group {
-                    // Give the sudo monitor a bounded chance to forward TERM.
-                    unsafe { libc::kill(-(child.id() as i32), libc::SIGTERM); }
-                    let grace=Instant::now()+Duration::from_secs(1);
-                    while Instant::now()<grace {
-                        if matches!(child.try_wait(),Ok(Some(_))) {break;}
-                        std::thread::sleep(Duration::from_millis(10));
-                    }
-                    unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL); }
-                }
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
+            let _ = child.kill();
+            let _ = child.wait();
+            None
         }
     };
     let stdin_ok = writer.join().ok().is_some_and(|result| result.is_ok());
@@ -853,27 +844,22 @@ pub fn crossing_path_with_streamed_output(
     };
     let writer = std::thread::spawn(move || stdin.write_all(raw.as_bytes()));
     let deadline = started + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = writer.join();
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "caduceus-agathodaimon-timeout",
-                ));
-            }
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = writer.join();
-                return Err(error);
-            }
+    let status = match crate::shared::child_wait::until(&mut child, deadline) {
+        Ok(Some(status)) => status,
+        Ok(None) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = writer.join();
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "caduceus-agathodaimon-timeout",
+            ));
+        }
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = writer.join();
+            return Err(error);
         }
     };
     writer.join().map_err(|_| {

@@ -343,7 +343,7 @@ const UPDATE_NOW_HISTORY: &str = "/api/v1/update/history";
 const UPDATE_NOW_HANDOFF_WAIT: Duration = Duration::from_millis(1_000);
 const UPDATE_NOW_START_WAIT: Duration = Duration::from_millis(1_800);
 const UPDATE_NOW_SYSTEMCTL_WAIT: Duration = Duration::from_millis(150);
-const UPDATE_NOW_POLL: Duration = Duration::from_millis(25);
+const UPDATE_NOW_HANDOFF_POLL: Duration = Duration::from_millis(25);
 const HARMONIA_EXIT_MARKER: &str = "__CADUCEUS_HARMONIA_EXIT_V1_";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -500,22 +500,12 @@ fn transient_owner(
         Err(_) => return TransientOwner::Unproven,
     };
     let started = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if started.elapsed() < UPDATE_NOW_SYSTEMCTL_WAIT => {
-                std::thread::sleep(UPDATE_NOW_POLL);
-            }
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return TransientOwner::Unproven;
-            }
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return TransientOwner::Unproven;
-            }
+    let status = match crate::shared::child_wait::until(&mut child, started + UPDATE_NOW_SYSTEMCTL_WAIT) {
+        Ok(Some(status)) => status,
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return TransientOwner::Unproven;
         }
     };
     if !status.success() {
@@ -679,7 +669,7 @@ pub fn start_update_now_json() -> Value {
                             None,
                         );
                     }
-                    std::thread::sleep(UPDATE_NOW_POLL);
+                    std::thread::sleep(UPDATE_NOW_HANDOFF_POLL);
                 }
             },
             Err(signal) => return update_now_response(1, false, "failed", signal, None, None),
@@ -762,7 +752,7 @@ pub fn start_update_now_json() -> Value {
                 Some(&invocation_id),
             );
         }
-        std::thread::sleep(UPDATE_NOW_POLL);
+        std::thread::sleep(UPDATE_NOW_HANDOFF_POLL);
     }
 }
 

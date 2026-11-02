@@ -198,20 +198,17 @@ fn unit_properties(unit: &str) -> Result<BTreeMap<String, String>> {
         stdout.take(65537).read_to_end(&mut bytes).map(|_| bytes)
     });
     let deadline = Instant::now() + Duration::from_secs(5);
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
-            other => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = reader.join();
-                return Err(observation(
-                    "status",
-                    "systemctl",
-                    format!("unit-observation-timeout-or-failed: {other:?}"),
-                ));
-            }
+    let status = match crate::shared::child_wait::until(&mut child, deadline) {
+        Ok(Some(status)) => status,
+        other => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            return Err(observation(
+                "status",
+                "systemctl",
+                format!("unit-observation-timeout-or-failed: {other:?}"),
+            ));
         }
     };
     let bytes = reader
