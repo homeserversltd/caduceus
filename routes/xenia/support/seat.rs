@@ -258,6 +258,13 @@ pub fn node(rule: &Value, value: &Value, check: &str, path: &str) -> Result<()> 
 
 pub fn kernel(id: &str, name: Option<&str>, value: &Value, check: &str, path: &str) -> Result<()> {
     let seat = declaration(id)?;
+    let name = if id == super::XENIA && value.pointer("/source/kind").and_then(Value::as_str) == Some("own-service") {
+        match name {
+            Some("manifest") => Some("own-service-manifest"),
+            Some("entry") => Some("own-service-entry"),
+            other => other,
+        }
+    } else { name };
     if value.get("schema").and_then(Value::as_str) != Some(id) {
         return Err(fault(
             check,

@@ -14,7 +14,7 @@
     "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
     "unit": {"type": ["string", "null"]},
     "active": {"type": ["boolean", "null"]},
-    "health": {"type": ["object", "null"], "fields": {"ok": {"type": "boolean"}, "source_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"}, "endpoint": {"type": ["string", "null"]}}, "required": ["ok", "source_sha", "endpoint"]},
+    "health": {"type": ["object", "null"], "fields": {"ok": {"type": "boolean"}, "source_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"}, "endpoint": {"type": ["string", "null"], "pattern": "^127\\.0\\.0\\.1:[0-9]+$"}}, "required": ["ok", "source_sha", "endpoint"]},
     "signal": {"type": "string", "minLength": 1}
   },
   "required": ["schema", "verb", "id", "ok", "road", "source_sha", "sha256", "unit", "active", "health", "signal"],

@@ -129,6 +129,12 @@ fn source(manifest: &Value) -> Result<bool> {
     if source["kind"].as_str() == Some("clone") {
         return Err(refuse("E", "manifest.source.kind", "clone-road-retired"));
     }
+    if source["kind"].as_str() == Some("own-service") {
+        if ["repo", "release_repo", "ref", "candidates", "url"].iter().any(|key| source.get(*key).is_some()) {
+            return Err(refuse("E", "manifest.source", "own-service-source-fields-forbidden"));
+        }
+        return Ok(false);
+    }
     if source
         .get("candidates")
         .is_some_and(|value| !value.is_null())
@@ -513,6 +519,13 @@ fn endpoint(value: &Value) -> Result<Option<(Option<u16>, String)>> {
         }
         return Err(refuse("H", "transport.declared", "transport-shape-invalid"));
     };
+    if let Ok(address) = text.parse::<std::net::SocketAddr>() {
+        if (address.ip() == std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+            || address.ip() == std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST))
+            && address.port() != 0 {
+            return Ok(Some((Some(address.port()), text.into())));
+        }
+    }
     if let Some(path) = text.strip_prefix("unix:") {
         if !Path::new(path).is_absolute()
             || Path::new(path)
@@ -558,6 +571,7 @@ fn claims(
     house: &store::House,
     registry: &[(String, Value)],
     own: bool,
+    own_service: bool,
 ) -> Result<Value> {
     let id = manifest["id"].as_str().unwrap_or("");
     let declared = endpoint(&manifest["transport"]["declared"])?;
@@ -613,7 +627,7 @@ fn claims(
     }
     let listeners = observe::sockets()?;
     if let Some((port, socket)) = declared {
-        let owned = if own {
+        let owned = if own && !own_service {
             Some(observe::runtime(&guests[id])?)
         } else {
             None
@@ -628,7 +642,7 @@ fn claims(
                     .is_some_and(|values| {
                         values.iter().any(|v| v.as_u64() == Some(listener.inode))
                     });
-                if !own_inode {
+                if !own_inode && !own_service {
                     return Err(refuse(
                         "H",
                         "transport.declared",
@@ -642,6 +656,44 @@ fn claims(
         .iter()
         .map(observe::Listener::value)
         .collect::<Vec<_>>()))
+}
+
+fn own_service(manifest: &Value) -> Result<()> {
+    let unit = manifest["install"]["unit"].as_str()
+        .filter(|unit| unit.ends_with(".service") && !unit.starts_with('-')
+            && unit.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.@:-\\".contains(&b)))
+        .ok_or_else(|| refuse("G", "manifest.install.unit", "own-service-unit-not-loaded"))?;
+    seat::field(XENIA, "install", &manifest["install"], "G", "manifest.install")?;
+    let address = manifest["transport"]["declared"].as_str()
+        .and_then(|text| text.parse::<std::net::SocketAddr>().ok())
+        .filter(|address| address.port() != 0 &&
+            (address.ip() == std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+             || address.ip() == std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST)))
+        .ok_or_else(|| refuse("H", "manifest.transport.declared", "own-service-port-silent"))?;
+    let mut child = Command::new("systemctl")
+        .args(["show", "-p", "LoadState", "--value", "--", unit])
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
+        .spawn().map_err(|_| refuse("G", "manifest.install.unit", "own-service-unit-not-loaded"))?;
+    let pipe = child.stdout.take().ok_or_else(|| refuse("G", "manifest.install.unit", "own-service-unit-not-loaded"))?;
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        pipe.take(1025).read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            _ => { let _ = child.kill(); let _ = child.wait(); break None; }
+        }
+    };
+    let output = reader.join().ok().and_then(std::result::Result::ok).unwrap_or_default();
+    if !status.is_some_and(|s| s.success()) || output.len() > 1024 || output != b"loaded\n" {
+        return Err(refuse("G", "manifest.install.unit", "own-service-unit-not-loaded"));
+    }
+    std::net::TcpStream::connect_timeout(&address, Duration::from_millis(750))
+        .map_err(|_| refuse("H", "manifest.transport.declared", "own-service-port-silent"))?;
+    Ok(())
 }
 
 fn compatibility(manifest: &Value) -> Result<()> {
@@ -675,6 +727,9 @@ fn compatibility(manifest: &Value) -> Result<()> {
 }
 
 pub fn validate(body: &Value) -> Result<Candidate> {
+    if body.pointer("/manifest/source/kind").and_then(Value::as_str) == Some("clone") {
+        return Err(refuse("E", "manifest.source.kind", "clone-road-retired"));
+    }
     seat::startup().map_err(|e| observation("A", "schema", e))?;
     // A: snapshot lock ends before the first HTTP read.
     let house = store::snapshot()?;
@@ -682,6 +737,7 @@ pub fn validate(body: &Value) -> Result<Candidate> {
     let manifest = body
         .get("manifest")
         .ok_or_else(|| refuse("B", "manifest", "manifest-absent"))?;
+    let is_own_service = manifest.pointer("/source/kind").and_then(Value::as_str) == Some("own-service");
     seat::kernel(XENIA, Some("manifest"), manifest, "B", "manifest")?;
     // B only judges the frozen kernel, custody and types. Identity, source,
     // seats, transport and compatibility keep their own first-failure rungs.
@@ -718,7 +774,7 @@ pub fn validate(body: &Value) -> Result<Candidate> {
     if manifest["proxy_route"].as_str() != Some(format!("/api/tabs/{id}").as_str()) {
         return Err(refuse("C", "manifest.proxy_route", "proxy-id-mismatch"));
     }
-    if let Some(unit) = manifest["install"]["unit"].as_str() {
+    if let Some(unit) = manifest["install"]["unit"].as_str().filter(|_| !is_own_service) {
         if unit != format!("{id}.service") {
             return Err(refuse("C", "manifest.install.unit", "unit-id-mismatch"));
         }
@@ -807,7 +863,7 @@ pub fn validate(body: &Value) -> Result<Candidate> {
         "F",
         "manifest",
     )?;
-    if !manifest["install"]["unit"].is_null() {
+    if !is_own_service && !manifest["install"]["unit"].is_null() {
         return Err(refuse(
             "F",
             "manifest.install.unit",
@@ -825,27 +881,31 @@ pub fn validate(body: &Value) -> Result<Candidate> {
             "clone-digest-not-applicable",
         ));
     }
-    seat::field(
-        XENIA,
-        "content_inventory_digest",
-        &manifest["content_inventory_digest"],
-        "F",
-        "manifest.content_inventory_digest",
-    )?;
-    inventory_claims(&manifest["install"], "manifest.install")?;
+    if !is_own_service || manifest.get("content_inventory_digest").is_some() {
+        seat::field(
+            XENIA,
+            "content_inventory_digest",
+            &manifest["content_inventory_digest"],
+            "F",
+            "manifest.content_inventory_digest",
+        )?;
+    }
+    if !is_own_service { inventory_claims(&manifest["install"], "manifest.install")?; }
     if let Some(inventory) = manifest.get("inventory") {
         inventory_claims(inventory, "manifest.inventory")?;
     }
     if clone {
         check_permissions(id)?;
     }
-    let release = if clone {
+    let release = if is_own_service {
+        json!({"road": "own-service", "release": null})
+    } else if clone {
         json!({"road": "clone", "host": "git.home.arpa", "release": null})
     } else {
         remote::release(manifest)?
     };
     // G, H, I and J, in that order.
-    install(manifest, id)?;
+    if is_own_service { own_service(manifest)?; } else { install(manifest, id)?; }
     style_sheet(manifest)?;
     seat::field(
         XENIA,
@@ -854,7 +914,7 @@ pub fn validate(body: &Value) -> Result<Candidate> {
         "H",
         "manifest.transport",
     )?;
-    let listeners = claims(manifest, &house, &registry, own.is_some())?;
+    let listeners = claims(manifest, &house, &registry, own.is_some(), is_own_service)?;
     seat::field(
         XENIA,
         "capabilities",

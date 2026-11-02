@@ -55,9 +55,10 @@
           "type": "string",
           "enum": [
             "clone",
-            "release"
+            "release",
+            "own-service"
           ],
-          "description": "Clone selects the in-place xenos seat; absent or release preserves the release road."
+          "description": "own-service names an existing unit and loopback listener; absent or release selects the release road. Existing clone entries remain readable but new clone admissions are retired."
         },
         "repo": {
           "type": "string",
@@ -104,7 +105,7 @@
           "description": "Tag, branch or release tag."
         }
       },
-      "description": "The clone form is kind=clone with repo=owner/repo and ref; it uses the body's reachable Forgejo host and is never executed by this door. Otherwise exactly one of release_repo and candidates is present and non-null. Only release_repo plus ref is admissible on the release road; candidates remain declared for the deferred source road."
+      "description": "own-service declares only kind and no release or repository fields. Existing clone entries remain readable. The release road requires release_repo and ref."
     },
     "install": {
       "type": [
@@ -124,7 +125,7 @@
             "string",
             "null"
           ],
-          "description": "The track-rendered <id>.service; never supplied as a manifest unit."
+          "description": "For own-service, the existing owner's unit ending .service; otherwise the track-rendered <id>.service, never supplied by a manifest."
         },
         "static_dir": {
           "type": [
@@ -150,7 +151,7 @@
             "string",
             "null"
           ],
-          "description": "Declared transport endpoint; null means discover."
+          "description": "Declared transport endpoint; null means discover. For own-service, the required endpoint is 127.0.0.1:<port> or [::1]:<port>."
         }
       },
       "description": "Declared null means discover."
@@ -402,6 +403,16 @@
     "discovered"
   ],
   "forms": {
+    "own-service-manifest": {
+      "required": ["schema", "id", "display", "version", "kind", "client_class", "source", "install", "transport", "proxy_route", "health", "fault_recovery", "capabilities"],
+      "optional": ["content_inventory_digest", "fragment_path", "requires_kit", "style"],
+      "forbidden": ["granted", "installed", "discovered", "xenoi", "written_at"]
+    },
+    "own-service-entry": {
+      "required": ["schema", "id", "display", "version", "kind", "client_class", "source", "install", "transport", "proxy_route", "health", "fault_recovery", "capabilities", "enabled", "priority", "granted"],
+      "optional": ["content_inventory_digest", "fragment_path", "requires_kit", "style", "installed", "discovered"],
+      "forbidden": ["xenoi", "written_at"]
+    },
     "manifest": {
       "required": [
         "schema",
