@@ -512,18 +512,20 @@ fn style_sheet(manifest: &Value) -> Result<()> {
     Ok(())
 }
 
-fn endpoint(value: &Value) -> Result<Option<(Option<u16>, String)>> {
+fn endpoint(value: &Value, own_service: bool) -> Result<Option<(Option<u16>, String)>> {
     let Some(text) = value.as_str() else {
         if value.is_null() {
             return Ok(None);
         }
         return Err(refuse("H", "transport.declared", "transport-shape-invalid"));
     };
-    if let Ok(address) = text.parse::<std::net::SocketAddr>() {
-        if (address.ip() == std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
-            || address.ip() == std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST))
-            && address.port() != 0 {
-            return Ok(Some((Some(address.port()), text.into())));
+    if own_service {
+        if let Ok(address) = text.parse::<std::net::SocketAddr>() {
+            if (address.ip() == std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+                || address.ip() == std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST))
+                && address.port() != 0 {
+                return Ok(Some((Some(address.port()), text.into())));
+            }
         }
     }
     if let Some(path) = text.strip_prefix("unix:") {
@@ -574,7 +576,7 @@ fn claims(
     own_service: bool,
 ) -> Result<Value> {
     let id = manifest["id"].as_str().unwrap_or("");
-    let declared = endpoint(&manifest["transport"]["declared"])?;
+    let declared = endpoint(&manifest["transport"]["declared"], own_service)?;
     let static_dir = static_claim(manifest, id);
     let guests = house.register["xenoi"]
         .as_object()
@@ -612,6 +614,7 @@ fn claims(
                     .or_else(|| row_manifest.get("local_transport_endpoint"))
                     .or_else(|| row_manifest.get("localTransportEndpoint"))
                     .unwrap_or(&Value::Null),
+                row_manifest.pointer("/source/kind").and_then(Value::as_str) == Some("own-service"),
             )? {
                 if (port.is_some() && *port == other_port)
                     || (*port == None && *socket == other_socket)
