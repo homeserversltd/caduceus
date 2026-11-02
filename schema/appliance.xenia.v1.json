@@ -1,6 +1,6 @@
 {
   "schema": "appliance.xenia.v1",
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "role": "Public Xenia manifest, entry and register envelope. Direct provider edges are face -> kit -> xenos, outside the beam; a xenos names only its direct xenia-kit lineage band. The kit is maud Rust emitting the exact crown UX/UI markup, with no CSS or JavaScript. The showcase is the executable specification. A disappeared primitive or author-face variable is a major change; an addition is minor; unchanged is patch.",
   "authority": {
     "owner": "caduceus",
@@ -406,12 +406,22 @@
     "own-service-manifest": {
       "required": ["schema", "id", "display", "version", "kind", "client_class", "source", "install", "transport", "proxy_route", "health", "fault_recovery", "capabilities"],
       "optional": ["content_inventory_digest", "fragment_path", "requires_kit", "style"],
-      "forbidden": ["granted", "installed", "discovered", "xenoi", "written_at"]
+      "forbidden": ["granted", "installed", "discovered", "xenoi", "written_at"],
+      "fields": {
+        "source": {"type": "object", "required": ["kind"], "fields": {"kind": {"const": "own-service"}}, "forbidden": ["repo", "release_repo", "ref", "candidates", "url"]},
+        "install": {"type": "object", "required": ["unit"], "fields": {"unit": {"type": "string", "pattern": "^.+\\.service$"}}},
+        "transport": {"type": "object", "required": ["declared"], "fields": {"declared": {"type": "string", "pattern": "^(127\\.0\\.0\\.1|\\[::1\\]):[0-9]+$", "description": "A loopback TCP address with port 1 through 65535."}}}
+      }
     },
     "own-service-entry": {
       "required": ["schema", "id", "display", "version", "kind", "client_class", "source", "install", "transport", "proxy_route", "health", "fault_recovery", "capabilities", "enabled", "priority", "granted"],
       "optional": ["content_inventory_digest", "fragment_path", "requires_kit", "style", "installed", "discovered"],
-      "forbidden": ["xenoi", "written_at"]
+      "forbidden": ["xenoi", "written_at"],
+      "fields": {
+        "source": {"type": "object", "required": ["kind"], "fields": {"kind": {"const": "own-service"}}, "forbidden": ["repo", "release_repo", "ref", "candidates", "url"]},
+        "install": {"type": "object", "required": ["unit"], "fields": {"unit": {"type": "string", "pattern": "^.+\\.service$"}}},
+        "transport": {"type": "object", "required": ["declared"], "fields": {"declared": {"type": "string", "pattern": "^(127\\.0\\.0\\.1|\\[::1\\]):[0-9]+$", "description": "A loopback TCP address with port 1 through 65535."}}}
+      }
     },
     "manifest": {
       "required": [

@@ -665,6 +665,7 @@ fn own_service(manifest: &Value) -> Result<()> {
         .ok_or_else(|| refuse("G", "manifest.install.unit", "own-service-unit-not-loaded"))?;
     seat::field(XENIA, "install", &manifest["install"], "G", "manifest.install")?;
     let address = manifest["transport"]["declared"].as_str()
+        .filter(|text| text.starts_with("127.0.0.1:") || text.starts_with("[::1]:"))
         .and_then(|text| text.parse::<std::net::SocketAddr>().ok())
         .filter(|address| address.port() != 0 &&
             (address.ip() == std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
@@ -727,6 +728,13 @@ fn compatibility(manifest: &Value) -> Result<()> {
 }
 
 pub fn validate(body: &Value) -> Result<Candidate> {
+    if body.pointer("/manifest/source/kind").and_then(Value::as_str) == Some("own-service") {
+        return Err(refuse("E", "manifest.source.kind", "own-service-admission-not-yet-available"));
+    }
+    validate_only(body)
+}
+
+pub fn validate_only(body: &Value) -> Result<Candidate> {
     if body.pointer("/manifest/source/kind").and_then(Value::as_str) == Some("clone") {
         return Err(refuse("E", "manifest.source.kind", "clone-road-retired"));
     }

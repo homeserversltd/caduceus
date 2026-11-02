@@ -303,7 +303,20 @@ pub fn kernel(id: &str, name: Option<&str>, value: &Value, check: &str, path: &s
 
 pub fn form(id: &str, name: Option<&str>, value: &Value, check: &str, path: &str) -> Result<()> {
     kernel(id, name, value, check, path)?;
-    node(declaration(id)?, value, check, path)
+    node(declaration(id)?, value, check, path)?;
+    if id == super::XENIA && value.pointer("/source/kind").and_then(Value::as_str) == Some("own-service") {
+        let form = match name {
+            Some("manifest") => Some("own-service-manifest"),
+            Some("entry") => Some("own-service-entry"),
+            other => other,
+        };
+        if let Some(form) = form.filter(|name| name.starts_with("own-service-")) {
+            let rule = declaration(id)?.get("forms").and_then(|forms| forms.get(form))
+                .ok_or_else(|| observation(check, path, "schema-form-desync"))?;
+            node(rule, value, check, path)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn field(id: &str, key: &str, value: &Value, check: &str, path: &str) -> Result<()> {
