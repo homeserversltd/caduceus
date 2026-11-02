@@ -382,28 +382,19 @@ fn execute_command_raw(
     if status.is_none() {
         return Err(timeout_error.to_string());
     }
+    let stdout =
+        stdout.ok_or_else(|| "caduceus-agathodaimon-cli-stdout-read-failed".to_string())?;
+    if stdout.len() > output_bound {
+        return Err(format!(
+            "caduceus-agathodaimon-output-too-large bound={} read={}",
+            output_bound, stdout.len()
+        ));
+    }
     if !stdin_ok {
         return Err("caduceus-agathodaimon-cli-stdin-write-failed".into());
     }
-    let stdout =
-        stdout.ok_or_else(|| "caduceus-agathodaimon-cli-stdout-read-failed".to_string())?;
     let stderr =
         stderr.ok_or_else(|| "caduceus-agathodaimon-cli-stderr-read-failed".to_string())?;
-    if stdout.len() > output_bound {
-        let signal = "caduceus-agathodaimon-output-too-large";
-        let receipt = json!({"ok":false,"firstMissingSignal":signal,
-            "bound_bytes":output_bound,"read_bytes":stdout.len()});
-        let mut stamped = forwarded.clone();
-        let object = stamped.as_object_mut().ok_or_else(|| "protocol-envelope-not-object".to_string())?;
-        if object.contains_key("caduceusReceipt") {
-            return Err("caduceus-envelope-stamp-collision".into());
-        }
-        object.insert("caduceusReceipt".into(), json!({"schema":"caduceus.staff.v1",
-            "stepReceipt":receipt,"ok":false,"bandPath":band,"firstMissingSignal":signal}));
-        return Ok(json!({"ok":false,"profile":active_profile(),"bandPath":band,
-            "facePath":face_path,"receiptPayload":receipt,"rawEnvelope":forwarded,
-            "envelope":stamped,"refusal":receipt,"firstMissingSignal":signal}));
-    }
     let stdout = String::from_utf8_lossy(&stdout).into_owned();
     let stderr = String::from_utf8_lossy(&stderr)
         .chars()
@@ -1424,8 +1415,7 @@ async fn native_chord_run_steps(
                     .or_else(|| stage_declaration.as_ref().and_then(|d| d.get("receipt").and_then(Value::as_str)
                         .or_else(|| d.pointer("/flags/receiptSchema").and_then(Value::as_str))).map(ToOwned::to_owned));
                 let schema_ok = expected_schema.as_deref().is_none_or(|schema| crate::routes::leaf_schema::accepts(schema, &receipt));
-                if !schema_ok && result.get("firstMissingSignal").and_then(Value::as_str)
-                    != Some("caduceus-agathodaimon-output-too-large") {
+                if !schema_ok {
                     state.changed = None;
                     ("stage-refused", receipt, Some("caduceus-schema-desync".to_owned()))
                 } else {
