@@ -125,7 +125,7 @@ fn refresh_units()->Result<(),String> {
             let rows=q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,Vec<u8>>(1)?))).map_err(|e|e.to_string())?;
             for row in rows {
                 let (routine,raw)=row.map_err(|e|e.to_string())?;
-                let envelope:Value=match serde_json::from_slice(&raw) {Ok(value)=>value,Err(_)=>{eprintln!("pid2-unit-config-invalid routine={routine}");continue;}};
+                let envelope:Value=match serde_json::from_slice(&raw) {Ok(value)=>value,Err(_)=>{eprintln!("pid2-unit-config-invalid routine={routine:?}");continue;}};
                 for need in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten().flat_map(|s|["needs","until"].into_iter().flat_map(move |key|s.get(key).and_then(Value::as_array).into_iter().flatten())) {
                     if need.get("kind").and_then(Value::as_str)==Some("observe-unit") {
                         if let Some(name)=need.get("unit").and_then(Value::as_str) {
