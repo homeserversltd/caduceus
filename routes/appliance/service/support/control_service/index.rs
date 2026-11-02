@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 pub fn execute_registered_service(service: &str, action: &str) -> Result<Value, String> {
     execute_service_with_mode(json!({
         "service": service,
-        (stringify!(action)): action,
+        "action": action,
         "systemdService": normalize_systemd_service(service),
     }))
 }
@@ -15,7 +15,7 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         .and_then(Value::as_str)
         .ok_or_else(|| "caduceus-portal-service-name-missing".to_string())?;
     let action = metadata
-        .get(stringify!(action))
+        .get("action")
         .and_then(Value::as_str)
         .ok_or_else(|| "caduceus-portal-service-action-missing".to_string())?;
     let systemd_service = metadata
@@ -87,7 +87,7 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         "accepted": true,
         "classification": "portal-service",
         "service": service,
-        (stringify!(action)): action,
+        "action": action,
         "systemdService": systemd_service,
         "success": ok,
         "message": if ok { format!("Service {action} completed for {service}") } else { format!("Service {action} failed for {service}") },

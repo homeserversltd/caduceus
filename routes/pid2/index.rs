@@ -46,7 +46,7 @@ pub(crate) fn unit_control(payload: &Value) -> Result<Value,String> {
 pub(crate) fn unit_control_with_timeout(payload: &Value, timeout: std::time::Duration) -> Result<Value,String> {
     // Existing PID 2 callers supply the legacy action internally; only nouns
     // cross the staff boundary. Restrict the path to the known unit verbs.
-    let action=payload.get(stringify!(action)).and_then(Value::as_str).ok_or("pid2-action-missing")?;
+    let action=payload.get("action").and_then(Value::as_str).ok_or("pid2-action-missing")?;
     let band=match action {
         "start"=>"unit/start", "stop"=>"unit/stop", "restart"=>"unit/restart",
         "enable"=>"unit/enable", "disable"=>"unit/disable", "status"=>"unit/status",
