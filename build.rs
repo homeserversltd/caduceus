@@ -648,16 +648,22 @@ fn main() {
     for entry in &leaf_entries {
         let namespace = entry["namespace"].as_str().unwrap_or("unknown");
         let serve = entry.get("serve").and_then(serde_json::Value::as_array);
+        if let Some(value) = entry.get("rescue") {
+            assert!(value.is_array(), "{namespace}: caduceus.chord.v1 rescue must be an array");
+        }
+        let rescue = entry.get("rescue").and_then(serde_json::Value::as_array);
         let finally = entry.get("finally").and_then(serde_json::Value::as_array);
         let is_generic = !Path::new(&format!("routes/{namespace}/index.rs")).is_file();
         let is_chord = serve.is_some_and(|steps| steps.len() != 1)
+            || rescue.is_some_and(|steps| !steps.is_empty())
             || finally.is_some_and(|steps| !steps.is_empty())
             || serve.into_iter().chain(finally).flatten().any(|step| {
                 markers.iter().any(|field| field.as_str().is_some_and(|field| step.get(field).is_some()))
             });
         let mut seen = BTreeSet::new();
+        let mut serve_ids = BTreeSet::new();
         let mut ordinal = 0usize;
-        for list in ["serve", "finally"] {
+        for list in ["serve", "rescue", "finally"] {
             if let Some(steps) = entry.get(list).and_then(serde_json::Value::as_array) {
                 for step in steps {
                     if is_generic && is_chord {
@@ -674,16 +680,27 @@ fn main() {
                             assert!(value.is_array(), "{namespace}: caduceus.chord.v1 {depends_field} must be an array");
                         }
                     }
-                    if let Some(args) = step.get(arguments_field) { check_chord_refs(args, &seen, namespace); }
+                    if list == "rescue" {
+                        let triggers = step.get("on_refusal_of").and_then(serde_json::Value::as_array)
+                            .unwrap_or_else(|| panic!("{namespace}: rescue on_refusal_of must be a non-empty array"));
+                        assert!(!triggers.is_empty(), "{namespace}: rescue on_refusal_of must be non-empty");
+                        for trigger in triggers {
+                            let id = trigger.as_str().expect("rescue on_refusal_of must name a serve stage");
+                            assert!(serve_ids.contains(id), "{namespace}: rescue on_refusal_of names unknown serve stage {id}");
+                        }
+                    }
+                    let eligible = if list == "rescue" { &serve_ids } else { &seen };
+                    if let Some(args) = step.get(arguments_field) { check_chord_refs(args, eligible, namespace); }
                     if let Some(dependencies) = step.get(depends_field).and_then(serde_json::Value::as_array) {
                         for dependency in dependencies {
                             let id = dependency.as_str().expect("chord dependency must be a stage id");
-                            assert!(seen.contains(id), "{namespace}: dependency names non-earlier stage {id}");
+                            assert!(eligible.contains(id), "{namespace}: dependency names non-earlier stage {id}");
                         }
                     }
                     let fallback = format!("step-{ordinal}");
                     let id = step.get(stage_id_field).and_then(serde_json::Value::as_str).unwrap_or(&fallback);
                     assert!(seen.insert(id.to_owned()), "{namespace}: duplicate stage {id}");
+                    if list == "serve" { serve_ids.insert(id.to_owned()); }
                     ordinal += 1;
                 }
             }
@@ -1121,7 +1138,7 @@ fn main() {
         })
         .collect::<Vec<_>>();
     for entry in walk_json_leaves(Path::new("routes")) {
-        for stage_group in ["serve", "finally"] {
+        for stage_group in ["serve", "rescue", "finally"] {
         if let Some(serve) = entry.get(stage_group).and_then(serde_json::Value::as_array) {
             for step in serve {
                 if let Some(name) = step.get("rust").and_then(serde_json::Value::as_str) {
@@ -1138,7 +1155,7 @@ fn main() {
     if let Ok(sbin) = env::var("CADUCEUS_SBIN_PATH") {
         let shelf = Path::new(&sbin);
         for entry in walk_json_leaves(Path::new("routes")) {
-            for stage_group in ["serve", "finally"] {
+            for stage_group in ["serve", "rescue", "finally"] {
             if let Some(serve) = entry.get(stage_group).and_then(serde_json::Value::as_array) {
                 for step in serve {
                     if let Some(name) = step.get("snake").and_then(serde_json::Value::as_str) {

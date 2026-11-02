@@ -1064,6 +1064,7 @@ async fn native_chord_run_steps(
     total_started: Instant,
     total_deadline: Duration,
     is_finally: bool,
+    is_rescue: bool,
     state: &mut NativeChordState,
 ) {
     for raw_step in route_steps {
@@ -1092,7 +1093,21 @@ async fn native_chord_run_steps(
             .unwrap_or_else(|| json!({}));
         let unique_stage_id = state.seen.insert(step_id.clone());
 
-        if !is_finally && state.skip_serve {
+        if is_rescue {
+            let triggered = raw_step.get("on_refusal_of").and_then(Value::as_array)
+                .is_some_and(|ids| ids.iter().filter_map(Value::as_str).any(|id|
+                    state.stages.iter().any(|row| row.get("stage_id").and_then(Value::as_str) == Some(id)
+                        && row.get("outcome").and_then(Value::as_str) == Some("stage-refused"))));
+            let dependencies_met = raw_step.get("depends_on").and_then(Value::as_array)
+                .is_none_or(|ids| ids.iter().all(|id| id.as_str().is_some_and(|id| state.completed.contains_key(id))));
+            if !triggered || !dependencies_met {
+                state.stages.push(native_chord_stage_row(&step_id, &transition, "stage-skipped", declared_arguments,
+                    json!({"ok":false,"firstMissingSignal":"caduceus-chord-rescue-not-triggered"})));
+                continue;
+            }
+        }
+
+        if !is_finally && !is_rescue && state.skip_serve {
             let signal = if state.failed_stage.is_none() && required {
                 "caduceus-chord-total-deadline-exceeded"
             } else {
@@ -1472,11 +1487,17 @@ async fn execute_owned_chord(
     #[cfg(leaf_pid2)]
     let _swap_lease=if namespace=="storage/nas/role/swap" { Some(crate::pid2::swap_lease()?) } else { None };
     let routine_id = namespace;
+    // The generic door already supplies the namespace; read the same compiled
+    // declaration so adding rescue does not alter its existing call boundary.
+    let declaration = crate::routes::selected_declaration(namespace)
+        .and_then(|source| serde_json::from_str::<Value>(source).ok());
+    let rescue = declaration.as_ref().and_then(|d| d.get("rescue"))
+        .and_then(Value::as_array).cloned().unwrap_or_default();
     let empty_payload = Value::Object(serde_json::Map::new());
     let request_payload = base_envelope.get("payload").unwrap_or(&empty_payload);
     let total_started = Instant::now();
     let mut state = NativeChordState {
-        stages: Vec::with_capacity(serve.len() + finally.len()),
+        stages: Vec::with_capacity(serve.len() + rescue.len() + finally.len()),
         completed: std::collections::HashMap::new(),
         seen: std::collections::HashSet::new(),
         failed_stage: None,
@@ -1500,9 +1521,14 @@ async fn execute_owned_chord(
         total_started,
         total_deadline.saturating_sub(reserve),
         false,
+        false,
         &mut state,
     )
     .await;
+    native_chord_run_steps(
+        routine_id, &rescue, base_envelope, request_payload, total_started,
+        total_deadline.saturating_sub(reserve), false, true, &mut state,
+    ).await;
     native_chord_run_steps(
         routine_id,
         finally,
@@ -1511,6 +1537,7 @@ async fn execute_owned_chord(
         total_started,
         total_deadline,
         true,
+        false,
         &mut state,
     )
     .await;

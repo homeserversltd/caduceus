@@ -28,10 +28,32 @@ async fn up_route(
     })
     .await?;
     let crossing = crossed.map_err(|signal| crate::gate::service_unavailable(COMMAND, &signal))?;
-    let receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
+    let mut receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
         crate::gate::service_unavailable(COMMAND, "caduceus-transmission-up-receipt-missing")
     })?;
-    if !crate::routes::leaf_schema::accepts("caduceus.transmission.up.v1", &receipt) {
+    if crate::routes::leaf_schema::accepts("caduceus.chord.receipt.v1", &receipt) {
+        // Preserve the complete aggregate and its extensions while exposing
+        // the legacy face fields from the named stops, not stage order.
+        let chord = receipt.clone();
+        let rows = chord.get("stages").and_then(Value::as_array);
+        let stage = |id: &str| rows.and_then(|rows| rows.iter().find(|row| row.get("stage_id").and_then(Value::as_str) == Some(id)))
+            .and_then(|row| row.get("receipt"));
+        if let Some(out) = receipt.as_object_mut() {
+            out.insert("schema".into(), Value::String("caduceus.transmission.up.v1".into()));
+            if let Some(resolve) = stage("resolve") {
+                for key in ["provider", "rpcPort"] {
+                    if let Some(value) = resolve.get(key) { out.insert(key.into(), value.clone()); }
+                }
+            }
+            if let Some(onness) = stage("onness") {
+                for key in ["on", "conditions", "forwardPort", "peerPort", "rpcPort"] {
+                    if let Some(value) = onness.get(key) { out.insert(key.into(), value.clone()); }
+                }
+            }
+            if let Some(rows) = rows { out.insert("steps".into(), Value::Array(rows.clone())); }
+            out.insert("chord".into(), chord);
+        }
+    } else if !crate::routes::leaf_schema::accepts("caduceus.transmission.up.v1", &receipt) {
         return Err(crate::gate::service_unavailable(
             COMMAND,
             "caduceus-schema-desync",

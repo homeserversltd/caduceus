@@ -28,10 +28,19 @@ async fn down_route(
     })
     .await?;
     let crossing = crossed.map_err(|signal| crate::gate::service_unavailable(COMMAND, &signal))?;
-    let receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
+    let mut receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
         crate::gate::service_unavailable(COMMAND, "caduceus-transmission-down-receipt-missing")
     })?;
-    if !crate::routes::leaf_schema::accepts("caduceus.transmission.down.v1", &receipt) {
+    if crate::routes::leaf_schema::accepts("caduceus.chord.receipt.v1", &receipt) {
+        let chord = receipt.clone();
+        if let Some(out) = receipt.as_object_mut() {
+            out.insert("schema".into(), Value::String("caduceus.transmission.down.v1".into()));
+            if let Some(rows) = chord.get("stages").and_then(Value::as_array) {
+                out.insert("steps".into(), Value::Array(rows.clone()));
+            }
+            out.insert("chord".into(), chord);
+        }
+    } else if !crate::routes::leaf_schema::accepts("caduceus.transmission.down.v1", &receipt) {
         return Err(crate::gate::service_unavailable(
             COMMAND,
             "caduceus-schema-desync",

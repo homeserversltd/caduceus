@@ -7,9 +7,10 @@
   "required": ["serve"],
   "fields": {
     "serve": {"type": "array", "items": {"$ref": "#/$defs/stage"}},
+    "rescue": {"type": "array", "items": {"$ref": "#/$defs/stage"}, "description": "Runs after serve and before finally when a named serve stage refused and dependencies completed."},
     "finally": {"type": "array", "items": {"$ref": "#/$defs/stage"}}
   },
-  "optional": ["finally"],
+  "optional": ["rescue", "finally"],
   "$defs": {
     "stage": {
       "type": "object",
@@ -24,10 +25,11 @@
         "arguments": {"type": "object", "default": {}, "description": "Values may reference request.payload.<path> or stages.<earlier-stage-id>.receipt.<path> using a $ref object."},
         "required": {"type": "boolean", "default": true},
         "depends_on": {"type": "array", "items": {"type": "string"}, "description": "Earlier stage ids."},
+        "on_refusal_of": {"type": "array", "minItems": 1, "items": {"type": "string"}, "description": "For rescue stages, the non-empty set of serve stage ids whose refusal triggers this stage."},
         "deadline_seconds": {"type": "integer", "minimum": 1, "description": "At most 600 for a stop; a snake chord step may use up to the leaf deadline."},
         "receipt": {"type": "string", "description": "Stage receipt seat id."}
       },
-      "optional": ["arguments", "required", "depends_on", "deadline_seconds", "receipt"],
+      "optional": ["arguments", "required", "depends_on", "on_refusal_of", "deadline_seconds", "receipt"],
       "additionalProperties": true
     }
   },
