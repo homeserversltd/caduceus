@@ -335,17 +335,21 @@ fn execute_command_raw(
         .ok_or_else(|| "caduceus-agathodaimon-cli-stderr-unavailable".to_string())?;
     let stdout_reader = std::thread::spawn(move || {
         let mut bytes = Vec::new();
-        stdout
+        let mut stdout = stdout;
+        (&mut stdout)
             .take((MAX_OUTPUT_BYTES + 1) as u64)
-            .read_to_end(&mut bytes)
-            .map(|_| bytes)
+            .read_to_end(&mut bytes)?;
+        io::copy(&mut stdout, &mut io::sink())?;
+        Ok::<_, io::Error>(bytes)
     });
     let stderr_reader = std::thread::spawn(move || {
         let mut bytes = Vec::new();
-        stderr
+        let mut stderr = stderr;
+        (&mut stderr)
             .take((MAX_OUTPUT_BYTES + 1) as u64)
-            .read_to_end(&mut bytes)
-            .map(|_| bytes)
+            .read_to_end(&mut bytes)?;
+        io::copy(&mut stderr, &mut io::sink())?;
+        Ok::<_, io::Error>(bytes)
     });
     let deadline = Instant::now() + timeout;
     let status = loop {
@@ -380,13 +384,13 @@ fn execute_command_raw(
     if !stdin_ok {
         return Err("caduceus-agathodaimon-cli-stdin-write-failed".into());
     }
-    let stdout =
+    let mut stdout =
         stdout.ok_or_else(|| "caduceus-agathodaimon-cli-stdout-read-failed".to_string())?;
-    let stderr =
+    let mut stderr =
         stderr.ok_or_else(|| "caduceus-agathodaimon-cli-stderr-read-failed".to_string())?;
-    if stdout.len() > MAX_OUTPUT_BYTES {
-        return Err("caduceus-agathodaimon-output-too-large".into());
-    }
+    let output_truncated = stdout.len() > MAX_OUTPUT_BYTES || stderr.len() > MAX_OUTPUT_BYTES;
+    stdout.truncate(MAX_OUTPUT_BYTES);
+    stderr.truncate(MAX_OUTPUT_BYTES);
     let stdout = String::from_utf8_lossy(&stdout).into_owned();
     let stderr = String::from_utf8_lossy(&stderr)
         .chars()
@@ -453,7 +457,7 @@ fn execute_command_raw(
             "firstMissingSignal":first_missing,
         }),
     );
-    Ok(json!({
+    let mut result = json!({
         "ok":ok,
         "profile":active_profile(),
         "bandPath":band,
@@ -465,7 +469,14 @@ fn execute_command_raw(
         "envelope":stamped,
         "refusal":refusal,
         "firstMissingSignal":first_missing
-    }))
+    });
+    if output_truncated {
+        result["outputTruncated"] = json!(true);
+        result["exitCode"] = json!(status.code());
+        result["envelope"]["caduceusReceipt"]["outputTruncated"] = json!(true);
+        result["envelope"]["caduceusReceipt"]["exitCode"] = json!(status.code());
+    }
+    Ok(result)
 }
 
 fn band_invocation(band: &str) -> Result<(Command, Value), String> {
