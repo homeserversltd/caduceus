@@ -84,6 +84,7 @@ struct PendingRaw {
     ts: i64,
     sequence: u64,
     data: Arc<str>,
+    persisted: bool,
 }
 
 pub(crate) fn db_path() -> PathBuf {
@@ -102,6 +103,21 @@ fn open_db_once() -> Result<Connection, String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let c = Connection::open(path).map_err(|e| e.to_string())?;
+    // Establish the mode on a new database; an existing database only changes
+    // mode when the one-time reclaim is warranted and VACUUM can apply it.
+    let reclaim = (|| -> rusqlite::Result<()> {
+        let free: i64 = c.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        // Existing non-incremental databases need VACUUM to migrate. Request
+        // the mode without violating the small-freelist rule.
+        c.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
+        if free >= 1024 {
+            c.execute_batch("VACUUM;")?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = reclaim {
+        eprintln!("stats vacuum outcome=failed signal={error}");
+    }
     c.execute_batch(
         "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY; PRAGMA journal_size_limit=8388608; CREATE TABLE IF NOT EXISTS raw_samples (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS minute_samples (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS self_benchmark (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL); CREATE INDEX IF NOT EXISTS raw_ts ON raw_samples(ts); CREATE INDEX IF NOT EXISTS minute_bucket ON minute_samples(bucket); CREATE INDEX IF NOT EXISTS self_benchmark_bucket ON self_benchmark(bucket); CREATE TABLE IF NOT EXISTS ruyi (mac TEXT PRIMARY KEY, row TEXT NOT NULL, last_seen INTEGER NOT NULL);",
     ).map_err(|e| e.to_string())?;
@@ -2138,42 +2154,43 @@ fn snapshot_with_state(
     (value, self_ticks, self_rss, cpu_counters)
 }
 
-const AGGREGATE_SQL: &str = "SELECT COUNT(*), AVG(json_extract(data, '$.load.one')), AVG(json_extract(data, '$.load.five')), AVG(json_extract(data, '$.load.fifteen')), AVG(json_extract(data, '$.temperature.celsius')), AVG(json_extract(data, '$.gpu.utilizationPercent')), AVG(json_extract(data, '$.gpu.temperatureCelsius')), AVG(json_extract(data, '$.memory.usedBytes')), AVG(json_extract(data, '$.memory.usedBytesSwap')), AVG(json_extract(data, '$.network.throughput.rxBytesPerSecond')), AVG(json_extract(data, '$.network.throughput.txBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.readBytesPerSecond')), AVG(json_extract(data, '$.disk.throughput.writeBytesPerSecond')), AVG(json_extract(data, '$.self.rssBytes')), MAX(json_extract(data, '$.self.rssBytes')), AVG(json_extract(data, '$.self.tickMillis')), MAX(json_extract(data, '$.self.tickMillis')), AVG(json_extract(data, '$.cpu.usagePercent')), AVG(json_extract(data, '$.pressure.io.someAvg10')), AVG(json_extract(data, '$.pressure.io.fullAvg10')), AVG(json_extract(data, '$.power.watts')) FROM raw_samples WHERE ts >= ?1 AND ts < ?2";
-
 fn sql_value(value: Option<f64>) -> Value {
     value.map_or(Value::Null, |value| json!(value))
 }
 
-fn aggregate(c: &Connection, bucket: i64) -> Result<String, String> {
+fn aggregate(pending: &VecDeque<PendingRaw>, bucket: i64) -> Result<String, String> {
+    const PATHS: [&str; 18] = [
+        "/load/one", "/load/five", "/load/fifteen", "/temperature/celsius",
+        "/gpu/utilizationPercent", "/gpu/temperatureCelsius", "/memory/usedBytes",
+        "/memory/usedBytesSwap", "/network/throughput/rxBytesPerSecond",
+        "/network/throughput/txBytesPerSecond", "/disk/throughput/readBytesPerSecond",
+        "/disk/throughput/writeBytesPerSecond", "/self/rssBytes", "/self/tickMillis",
+        "/cpu/usagePercent", "/pressure/io/someAvg10", "/pressure/io/fullAvg10",
+        "/power/watts",
+    ];
     let start = bucket.saturating_mul(60);
     let end = start.saturating_add(60);
-    let row = c
-        .query_row(AGGREGATE_SQL, params![start, end], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, Option<f64>>(1)?,
-                row.get::<_, Option<f64>>(2)?,
-                row.get::<_, Option<f64>>(3)?,
-                row.get::<_, Option<f64>>(4)?,
-                row.get::<_, Option<f64>>(5)?,
-                row.get::<_, Option<f64>>(6)?,
-                row.get::<_, Option<f64>>(7)?,
-                row.get::<_, Option<f64>>(8)?,
-                row.get::<_, Option<f64>>(9)?,
-                row.get::<_, Option<f64>>(10)?,
-                row.get::<_, Option<f64>>(11)?,
-                row.get::<_, Option<f64>>(12)?,
-                row.get::<_, Option<f64>>(13)?,
-                row.get::<_, Option<f64>>(14)?,
-                row.get::<_, Option<f64>>(15)?,
-                row.get::<_, Option<f64>>(16)?,
-                row.get::<_, Option<f64>>(17)?,
-                row.get::<_, Option<f64>>(18)?,
-                row.get::<_, Option<f64>>(19)?,
-                row.get::<_, Option<f64>>(20)?,
-            ))
-        })
-        .map_err(|error| error.to_string())?;
+    let mut sums = [0.0f64; 18];
+    let mut counts = [0u64; 18];
+    let mut rss_max: Option<f64> = None;
+    let mut tick_max: Option<f64> = None;
+    let mut samples = 0i64;
+    for sample in pending.iter().filter(|sample| sample.ts >= start && sample.ts < end) {
+        let value: Value = serde_json::from_str(&sample.data).map_err(|error| error.to_string())?;
+        samples += 1;
+        for (index, path) in PATHS.iter().enumerate() {
+            if let Some(number) = value.pointer(path).and_then(Value::as_f64) {
+                sums[index] += number;
+                counts[index] += 1;
+                if index == 12 { rss_max = Some(rss_max.map_or(number, |v| v.max(number))); }
+                if index == 13 { tick_max = Some(tick_max.map_or(number, |v| v.max(number))); }
+            }
+        }
+    }
+    let mean = |i: usize| (counts[i] != 0).then(|| sums[i] / counts[i] as f64);
+    let row = (samples, mean(0), mean(1), mean(2), mean(3), mean(4), mean(5),
+        mean(6), mean(7), mean(8), mean(9), mean(10), mean(11), mean(12), rss_max,
+        mean(13), tick_max, mean(14), mean(15), mean(16), mean(17));
 
     let (
         samples,
@@ -2520,7 +2537,7 @@ fn flush_rollover(
         through_bucket.saturating_sub(MINUTE_RETENTION_SECONDS / 60),
     );
     let write_result = (|| -> Result<(), String> {
-        for sample in pending.iter() {
+        for sample in pending.iter().filter(|sample| !sample.persisted) {
             transaction
                 .execute(
                     "INSERT INTO raw_samples(ts,data) VALUES(?1,?2)",
@@ -2531,7 +2548,7 @@ fn flush_rollover(
         let empty_histogram = [0u64; 8];
         let empty_doors = crate::routes::leaf_appliance_stats::DoorSnapshot::default();
         for bucket in first_bucket..through_bucket {
-            let minute = aggregate(&transaction, bucket)?;
+            let minute = aggregate(&pending, bucket)?;
             let (ticks, persists, start, end, max, skipped, bucket_doors) = if bucket == first_bucket {
                 (
                     tick_histogram,
@@ -2565,6 +2582,14 @@ fn flush_rollover(
                 bucket_doors,
                 &transaction,
             )?;
+            // A previous clean shutdown can have emitted a partial row for
+            // this bucket. Replace it with the complete folded row atomically.
+            if bucket == first_bucket && pending.iter().any(|sample| sample.persisted && sample.ts / 60 == bucket) {
+                transaction.execute("DELETE FROM minute_samples WHERE bucket = ?1", [bucket])
+                    .map_err(|error| error.to_string())?;
+                transaction.execute("DELETE FROM self_benchmark WHERE bucket = ?1", [bucket])
+                    .map_err(|error| error.to_string())?;
+            }
             persist_minute(&transaction, bucket, &minute, &benchmark)?;
         }
         prune_retention(&transaction, now())?;
@@ -2585,7 +2610,7 @@ fn flush_rollover(
     }
     pending.clear();
     let checkpoint_error = connection
-        .execute_batch("PRAGMA wal_checkpoint(PASSIVE);")
+        .execute_batch("PRAGMA incremental_vacuum(16); PRAGMA wal_checkpoint(PASSIVE);")
         .err()
         .map(|error| error.to_string());
     #[cfg(target_os = "linux")]
@@ -2610,6 +2635,24 @@ fn collect_loop(
     let mut previous_cpu: Option<CpuCounters> = None;
     let mut previous_persist_millis: Option<u64> = None;
     let mut bucket = now() / 60;
+    // Restore the current minute once at process start: a prior clean stop
+    // already committed these rows, but the eventual rollup must include them.
+    {
+        let mut tail = pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let connection = database.lock().map_err(|_| "stats database lock poisoned".to_owned())?;
+        let mut statement = connection.prepare(
+            "SELECT ts,data FROM raw_samples WHERE ts >= ?1 AND ts < ?2 ORDER BY ts,id"
+        ).map_err(|error| error.to_string())?;
+        let start = bucket.saturating_mul(60);
+        let rows = statement.query_map(params![start, start.saturating_add(60)], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        }).map_err(|error| error.to_string())?;
+        for row in rows {
+            let (ts, data) = row.map_err(|error| error.to_string())?;
+            let sequence = tail.back().map_or(0, |sample| sample.sequence.saturating_add(1));
+            tail.push_back(PendingRaw { ts, sequence, data: Arc::from(data), persisted: true });
+        }
+    }
     let mut tick_histogram = [0u64; 8];
     let mut persist_histogram = [0u64; 8];
     let mut bucket_rss_start = 0u64;
@@ -2634,11 +2677,19 @@ fn collect_loop(
         if stopping.load(Ordering::Acquire) {
             // Flush pending samples even when an indicator worker failed to stop cleanly.
             let indicators_stopped = indicators.stop();
+            // No current samples means there is no partial minute to emit;
+            // avoiding an empty shutdown row also prevents duplicate rows when
+            // a process is repeatedly stopped before its first sample.
+            let through_bucket = if pending.lock().unwrap_or_else(|p| p.into_inner()).is_empty() {
+                bucket
+            } else {
+                bucket.saturating_add(1)
+            };
             let flush = flush_rollover(
                 database,
                 pending,
                 bucket,
-                bucket,
+                through_bucket,
                 &tick_histogram,
                 &persist_histogram,
                 bucket_rss_start,
@@ -2724,7 +2775,7 @@ fn collect_loop(
                 database,
                 pending,
                 bucket,
-                bucket.saturating_add(1),
+                current_bucket,
                 &tick_histogram,
                 &persist_histogram,
                 bucket_rss_start,
@@ -2819,6 +2870,7 @@ fn collect_loop(
                 ts,
                 sequence,
                 data: Arc::clone(&data),
+                persisted: false,
             });
         }
         let persist_millis = persist_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
