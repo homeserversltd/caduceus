@@ -47,6 +47,7 @@ pub struct Refusal {
     pub message: String,
     pub suggestion: String,
     pub receipt: Option<Value>,
+    pub confirmed_launcher_failure: bool,
 }
 pub type Result<T> = std::result::Result<T, Refusal>;
 
@@ -58,6 +59,7 @@ impl Refusal {
             message: message.into(),
             suggestion: suggestion.into(),
             receipt: None,
+            confirmed_launcher_failure: false,
         }
     }
     pub fn value(&self) -> Value {

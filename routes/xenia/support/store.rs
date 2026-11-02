@@ -456,19 +456,30 @@ fn launcher(verb: &str, id: &str) -> Result<Value> {
     let envelope = crate::gate::snake::route_envelope(&format!("xenia/{verb}"), &json!({"id": id}));
     let walked = crate::gate::snake::run_launcher(&argv, &envelope, std::time::Duration::from_secs(300))
         .map_err(|error| observation("transaction", "launcher", error))?;
-    let receipt = walked.get("receiptPayload").cloned()
-        .ok_or_else(|| observation("transaction", "launcher", "install-receipt-absent"))?;
-    seat::form("appliance.xenia.install.v1", None, &receipt, "transaction", "receipt")?;
+    let failure_exit = matches!(walked.pointer("/refusal/exitCode").and_then(Value::as_i64), Some(1 | 2));
+    let receipt = walked.get("receiptPayload").cloned().ok_or_else(|| {
+        let mut error = observation("transaction", "launcher", "install-receipt-absent");
+        error.confirmed_launcher_failure = failure_exit; error
+    })?;
+    if let Err(mut error) = seat::form("appliance.xenia.install.v1", None, &receipt, "transaction", "receipt") {
+        if let Some(signal) = receipt["signal"].as_str().filter(|signal| *signal != "none") {
+            error.message = format!("{}; launcher-signal: {signal}", error.message);
+        }
+        error.confirmed_launcher_failure = failure_exit;
+        error.receipt = Some(receipt); return Err(error);
+    }
     if receipt["id"].as_str() != Some(id) || receipt["verb"].as_str() != Some(verb) {
-        return Err(observation("transaction", "receipt", "install-receipt-identity-mismatch"));
+        let mut error = observation("transaction", "receipt", "install-receipt-identity-mismatch");
+        error.confirmed_launcher_failure = failure_exit;
+        error.receipt = Some(receipt); return Err(error);
     }
     let ok = receipt["ok"].as_bool().unwrap_or(false);
     let exit_matches = if ok { walked["ok"].as_bool() == Some(true) } else {
-        walked["ok"].as_bool() == Some(false)
-            && matches!(walked.pointer("/refusal/exitCode").and_then(Value::as_i64), Some(1 | 2))
+        walked["ok"].as_bool() == Some(false) && failure_exit
     };
     if !exit_matches {
         let mut error = observation("transaction", "receipt", "install-receipt-exit-mismatch");
+        error.confirmed_launcher_failure = failure_exit;
         error.receipt = Some(receipt);
         return Err(error);
     }
@@ -476,14 +487,17 @@ fn launcher(verb: &str, id: &str) -> Result<Value> {
         let signal = receipt["signal"].as_str().filter(|signal| *signal != "none")
             .unwrap_or("install-receipt-signal-absent");
         let mut error = Refusal::new("transaction", "launcher", signal, "Correct the launcher signal and repeat this door.");
+        error.confirmed_launcher_failure = true;
         error.receipt = Some(receipt);
         return Err(error);
     }
     if receipt["signal"] != "none" {
-        return Err(observation("transaction", "receipt.signal", "install-receipt-success-signal-mismatch"));
+        let mut error = observation("transaction", "receipt.signal", "install-receipt-success-signal-mismatch");
+        error.receipt = Some(receipt); return Err(error);
     }
     if verb == "install" && receipt["source_sha"].as_str().is_none() {
-        return Err(observation("transaction", "receipt.source_sha", "install-source-sha-absent"));
+        let mut error = observation("transaction", "receipt.source_sha", "install-source-sha-absent");
+        error.receipt = Some(receipt); return Err(error);
     }
     Ok(receipt)
 }
@@ -494,27 +508,37 @@ fn xenia_lock() -> Result<std::sync::MutexGuard<'static, ()>> {
 }
 
 fn rollback_admit(previous: &House, current: &mut House, id: &str, register_was_present: bool, entry_changed: bool, row_changed: bool) -> Result<()> {
-    if row_changed {
-        let tabs = current.config["tabs"].as_object_mut().ok_or_else(|| observation("transaction", "tabs", "tabs-map-invalid"))?;
-        match previous.config["tabs"].get(id) { Some(row) => { tabs.insert(id.into(), row.clone()); }, None => { tabs.remove(id); } }
-        write(CONFIG, &current.config)?;
-    }
-    if entry_changed {
-        current.register["xenoi"].as_object_mut().ok_or_else(|| observation("transaction", "xenoi", "register-map-invalid"))?.remove(id);
-        let mut comparison = current.register.clone();
-        comparison["written_at"] = previous.register["written_at"].clone();
-        if !register_was_present && comparison == previous.register {
-            match fs::remove_file(config::path(REGISTER)) {
-                Ok(()) => {},
-                Err(error) if error.kind() == ErrorKind::NotFound => {},
-                Err(error) => return Err(observation("transaction", REGISTER, format!("register-rollback-failed: {error}"))),
-            }
-        } else {
-            current.register["written_at"] = json!(chrono::Utc::now().timestamp());
-            write(REGISTER, &current.register)?;
+    let row_result = (|| -> Result<()> {
+        if row_changed {
+            let tabs = current.config["tabs"].as_object_mut().ok_or_else(|| observation("transaction", "tabs", "tabs-map-invalid"))?;
+            match previous.config["tabs"].get(id) { Some(row) => { tabs.insert(id.into(), row.clone()); }, None => { tabs.remove(id); } }
+            write(CONFIG, &current.config)?;
         }
+        Ok(())
+    })();
+    let entry_result = (|| -> Result<()> {
+        if entry_changed {
+            current.register["xenoi"].as_object_mut().ok_or_else(|| observation("transaction", "xenoi", "register-map-invalid"))?.remove(id);
+            let mut comparison = current.register.clone();
+            comparison["written_at"] = previous.register["written_at"].clone();
+            if !register_was_present && comparison == previous.register {
+                match fs::remove_file(config::path(REGISTER)) {
+                    Ok(()) => {},
+                    Err(error) if error.kind() == ErrorKind::NotFound => {},
+                    Err(error) => return Err(observation("transaction", REGISTER, format!("register-rollback-failed: {error}"))),
+                }
+            } else {
+                current.register["written_at"] = json!(chrono::Utc::now().timestamp());
+                write(REGISTER, &current.register)?;
+            }
+        }
+        Ok(())
+    })();
+    match (row_result, entry_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(mut row), Err(entry)) => { row.message = format!("{}; entry-rollback-failed: {}", row.message, entry.message); Err(row) }
     }
-    Ok(())
 }
 
 /// Called after network validation, under the same process-wide config lock.
@@ -622,9 +646,7 @@ pub fn admit(before: &House, proposed: &Value, row: &Value) -> Result<Value> {
                 return Err(error);
             }
             Err(mut error) => {
-                let confirmed_failure = error.receipt.as_ref().is_some_and(|value| value["ok"] == false)
-                    && error.message != "install-receipt-exit-mismatch";
-                if confirmed_failure {
+                if error.confirmed_launcher_failure {
                     if let Err(rollback) = rollback_admit(before, &mut current, id, register_was_present,
                         entry_changed && entry_matches, row_changed && row_matches) {
                         error.message = format!("{}; admit-rollback-failed: {}", error.message, rollback.message);
