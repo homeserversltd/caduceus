@@ -458,17 +458,6 @@ fn main() {
         "caduceus.nas.sync.v1",
         "caduceus.pjlink.known_product.v1",
         "appliance.crossings.v1",
-        "mem0.health.v1",
-        "mem0.status.v2",
-        "mem0.search.v2",
-        "mem0.explain.v1",
-        "mem0.ingest.receipt.v1",
-        "mem0.sleep.plan.v1",
-        "mem0.sleep.receipt.v1",
-        "mem0.snapshot.v1",
-        "mem0.custody.manifest.v1",
-        "mem0.custody.receipt.v1",
-        "mem0.augmentation.warm.v1",
     ]
     .map(|id| PathBuf::from(format!("schema/{id}.json")));
     let mut embedded = String::from("const EMBEDDED_SEATS: &[(&str, &str)] = &[\n");
