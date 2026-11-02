@@ -110,6 +110,10 @@ fn route_stage(routine:&str, name:&str, stage:&Value, steps:&[Value], token:&str
     let mut line_signal=None;
     for (index,step) in steps.iter().enumerate() {
         let route=step.get("route").and_then(Value::as_str).ok_or("pid2-route-name-missing")?;
+        let mut seen=std::collections::HashSet::new();
+        let Some(keep)=step.get("keep").and_then(Value::as_array).filter(|values|!values.is_empty() && values.iter().all(|v|v.as_str().is_some_and(|s|s.len()<=64 && seen.insert(s.to_owned())))) else {
+            return write_line(routine,name,None,"Held",Some("pid2-route-keep-invalid"));
+        };
         let previous:Option<(String,Option<i64>,Option<bool>,Option<String>)>={
             let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
             db.query_row("SELECT needs_token,deadline,ok,first_missing_signal FROM pid2_route_steps WHERE routine_id=?1 AND line=?2 AND step_index=?3",params![routine,name,index as i64],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(|e|e.to_string())?
@@ -119,7 +123,7 @@ fn route_stage(routine:&str, name:&str, stage:&Value, steps:&[Value], token:&str
             if let Some((_,_,Some(false),signal))=previous {line_signal=Some(signal.unwrap_or_else(||"pid2-route-refused".into()));break;}
             continue;
         }
-        let keep:Vec<String>=step.get("keep").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+        let keep:Vec<String>=keep.iter().filter_map(Value::as_str).map(str::to_owned).collect();
         let seconds=step.get("deadline_seconds").and_then(Value::as_u64).unwrap_or(180);
         let reply=crate::gate::pid2_route::call(route,step.get("payload"),&keep,seconds);
         let recorded=now();

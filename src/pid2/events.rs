@@ -104,22 +104,28 @@ fn unit_path(unit: &str) -> String {
 // The action enum is fixed; observe-unit adds enabled routine names dynamically.
 fn unit_sets()->&'static RwLock<HashMap<String,HashSet<String>>> {
     static SETS:OnceLock<RwLock<HashMap<String,HashSet<String>>>>=OnceLock::new();
-    SETS.get_or_init(||RwLock::new(HashMap::new()))
+    SETS.get_or_init(||RwLock::new(enum_units()))
 }
-fn refresh_units()->Result<(),String> {
+fn enum_units()->HashMap<String,HashSet<String>> {
     let mut sets=HashMap::<String,HashSet<String>>::new();
     if let Some(units)=crate::routes::leaf_schema::declaration(super::SCHEMA).and_then(|seat|seat.get("unit_enum")).and_then(Value::as_array) {
         for unit in units {
             if let (Some(scope),Some(name))=(unit.get("scope").and_then(Value::as_str),unit.get("unit").and_then(Value::as_str)) {sets.entry(scope.to_owned()).or_default().insert(name.to_owned());}
         }
     }
+    sets
+}
+fn refresh_units()->Result<(),String> {
+    static REFRESH:Mutex<()>=Mutex::new(());
+    let _refresh=REFRESH.lock().map_err(|_|"pid2-unit-refresh-lock-poisoned")?;
+    let mut sets=enum_units();
     if let Some(db)=super::read_db()? {
         if super::table_exists(&db,"pid2_registrations")? {
-            let mut q=db.prepare("SELECT envelope FROM pid2_registrations WHERE enabled=1").map_err(|e|e.to_string())?;
-            let rows=q.query_map([],|r|r.get::<_,Vec<u8>>(0)).map_err(|e|e.to_string())?;
+            let mut q=db.prepare("SELECT routine_id,envelope FROM pid2_registrations WHERE enabled=1").map_err(|e|e.to_string())?;
+            let rows=q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,Vec<u8>>(1)?))).map_err(|e|e.to_string())?;
             for row in rows {
-                let raw=row.map_err(|e|e.to_string())?;
-                let envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+                let (routine,raw)=row.map_err(|e|e.to_string())?;
+                let envelope:Value=match serde_json::from_slice(&raw) {Ok(value)=>value,Err(_)=>{eprintln!("pid2-unit-config-invalid routine={routine}");continue;}};
                 for need in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten().flat_map(|s|["needs","until"].into_iter().flat_map(move |key|s.get(key).and_then(Value::as_array).into_iter().flatten())) {
                     if need.get("kind").and_then(Value::as_str)==Some("observe-unit") {
                         if let Some(name)=need.get("unit").and_then(Value::as_str) {
@@ -129,8 +135,8 @@ fn refresh_units()->Result<(),String> {
                     }
                 }
             }
-        }
-    }
+        } else {return Err("pid2-unit-watch-table-absent".into());}
+    } else {return Err("pid2-unit-watch-db-absent".into());}
     *unit_sets().write().map_err(|_|"pid2-unit-watch-lock-poisoned")?=sets;
     Ok(())
 }
@@ -145,8 +151,13 @@ pub(super) fn unit_watch_ready(scope:&str,unit:&str)->bool {
     installed_units().read().is_ok_and(|sets|sets.get(scope).is_some_and(|names|names.contains(unit)))
 }
 fn set_installed(scope:&str,units:HashSet<String>) {
+    crate::stats::indicators::unit_state::retain_scope(scope,&units);
     if let Ok(mut events)=transitions().lock() {events.rows.retain(|(row_scope,unit),_|row_scope!=scope || units.contains(unit));}
     if let Ok(mut sets)=installed_units().write() {sets.insert(scope.to_owned(),units);}
+}
+fn clear_installed(scope:&str) {
+    if let Ok(mut events)=transitions().lock() {events.rows.retain(|(row_scope,_),_|row_scope!=scope);}
+    if let Ok(mut sets)=installed_units().write() {sets.remove(scope);}
 }
 fn declared(scope:&str)->(HashSet<String>,HashSet<String>) {
     let names=scoped_units(scope);
@@ -347,8 +358,6 @@ async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync:
     loop {
         if let Err(error)=refresh_units() {
             eprintln!("pid2-system-unit-config: {error}");
-            if config.changed().await.is_err() || tx.closed() { return; }
-            continue;
         }
         let watched=scoped_units("system");
         let connected: Result<(),String> = async {
@@ -356,12 +365,13 @@ async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync:
             let (mut events,manager_owner) = streams(&conn,"system").await?;
             let mut pending=VecDeque::new();
             let mut barrier = settled_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?;
+            if watched!=scoped_units("system") {return Err("pid2-unit-watch-reconfigured".into());}
             set_installed("system",watched.clone());
             crate::stats::indicators::unit_state::set_online("system",true);
             online.store(true,Ordering::Release); sense(&tx,"system");
             loop {
                 let item = if let Some(message)=pending.pop_front() { Some(Ok(message)) } else { tokio::select! {
-                    result=config.changed()=>{result.map_err(|_|"pid2-unit-config-closed")?;refresh_units()?;if watched!=scoped_units("system") {return Err("pid2-unit-watch-reconfigured".into());}continue;},
+                    result=config.changed()=>{result.map_err(|_|"pid2-unit-config-closed")?;if let Err(error)=refresh_units(){eprintln!("pid2-system-unit-config: {error}");continue;}if watched!=scoped_units("system") {return Err("pid2-unit-watch-reconfigured".into());}continue;},
                     message=events.next()=>message,
                 }};
                 match item {
@@ -390,7 +400,7 @@ async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync:
                 }
             }
         }.await;
-        set_installed("system",HashSet::new());
+        clear_installed("system");
         crate::stats::indicators::unit_state::set_online("system",false);
         online.store(false,Ordering::Release); tx.offline("system");
         let reconfigured=matches!(&connected,Err(error) if error=="pid2-unit-watch-reconfigured");
@@ -471,8 +481,6 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::w
     loop {
         if let Err(error)=refresh_units() {
             eprintln!("pid2-owner-unit-config: {error}");
-            if config.changed().await.is_err() || tx.closed() { return; }
-            continue;
         }
         let watched=scoped_units("owner");
         let connected = async {
@@ -488,25 +496,27 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::w
             let mut child=command.spawn().map_err(|e|e.to_string())?;
             let stdout=child.stdout.take().ok_or("pid2-owner-child-pipe-missing")?;
             let mut lines=BufReader::new(stdout);
+            let mut bytes=Vec::new();
+            let mut reconfigure_pending=false;
             loop {
-                let mut bytes=Vec::new();
-                let mut bounded=(&mut lines).take(4097);
+                if reconfigure_pending && bytes.is_empty() {return Err("pid2-unit-watch-reconfigured".into());}
+                let mut bounded=(&mut lines).take(4097u64.saturating_sub(bytes.len() as u64));
                 let count=tokio::select! {
-                    result=config.changed()=>{result.map_err(|_|"pid2-unit-config-closed")?;refresh_units()?;if watched!=scoped_units("owner") {return Err("pid2-unit-watch-reconfigured".into());}continue;},
+                    result=config.changed()=>{result.map_err(|_|"pid2-unit-config-closed")?;if let Err(error)=refresh_units(){eprintln!("pid2-owner-unit-config: {error}");continue;}reconfigure_pending=watched!=scoped_units("owner");continue;},
                     result=bounded.read_until(b'\n',&mut bytes)=>result.map_err(|e|e.to_string())?,
                 };
                 if count==0 { break; }
-                if count>4096 || bytes.last()!=Some(&b'\n') { return Err("pid2-owner-child-line-too-long".into()); }
+                if bytes.len()>4096 || bytes.last()!=Some(&b'\n') { return Err("pid2-owner-child-line-too-long".into()); }
                 bytes.pop();
-                let line=String::from_utf8(bytes).map_err(|_|"pid2-owner-child-protocol-invalid")?;
+                let line=String::from_utf8(std::mem::take(&mut bytes)).map_err(|_|"pid2-owner-child-protocol-invalid")?;
                 match line.as_str() {
-                    "syncing" if online.load(Ordering::Acquire) => { crate::stats::indicators::unit_state::set_online("owner",false); online.store(false,Ordering::Release); tx.offline("owner"); },
-                    "ready" => { set_installed("owner",watched.clone()); crate::stats::indicators::unit_state::set_online("owner",true); online.store(true,Ordering::Release); eprintln!("pid2-owner-sense-online"); sense(&tx,"owner"); },
+                    "syncing" => { if online.load(Ordering::Acquire) {crate::stats::indicators::unit_state::set_online("owner",false); online.store(false,Ordering::Release); tx.offline("owner");} },
+                    "ready" => { if watched!=scoped_units("owner") {return Err("pid2-unit-watch-reconfigured".into());} set_installed("owner",watched.clone()); crate::stats::indicators::unit_state::set_online("owner",true); online.store(true,Ordering::Release); eprintln!("pid2-owner-sense-online"); sense(&tx,"owner"); },
                     "job" if online.load(Ordering::Acquire) => { sense(&tx,"owner"); },
                     _ => {
                         let frame: serde_json::Value = serde_json::from_str(&line).map_err(|_|"pid2-owner-child-protocol-invalid")?;
                         let unit = frame.get("unit").and_then(|v|v.as_str()).ok_or("pid2-owner-child-unit-missing")?;
-                        if !scoped_units("owner").contains(unit) { return Err("pid2-owner-child-unit-undeclared".into()); }
+                        if !watched.contains(unit) { return Err("pid2-owner-child-unit-undeclared".into()); }
                         if frame.get("kind").and_then(|v|v.as_str())==Some("job") { if online.load(Ordering::Acquire) { job_wake(&tx,"owner",unit); } continue; }
                         if frame.get("kind").and_then(|v|v.as_str()) != Some("state") { return Err("pid2-owner-child-protocol-invalid".into()); }
                         let state: crate::stats::indicators::unit_state::UnitState = serde_json::from_value(frame.get("state").cloned().ok_or("pid2-owner-child-state-missing")?).map_err(|e|e.to_string())?;
@@ -522,7 +532,7 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::w
             let _=child.wait().await;
             Err::<(),String>("pid2-owner-child-exited".into())
         }.await;
-        set_installed("owner",HashSet::new());
+        clear_installed("owner");
         crate::stats::indicators::unit_state::set_online("owner",false);
         online.store(false,Ordering::Release); tx.offline("owner");
         // This identity cannot become root or owner within this process.  Do

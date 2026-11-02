@@ -1,1 +1,1 @@
-{"namespace":"transmission/status","admittance":"open","flags":{},"serve":[{"snake":"transmission/status","verb":["transmission","status"]}],"commands":["transmission status"],"needs":["transmission"]}
+{"namespace":"transmission/status","admittance":"open","flags":{},"http_method":"GET","administrative":false,"mutation_allowed":false,"serve":[{"snake":"transmission/status","verb":["transmission","status"]}],"commands":["transmission status"],"needs":["transmission"]}

@@ -104,6 +104,13 @@ pub(crate) fn stats_retain(watched: &HashSet<String>) {
     }
 }
 
+// Each sequencer subscription owns only its scope's rows.
+pub(crate) fn retain_scope(scope: &str, watched: &HashSet<String>) {
+    if let Ok(mut stored) = states().write() {
+        stored.retain(|(row_scope, unit), _| row_scope != scope || watched.contains(unit));
+    }
+}
+
 pub(crate) fn stats_file_state(unit: &str, state: Option<String>, not_found: bool) {
     if let Ok(mut stored) = states().write() {
         if let Some(row) = stored.get_mut(&("stats".to_owned(), unit.to_owned())) {
