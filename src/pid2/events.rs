@@ -794,6 +794,10 @@ pub async fn run() {
     let worker_senses=senses.clone();
     let worker_wake=tx.clone();
     let solver_task=tokio::spawn(async move {
+        // A retained failed walk is not a new configuration event.  Track
+        // durable wake IDs until acknowledgement so a failed reconcile cannot
+        // feed its own reconfiguration back into the kernel watchers.
+        let mut configured_durable=HashSet::new();
         while solver_rx.recv().await.is_some() {
             let senses=worker_senses.clone();
             // Preserve the in-memory dirty set if the durable observation fails.
@@ -804,7 +808,12 @@ pub async fn run() {
             };
             let local=keys.clone();
             keys.extend(durable.iter().map(|(_,key)|key.clone()));
-            if keys.iter().any(|k|matches!(k,DirtyKey::Routine(_)|DirtyKey::All|DirtyKey::Startup)) { worker_wake.reconfigure.send_replace(()); }
+            configured_durable.retain(|id|durable.iter().any(|(current,_)|current==id));
+            let mut new_config=false;
+            for (id,key) in &durable {
+                if matches!(key,DirtyKey::Routine(_)|DirtyKey::All|DirtyKey::Startup) && configured_durable.insert(*id) {new_config=true;}
+            }
+            if new_config {worker_wake.reconfigure.send_replace(());}
             if keys.is_empty() { continue; }
             match tokio::task::spawn_blocking(move || super::solver::reconcile(&senses,keys)).await {
                 Ok(Ok(()))=>{if let Err(error)=acknowledge_wakes(&durable) {eprintln!("pid2-command-wake-ack-failed: {error}");}},
