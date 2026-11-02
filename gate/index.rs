@@ -912,6 +912,8 @@ fn audit_doors() -> Result<(), String> {
     }
     Ok(())
 }
+pub(crate) mod pid2_route;
+
 pub fn router() -> Router {
     let router = crate::routes::register_selected(
         Router::new()

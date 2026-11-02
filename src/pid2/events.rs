@@ -1,5 +1,6 @@
 //! Coalesced event wakes; observations are always re-read by the solver.
 use futures_util::{FutureExt, StreamExt};
+use serde_json::Value;
 use std::{collections::{HashMap, HashSet, VecDeque}, ffi::CString, io::{Read, Seek, SeekFrom, Write}, os::fd::{AsRawFd, FromRawFd, OwnedFd}, path::PathBuf, sync::{Arc, Mutex, OnceLock, RwLock, atomic::{AtomicBool, Ordering}}, time::Duration};
 use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, AsyncReadExt, BufReader, Interest}, sync::mpsc};
 use zbus::{Connection, Message, MatchRule, MessageStream, Proxy, message::Type, zvariant::{OwnedObjectPath, OwnedValue}};
@@ -100,20 +101,57 @@ fn unit_path(unit: &str) -> String {
     let label: String = unit.bytes().map(|b| if b.is_ascii_alphanumeric() { (b as char).to_string() } else { format!("_{b:02x}") }).collect();
     format!("/org/freedesktop/systemd1/unit/{label}")
 }
-// Declared units, by name and by bus path, read once from the routine seat.
-fn declared() -> &'static (HashSet<String>, HashSet<String>) {
-    static DECLARED: OnceLock<(HashSet<String>, HashSet<String>)> = OnceLock::new();
-    DECLARED.get_or_init(|| {
-        let names: HashSet<String> = crate::routes::leaf_schema::declaration(super::SCHEMA).and_then(|seat| seat.get("unit_enum")).and_then(|v| v.as_array())
-            .map(|units| units.iter().filter_map(|u| u.get("unit").and_then(|v| v.as_str()).map(str::to_owned)).collect()).unwrap_or_default();
-        let paths = names.iter().map(|unit| unit_path(unit)).collect();
-        (names, paths)
-    })
+// The action enum is fixed; observe-unit adds enabled routine names dynamically.
+fn unit_sets()->&'static RwLock<HashMap<String,HashSet<String>>> {
+    static SETS:OnceLock<RwLock<HashMap<String,HashSet<String>>>>=OnceLock::new();
+    SETS.get_or_init(||RwLock::new(HashMap::new()))
 }
-fn scoped_units(scope: &str) -> HashSet<String> {
-    crate::routes::leaf_schema::declaration(super::SCHEMA).and_then(|seat| seat.get("unit_enum")).and_then(|v| v.as_array())
-        .map(|units| units.iter().filter(|u| u.get("scope").and_then(|v| v.as_str()) == Some(scope))
-            .filter_map(|u| u.get("unit").and_then(|v| v.as_str()).map(str::to_owned)).collect()).unwrap_or_default()
+fn refresh_units()->Result<(),String> {
+    let mut sets=HashMap::<String,HashSet<String>>::new();
+    if let Some(units)=crate::routes::leaf_schema::declaration(super::SCHEMA).and_then(|seat|seat.get("unit_enum")).and_then(Value::as_array) {
+        for unit in units {
+            if let (Some(scope),Some(name))=(unit.get("scope").and_then(Value::as_str),unit.get("unit").and_then(Value::as_str)) {sets.entry(scope.to_owned()).or_default().insert(name.to_owned());}
+        }
+    }
+    if let Some(db)=super::read_db()? {
+        if super::table_exists(&db,"pid2_registrations")? {
+            let mut q=db.prepare("SELECT envelope FROM pid2_registrations WHERE enabled=1").map_err(|e|e.to_string())?;
+            let rows=q.query_map([],|r|r.get::<_,Vec<u8>>(0)).map_err(|e|e.to_string())?;
+            for row in rows {
+                let raw=row.map_err(|e|e.to_string())?;
+                let envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+                for need in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten().flat_map(|s|["needs","until"].into_iter().flat_map(move |key|s.get(key).and_then(Value::as_array).into_iter().flatten())) {
+                    if need.get("kind").and_then(Value::as_str)==Some("observe-unit") {
+                        if let Some(name)=need.get("unit").and_then(Value::as_str) {
+                            let scope=need.get("scope").and_then(Value::as_str).unwrap_or("system");
+                            if matches!(scope,"system"|"owner") {sets.entry(scope.to_owned()).or_default().insert(name.to_owned());}
+                        }
+                    }
+                }
+            }
+        }
+    }
+    *unit_sets().write().map_err(|_|"pid2-unit-watch-lock-poisoned")?=sets;
+    Ok(())
+}
+fn scoped_units(scope:&str)->HashSet<String> {
+    unit_sets().read().ok().and_then(|sets|sets.get(scope).cloned()).unwrap_or_default()
+}
+fn installed_units()->&'static RwLock<HashMap<String,HashSet<String>>> {
+    static SETS:OnceLock<RwLock<HashMap<String,HashSet<String>>>>=OnceLock::new();
+    SETS.get_or_init(||RwLock::new(HashMap::new()))
+}
+pub(super) fn unit_watch_ready(scope:&str,unit:&str)->bool {
+    installed_units().read().is_ok_and(|sets|sets.get(scope).is_some_and(|names|names.contains(unit)))
+}
+fn set_installed(scope:&str,units:HashSet<String>) {
+    if let Ok(mut events)=transitions().lock() {events.rows.retain(|(row_scope,unit),_|row_scope!=scope || units.contains(unit));}
+    if let Ok(mut sets)=installed_units().write() {sets.insert(scope.to_owned(),units);}
+}
+fn declared(scope:&str)->(HashSet<String>,HashSet<String>) {
+    let names=scoped_units(scope);
+    let paths=names.iter().map(|unit|unit_path(unit)).collect();
+    (names,paths)
 }
 async fn snapshot_scope(conn: &Connection, scope: &str, events: &mut MessageStream, manager_owner: &str, pending: &mut VecDeque<Message>) -> Result<(bool,zbus::message::Sequence), String> {
     // Drain the bus while ListUnits is in flight. Reload can announce many
@@ -126,7 +164,7 @@ async fn snapshot_scope(conn: &Connection, scope: &str, events: &mut MessageStre
             result=&mut call => break result.map_err(|e|e.to_string())?,
             item=events.next() => match item {
                 Some(Ok(message)) if manager_owner_changed(&message) => return Err("pid2-systemd-owner-changed".into()),
-                Some(Ok(message)) if message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
+                Some(Ok(message)) if message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(scope,&message) => {
                     if pending.len()>=256 { return Err("pid2-snapshot-signal-overflow".into()); }
                     pending.push_back(message);
                 },
@@ -194,9 +232,9 @@ fn update_scope(scope: &str, message: &Message) -> Result<bool, String> {
 }
 // Only a signal about a declared unit wakes the solver. Its own status reads
 // open logind sessions and transient units; their signals are not news.
-fn concerns_declared(message: &Message) -> bool {
+fn concerns_declared(scope: &str, message: &Message) -> bool {
     let header = message.header();
-    let (names, paths) = declared();
+    let (names, paths) = declared(scope);
     match header.member().map(|m| m.as_str()) {
         Some("PropertiesChanged") => header.path().is_some_and(|p| paths.contains(p.as_str())) &&
             message.body().deserialize::<(String, HashMap<String, OwnedValue>, Vec<String>)>().is_ok_and(|(interface, changed, invalidated)| {
@@ -231,7 +269,7 @@ async fn settled_scope(conn: &Connection, scope: &str, events: &mut MessageStrea
                 result=&mut query => break result.map_err(|e|e.to_string())?,
                 item=events.next() => match item {
                     Some(Ok(message)) if manager_owner_changed(&message) => return Err("pid2-systemd-owner-changed".into()),
-                    Some(Ok(message)) if message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
+                    Some(Ok(message)) if message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(scope,&message) => {
                         if pending.len()>=256 { return Err("pid2-snapshot-signal-overflow".into()); }
                         pending.push_back(message);
                     },
@@ -248,7 +286,7 @@ async fn settled_scope(conn: &Connection, scope: &str, events: &mut MessageStrea
             match item {
                 None => return Ok(barrier),
                 Some(Some(Ok(message))) if manager_owner_changed(&message) => return Err("pid2-systemd-owner-changed".into()),
-                Some(Some(Ok(message))) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
+                Some(Some(Ok(message))) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(scope,&message) => {
                     let reloading=message.header().member().is_some_and(|m|m.as_str()=="Reloading");
                     let invalidated=if reloading { false } else {
                         match update_scope(scope,&message) {
@@ -305,20 +343,30 @@ async fn streams(conn: &Connection, scope: &str) -> Result<(MessageStream,String
     Ok((incoming,owner))
 }
 
-async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>) {
+async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::watch::Receiver<()>) {
     loop {
+        if let Err(error)=refresh_units() {
+            eprintln!("pid2-system-unit-config: {error}");
+            if config.changed().await.is_err() || tx.closed() { return; }
+            continue;
+        }
+        let watched=scoped_units("system");
         let connected: Result<(),String> = async {
             let conn = Connection::system().await.map_err(|e|e.to_string())?;
             let (mut events,manager_owner) = streams(&conn,"system").await?;
             let mut pending=VecDeque::new();
             let mut barrier = settled_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?;
+            set_installed("system",watched.clone());
             crate::stats::indicators::unit_state::set_online("system",true);
             online.store(true,Ordering::Release); sense(&tx,"system");
             loop {
-                let item = if let Some(message)=pending.pop_front() { Some(Ok(message)) } else { events.next().await };
+                let item = if let Some(message)=pending.pop_front() { Some(Ok(message)) } else { tokio::select! {
+                    result=config.changed()=>{result.map_err(|_|"pid2-unit-config-closed")?;refresh_units()?;if watched!=scoped_units("system") {return Err("pid2-unit-watch-reconfigured".into());}continue;},
+                    message=events.next()=>message,
+                }};
                 match item {
                     Some(Ok(message)) if manager_owner_changed(&message) => return Err("pid2-systemd-owner-changed".into()),
-                    Some(Ok(message)) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
+                    Some(Ok(message)) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared("system",&message) => {
                         let reloading = message.header().member().is_some_and(|m| m.as_str()=="Reloading");
                         let changed = if reloading {
                             crate::stats::indicators::unit_state::set_online("system",false); online.store(false,Ordering::Release); tx.offline("system");
@@ -342,10 +390,13 @@ async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>) {
                 }
             }
         }.await;
+        set_installed("system",HashSet::new());
         crate::stats::indicators::unit_state::set_online("system",false);
         online.store(false,Ordering::Release); tx.offline("system");
-        if let Err(error)=connected { eprintln!("pid2-system-systemd-watch: {error}"); }
+        let reconfigured=matches!(&connected,Err(error) if error=="pid2-unit-watch-reconfigured");
+        if let Err(error)=connected { if !reconfigured {eprintln!("pid2-system-systemd-watch: {error}");} }
         if tx.closed() { return; }
+        if reconfigured {continue;}
         tokio::time::sleep(Duration::from_secs(300)).await;
     }
 }
@@ -361,6 +412,9 @@ fn emit_owner_states() -> Result<(),String> {
     std::io::stdout().flush().map_err(|e|e.to_string())
 }
 async fn owner_child() -> Result<(),String> {
+    let raw=std::env::var("CADUCEUS_PID2_OWNER_UNITS").map_err(|_|"pid2-owner-child-units-missing")?;
+    let units:HashSet<String>=serde_json::from_str(&raw).map_err(|_|"pid2-owner-child-units-invalid")?;
+    unit_sets().write().map_err(|_|"pid2-unit-watch-lock-poisoned")?.insert("owner".into(),units);
     let uid=owner_uid()?;
     if unsafe { libc::geteuid() } != uid { return Err("pid2-owner-child-wrong-uid".into()); }
     let address=format!("unix:path=/run/user/{uid}/bus");
@@ -374,7 +428,7 @@ async fn owner_child() -> Result<(),String> {
         let item=if let Some(message)=pending.pop_front() { Some(Ok(message)) } else { events.next().await };
         match item {
             Some(Ok(message)) if manager_owner_changed(&message) => return Err("pid2-systemd-owner-changed".into()),
-            Some(Ok(message)) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared(&message) => {
+            Some(Ok(message)) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared("owner",&message) => {
                 let reloading = message.header().member().is_some_and(|m| m.as_str()=="Reloading");
                 let job = message.header().member().is_some_and(|m| m.as_str()=="JobRemoved");
                 let changed = if reloading {
@@ -413,8 +467,14 @@ pub fn owner_sense_cli() -> i32 {
     match runtime.block_on(owner_child()) { Ok(())=>0, Err(error)=>{eprintln!("pid2-owner-child: {error}");1} }
 }
 
-async fn watch_owner(tx: Wake, online: Arc<AtomicBool>) {
+async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::watch::Receiver<()>) {
     loop {
+        if let Err(error)=refresh_units() {
+            eprintln!("pid2-owner-unit-config: {error}");
+            if config.changed().await.is_err() || tx.closed() { return; }
+            continue;
+        }
+        let watched=scoped_units("owner");
         let connected = async {
             let executable=std::env::current_exe().map_err(|e|e.to_string())?;
             let uid=owner_uid()?;
@@ -423,20 +483,25 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>) {
             } else if unsafe { libc::geteuid() } == uid {
                 tokio::process::Command::new(executable)
             } else { return Err("pid2-owner-sense-wrong-uid".into()); };
-            command.arg("pid2-owner-sense").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).kill_on_drop(true);
+            let watched_json=serde_json::to_string(&watched).map_err(|e|e.to_string())?;
+            command.arg("pid2-owner-sense").env("CADUCEUS_PID2_OWNER_UNITS",watched_json).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).kill_on_drop(true);
             let mut child=command.spawn().map_err(|e|e.to_string())?;
             let stdout=child.stdout.take().ok_or("pid2-owner-child-pipe-missing")?;
             let mut lines=BufReader::new(stdout);
             loop {
                 let mut bytes=Vec::new();
-                let count=(&mut lines).take(4097).read_until(b'\n',&mut bytes).await.map_err(|e|e.to_string())?;
+                let mut bounded=(&mut lines).take(4097);
+                let count=tokio::select! {
+                    result=config.changed()=>{result.map_err(|_|"pid2-unit-config-closed")?;refresh_units()?;if watched!=scoped_units("owner") {return Err("pid2-unit-watch-reconfigured".into());}continue;},
+                    result=bounded.read_until(b'\n',&mut bytes)=>result.map_err(|e|e.to_string())?,
+                };
                 if count==0 { break; }
                 if count>4096 || bytes.last()!=Some(&b'\n') { return Err("pid2-owner-child-line-too-long".into()); }
                 bytes.pop();
                 let line=String::from_utf8(bytes).map_err(|_|"pid2-owner-child-protocol-invalid")?;
                 match line.as_str() {
                     "syncing" if online.load(Ordering::Acquire) => { crate::stats::indicators::unit_state::set_online("owner",false); online.store(false,Ordering::Release); tx.offline("owner"); },
-                    "ready" => { crate::stats::indicators::unit_state::set_online("owner",true); online.store(true,Ordering::Release); eprintln!("pid2-owner-sense-online"); sense(&tx,"owner"); },
+                    "ready" => { set_installed("owner",watched.clone()); crate::stats::indicators::unit_state::set_online("owner",true); online.store(true,Ordering::Release); eprintln!("pid2-owner-sense-online"); sense(&tx,"owner"); },
                     "job" if online.load(Ordering::Acquire) => { sense(&tx,"owner"); },
                     _ => {
                         let frame: serde_json::Value = serde_json::from_str(&line).map_err(|_|"pid2-owner-child-protocol-invalid")?;
@@ -457,14 +522,17 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>) {
             let _=child.wait().await;
             Err::<(),String>("pid2-owner-child-exited".into())
         }.await;
+        set_installed("owner",HashSet::new());
         crate::stats::indicators::unit_state::set_online("owner",false);
         online.store(false,Ordering::Release); tx.offline("owner");
         // This identity cannot become root or owner within this process.  Do
         // not let unrelated systemd activity re-arm a permanently failed sense.
         let wrong_uid=matches!(&connected, Err(error) if error=="pid2-owner-sense-wrong-uid");
-        if let Err(error)=connected { eprintln!("pid2-owner-systemd-watch: {error}"); }
+        let reconfigured=matches!(&connected,Err(error) if error=="pid2-unit-watch-reconfigured");
+        if let Err(error)=connected { if !reconfigured {eprintln!("pid2-owner-systemd-watch: {error}");} }
         if wrong_uid { return; }
         if tx.closed() { return; }
+        if reconfigured {continue;}
         tokio::time::sleep(Duration::from_secs(300)).await;
     }
 }
@@ -670,17 +738,41 @@ async fn watch_mounts(tx: Wake, mounts: Arc<RwLock<Option<HashSet<PathBuf>>>>) {
 
 pub struct Senses { pub system: Arc<AtomicBool>, pub owner: Arc<AtomicBool>, pub udev: Arc<AtomicBool>, pub mounts: Arc<RwLock<Option<HashSet<PathBuf>>>>, pub(super) kernel: Arc<kernel_senses::Cache> }
 impl Senses { pub fn online(&self, scope: &str) -> bool { match scope { "system"=>self.system.load(Ordering::Acquire), "owner"=>self.owner.load(Ordering::Acquire), "udev"=>self.udev.load(Ordering::Acquire), _=>false } } }
+
+fn route_deadlines(tx:&Wake, fired:&mut HashSet<(String,String,i64,i64)>) -> Result<Option<Duration>,String> {
+    let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+    super::tables(&db)?;
+    let rows:HashSet<(String,String,i64,i64)>={
+        let mut query=db.prepare("SELECT routine_id,line,step_index,deadline FROM pid2_route_steps WHERE deadline IS NOT NULL").map_err(|e|e.to_string())?;
+        let rows=query.query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).map_err(|e|e.to_string())?.collect::<Result<HashSet<_>,_>>().map_err(|e|e.to_string())?;
+        rows
+    };
+    drop(db);
+    fired.retain(|key|rows.contains(key));
+    let observed_at=super::now();
+    let mut next=None;
+    for key in rows {
+        if fired.contains(&key) {continue;}
+        if key.3<=observed_at {
+            tx.push(DirtyKey::Line(key.0.clone(),key.1.clone()));
+            fired.insert(key);
+        } else {next=Some(next.map_or(key.3,|old:i64|old.min(key.3)));}
+    }
+    let current=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    Ok(next.map(|second|Duration::from_secs(second.max(0) as u64).saturating_sub(current)))
+}
 pub async fn run() {
+    if let Err(error)=refresh_units() {eprintln!("pid2-unit-watch-config: {error}");}
     let (channel,mut rx) = mpsc::channel::<()>(1);
     let (reconfigure,config_rx)=tokio::sync::watch::channel(());
     let (mount_event,mount_rx)=tokio::sync::watch::channel(());
     let tx=Wake{tx:channel,pending:Arc::new(Mutex::new(Pending::default())),offline:Arc::new(std::sync::atomic::AtomicU8::new(0)),reconfigure,mount_event};
     let senses = Arc::new(Senses { system:Arc::new(AtomicBool::new(false)),owner:Arc::new(AtomicBool::new(false)),udev:Arc::new(AtomicBool::new(false)),mounts:Arc::new(RwLock::new(None)),kernel:Arc::new(kernel_senses::Cache::default()) });
     let tasks = [
-        tokio::spawn(kernel_senses::run(tx.clone(),senses.kernel.clone(),config_rx,mount_rx)),
+        tokio::spawn(kernel_senses::run(tx.clone(),senses.kernel.clone(),config_rx.clone(),mount_rx)),
         tokio::spawn(watch_mounts(tx.clone(),senses.mounts.clone())),
-        tokio::spawn(watch_systemd(tx.clone(),senses.system.clone())),
-        tokio::spawn(watch_owner(tx.clone(),senses.owner.clone())),
+        tokio::spawn(watch_systemd(tx.clone(),senses.system.clone(),config_rx.clone())),
+        tokio::spawn(watch_owner(tx.clone(),senses.owner.clone(),config_rx)),
         tokio::spawn(watch_fd(udev_socket,"udev",tx.clone(),senses.udev.clone())),
         tokio::spawn(watch_commands(tx.clone())),
     ];
@@ -713,8 +805,10 @@ pub async fn run() {
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut catchup=true;
     let fire_slots=Arc::new(tokio::sync::Semaphore::new(1));
+    let mut fired_routes=HashSet::new();
     'events: loop {
-        let delay=match super::schedule::clock(catchup) {Ok(delay)=>delay,Err(error)=>{eprintln!("pid2-schedule-clock: {error}");Duration::from_secs(300)}};
+        let mut delay=match super::schedule::clock(catchup) {Ok(delay)=>delay,Err(error)=>{eprintln!("pid2-schedule-clock: {error}");Duration::from_secs(300)}};
+        match route_deadlines(&tx,&mut fired_routes) {Ok(Some(route_delay))=>delay=delay.min(route_delay),Ok(None)=>{},Err(error)=>eprintln!("pid2-route-deadline: {error}")}
         catchup=false;
         match super::schedule::queued() {
             Ok(ids)=>for id in ids {

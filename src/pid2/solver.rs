@@ -99,6 +99,49 @@ fn needs_token(line: &str, trace: &[Value]) -> String {
     format!("{}\0{:x}",line,md5::compute(serde_json::to_vec(trace).unwrap_or_default()))
 }
 
+fn route_stage(routine:&str, name:&str, stage:&Value, steps:&[Value], token:&str, visiting:&mut Visiting) -> Result<(),String> {
+    let key=(routine.to_owned(),name.to_owned());
+    if visiting.attempted.contains(&key) {return Ok(());}
+    let _action=super::ACTION_LOCK.lock().map_err(|_|"pid2-action-lock-poisoned")?;
+    let _process=super::process_action_lock()?;
+    if held(routine)? {return Ok(());}
+    require_current_stage(routine,stage)?;
+    visiting.attempted.insert(key);
+    let mut line_signal=None;
+    for (index,step) in steps.iter().enumerate() {
+        let route=step.get("route").and_then(Value::as_str).ok_or("pid2-route-name-missing")?;
+        let previous:Option<(String,Option<i64>,Option<bool>,Option<String>)>={
+            let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+            db.query_row("SELECT needs_token,deadline,ok,first_missing_signal FROM pid2_route_steps WHERE routine_id=?1 AND line=?2 AND step_index=?3",params![routine,name,index as i64],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(|e|e.to_string())?
+        };
+        let due=previous.as_ref().is_none_or(|(old,deadline,_,_)|old!=token || deadline.is_some_and(|d|d<=now()));
+        if !due {
+            if let Some((_,_,Some(false),signal))=previous {line_signal=Some(signal.unwrap_or_else(||"pid2-route-refused".into()));break;}
+            continue;
+        }
+        let keep:Vec<String>=step.get("keep").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+        let seconds=step.get("deadline_seconds").and_then(Value::as_u64).unwrap_or(180);
+        let reply=crate::gate::pid2_route::call(route,step.get("payload"),&keep,seconds);
+        let recorded=now();
+        let (status,ok,signal,kept,deadline)=match reply {
+            Ok(value)=>{
+                let deadline=value.fresh_until.filter(|v|v.is_finite() && *v > recorded as f64 && *v <= i64::MAX as f64).map(|v|v.ceil() as i64);
+                (Some(value.status),value.ok,value.signal,value.kept,deadline)
+            },
+            Err(signal)=>(None,Some(false),Some(signal),"{}".to_owned(),None),
+        };
+        {
+            let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+            db.execute("INSERT INTO pid2_route_steps(routine_id,line,step_index,route,response_status,ok,first_missing_signal,kept,needs_token,deadline,recorded_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) ON CONFLICT(routine_id,line,step_index) DO UPDATE SET route=excluded.route,response_status=excluded.response_status,ok=excluded.ok,first_missing_signal=excluded.first_missing_signal,kept=excluded.kept,needs_token=excluded.needs_token,deadline=excluded.deadline,recorded_at=excluded.recorded_at",params![routine,name,index as i64,route,status,ok,signal,kept,token,deadline,recorded]).map_err(|e|e.to_string())?;
+        }
+        deed("route",&format!("{routine}/{name}/{index}"),if ok==Some(false) {"Held"} else {"Done"},signal.as_deref());
+        if route=="transmission/status" {let _=crate::stats::poke(crate::stats::IndicatorBlock::Vpn);}
+        super::events::notify_schedule()?;
+        if ok==Some(false) {line_signal=Some(signal.unwrap_or_else(||"pid2-route-refused".into()));break;}
+    }
+    match line_signal {Some(signal)=>write_line(routine,name,None,"Held",Some(&signal)),None=>write_line(routine,name,Some("true"),"Done",None)}
+}
+
 fn attempt_receipt(kind:&str, mark:&(String,u64)) -> String {
     json!({"kind":kind,"sense":mark.0,"sequence":mark.1}).to_string()
 }
@@ -352,6 +395,15 @@ fn resolve_line(routine: &str, name: &str, _senses: &super::events::Senses, _vis
 fn needs(routine: &str, stage_line: &str, need: &Value, senses: &super::events::Senses, visiting: &mut Visiting, separate_election: bool) -> Result<Option<String>, String> {
     let kind = need.get("kind").and_then(Value::as_str).ok_or("pid2-need-kind-missing")?;
     match kind {
+        "observe-unit" => {
+            let unit=need.get("unit").and_then(Value::as_str).ok_or("pid2-unit-missing")?;
+            let scope=need.get("scope").and_then(Value::as_str).unwrap_or("system");
+            if !matches!(scope,"system"|"owner") { return Err("pid2-unit-scope-invalid".into()); }
+            if !senses.online(scope) { return Err("pid2-systemd-sense-unavailable".into()); }
+            if !super::events::unit_watch_ready(scope,unit) { return Err("pid2-systemd-sense-unavailable".into()); }
+            let state=crate::stats::indicators::unit_state::observed(scope,unit);
+            Ok(Some(state.and_then(|s|s.active_state).ok_or("pid2-systemd-sense-unavailable")?))
+        },
         "await-netns" => {
             let name=need.get("name").and_then(Value::as_str).ok_or("pid2-netns-name-missing")?;
             match senses.kernel.netns(name) { Some(true)=>Ok(None), Some(false)=>Err("pid2-await-netns".into()), None=>Err("pid2-netns-sense-unavailable".into()) }
@@ -446,7 +498,7 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
     if stage.get("until").is_some_and(|value| !value.is_null() && !value.is_array()) { return Err("pid2-until-not-array".into()); }
     let crossings=stage.get("do").and_then(Value::as_array);
     let until=stage.get("until").and_then(Value::as_array);
-    let dynamic=["needs","until"].into_iter().flat_map(|key|stage.get(key).and_then(Value::as_array).into_iter().flatten()).any(|n|matches!(n.get("kind").and_then(Value::as_str),Some("await-netns"|"observe-link"|"observe-file")));
+    let dynamic=["needs","until"].into_iter().flat_map(|key|stage.get(key).and_then(Value::as_array).into_iter().flatten()).any(|n|matches!(n.get("kind").and_then(Value::as_str),Some("await-netns"|"observe-link"|"observe-file"|"observe-unit")));
     // Migrate a retained boot election before replacing its old line row;
     // a repurposed line without an election must not keep the old value.
     if dynamic {
@@ -468,7 +520,7 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
         }
         Ok(())
     };
-    if until.is_some() && check_until(visiting).is_ok() {
+    if !crossings.is_some_and(|steps|steps.iter().any(|step|step.get("route").is_some())) && until.is_some() && check_until(visiting).is_ok() {
         let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
         let tx=db.transaction().map_err(|e|e.to_string())?;
         tx.execute("INSERT OR IGNORE INTO pid2_completed(routine_id,line) SELECT ?1,?2 WHERE NOT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",params![routine,name]).map_err(|e|e.to_string())?;
@@ -501,6 +553,12 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
     }
     let needs_fingerprint=needs_token(name,&need_trace);
     rearm_changed_needs(routine,stage,&needs_fingerprint)?;
+    if let Some(steps)=crossings {
+        if steps.iter().any(|step|step.get("route").is_some()) {
+            if !steps.iter().all(|step|step.get("route").and_then(Value::as_str).is_some() && step.get("staff").is_none()) {return Err("pid2-route-mixed-steps".into());}
+            return route_stage(routine,name,stage,steps,&needs_fingerprint,visiting);
+        }
+    }
     if crossings.is_some() || until.is_some() {
         let done: bool = {
             let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
@@ -799,11 +857,11 @@ fn stage_matches(routine:&str,stage:&Value,key:&super::events::DirtyKey)->bool {
                     same && (device.is_empty() || path.is_none_or(|v|Path::new(v).starts_with(device) || Path::new(device).starts_with(v))) && (device_side_may_match(need,before) || device_side_may_match(need,after))
                 } else {false}
             },
-            DirtyKey::Unit(scope,unit)=>kind=="await-ready" && need.get("unit").and_then(Value::as_str)==Some(unit) && unit_scope(unit).is_ok_and(|s|s==*scope),
+            DirtyKey::Unit(scope,unit)=>need.get("unit").and_then(Value::as_str)==Some(unit) && ((kind=="await-ready" && unit_scope(unit).is_ok_and(|s|s==*scope)) || (kind=="observe-unit" && need.get("scope").and_then(Value::as_str).unwrap_or("system")==scope)),
             DirtyKey::Sense(scope)|DirtyKey::Offline(scope)|DirtyKey::Unavailable(scope)=>match scope.as_str() {
                 "mount"=>kind=="await-mount", "udev"=>kind=="await-device" || kind=="observe",
                 "netns"=>kind=="await-netns", "link"=>kind=="observe-link", "file"=>kind=="observe-file",
-                "system"|"owner"=>kind=="await-ready" && need.get("unit").and_then(Value::as_str).is_some_and(|u|unit_scope(u).is_ok_and(|s|s==*scope)), _=>false,
+                "system"|"owner"=>(kind=="await-ready" && need.get("unit").and_then(Value::as_str).is_some_and(|u|unit_scope(u).is_ok_and(|s|s==*scope))) || (kind=="observe-unit" && need.get("scope").and_then(Value::as_str).unwrap_or("system")==scope), _=>false,
             },
             _=>false,
         };

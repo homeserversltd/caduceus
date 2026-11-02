@@ -29,9 +29,7 @@ const POWER_DISCOVERY_TTL: Duration = Duration::from_secs(60);
 const TAILSCALE_CADENCE: Duration = Duration::from_secs(5);
 const INTERNET_CADENCE: Duration = Duration::from_secs(7);
 const SERVICES_CADENCE: Duration = Duration::from_secs(5);
-const VPN_CADENCE: Duration = Duration::from_secs(5);
-#[cfg(leaf_transmission_status)]
-const TRANSMISSION_STATUS_TIMEOUT: Duration = VPN_CADENCE;
+
 const PUBLIC_IP_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const PUBLIC_IP_RETRY: Duration = Duration::from_secs(300);
 const CONFIG_MAX_BYTES: u64 = 1024 * 1024;
@@ -255,6 +253,21 @@ where
         control,
         handle: Some(handle),
     })
+}
+
+fn spawn_event_worker<F>(name:&str,mut job:F)->Result<Worker,String>
+where F:FnMut()+Send+'static {
+    let control=Arc::new(WorkerControl::new());
+    let worker=Arc::clone(&control);
+    let handle=thread::Builder::new().name(name.to_owned()).spawn(move || {
+        *worker.thread.lock().unwrap_or_else(|e|e.into_inner())=Some(thread::current());
+        loop {
+            if worker.stopping.load(Ordering::Acquire) {break;}
+            if worker.forced.swap(false,Ordering::AcqRel) {let _=std::panic::catch_unwind(std::panic::AssertUnwindSafe(&mut job));continue;}
+            thread::park();
+        }
+    }).map_err(|error|format!("caduceus-stats-worker-spawn-failed: {error}"))?;
+    Ok(Worker{control,handle:Some(handle)})
 }
 
 #[derive(Clone)]
@@ -585,11 +598,13 @@ fn read_vpn() -> VpnObservation {
         Err(_) => return VpnObservation::unavailable("caduceus-carapace-desync"),
     }
 
-    let receipt =
-        match crate::routes::transmission_status_onness::read(TRANSMISSION_STATUS_TIMEOUT) {
-            Ok(receipt) => receipt,
-            Err(signal) => return VpnObservation::unavailable(&signal),
-        };
+    let (ok,signal,kept,recorded_at): (Option<bool>,Option<String>,String,i64) = match (|| {
+        use rusqlite::OptionalExtension;
+        let db=crate::stats::open_db().map_err(|_|"caduceus-stats-vpn-seat-unavailable")?.lock().map_err(|_|"caduceus-stats-vpn-seat-unavailable")?;
+        db.query_row("SELECT ok,first_missing_signal,kept,recorded_at FROM pid2_route_steps WHERE route='transmission/status' ORDER BY recorded_at DESC,rowid DESC LIMIT 1",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(|_|"caduceus-stats-vpn-seat-unavailable")?.ok_or("caduceus-stats-vpn-receipt-absent")
+    })() { Ok(row)=>row,Err(signal)=>return VpnObservation::unavailable(signal) };
+    if ok==Some(false) {let mut unavailable=VpnObservation::unavailable(signal.as_deref().unwrap_or("caduceus-stats-vpn-receipt-failed"));unavailable.ts=recorded_at;return unavailable;}
+    let receipt:Value=match serde_json::from_str(&kept) {Ok(value)=>value,Err(_)=>return VpnObservation::unavailable("caduceus-stats-vpn-seat-invalid")};
 
     let conditions = receipt.get("conditions");
     let vpn_running = ["namespace", "tunnel", "forward"].into_iter().all(|name| {
@@ -617,7 +632,7 @@ fn read_vpn() -> VpnObservation {
         .cloned()
         .unwrap_or(Value::Null);
     VpnObservation {
-        ts: now_ts(),
+        ts: recorded_at,
         vpn_status: Some(if vpn_running { "running" } else { "stopped" }.to_owned()),
         transmission_status: Some(
             if daemon_running { "running" } else { "stopped" }.to_owned(),
@@ -735,13 +750,12 @@ impl Collector {
         {
             let shared = Arc::clone(&shared);
             let fallback = Arc::clone(&shared);
-            match spawn_worker("caduceus-stats-vpn", move || {
+            match spawn_event_worker("caduceus-stats-vpn", move || {
                 let observation = read_vpn();
                 shared
                     .write()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .vpn = observation;
-                VPN_CADENCE
             }) {
                 Ok(worker) => {
                     vpn_worker = Some(Arc::clone(&worker.control));

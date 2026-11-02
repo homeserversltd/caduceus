@@ -58,6 +58,7 @@ fn tables(db: &rusqlite::Connection) -> Result<(), String> {
         CREATE TABLE IF NOT EXISTS pid2_attempts (routine_id TEXT NOT NULL, line TEXT NOT NULL, attempted_at INTEGER NOT NULL, PRIMARY KEY(routine_id,line));
         CREATE TABLE IF NOT EXISTS pid2_elections (routine_id TEXT NOT NULL, line TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(routine_id,line));
         CREATE TABLE IF NOT EXISTS pid2_crossings (routine_id TEXT NOT NULL, line TEXT NOT NULL, step_index INTEGER NOT NULL, PRIMARY KEY(routine_id,line,step_index));
+        CREATE TABLE IF NOT EXISTS pid2_route_steps (routine_id TEXT NOT NULL, line TEXT NOT NULL, step_index INTEGER NOT NULL, route TEXT NOT NULL, response_status INTEGER, ok INTEGER, first_missing_signal TEXT, kept TEXT NOT NULL, needs_token TEXT NOT NULL, deadline INTEGER, recorded_at INTEGER NOT NULL, PRIMARY KEY(routine_id,line,step_index));
         CREATE TABLE IF NOT EXISTS pid2_dirty_wakes (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, queued_at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS pid2_schedules (schedule_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, envelope BLOB NOT NULL, frequency TEXT NOT NULL, time TEXT NOT NULL, weekday TEXT, band TEXT NOT NULL, action TEXT NOT NULL, max_seconds INTEGER NOT NULL, registered_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_fired_slot INTEGER);
         CREATE TABLE IF NOT EXISTS pid2_fires (schedule_id TEXT PRIMARY KEY, fire_id TEXT NOT NULL, trigger TEXT NOT NULL, state TEXT NOT NULL, queued_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, duration_ms INTEGER, first_missing_signal TEXT, rsync_exit_code INTEGER, final_file_count INTEGER, final_total_bytes INTEGER);
@@ -109,6 +110,7 @@ pub fn reset_gate() -> Result<bool, String> {
         tx.execute("DELETE FROM pid2_attempts", []).map_err(|e| e.to_string())?;
         tx.execute("DELETE FROM pid2_elections", []).map_err(|e| e.to_string())?;
         tx.execute("DELETE FROM pid2_crossings", []).map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM pid2_route_steps", []).map_err(|e| e.to_string())?;
         tx.execute("DELETE FROM pid2_fires", []).map_err(|e| e.to_string())?;
         tx.execute("INSERT INTO pid2_boot(id,boot_id,began_at) VALUES(1,?1,?2) ON CONFLICT(id) DO UPDATE SET boot_id=excluded.boot_id,began_at=excluded.began_at", params![boot,now()]).map_err(|e| e.to_string())?;
     } else {
@@ -143,6 +145,7 @@ pub fn enable(raw: &[u8]) -> Result<Value, String> {
     let tx=db.transaction().map_err(|e|e.to_string())?;
     let previous:Option<Vec<u8>>=tx.query_row("SELECT envelope FROM pid2_registrations WHERE routine_id=?1",[id],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
     let changed=tx.execute("INSERT INTO pid2_registrations(routine_id,enabled,envelope,registered_at) VALUES(?1,1,?2,?3) ON CONFLICT(routine_id) DO UPDATE SET enabled=1,envelope=excluded.envelope,registered_at=excluded.registered_at WHERE enabled<>1 OR envelope<>excluded.envelope", params![id, raw, now()]).map_err(|e| e.to_string())?;
+    let mut removed_routes=0;
     if previous.as_deref().is_some_and(|prior|prior!=raw) {
         tx.execute("DELETE FROM pid2_lines WHERE routine_id=?1 AND state<>'Observed'",[id]).map_err(|e|e.to_string())?;
         // A formerly observation-only line may now also execute a crossing
@@ -157,11 +160,13 @@ pub fn enable(raw: &[u8]) -> Result<Value, String> {
         }
         tx.execute("DELETE FROM pid2_attempts WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
         tx.execute("DELETE FROM pid2_crossings WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+        removed_routes=tx.execute("DELETE FROM pid2_route_steps WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
     }
     tx.commit().map_err(|e|e.to_string())?;
     drop(db);
     drop(process_guard);
     drop(action_guard);
+    if removed_routes!=0 {let _=crate::stats::poke(crate::stats::IndicatorBlock::Vpn);}
     if changed != 0 { events::notify_routine(id)?; solver::deed("enable",id,"success",None); }
     Ok(json!({"ok":true,"routine_id":id,"enabled":true,"changed":changed!=0,"readback":status(id)?}))
 }
@@ -174,9 +179,11 @@ pub fn disable(id: &str) -> Result<Value, String> {
     let db = crate::stats::open_db()?.lock().map_err(|_| "pid2-database-lock-poisoned")?;
     tables(&db)?;
     let changed = db.execute("UPDATE pid2_registrations SET enabled=0 WHERE routine_id=?1 AND enabled<>0", [id]).map_err(|e| e.to_string())?;
+    let removed = db.execute("DELETE FROM pid2_route_steps WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
     drop(db);
     drop(process_guard);
     drop(action_guard);
+    if removed != 0 { let _=crate::stats::poke(crate::stats::IndicatorBlock::Vpn); }
     if changed != 0 { events::notify_routine(id)?; solver::deed("disable",id,"success",None); }
     Ok(json!({"ok":true,"routine_id":id,"changed":changed != 0,"readback":status(id)?}))
 }

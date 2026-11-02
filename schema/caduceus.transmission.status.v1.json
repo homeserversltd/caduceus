@@ -32,7 +32,8 @@
     },
     "forwardPort": {"type": ["integer", "null"]},
     "peerPort": {"type": ["integer", "null"]},
-    "rpcPort": {"type": ["integer", "null"]}
+    "rpcPort": {"type": ["integer", "null"]},
+    "freshUntil": {"type": ["number", "null"]}
   },
   "field_types": {
     "schema": "string",
@@ -44,7 +45,8 @@
     "conditions": "object|null",
     "forwardPort": "integer|null",
     "peerPort": "integer|null",
-    "rpcPort": "integer|null"
+    "rpcPort": "integer|null",
+    "freshUntil": "number|null"
   },
   "optional": [
     "ok",
@@ -55,7 +57,8 @@
     "conditions",
     "forwardPort",
     "peerPort",
-    "rpcPort"
+    "rpcPort",
+    "freshUntil"
   ],
   "additionalProperties": true,
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
