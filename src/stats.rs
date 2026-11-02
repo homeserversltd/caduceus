@@ -2570,7 +2570,7 @@ fn flush_rollover(
                     &empty_doors,
                 )
             };
-            let benchmark = benchmark(
+            let mut benchmark = benchmark(
                 bucket,
                 ticks,
                 persists,
@@ -2585,6 +2585,16 @@ fn flush_rollover(
             // A previous clean shutdown can have emitted a partial row for
             // this bucket. Replace it with the complete folded row atomically.
             if bucket == first_bucket && pending.iter().any(|sample| sample.persisted && sample.ts / 60 == bucket) {
+                // If this process stopped before producing a sample, its empty
+                // histograms must not erase the previous partial benchmark.
+                if !pending.iter().any(|sample| !sample.persisted && sample.ts / 60 == bucket) {
+                    if let Some(previous) = transaction.query_row(
+                        "SELECT data FROM self_benchmark WHERE bucket = ?1 ORDER BY id DESC LIMIT 1",
+                        [bucket], |row| row.get::<_, String>(0),
+                    ).optional().map_err(|error| error.to_string())? {
+                        benchmark = previous;
+                    }
+                }
                 transaction.execute("DELETE FROM minute_samples WHERE bucket = ?1", [bucket])
                     .map_err(|error| error.to_string())?;
                 transaction.execute("DELETE FROM self_benchmark WHERE bucket = ?1", [bucket])
