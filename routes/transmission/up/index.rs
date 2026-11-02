@@ -36,12 +36,12 @@ async fn up_route(
         // the legacy face fields from the named stops, not stage order.
         let chord = receipt.clone();
         let rows = chord.get("stages").and_then(Value::as_array);
-        let stage = |id: &str| rows.and_then(|rows| rows.iter().find(|row| row.get("stage_id").and_then(Value::as_str) == Some(id)))
-            .and_then(|row| row.get("receipt"));
+        let row = |id: &str| rows.and_then(|rows| rows.iter().find(|row| row.get("stage_id").and_then(Value::as_str) == Some(id)));
+        let stage = |id: &str| row(id).and_then(|row| row.get("receipt"));
         if let Some(out) = receipt.as_object_mut() {
             out.insert("schema".into(), Value::String("caduceus.transmission.up.v1".into()));
             if let Some(resolve) = stage("resolve") {
-                for key in ["provider", "rpcPort"] {
+                for key in ["provider", "rpcPort", "holdUnit", "nativeUnit"] {
                     if let Some(value) = resolve.get(key) { out.insert(key.into(), value.clone()); }
                 }
             }
@@ -49,6 +49,38 @@ async fn up_route(
                 for key in ["on", "conditions", "forwardPort", "peerPort", "rpcPort"] {
                     if let Some(value) = onness.get(key) { out.insert(key.into(), value.clone()); }
                 }
+            }
+            if let Some(value) = stage("native-start").and_then(|s| s.pointer("/readback/active_state")) {
+                out.insert("nativeState".into(), value.clone());
+            }
+            if let Some(value) = stage("hold-readback").and_then(|s| s.pointer("/readback/active_state"))
+                .or_else(|| stage("hold-failure-readback").and_then(|s| s.pointer("/readback/active_state"))) {
+                out.insert("holdState".into(), value.clone());
+            }
+            let failed = chord.get("failedStage").and_then(Value::as_str);
+            let (rung, signal) = match failed {
+                Some("resolve") => (Some("provider"), None),
+                Some("hold-preflight" | "native-preflight") => (Some("hold"), None),
+                Some("native-start") => {
+                    let hold_active = row("hold-failure-readback")
+                        .filter(|r| r.get("outcome").and_then(Value::as_str) == Some("stage-completed"))
+                        .and_then(|r| r.pointer("/receipt/readback/active_state"))
+                        .and_then(Value::as_str)
+                        .is_some_and(|state| matches!(state, "active" | "reloading"));
+                    if hold_active {
+                        (Some("daemon"), Some("transmission-native-start-failed"))
+                    } else {
+                        (Some("hold"), Some("transmission-hold-start-failed"))
+                    }
+                }
+                Some("hold-readback") => (Some("hold"), Some("transmission-hold-start-failed")),
+                Some("onness" | "rollback-stop") => (Some("onness"), None),
+                _ => (None, None),
+            };
+            if let Some(rung) = rung { out.insert("failedRung".into(), Value::String(rung.into())); }
+            if let Some(signal) = signal { out.insert("firstMissingSignal".into(), Value::String(signal.into())); }
+            if failed == Some("rollback-stop") {
+                if let Some(rollback) = stage("rollback-stop") { out.insert("rollback".into(), rollback.clone()); }
             }
             if let Some(rows) = rows { out.insert("steps".into(), Value::Array(rows.clone())); }
             out.insert("chord".into(), chord);

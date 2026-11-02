@@ -22,7 +22,7 @@
     "schema": {"type": "string", "const": "caduceus.chord.receipt.v1"},
     "ok": {"type": "boolean", "description": "True only when all required stages and finalizers succeeded."},
     "routine_id": {"type": "string", "description": "The declaration namespace owning the chord."},
-    "stages": {"type": "array", "description": "Ordered serve and finally outcomes, including skipped stages and each returned receipt.", "items": {"type": "object", "required": ["stage_id", "transition", "outcome", "arguments", "receipt"], "additionalProperties": true}},
+    "stages": {"type": "array", "description": "Ordered serve, rescue and finally outcomes, including skipped stages and each returned receipt.", "items": {"type": "object", "required": ["stage_id", "transition", "outcome", "arguments", "receipt"], "additionalProperties": true}},
     "failedStage": {"type": ["string", "null"], "description": "First required or finalizer stage that refused, or null."},
     "firstMissingSignal": {"type": "string", "description": "First failure signal, or none on success."},
     "changed": {"type": "boolean", "description": "Present only when every mutating stage reported whether it changed."}
