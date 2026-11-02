@@ -50,11 +50,11 @@ async fn up_route(
                     if let Some(value) = onness.get(key) { out.insert(key.into(), value.clone()); }
                 }
             }
-            if let Some(value) = stage("native-start").and_then(|s| s.pointer("/readback/active_state")) {
+            if let Some(value) = stage("native-start").and_then(|s| s.pointer("/readback/active_state")).filter(|v| !v.is_null()) {
                 out.insert("nativeState".into(), value.clone());
             }
-            if let Some(value) = stage("hold-readback").and_then(|s| s.pointer("/readback/active_state"))
-                .or_else(|| stage("hold-failure-readback").and_then(|s| s.pointer("/readback/active_state"))) {
+            if let Some(value) = stage("hold-readback").and_then(|s| s.pointer("/readback/active_state")).filter(|v| !v.is_null())
+                .or_else(|| stage("hold-failure-readback").and_then(|s| s.pointer("/readback/active_state")).filter(|v| !v.is_null())) {
                 out.insert("holdState".into(), value.clone());
             }
             let failed = chord.get("failedStage").and_then(Value::as_str);
