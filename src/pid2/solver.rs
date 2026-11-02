@@ -598,20 +598,32 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
                 if completed { continue; }
                 let band=step.get("staff").and_then(Value::as_str).ok_or("pid2-staff-path-missing")?;
                 let payload=step.get("payload").filter(|v|v.is_object()).ok_or("pid2-staff-payload-invalid")?;
-                // The generic crossing is also an entry to unit/control;
-                // enforce the same enum wall as the action and status paths.
+                // Keep legacy registrations readable while pressing one fixed stop.
+                let safe_band=crate::gate::snake::safe_band_path(band)?;
+                let action=if safe_band == "unit/control" { payload.get("action").and_then(Value::as_str) }
+                    else { safe_band.strip_prefix("unit/") };
+                let unit_verb=action.filter(|v| matches!(*v,"start"|"stop"|"restart"|"enable"|"disable"|"status"));
+                if safe_band == "unit/control" && unit_verb.is_none() { return Err("pid2-action-unknown".into()); }
                 let mut status_read=None;
-                if crate::gate::snake::safe_band_path(band)? == "unit/control" {
+                let mut translated_band=None;
+                let mut translated_payload=None;
+                if safe_band == "unit/control" || unit_verb.is_some() {
                     let unit=payload.get("unit").and_then(Value::as_str).ok_or("pid2-action-unit-missing")?;
                     let scope=unit_scope(unit)?;
                     if payload.get("scope").and_then(Value::as_str)!=Some(scope.as_str()) { return Err("pid2-unit-scope-mismatch".into()); }
-                    if payload.get("action").and_then(Value::as_str)==Some("status") { status_read=Some(unit_status(unit,&scope)); }
+                    if unit_verb==Some("status") { status_read=Some(unit_status(unit,&scope)); }
                     else if unit_entry(unit)?.get("observe_only").and_then(Value::as_bool)==Some(true) { return Err("pid2-unit-observe-only".into()); }
+                    if safe_band == "unit/control" {
+                        if let Some(verb)=unit_verb {
+                            translated_band=Some(format!("unit/{verb}"));
+                            translated_payload=Some(json!({"unit":unit,"scope":scope}));
+                        }
+                    }
                 }
                 let seconds=step.get("deadline_seconds").and_then(Value::as_u64).unwrap_or(180);
                 if !(1..=600).contains(&seconds) { return Err("pid2-staff-deadline-out-of-range".into()); }
                 let result=if let Some(status)=status_read { status.map(|receipt|json!({"ok":true,"converged":true,"receiptPayload":receipt})) }
-                    else { crate::gate::snake::crossing_path_with_timeout(band,payload,std::time::Duration::from_secs(seconds)) };
+                    else { crate::gate::snake::crossing_path_with_timeout(translated_band.as_deref().unwrap_or(band),translated_payload.as_ref().unwrap_or(payload),std::time::Duration::from_secs(seconds)) };
                 let signal=match result {
                     Err(signal)=>Some(signal),
                     Ok(reply)=>{

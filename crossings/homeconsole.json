@@ -2,6 +2,13 @@
   "schema": "appliance.crossings.v1",
   "profile": "homeconsole",
   "bands": [
+    "appliance/service/start",
+    "appliance/service/stop",
+    "appliance/service/restart",
+    "appliance/service/enable",
+    "appliance/service/disable",
+    "appliance/service/status",
+    "appliance/service/reload",
     "appliance/harmonia-press",
     "appliance/journal-vacuum",
     "appliance/service",
@@ -42,6 +49,13 @@
     "update/sources-reseed"
   ],
   "verbs": [
+    ["service", "start"],
+    ["service", "stop"],
+    ["service", "restart"],
+    ["service", "enable"],
+    ["service", "disable"],
+    ["service", "status"],
+    ["service", "reload"],
     [
       "cert",
       "house-ca"
@@ -213,6 +227,13 @@
   ],
   "administrative": {
     "bands": [
+      "appliance/service/start",
+      "appliance/service/stop",
+      "appliance/service/restart",
+      "appliance/service/enable",
+      "appliance/service/disable",
+      "appliance/service/status",
+      "appliance/service/reload",
       "appliance/service",
       "appliance/sudo-passwordless",
       "network/dns",
@@ -222,6 +243,13 @@
       "storage/vault/policy"
     ],
     "verbs": [
+      ["service", "start"],
+      ["service", "stop"],
+      ["service", "restart"],
+      ["service", "enable"],
+      ["service", "disable"],
+      ["service", "status"],
+      ["service", "reload"],
       [
         "exousia",
         "change"

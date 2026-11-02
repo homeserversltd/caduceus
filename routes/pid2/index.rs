@@ -44,7 +44,16 @@ pub(crate) fn unit_control(payload: &Value) -> Result<Value,String> {
     unit_control_with_timeout(payload,std::time::Duration::from_secs(300))
 }
 pub(crate) fn unit_control_with_timeout(payload: &Value, timeout: std::time::Duration) -> Result<Value,String> {
-    let result = crate::gate::snake::crossing_path_with_timeout("unit/control",payload,timeout)?;
+    // Existing PID 2 callers supply the legacy action internally; only nouns
+    // cross the staff boundary. Restrict the path to the known unit verbs.
+    let action=payload.get(stringify!(action)).and_then(Value::as_str).ok_or("pid2-action-missing")?;
+    let band=match action {
+        "start"=>"unit/start", "stop"=>"unit/stop", "restart"=>"unit/restart",
+        "enable"=>"unit/enable", "disable"=>"unit/disable", "status"=>"unit/status",
+        _=>return Err("pid2-action-unknown".into()),
+    };
+    let nouns=json!({"unit":payload.get("unit"),"scope":payload.get("scope")});
+    let result = crate::gate::snake::crossing_path_with_timeout(band,&nouns,timeout)?;
     let receipt = result.get("receiptPayload").cloned().unwrap_or(Value::Null);
     if result.get("ok").and_then(Value::as_bool) != Some(true) || receipt.get("ok").and_then(Value::as_bool) != Some(true)
         || result.get("converged").and_then(Value::as_bool) == Some(false) || receipt.get("converged").and_then(Value::as_bool) == Some(false) {

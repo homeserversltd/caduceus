@@ -1,1 +1,1 @@
-{"namespace":"appliance/service/:service/status","admittance":"admitted","flags":{},"serve":[{"rust":"appliance_service_control"},{"snake":"appliance/service"}],"commands":[],"needs":["nas"]}
+{"namespace":"appliance/service/:service/status","admittance":"admitted","flags":{},"serve":[{"rust":"appliance_service_control"},{"snake":"appliance/service/status","verb":["service","status"]}],"commands":[],"needs":["nas"]}

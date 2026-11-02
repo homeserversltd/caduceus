@@ -2,6 +2,13 @@
   "schema": "appliance.crossings.v1",
   "profile": "lab",
   "bands": [
+    "appliance/service/start",
+    "appliance/service/stop",
+    "appliance/service/restart",
+    "appliance/service/enable",
+    "appliance/service/disable",
+    "appliance/service/status",
+    "appliance/service/reload",
     "storage/backup/backblaze/bucket-add",
     "storage/backup/backblaze/bucket-credentials",
     "storage/backup/backblaze/bucket-verify",
@@ -94,6 +101,13 @@
     "xenos/run"
   ],
   "verbs": [
+    ["service", "start"],
+    ["service", "stop"],
+    ["service", "restart"],
+    ["service", "enable"],
+    ["service", "disable"],
+    ["service", "status"],
+    ["service", "reload"],
     ["backblaze", "bucket-add"],
     ["backblaze", "bucket-credentials"],
     ["backblaze", "bucket-verify"],
@@ -567,6 +581,13 @@
   ],
   "administrative": {
     "bands": [
+      "appliance/service/start",
+      "appliance/service/stop",
+      "appliance/service/restart",
+      "appliance/service/enable",
+      "appliance/service/disable",
+      "appliance/service/status",
+      "appliance/service/reload",
       "local-ai/edition",
       "storage/backup/backblaze/bucket-add",
       "storage/backup/backblaze/bucket-credentials",
@@ -596,6 +617,13 @@
       "storage/vault/policy"
     ],
     "verbs": [
+      ["service", "start"],
+      ["service", "stop"],
+      ["service", "restart"],
+      ["service", "enable"],
+      ["service", "disable"],
+      ["service", "status"],
+      ["service", "reload"],
       ["local-ai", "edition"],
       ["backblaze", "bucket-add"],
       ["backblaze", "bucket-credentials"],

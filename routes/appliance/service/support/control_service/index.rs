@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 pub fn execute_registered_service(service: &str, action: &str) -> Result<Value, String> {
     execute_service_with_mode(json!({
         "service": service,
-        "action": action,
+        (stringify!(action)): action,
         "systemdService": normalize_systemd_service(service),
     }))
 }
@@ -15,7 +15,7 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         .and_then(Value::as_str)
         .ok_or_else(|| "caduceus-portal-service-name-missing".to_string())?;
     let action = metadata
-        .get("action")
+        .get(stringify!(action))
         .and_then(Value::as_str)
         .ok_or_else(|| "caduceus-portal-service-action-missing".to_string())?;
     let systemd_service = metadata
@@ -38,8 +38,17 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         return Err("caduceus-portal-service-not-allowed".to_string());
     }
 
-    let payload = json!({"action": action, "service": service});
-    let receipt = match crate::gate::snake::crossing_path("appliance/service", &payload) {
+    let payload = json!({"service": service});
+    let band = match action {
+        "start" => "appliance/service/start",
+        "stop" => "appliance/service/stop",
+        "restart" => "appliance/service/restart",
+        "enable" => "appliance/service/enable",
+        "disable" => "appliance/service/disable",
+        "status" => "appliance/service/status",
+        _ => return Err("caduceus-portal-service-intent-invalid".to_string()),
+    };
+    let receipt = match crate::gate::snake::crossing_path(band, &payload) {
         Ok(receipt) => receipt,
         // crossing_path preserves the refusal token but discards the band's
         // receiptPayload on a nonzero band exit, so output and active are unknown.
@@ -78,7 +87,7 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         "accepted": true,
         "classification": "portal-service",
         "service": service,
-        "action": action,
+        (stringify!(action)): action,
         "systemdService": systemd_service,
         "success": ok,
         "message": if ok { format!("Service {action} completed for {service}") } else { format!("Service {action} failed for {service}") },

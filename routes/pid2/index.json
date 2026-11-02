@@ -5,7 +5,7 @@
   "profiles": ["homeserver", "homesi", "everything-lit"],
   "needs": [],
   "commands": ["enable", "disable", "start", "stop", "restart", "hold", "release", "status", "list"],
-  "serve": [],
+  "serve": [{"snake":"unit/start", "verb":["unit", "start"]}, {"snake":"unit/stop", "verb":["unit", "stop"]}, {"snake":"unit/restart", "verb":["unit", "restart"]}, {"snake":"unit/enable", "verb":["unit", "enable"]}, {"snake":"unit/disable", "verb":["unit", "disable"]}, {"snake":"unit/status", "verb":["unit", "status"]}],
   "operations": [
     {"http_method":"GET", "http_path":"/api/v1/pid2/schedule/list", "administrative":false, "mutation_allowed":false, "needs":[], "commands":[]},
     {"http_method":"GET", "http_path":"/api/v1/pid2/schedule/status/{id}", "administrative":false, "mutation_allowed":false, "needs":[], "commands":[]},
