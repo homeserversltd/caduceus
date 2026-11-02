@@ -4,6 +4,9 @@ use std::{collections::{HashMap, HashSet, VecDeque}, ffi::CString, io::{Read, Se
 use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, AsyncReadExt, BufReader, Interest}, sync::mpsc};
 use zbus::{Connection, Message, MatchRule, MessageStream, Proxy, message::Type, zvariant::{OwnedObjectPath, OwnedValue}};
 
+#[path="kernel_senses.rs"]
+pub(super) mod kernel_senses;
+
 #[derive(Clone,Debug,Eq,Hash,PartialEq,serde::Serialize,serde::Deserialize)]
 pub(super) enum DeviceState {
     Unknown,
@@ -13,12 +16,12 @@ pub(super) enum DeviceState {
 #[derive(Clone,Debug,Eq,Hash,PartialEq,serde::Serialize,serde::Deserialize)]
 pub(super) enum DirtyKey {
     All, Startup, Unit(String,String), Job(String,String), Sense(String), Mount(PathBuf), Device(String,String,DeviceState,DeviceState),
-    Routine(String), Line(String,String), Schedule, Offline(String), Unavailable(String),
+    Netns(String), Link(String,String), File(PathBuf), Routine(String), Line(String,String), Schedule, Offline(String), Unavailable(String),
 }
 #[derive(Default)]
 struct Pending { keys:HashSet<DirtyKey>, full:bool }
 #[derive(Clone)]
-struct Wake { tx:mpsc::Sender<()>, pending:Arc<Mutex<Pending>>, offline:Arc<std::sync::atomic::AtomicU8> }
+struct Wake { tx:mpsc::Sender<()>, pending:Arc<Mutex<Pending>>, offline:Arc<std::sync::atomic::AtomicU8>, reconfigure:tokio::sync::watch::Sender<()>, mount_event:tokio::sync::watch::Sender<()> }
 impl Wake {
     // Preserve a failed walk's inputs without generating a self-wake.  They
     // join the next real event; overflow remains one bounded full walk.
@@ -34,6 +37,7 @@ impl Wake {
         }
     }
     fn push(&self,key:DirtyKey) {
+        if matches!(key,DirtyKey::Routine(_)|DirtyKey::All|DirtyKey::Startup) { self.reconfigure.send_replace(()); }
         if let Ok(mut pending)=self.pending.lock() {
             if !pending.full {
                 if key==DirtyKey::All { pending.full=true; pending.keys.clear(); }
@@ -44,7 +48,7 @@ impl Wake {
         let _=self.tx.try_send(());
     }
     fn offline(&self,scope:&str) {
-        let bit=match scope {"system"=>1,"owner"=>2,"udev"=>4,"mount"=>8,_=>0};
+        let bit=match scope {"system"=>1,"owner"=>2,"udev"=>4,"mount"=>8,"netns"=>16,"link"=>32,"file"=>64,_=>0};
         if let Ok(mut pending)=self.pending.lock() {
             self.offline.fetch_or(bit,Ordering::AcqRel);
             if !pending.full {
@@ -655,6 +659,7 @@ async fn watch_mounts(tx: Wake, mounts: Arc<RwLock<Option<HashSet<PathBuf>>>>) {
                 changed
             };
             ready.clear_ready();
+            tx.mount_event.send_replace(());
             for path in changed { tx.push(DirtyKey::Mount(path)); }
         }
     }.await;
@@ -663,13 +668,16 @@ async fn watch_mounts(tx: Wake, mounts: Arc<RwLock<Option<HashSet<PathBuf>>>>) {
     if let Err(error)=result { eprintln!("pid2-mount-watch: {error}"); }
 }
 
-pub struct Senses { pub system: Arc<AtomicBool>, pub owner: Arc<AtomicBool>, pub udev: Arc<AtomicBool>, pub mounts: Arc<RwLock<Option<HashSet<PathBuf>>>> }
+pub struct Senses { pub system: Arc<AtomicBool>, pub owner: Arc<AtomicBool>, pub udev: Arc<AtomicBool>, pub mounts: Arc<RwLock<Option<HashSet<PathBuf>>>>, pub(super) kernel: Arc<kernel_senses::Cache> }
 impl Senses { pub fn online(&self, scope: &str) -> bool { match scope { "system"=>self.system.load(Ordering::Acquire), "owner"=>self.owner.load(Ordering::Acquire), "udev"=>self.udev.load(Ordering::Acquire), _=>false } } }
 pub async fn run() {
     let (channel,mut rx) = mpsc::channel::<()>(1);
-    let tx=Wake{tx:channel,pending:Arc::new(Mutex::new(Pending::default())),offline:Arc::new(std::sync::atomic::AtomicU8::new(0))};
-    let senses = Arc::new(Senses { system:Arc::new(AtomicBool::new(false)),owner:Arc::new(AtomicBool::new(false)),udev:Arc::new(AtomicBool::new(false)),mounts:Arc::new(RwLock::new(None)) });
+    let (reconfigure,config_rx)=tokio::sync::watch::channel(());
+    let (mount_event,mount_rx)=tokio::sync::watch::channel(());
+    let tx=Wake{tx:channel,pending:Arc::new(Mutex::new(Pending::default())),offline:Arc::new(std::sync::atomic::AtomicU8::new(0)),reconfigure,mount_event};
+    let senses = Arc::new(Senses { system:Arc::new(AtomicBool::new(false)),owner:Arc::new(AtomicBool::new(false)),udev:Arc::new(AtomicBool::new(false)),mounts:Arc::new(RwLock::new(None)),kernel:Arc::new(kernel_senses::Cache::default()) });
     let tasks = [
+        tokio::spawn(kernel_senses::run(tx.clone(),senses.kernel.clone(),config_rx,mount_rx)),
         tokio::spawn(watch_mounts(tx.clone(),senses.mounts.clone())),
         tokio::spawn(watch_systemd(tx.clone(),senses.system.clone())),
         tokio::spawn(watch_owner(tx.clone(),senses.owner.clone())),
@@ -692,6 +700,7 @@ pub async fn run() {
             };
             let local=keys.clone();
             keys.extend(durable.iter().map(|(_,key)|key.clone()));
+            if keys.iter().any(|k|matches!(k,DirtyKey::Routine(_)|DirtyKey::All|DirtyKey::Startup)) { worker_wake.reconfigure.send_replace(()); }
             if keys.is_empty() { continue; }
             match tokio::task::spawn_blocking(move || super::solver::reconcile(&senses,keys)).await {
                 Ok(Ok(()))=>{if let Err(error)=acknowledge_wakes(&durable) {eprintln!("pid2-command-wake-ack-failed: {error}");}},
@@ -721,10 +730,11 @@ pub async fn run() {
                     // The heartbeat checks only our durable wake set, not the world.
                     let durable=match wakes_waiting() {Ok(changed)=>changed,Err(error)=>{eprintln!("pid2-command-wake-read-failed: {error}");false}};
                     let bits=tx.offline.load(Ordering::Acquire);
-                    for (scope,bit) in [("system",1),("owner",2),("udev",4),("mount",8)] {
-                        let is_offline=if scope=="mount" { senses.mounts.read().map_or(true,|m|m.is_none()) } else { !senses.online(scope) };
+                    for (scope,bit) in [("system",1),("owner",2),("udev",4),("mount",8),("netns",16),("link",32),("file",64)] {
+                        let is_offline=if scope=="mount" { senses.mounts.read().map_or(true,|m|m.is_none()) } else if matches!(scope,"netns"|"link"|"file") { false } else { !senses.online(scope) };
                         if bits&bit!=0 || is_offline { tx.push(DirtyKey::Offline(scope.to_owned())); }
                     }
+                    for key in senses.kernel.offline_keys() {tx.push(key);}
                     if durable {break;}
                 },
                 _=tokio::time::sleep_until(clock_deadline)=>break,

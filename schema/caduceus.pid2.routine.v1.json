@@ -19,7 +19,8 @@
           "line": {"type": "string"},
           "select": {"type": "object", "properties": {"line": {"type":"string"}, "map": {"type":"object"}}, "additionalProperties":true},
           "needs": {"type": "array", "items": {"type": "object", "properties": {
-            "kind": {"type": "string", "enum": ["await-device", "await-mount", "await-line", "await-ready", "await-owner", "observe"]},
+            "kind": {"type": "string", "enum": ["await-device", "await-mount", "await-line", "await-ready", "await-owner", "observe", "await-netns", "observe-link", "observe-file"]},
+            "name": {"type": "string"}, "netns": {"type": "string"}, "link": {"type": "string"},
             "properties": {"type": "object"}, "path": {"type": "string"},
             "routine_id": {"type": "string"}, "line": {"type": "string"},
             "value": {}, "unit": {"type": "string"}, "scope": {"type": "string"},
@@ -28,7 +29,8 @@
           }, "additionalProperties": true}},
           "do": {"type":"array", "items":{"type":"object", "properties":{"staff":{"type":"string"}, "payload":{"type":"object"}, "deadline_seconds":{"type":"integer", "minimum":1, "maximum":600, "default":180}}, "additionalProperties":true}},
           "until": {"type":"array", "items":{"type":"object", "properties":{
-            "kind":{"type":"string", "enum":["await-device", "await-mount", "await-line", "await-ready", "await-owner", "observe"]},
+            "kind":{"type":"string", "enum":["await-device", "await-mount", "await-line", "await-ready", "await-owner", "observe", "await-netns", "observe-link", "observe-file"]},
+            "name":{"type":"string"}, "netns":{"type":"string"}, "link":{"type":"string"},
             "properties":{"type":"object"}, "path":{"type":"string"}, "routine_id":{"type":"string"}, "line":{"type":"string"}, "value":{}, "unit":{"type":"string"}, "scope":{"type":"string"}, "observer":{"type":"string"}, "pattern":{"type":"string"}, "seat":{"type":"string"}, "when_line":{"type":"string"}, "when_value":{}
           }, "additionalProperties":true}},
           "actions": {"type": "array", "items": {"type": "object", "properties": {

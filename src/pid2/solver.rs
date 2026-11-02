@@ -252,6 +252,32 @@ pub(super) fn watched_mounts() -> Result<HashSet<std::path::PathBuf>,String> {
     Ok(result)
 }
 
+// Install only facts named by enabled routine needs, including until needs.
+pub(super) fn watched_kernel() -> Result<super::events::kernel_senses::Watched,String> {
+    let Some(db)=super::read_db()? else { return Ok(Default::default()); };
+    if !super::table_exists(&db,"pid2_registrations")? { return Ok(Default::default()); }
+    let mut watched=super::events::kernel_senses::Watched::default();
+    let mut query=db.prepare("SELECT envelope FROM pid2_registrations WHERE enabled=1").map_err(|e|e.to_string())?;
+    let mut rows=query.query([]).map_err(|e|e.to_string())?;
+    while let Some(row)=rows.next().map_err(|e|e.to_string())? {
+        let raw:Vec<u8>=row.get(0).map_err(|e|e.to_string())?;
+        let envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+        for stage in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten() {
+            for field in ["needs","until"] {
+                for need in stage.get(field).and_then(Value::as_array).into_iter().flatten() {
+                    match need.get("kind").and_then(Value::as_str) {
+                        Some("await-netns") => if let Some(name)=need.get("name").and_then(Value::as_str) { watched.names.insert(name.to_owned()); },
+                        Some("observe-link") => if let (Some(ns),Some(link))=(need.get("netns").and_then(Value::as_str),need.get("link").and_then(Value::as_str)) { watched.names.insert(ns.to_owned()); watched.links.insert((ns.to_owned(),link.to_owned())); },
+                        Some("observe-file") => if let Some(path)=need.get("path").and_then(Value::as_str) { watched.files.insert(path.into()); },
+                        _=>{},
+                    }
+                }
+            }
+        }
+    }
+    Ok(watched)
+}
+
 fn mount_point(path: &str) -> Result<bool, String> {
     let content = std::fs::read_to_string("/proc/self/mountinfo").map_err(|e| format!("pid2-mountinfo-unavailable: {e}"))?;
     let target = Path::new(path);
@@ -326,6 +352,24 @@ fn resolve_line(routine: &str, name: &str, _senses: &super::events::Senses, _vis
 fn needs(routine: &str, stage_line: &str, need: &Value, senses: &super::events::Senses, visiting: &mut Visiting, separate_election: bool) -> Result<Option<String>, String> {
     let kind = need.get("kind").and_then(Value::as_str).ok_or("pid2-need-kind-missing")?;
     match kind {
+        "await-netns" => {
+            let name=need.get("name").and_then(Value::as_str).ok_or("pid2-netns-name-missing")?;
+            match senses.kernel.netns(name) { Some(true)=>Ok(None), Some(false)=>Err("pid2-await-netns".into()), None=>Err("pid2-netns-sense-unavailable".into()) }
+        },
+        "observe-link" => {
+            let ns=need.get("netns").and_then(Value::as_str).ok_or("pid2-netns-name-missing")?;
+            let link=need.get("link").and_then(Value::as_str).ok_or("pid2-link-name-missing")?;
+            if !super::events::kernel_senses::valid_link(link) {return Err("pid2-link-name-invalid".into());}
+            let value=senses.kernel.link(ns,link).ok_or("pid2-link-sense-unavailable")?;
+            if need.get("value").filter(|v|!v.is_null()).is_some_and(|expected|expected.as_str()!=Some(&value)) {return Err("pid2-await-link-value".into());}
+            Ok(Some(value))
+        },
+        "observe-file" => {
+            let path=need.get("path").and_then(Value::as_str).ok_or("pid2-file-path-missing")?;
+            let value=senses.kernel.file(Path::new(path)).ok_or("pid2-file-sense-unavailable")?;
+            if need.get("value").filter(|v|!v.is_null()).is_some_and(|expected|expected.as_str()!=Some(&value)) {return Err("pid2-await-file-value".into());}
+            Ok(Some(value))
+        },
         "observe" => {
             if separate_election {
                 let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
@@ -402,7 +446,22 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
     if stage.get("until").is_some_and(|value| !value.is_null() && !value.is_array()) { return Err("pid2-until-not-array".into()); }
     let crossings=stage.get("do").and_then(Value::as_array);
     let until=stage.get("until").and_then(Value::as_array);
-    let separate_election=crossings.is_some() || until.is_some() || stage.get("actions").and_then(Value::as_array).is_some_and(|a|!a.is_empty());
+    let dynamic=["needs","until"].into_iter().flat_map(|key|stage.get(key).and_then(Value::as_array).into_iter().flatten()).any(|n|matches!(n.get("kind").and_then(Value::as_str),Some("await-netns"|"observe-link"|"observe-file")));
+    // Migrate a retained boot election before replacing its old line row;
+    // a repurposed line without an election must not keep the old value.
+    if dynamic {
+        let election=stage.get("select").is_some_and(|v|!v.is_null()) || ["needs","until"].into_iter().flat_map(|key|stage.get(key).and_then(Value::as_array).into_iter().flatten()).any(|n|n.get("kind").and_then(Value::as_str)==Some("observe"));
+        let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+        let tx=db.transaction().map_err(|e|e.to_string())?;
+        if election {
+            tx.execute("INSERT OR IGNORE INTO pid2_elections(routine_id,line,value) SELECT routine_id,line,value FROM pid2_lines WHERE routine_id=?1 AND line=?2 AND state='Observed' AND value IS NOT NULL AND NOT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",params![routine,name]).map_err(|e|e.to_string())?;
+        }
+        let removed=tx.execute("DELETE FROM pid2_lines WHERE routine_id=?1 AND line=?2 AND state='Observed' AND NOT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",params![routine,name]).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;
+        drop(db);
+        if removed!=0 {REVISION.fetch_add(1,Ordering::Relaxed);deed("line",&format!("{routine}/{name}"),"Reevaluate",None);}
+    }
+    let separate_election=dynamic || crossings.is_some() || until.is_some() || stage.get("actions").and_then(Value::as_array).is_some_and(|a|!a.is_empty());
     let check_until = |visiting: &mut Visiting| -> Result<(),String> {
         if let Some(conditions)=until {
             for condition in conditions { needs(routine,name,condition,senses,visiting,separate_election)?; }
@@ -430,7 +489,7 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
         }
         let observed=needs(routine,name,need,senses,visiting,separate_election);
         let mut declared=serde_json::Map::new();
-        for key in ["kind","properties","path","routine_id","line","value","unit","scope","observer","pattern","seat","readiness"] {
+        for key in ["kind","properties","path","name","netns","link","routine_id","line","value","unit","scope","observer","pattern","seat","readiness"] {
             if let Some(v)=need.get(key) { declared.insert(key.into(),v.clone()); }
         }
         need_trace.push(json!({"need":declared,"observation":match &observed { Ok(value)=>json!({"value":value}),Err(reason)=>json!({"reason":reason}) }}));
@@ -587,7 +646,7 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
         };
         if let Some((state,reason))=problem { return write_line(routine,name,None,&state,Some(&reason)); }
     }
-    write_line(routine,name,Some(value.as_deref().unwrap_or("true")),if value.is_some() && !separate_election {"Observed"}else{"Done"},None)
+    write_line(routine,name,Some(value.as_deref().unwrap_or("true")),if value.is_some() && !separate_election && !dynamic {"Observed"}else{"Done"},None)
 }
 
 pub fn owner_answer(routine: &str, name: &str, answer: &str) -> Result<Value, String> {
@@ -728,6 +787,9 @@ fn stage_matches(routine:&str,stage:&Value,key:&super::events::DirtyKey)->bool {
     for need in conditions {
         let kind=need.get("kind").and_then(Value::as_str).unwrap_or("");
         let matches=match key {
+            DirtyKey::Netns(name)=>kind=="await-netns" && need.get("name").and_then(Value::as_str)==Some(name),
+            DirtyKey::Link(ns,link)=>kind=="observe-link" && need.get("netns").and_then(Value::as_str)==Some(ns) && need.get("link").and_then(Value::as_str)==Some(link),
+            DirtyKey::File(path)=>kind=="observe-file" && need.get("path").and_then(Value::as_str).is_some_and(|p|Path::new(p)==path),
             DirtyKey::Mount(path)=>kind=="await-mount" && need.get("path").and_then(Value::as_str).is_some_and(|p|Path::new(p)==path),
             DirtyKey::Device(subsystem,device,before,after)=>{
                 if kind=="observe" {subsystem=="drm" && (device_side_may_match(need,before) || device_side_may_match(need,after))} else if kind=="await-device" {
@@ -740,6 +802,7 @@ fn stage_matches(routine:&str,stage:&Value,key:&super::events::DirtyKey)->bool {
             DirtyKey::Unit(scope,unit)=>kind=="await-ready" && need.get("unit").and_then(Value::as_str)==Some(unit) && unit_scope(unit).is_ok_and(|s|s==*scope),
             DirtyKey::Sense(scope)|DirtyKey::Offline(scope)|DirtyKey::Unavailable(scope)=>match scope.as_str() {
                 "mount"=>kind=="await-mount", "udev"=>kind=="await-device" || kind=="observe",
+                "netns"=>kind=="await-netns", "link"=>kind=="observe-link", "file"=>kind=="observe-file",
                 "system"|"owner"=>kind=="await-ready" && need.get("unit").and_then(Value::as_str).is_some_and(|u|unit_scope(u).is_ok_and(|s|s==*scope)), _=>false,
             },
             _=>false,
