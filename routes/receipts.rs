@@ -418,14 +418,71 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
             staff_actuator_receipt("service-control-doors", "portals/service-control", metadata)
         }
         "disk-doors" => staff_actuator_receipt("disk-doors", "storage/disk-doors", metadata),
-        "wake-on-lan" => staff_actuator_receipt("wake-on-lan", "network/wake-on-lan", metadata),
-        "child-device" => staff_actuator_receipt("child-device", "network/child-device", metadata),
+        "wake-on-lan" => wake_stop_json(metadata),
+        "child-device" => child_device_stop_json(metadata),
         #[cfg(leaf_pid2)]
         "nas-sync" => crate::pid2::schedule::face(&metadata),
         #[cfg(not(leaf_pid2))]
         "nas-sync" => Err("caduceus-pid2-leaf-unavailable".into()),
         _ => Err("caduceus-staff-actuator-unmapped".to_string()),
     }
+}
+
+fn selected_fields(metadata: &Value, names: &[&str]) -> Value {
+    let mut fields = serde_json::Map::new();
+    for name in names {
+        if let Some(value) = metadata.get(*name) {
+            fields.insert((*name).to_string(), value.clone());
+        }
+    }
+    Value::Object(fields)
+}
+
+fn wake_stop_json(metadata: Value) -> Result<Value, String> {
+    let (stop, names): (&str, &[&str]) = match metadata.get("action").and_then(Value::as_str) {
+        Some("send") => ("network/wake-on-lan/send", &["mac", "broadcast"]),
+        Some("probe") => ("network/wake-on-lan/probe", &["ip"]),
+        _ => return Err("expected send or probe".into()),
+    };
+    stop_receipt(stop, selected_fields(&metadata, names))
+}
+
+fn child_device_stop_json(metadata: Value) -> Result<Value, String> {
+    let action = metadata.get("action").and_then(Value::as_str)
+        .ok_or_else(|| "child-device-envelope-metadata-invalid".to_string())?;
+    let (stop, names): (&str, &[&str]) = match action {
+        "observed" => ("network/child-device/observed", &[]),
+        "list" => ("network/child-device/list", &[]),
+        "apply" => ("network/child-device/apply", &[]),
+        "register" => ("network/child-device/register", &["mac", "name"]),
+        "unregister" => ("network/child-device/unregister", &["mac"]),
+        "whitelist get" => ("network/child-device/whitelist/get", &["mac"]),
+        "whitelist set" => ("network/child-device/whitelist/set", &["mac", "hosts"]),
+        _ => return Err("child-device-action-invalid".into()),
+    };
+    let mut fields = selected_fields(&metadata, names);
+    if action == "whitelist set" {
+        if metadata.get("hosts").is_some() && metadata.get("hostnames").is_some() {
+            return Err("child-device-whitelist-hosts-invalid".into());
+        }
+        if let Some(hostnames) = metadata.get("hostnames") {
+            fields["hosts"] = hostnames.clone();
+        }
+    }
+    stop_receipt(stop, fields)
+}
+
+pub fn stop_receipt(stop: &str, fields: Value) -> Result<Value, String> {
+    let walked = crate::gate::snake::crossing_path_with_timeout(stop, &fields, Duration::from_secs(30))?;
+    let receipt = walked.get("receiptPayload").cloned().filter(Value::is_object)
+        .ok_or_else(|| "caduceus-staff-invalid-receipt".to_string())?;
+    if walked.get("ok").and_then(Value::as_bool) != Some(true)
+        || receipt.get("ok").and_then(Value::as_bool) == Some(false)
+    {
+        return Err(receipt.get("firstMissingSignal").and_then(Value::as_str)
+            .unwrap_or("caduceus-staff-refused").to_string());
+    }
+    Ok(receipt)
 }
 
 fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Result<Value, String> {

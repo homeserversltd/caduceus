@@ -9,7 +9,26 @@ pub fn invoke(args: &[String]) -> Result<Value, String> {
     if args.is_empty() {
         return Err("child-device-command-missing".into());
     }
-    crate::gate::snake::crossing_path("network/child-device", &json!({"args": args}))
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    let invalid = || "child-device-request-invalid".to_string();
+    let plain = |s: &str| !s.starts_with('-');
+    let (stop, fields) = match words.as_slice() {
+        ["observed"] => ("network/child-device/observed", json!({})),
+        ["list"] => ("network/child-device/list", json!({})),
+        ["apply"] => ("network/child-device/apply", json!({})),
+        ["register", mac] if plain(mac) => ("network/child-device/register", json!({"mac": mac})),
+        ["register", mac, "--name", name] if plain(mac) && plain(name) =>
+            ("network/child-device/register", json!({"mac": mac, "name": name})),
+        ["unregister", mac] if plain(mac) => ("network/child-device/unregister", json!({"mac": mac})),
+        ["whitelist", "get", mac] if plain(mac) => ("network/child-device/whitelist/get", json!({"mac": mac})),
+        ["whitelist", "set", mac, hosts] if plain(mac) && plain(hosts) =>
+            ("network/child-device/whitelist/set", json!({"mac": mac, "hosts": hosts})),
+        ["whitelist", verb, ..] if *verb != "get" && *verb != "set" =>
+            return Err("child-device-action-invalid".into()),
+        ["observed" | "list" | "apply" | "register" | "unregister" | "whitelist", ..] => return Err(invalid()),
+        _ => return Err("child-device-action-invalid".into()),
+    };
+    crate::routes::gate_receipts::stop_receipt(stop, fields)
 }
 pub fn command(args: &[String]) -> i32 {
     match invoke(args) {
