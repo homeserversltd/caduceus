@@ -4,8 +4,12 @@ use std::time::Instant;
 
 pub fn read_json() -> Result<Value, String> {
     let profile_ok = config::carapace().is_object();
-    let state = config::read_public_file("var/lib/caduceus/state.json")
-        .unwrap_or_else(|_| "{}".to_string());
+    let state_present = config::harmonia_profile_index_path()
+        .map(|profile_path| {
+            let path = config::path(&profile_path);
+            path.is_file() && std::fs::File::open(path).is_ok()
+        })
+        .unwrap_or(false);
     let route_ok = harmonia::route("update_now").is_ok();
     let first_missing_signal = if profile_ok && route_ok {
         "none"
@@ -17,7 +21,7 @@ pub fn read_json() -> Result<Value, String> {
     Ok(json!({
         "schema": "caduceus.update.status.v1",
         "profilePresent": profile_ok,
-        "statePresent": state != "{}",
+        "statePresent": state_present,
         "routePresent": route_ok,
         "firstMissingSignal": first_missing_signal,
         "ok": profile_ok && route_ok
