@@ -1,0 +1,28 @@
+{
+  "schema": "caduceus.staff.crossing.v1",
+  "schema_version": "1.0.0",
+  "role": "newline-delimited staff socket request and reply",
+  "authority": {"owner": "caduceus", "path": "schema/caduceus.staff.crossing.v1.json"},
+  "evolution": {"law": "additive-only", "unknown_fields_skipped": true},
+  "request": {
+    "required": ["schema", "band", "envelope", "timeoutMs"],
+    "fields": {
+      "schema": {"const": "caduceus.staff.crossing.v1"},
+      "band": {"type": "string"},
+      "envelope": {"type": ["object", "string"], "description": "The original forwarded envelope, including unknown fields."},
+      "timeoutMs": {"type": "integer", "minimum": 1}
+    },
+    "additionalProperties": true,
+    "max_bytes_including_newline": 262144
+  },
+  "reply": {
+    "required": ["schema", "exit", "stdout", "stderr"],
+    "fields": {
+      "schema": {"const": "caduceus.staff.crossing.v1"},
+      "exit": {"type": "integer", "minimum": 0, "maximum": 255},
+      "stdout": {"type": "string", "max_utf8_bytes": 1048576},
+      "stderr": {"type": "string", "max_utf8_bytes": 65536}
+    },
+    "additionalProperties": true
+  }
+}

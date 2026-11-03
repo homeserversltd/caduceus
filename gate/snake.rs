@@ -299,6 +299,106 @@ fn execute_command(
     result
 }
 
+// This transport owns only the wire exchange. Once the newline is written,
+// even a lost reply is indeterminate and must never trigger a second execution.
+fn staff_socket_exchange(
+    band: &str,
+    raw: &str,
+    deadline: Instant,
+    timeout_error: &str,
+) -> Result<Option<(ExitStatus, Vec<u8>, Vec<u8>)>, String> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::process::ExitStatusExt;
+    use std::os::unix::net::UnixStream;
+
+    const PATH: &[u8] = b"/run/caduceus/agathodaimon-crossing.sock\0";
+    const REQUEST_BOUND: usize = 256 * 1024;
+    // JSON escaping can expand every output byte to six bytes.
+    const REPLY_BOUND: usize = 6 * (1024 * 1024 + 64 * 1024) + 4096;
+    let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC, 0) };
+    if fd < 0 { return Err("caduceus-staff-socket-create-failed".into()); }
+    let mut stream = unsafe { UnixStream::from_raw_fd(fd) };
+    let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+    address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+    for (i, b) in PATH.iter().enumerate() { address.sun_path[i] = *b as libc::c_char; }
+    let connected = unsafe { libc::connect(fd, &address as *const _ as *const libc::sockaddr, (std::mem::size_of::<libc::sa_family_t>() + PATH.len()) as libc::socklen_t) };
+    if connected != 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EINPROGRESS) { return Ok(None); }
+        if !socket_ready(fd, libc::POLLOUT, deadline) { return Err(timeout_error.into()); }
+        let mut error: libc::c_int = 0;
+        let mut length = std::mem::size_of_val(&error) as libc::socklen_t;
+        if unsafe { libc::getsockopt(fd, libc::SOL_SOCKET, libc::SO_ERROR, &mut error as *mut _ as *mut _, &mut length) } != 0 || error != 0 { return Ok(None); }
+    }
+    // Send the (incomplete) prefix first; it cannot dispatch without a newline.
+    // Compute the relative budget only after the potentially large envelope has
+    // crossed, immediately before transmitting the final timeout and newline.
+    let mut request = format!("{{\"schema\":\"caduceus.staff.crossing.v1\",\"band\":{},\"envelope\":{},\"timeoutMs\":", serde_json::to_string(band).map_err(|_| "caduceus-staff-socket-request-invalid")?, raw).into_bytes();
+    if request.len() + 22 > REQUEST_BOUND { return Err("caduceus-staff-socket-request-too-large".into()); }
+    for part in 0..2 {
+        if part == 1 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() { return Err(timeout_error.into()); }
+            request = format!("{}}}\n", remaining.as_millis().max(1)).into_bytes();
+        }
+        let mut written = 0;
+        while written < request.len() {
+            if Instant::now() >= deadline { return Err(timeout_error.into()); }
+            match stream.write(&request[written..]) {
+                Ok(0) => return Ok(None),
+                Ok(n) => written += n,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    if !socket_ready(stream.as_raw_fd(), libc::POLLOUT, deadline) { return Err(timeout_error.into()); }
+                }
+                Err(_) => return Ok(None),
+            }
+        }
+    }
+    request.clear();
+    let mut reply = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        if Instant::now() >= deadline { return Err(timeout_error.into()); }
+        match stream.read(&mut chunk) {
+            Ok(0) => return Err("caduceus-staff-socket-reply-eof".into()),
+            Ok(n) => {
+                let part = &chunk[..n];
+                let end = part.iter().position(|b| *b == b'\n');
+                let take = end.map_or(n, |i| i + 1);
+                if reply.len() + take > REPLY_BOUND { return Err("caduceus-staff-socket-reply-too-large".into()); }
+                reply.extend_from_slice(&part[..take]);
+                if end.is_some() { break; }
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                if !socket_ready(fd, libc::POLLIN, deadline) { return Err(timeout_error.into()); }
+            }
+            Err(_) => return Err("caduceus-staff-socket-reply-read-failed".into()),
+        }
+    }
+    let value: Value = serde_json::from_slice(&reply).map_err(|_| "caduceus-staff-socket-reply-invalid")?;
+    if value.get("schema").and_then(Value::as_str) != Some("caduceus.staff.crossing.v1") { return Err("caduceus-staff-socket-schema-invalid".into()); }
+    let exit = value.get("exit").and_then(Value::as_i64).filter(|v| (0..=255).contains(v)).ok_or("caduceus-staff-socket-exit-invalid")? as i32;
+    let stdout = value.get("stdout").and_then(Value::as_str).ok_or("caduceus-staff-socket-stdout-invalid")?.as_bytes().to_vec();
+    let stderr = value.get("stderr").and_then(Value::as_str).ok_or("caduceus-staff-socket-stderr-invalid")?.as_bytes().to_vec();
+    if stdout.len() > MAX_CHORD_OUTPUT_BYTES || stderr.len() > MAX_OUTPUT_BYTES { return Err("caduceus-staff-socket-output-too-large".into()); }
+    Ok(Some((ExitStatus::from_raw(exit << 8), stdout, stderr)))
+}
+
+fn socket_ready(fd: libc::c_int, events: libc::c_short, deadline: Instant) -> bool {
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() { return false; }
+        let millis = remaining.as_millis().max(1).min(i32::MAX as u128) as i32;
+        let mut pollfd = libc::pollfd { fd, events, revents: 0 };
+        let result = unsafe { libc::poll(&mut pollfd, 1, millis) };
+        if result > 0 { return true; }
+        if result == 0 { return false; }
+        if io::Error::last_os_error().kind() != io::ErrorKind::Interrupted { return false; }
+    }
+}
+
 fn execute_command_raw(
     band: &str,
     outer_envelope: &Value,
@@ -313,6 +413,17 @@ fn execute_command_raw(
     appended_staff_stamps: &mut usize,
 ) -> Result<Value, String> {
     let (forwarded, raw) = prepare_envelope(outer_envelope)?;
+    let deadline = Instant::now() + timeout;
+    // Only the standard bounded band invocation may use this transport;
+    // xenos and schedule process-group invocations retain their fork path.
+    let socket_eligible = !terminate_group && timeout_error == "caduceus-agathodaimon-timeout" && timeout <= MAX_CROSSING_TIMEOUT;
+    let socket_reply = if socket_eligible {
+        staff_socket_exchange(band, &raw, deadline, timeout_error)?
+    } else { None };
+    let (status, stdout, stderr, stdin_ok) = if let Some((status, stdout, stderr)) = socket_reply {
+        (Some(status), Some(stdout), Some(stderr), true)
+    } else {
+    if socket_eligible && Instant::now() >= deadline { return Err(timeout_error.into()); }
     if terminate_group {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
@@ -352,7 +463,7 @@ fn execute_command_raw(
             .read_to_end(&mut bytes)
             .map(|_| bytes)
     });
-    let deadline = Instant::now() + timeout;
+    let deadline = if socket_eligible { deadline } else { Instant::now() + timeout };
     let status = match crate::shared::child_wait::until(&mut child, deadline) {
         Ok(Some(status)) => Some(status),
         _ => {
@@ -370,6 +481,8 @@ fn execute_command_raw(
     let stdin_ok = writer.join().ok().is_some_and(|result| result.is_ok());
     let stdout = stdout_reader.join().ok().and_then(std::result::Result::ok);
     let stderr = stderr_reader.join().ok().and_then(std::result::Result::ok);
+    (status, stdout, stderr, stdin_ok)
+    };
     if status.is_none() {
         return Err(timeout_error.to_string());
     }

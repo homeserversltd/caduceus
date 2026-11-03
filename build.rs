@@ -464,6 +464,7 @@ fn main() {
         "caduceus.nas.sync.v1",
         "caduceus.pjlink.known_product.v1",
         "appliance.crossings.v1",
+        "caduceus.staff.crossing.v1",
     ]
     .map(|id| PathBuf::from(format!("schema/{id}.json")));
     let mut embedded = String::from("const EMBEDDED_SEATS: &[(&str, &str)] = &[\n");
