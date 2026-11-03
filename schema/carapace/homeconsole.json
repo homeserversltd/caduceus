@@ -77,7 +77,6 @@
     "sway",
     "pactl",
     "desktop",
-    "nmcli",
     "console-management"
   ]
 }

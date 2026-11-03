@@ -82,7 +82,6 @@
     "sway",
     "pactl",
     "desktop",
-    "nmcli",
     "gtk4"
   ]
 }
