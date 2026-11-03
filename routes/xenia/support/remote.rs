@@ -44,29 +44,18 @@ struct HttpsResponse {
     body: Vec<u8>,
 }
 
-/// Normalize only full commit references; return the lookup tag and the
-/// underlying commit identity without letting the tag become that identity.
+/// Only a raw full commit reference selects the direct-tag road. A `sha-...`
+/// string is a branch name, as it is for the installer.
 fn commit_reference(reference: &str) -> Option<(String, String)> {
-    let sha = match reference.strip_prefix("sha-") {
-        Some(sha)
-            if sha.len() == 40
-                && sha
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
-        {
-            sha
-        }
-        Some(_) => return None,
-        None if reference.len() == 40
-            && reference
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
-        {
-            reference
-        }
-        None => return None,
-    };
-    Some((sha.to_owned(), sha.to_owned()))
+    if reference.len() == 40
+        && reference
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        Some((reference.to_owned(), reference.to_owned()))
+    } else {
+        None
+    }
 }
 
 fn https(url: &str, token: &str) -> Result<HttpsResponse> {
@@ -461,7 +450,7 @@ pub fn release(manifest: &Value) -> Result<Value> {
             let draft = match row.get("draft") {
                 None | Some(Value::Null | Value::Bool(false)) => false,
                 Some(Value::Bool(true)) => true,
-                Some(Value::Number(n)) => n.as_f64().is_some_and(|v| v != 0.0),
+                Some(Value::Number(n)) => n.as_f64().map_or(true, |v| v != 0.0),
                 Some(Value::String(s)) => !s.is_empty(),
                 Some(Value::Array(a)) => !a.is_empty(),
                 Some(Value::Object(o)) => !o.is_empty(),
