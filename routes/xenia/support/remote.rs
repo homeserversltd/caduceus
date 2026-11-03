@@ -458,7 +458,15 @@ pub fn release(manifest: &Value) -> Result<Value> {
         }
         if !complete { return Err(observation("F", "release", "release-list-limit")); }
         releases.retain(|row| {
-            !row.get("draft").and_then(Value::as_bool).unwrap_or(false)
+            let draft = match row.get("draft") {
+                None | Some(Value::Null | Value::Bool(false)) => false,
+                Some(Value::Bool(true)) => true,
+                Some(Value::Number(n)) => n.as_f64().is_some_and(|v| v != 0.0),
+                Some(Value::String(s)) => !s.is_empty(),
+                Some(Value::Array(a)) => !a.is_empty(),
+                Some(Value::Object(o)) => !o.is_empty(),
+            };
+            !draft
                 && row.get("target_commitish").and_then(Value::as_str)
                     .is_some_and(|sha| sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
         });
