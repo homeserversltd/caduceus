@@ -1,0 +1,15 @@
+{
+  "namespace": "storage/backup/pair",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["nas"],
+  "commands": [],
+  "serve": [],
+  "operations": [
+    {"http_method":"POST","http_path":"/api/v1/storage/backup/pair/request","administrative":false,"mutation_allowed":true,"needs":["nas"],"commands":[]},
+    {"http_method":"POST","http_path":"/api/v1/storage/backup/pair/status","administrative":false,"mutation_allowed":false,"needs":["nas"],"commands":[]},
+    {"http_method":"POST","http_path":"/api/v1/storage/backup/pair/list","administrative":true,"mutation_allowed":false,"needs":["nas"],"commands":[]},
+    {"http_method":"POST","http_path":"/api/v1/storage/backup/pair/accept","administrative":true,"mutation_allowed":true,"needs":["nas"],"commands":[]},
+    {"http_method":"POST","http_path":"/api/v1/storage/backup/pair/revoke","administrative":true,"mutation_allowed":true,"needs":["nas"],"commands":[]}
+  ]
+}
