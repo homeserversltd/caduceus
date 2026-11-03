@@ -245,6 +245,14 @@ fn shelf_band_is_indexed(sbin: &Path, wanted: &str) -> bool {
                 if child_index_path.is_file() && child_index.is_none() {
                     return false;
                 }
+                // A chord is its index.json: its serve stages are the act, and it has no face file.
+                if child_index
+                    .as_ref()
+                    .and_then(|index| index.get("serve"))
+                    .is_some_and(serde_json::Value::is_array)
+                {
+                    return true;
+                }
                 let face = child_index
                     .as_ref()
                     .and_then(|index| index.get("face"))
