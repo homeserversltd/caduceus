@@ -18,7 +18,11 @@ fn actuator_receipt(transition: &str, payload: Option<Value>) -> Result<Value, S
     let mut envelope = json!({"schema":SCHEMA,"intent_id":format!("caduceus-settings-shortcuts-{transition}"),"transition":transition,"origin_of_intent":"near"});
     if let Some(payload) = payload { envelope["payload"] = payload; }
     let walked = crate::gate::snake::run(BAND, &envelope)?;
-    walked.get("envelope").and_then(|value| value.get("caduceusReceipt")).and_then(|value| value.get("stepReceipt")).cloned().ok_or_else(|| "caduceus-snake-staff-receipt-missing".to_string())
+    let receipt = walked.get("envelope").and_then(|value| value.get("caduceusReceipt")).and_then(|value| value.get("stepReceipt")).cloned().ok_or_else(|| "caduceus-snake-staff-receipt-missing".to_string())?;
+    if walked.get("ok").and_then(Value::as_bool) == Some(false) && !receipt.is_object() {
+        return Err(walked.get("rawChildStderr").and_then(Value::as_str).map(str::trim).filter(|signal| !signal.is_empty()).or_else(|| walked.get("firstMissingSignal").and_then(Value::as_str)).unwrap_or("caduceus-agathodaimon-refused").to_string());
+    }
+    Ok(receipt)
 }
 
 async fn read_http() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
