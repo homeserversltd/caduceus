@@ -1,8 +1,28 @@
 // Firewall staff command, crossed only through agathodaimon network firewall.
 use serde_json::Value;
 
+fn firewall_stop(action: Option<&str>) -> Option<(&'static str, &'static [&'static str])> {
+    match action {
+        Some("observed") => Some(("network/firewall/observed", &[])),
+        Some("list") => Some(("network/firewall/list", &[])),
+        Some("register") => Some(("network/firewall/register", &["mac"])),
+        Some("unregister") => Some(("network/firewall/unregister", &["mac"])),
+        Some("whitelist-get") => Some(("network/firewall/whitelist/get", &["mac"])),
+        Some("whitelist-set") => Some(("network/firewall/whitelist/set", &["mac", "hostnames", "revision"])),
+        _ => None,
+    }
+}
+
 pub fn invoke(intent: Value) -> Result<Value, Value> {
-    crate::gate::snake::crossing_path("network/firewall", &intent)
+    let (path, fields) = firewall_stop(intent.get("action").and_then(Value::as_str))
+        .ok_or_else(|| serde_json::json!({"error":"firewall-action-invalid"}))?;
+    let mut payload = serde_json::Map::new();
+    for &field in fields {
+        if let Some(value) = intent.get(field) {
+            payload.insert(field.to_owned(), value.clone());
+        }
+    }
+    crate::gate::snake::crossing_path(path, &Value::Object(payload))
         .map_err(|e| serde_json::json!({"error":e}))
 }
 pub fn command_json(intent: Value) -> Result<Value, Value> {
