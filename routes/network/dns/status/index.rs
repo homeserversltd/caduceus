@@ -19,49 +19,50 @@ fn public_receipt(value: Value) -> Value {
     })
 }
 
-fn invoke(args: &[String]) -> Result<Value, String> {
-    crate::gate::snake::crossing_path("network/dns", &json!({"args": args}))
+fn invoke(band: &str, payload: Value) -> Result<Value, String> {
+    crate::gate::snake::crossing_path(band, &payload)
         .map(public_receipt)
 }
 
 pub fn status_json() -> Result<Value, String> {
-    invoke(&["status".into()])
+    invoke("network/dns/status", json!({}))
 }
 
 pub fn read_json() -> Result<Value, String> {
-    invoke(&["read".into()])
+    invoke("network/dns/read", json!({}))
 }
 
 #[cfg(carapace_feature_unbound)]
 pub fn resolver_json(action: &str, metadata: Option<Value>) -> Result<Value, String> {
-    if !["adblock", "blocklist-update", "upstream"].contains(&action) {
-        return Err("caduceus-network-dns-resolver-action-invalid".into());
-    }
-    let mut args = vec!["resolver".into(), action.into()];
-    if let Some(metadata) = metadata {
-        args.push("--metadata-json".into());
-        args.push(
-            serde_json::to_string(&metadata)
-                .map_err(|_| "caduceus-network-dns-metadata-invalid")?,
-        );
-    }
-    invoke(&args)
+    let metadata = metadata.unwrap_or(Value::Null);
+    let payload = match action {
+        "adblock" => json!({"enabled": metadata.get("enabled").cloned().unwrap_or(Value::Null)}),
+        "blocklist-update" => json!({}),
+        "upstream" => json!({
+            "preset": metadata.get("preset").cloned().unwrap_or(Value::Null),
+            "custom": metadata.get("custom").cloned().unwrap_or(Value::Null),
+            "dot": metadata.get("dot").cloned().unwrap_or(Value::Null),
+        }),
+        _ => return Err("dns-verb-unknown".into()),
+    };
+    invoke(&format!("network/dns/resolver/{action}"), payload)
 }
 
 #[cfg(carapace_feature_unbound)]
 pub fn intent_json(method: &str, route: &str, metadata: Value) -> Result<Value, String> {
     if method != DNS_INTENT_METHOD || route != DNS_INTENT_ROUTE {
-        return Err("caduceus-network-dns-intent-route-refused".into());
+        return Err("dns-intent-not-admitted".into());
     }
-    let metadata = serde_json::to_string(&metadata)
-        .map_err(|err| format!("caduceus-network-dns-metadata-invalid: {err}"))?;
-    invoke(&[
-        "intent".into(),
-        method.into(),
-        route.into(),
-        "--metadata-json".into(),
-        metadata,
-    ])
+    let mut payload = serde_json::Map::new();
+    for key in ["target", "dropIn"] {
+        if let Some(value) = metadata.get(key) {
+            payload.insert(key.into(), value.clone());
+        }
+    }
+    if let Some(value) = metadata.get("dryRun") {
+        payload.insert("dry-run".into(), value.clone());
+    }
+    invoke("network/dns/drop-in/apply", Value::Object(payload))
 }
 
 #[cfg(test)]

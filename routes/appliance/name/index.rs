@@ -2,8 +2,8 @@
 
 use serde_json::{json, Value};
 
-fn invoke(args: &[String]) -> Result<Value, String> {
-    crate::gate::snake::crossing_path("network/dns", &json!({"args": args}))
+fn invoke(band: &str, payload: Value) -> Result<Value, String> {
+    crate::gate::snake::crossing_path(band, &payload)
 }
 
 pub fn command_admission(args: &[String]) -> Option<(&'static str, &'static str)> {
@@ -63,31 +63,23 @@ pub fn command(args: &[String]) -> i32 {
 }
 
 pub fn device_name_json(action: &str, hostname: &str, ip: &str) -> Result<Value, String> {
-    if !["create", "remove"].contains(&action) || hostname.is_empty() || ip.is_empty() {
+    if !["create", "remove"].contains(&action) {
+        return Err("dns-verb-unknown".into());
+    }
+    if hostname.is_empty() || ip.is_empty() {
         return Err("caduceus-network-dns-device-name-invalid".into());
     }
-    invoke(&[
-        "device-name".into(),
-        action.into(),
-        "--hostname".into(),
-        hostname.into(),
-        "--ip".into(),
-        ip.into(),
-    ])
+    invoke(&format!("network/dns/device-name/{action}"), json!({"hostname": hostname, "ip": ip}))
 }
 
 pub fn alias_json(action: &str, label: &str, hostname: &str) -> Result<Value, String> {
-    if !["create", "remove"].contains(&action) || label.is_empty() || hostname.is_empty() {
+    if !["create", "remove"].contains(&action) {
+        return Err("dns-verb-unknown".into());
+    }
+    if label.is_empty() || hostname.is_empty() {
         return Err("caduceus-network-dns-alias-invalid".into());
     }
-    invoke(&[
-        "alias".into(),
-        action.into(),
-        "--label".into(),
-        label.into(),
-        "--hostname".into(),
-        hostname.into(),
-    ])
+    invoke(&format!("network/dns/alias/{action}"), json!({"label": label, "hostname": hostname}))
 }
 
 /// Canonical registration seam for this leaf.
