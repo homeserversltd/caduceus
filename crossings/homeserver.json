@@ -48,7 +48,6 @@
     "linker/hardlink-scan",
     "linker/mkdir",
     "linker/rename",
-    "network/cert/house-ca",
     "network/cert/house-ca/apply-nginx",
     "network/cert/house-ca/bundle-export",
     "network/cert/house-ca/bundle-read",
@@ -62,7 +61,6 @@
     "network/cert/house-ca/status",
     "network/cert/house-ca/trust-install",
     "network/cert/refresh",
-    "network/child-device",
     "network/child-device/apply",
     "network/child-device/list",
     "network/child-device/observed",
@@ -70,7 +68,6 @@
     "network/child-device/unregister",
     "network/child-device/whitelist/get",
     "network/child-device/whitelist/set",
-    "network/dhcp",
     "network/dhcp/add-reservation",
     "network/dhcp/boundary/show",
     "network/dhcp/config",
@@ -81,7 +78,6 @@
     "network/dhcp/update-pool-boundary",
     "network/dhcp/update-reservation-ip",
     "network/dhcp/validate",
-    "network/dns",
     "network/dns/alias/create",
     "network/dns/alias/remove",
     "network/dns/device-name/create",
@@ -93,14 +89,12 @@
     "network/dns/resolver/status",
     "network/dns/resolver/upstream",
     "network/dns/status",
-    "network/firewall",
     "network/firewall/list",
     "network/firewall/observed",
     "network/firewall/register",
     "network/firewall/unregister",
     "network/firewall/whitelist/get",
     "network/firewall/whitelist/set",
-    "network/identity",
     "network/identity/claim",
     "network/identity/device/list",
     "network/linker",
@@ -110,7 +104,6 @@
     "network/tailscale/status",
     "network/tailscale/tailnet",
     "network/tailscale/up",
-    "network/wake-on-lan",
     "network/wake-on-lan/probe",
     "network/wake-on-lan/send",
     "settings/datetime",
@@ -181,10 +174,6 @@
     ["partlabel", "assign"],
     ["role", "swap"],
     [
-      "cert",
-      "house-ca"
-    ],
-    [
       "exousia",
       "bind"
     ],
@@ -254,35 +243,11 @@
     ],
     [
       "network",
-      "child-device"
-    ],
-    [
-      "network",
-      "dhcp"
-    ],
-    [
-      "network",
-      "dns"
-    ],
-    [
-      "network",
-      "firewall"
-    ],
-    [
-      "network",
-      "identity"
-    ],
-    [
-      "network",
       "linker"
     ],
     [
       "network",
       "tailscale"
-    ],
-    [
-      "network",
-      "wake-on-lan"
     ],
     [
       "settings",
@@ -475,7 +440,6 @@
       "linker/deploy",
       "linker/mkdir",
       "linker/rename",
-      "network/child-device",
       "network/child-device/apply",
       "network/child-device/register",
       "network/child-device/unregister",
@@ -484,7 +448,6 @@
       "network/dhcp/remove-reservation",
       "network/dhcp/update-pool-boundary",
       "network/dhcp/update-reservation-ip",
-      "network/dns",
       "network/dns/alias/create",
       "network/dns/alias/remove",
       "network/dns/device-name/create",
