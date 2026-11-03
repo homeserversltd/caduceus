@@ -23,6 +23,20 @@ fn command(action: &str) -> String {
     format!("network tailscale {action}")
 }
 
+fn stop(action: &str) -> &'static str {
+    match action {
+        "up" => "network/tailscale/up",
+        "down" => "network/tailscale/down",
+        "authkey" => "network/tailscale/authkey",
+        "tailnet" => "network/tailscale/tailnet",
+        _ => unreachable!("validated tailscale action"),
+    }
+}
+
+fn stop_seat(action: &str) -> String {
+    format!("caduceus.network.tailscale.{action}.v1")
+}
+
 fn timeout(action: &str) -> Duration {
     match action {
         "up" => TIMEOUT_UP,
@@ -206,7 +220,7 @@ fn safe_receipt(crossing: &Value, action: &str, secret: Option<&str>) -> Option<
     let staff_ok = receipt.get("ok").and_then(Value::as_bool);
     let receipt_action = receipt.get("action").and_then(Value::as_str);
     let unknown_action_refusal = receipt_action == Some("unknown") && staff_ok == Some(false);
-    if receipt.get("schema").and_then(Value::as_str) != Some(crate::protocol::SCHEMA_ID)
+    if receipt.get("schema").and_then(Value::as_str) != Some(stop_seat(action).as_str())
         || (receipt_action != Some(action) && !unknown_action_refusal)
     {
         return None;
@@ -305,7 +319,7 @@ async fn execute(action: &'static str, body: Result<Bytes, BytesRejection>) -> H
             // The gate strips flags.exousia.pin and forwards what remains (often `{}`);
             // these acts take no input, so the body is ignored and never forwarded.
             let _ = &body;
-            json!({"action": action})
+            json!({})
         }
         "authkey" => {
             let value = serde_json::from_slice::<Value>(body.as_ref()).map_err(|_| {
@@ -333,7 +347,7 @@ async fn execute(action: &'static str, body: Result<Bytes, BytesRejection>) -> H
                 ));
             }
             secret = Some(key.to_string());
-            json!({"action": "authkey", "key": key})
+            json!({"key": key})
         }
         "tailnet" => {
             let value = serde_json::from_slice::<Value>(body.as_ref()).map_err(|_| {
@@ -354,19 +368,19 @@ async fn execute(action: &'static str, body: Result<Bytes, BytesRejection>) -> H
                     "caduceus-network-tailscale-request-invalid",
                 ));
             };
-            json!({"action": "tailnet", "name": name})
+            json!({"name": name})
         }
         _ => {
             return Err(crate::gate::api_error_signal(
                 &command,
-                "caduceus-network-tailscale-action-invalid",
+                "tailscale-operation-required",
             ));
         }
     };
 
     let timeout = timeout(action);
     let crossed = match crate::gate::blocking_task(&command, move || {
-        crate::gate::snake::crossing_path_with_timeout("network/tailscale", &payload, timeout)
+        crate::gate::snake::crossing_path_with_timeout(stop(action), &payload, timeout)
     })
     .await
     {
