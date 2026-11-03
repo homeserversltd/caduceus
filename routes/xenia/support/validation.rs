@@ -210,7 +210,7 @@ fn source(manifest: &Value) -> Result<bool> {
             "release-repo-invalid",
         ));
     }
-    if !source["ref"].as_str().is_some_and(|s| !s.is_empty()) || source.get("url").is_some() {
+    if source.get("url").is_some() {
         return Err(refuse("E", "manifest.source.ref", "release-ref-required"));
     }
     Ok(false)
@@ -734,9 +734,18 @@ pub fn validate_only(body: &Value) -> Result<Candidate> {
     // A: snapshot lock ends before the first HTTP read.
     let house = store::snapshot()?;
     let health = remote::health()?;
-    let manifest = body
+    let mut normalized = body
         .get("manifest")
-        .ok_or_else(|| refuse("B", "manifest", "manifest-absent"))?;
+        .ok_or_else(|| refuse("B", "manifest", "manifest-absent"))?
+        .clone();
+    if let Some(source) = normalized.get_mut("source").and_then(Value::as_object_mut) {
+        if !matches!(source.get("kind").and_then(Value::as_str), Some("own-service" | "clone"))
+            && (source.get("ref").is_none() || source.get("ref").and_then(Value::as_str) == Some(""))
+        {
+            source.insert("ref".into(), json!("main"));
+        }
+    }
+    let manifest = &normalized;
     let is_own_service = manifest.pointer("/source/kind").and_then(Value::as_str) == Some("own-service");
     seat::kernel(XENIA, Some("manifest"), manifest, "B", "manifest")?;
     // B only judges the frozen kernel, custody and types. Identity, source,

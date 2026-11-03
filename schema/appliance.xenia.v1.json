@@ -102,10 +102,10 @@
         },
         "ref": {
           "type": "string",
-          "description": "Tag, branch or release tag."
+          "description": "A full commit or branch. On the release road an absent or empty manifest ref defaults to main; the admitted entry writes that ref explicitly."
         }
       },
-      "description": "own-service declares only kind and no release or repository fields. Existing clone entries remain readable. The release road requires release_repo and ref."
+      "description": "own-service declares only kind and no release or repository fields. Existing clone entries remain readable. The release road requires release_repo; an absent or empty input ref selects main, explicitly written in the entry."
     },
     "install": {
       "type": [

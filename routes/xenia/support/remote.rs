@@ -407,25 +407,88 @@ pub fn release(manifest: &Value) -> Result<Value> {
         Ok(url)
     };
     let commit = commit_reference(reference);
-    let lookup_tag = commit
-        .as_ref()
-        .map(|(tag, _)| tag.as_str())
-        .unwrap_or(reference);
-    let release_response = https(release_url(lookup_tag)?.as_str(), &token)?;
-    if release_response.status != 200 {
-        return Err(observation(
-            "F",
-            "release",
-            format!("release-http-status: {}", release_response.status),
-        ));
-    }
-    let release: Value = serde_json::from_slice(&release_response.body)
-        .map_err(|e| observation("F", "release", e.to_string()))?;
-    let tag_name = release["tag_name"].as_str();
-    let tag_matches = tag_name == Some(lookup_tag);
-    if !tag_matches {
-        return Err(observation("F", "release.tag_name", "release-ref-mismatch"));
-    }
+    let release: Value = if let Some((lookup_tag, _)) = &commit {
+        let response = https(release_url(lookup_tag)?.as_str(), &token)?;
+        if response.status != 200 {
+            return Err(observation("F", "release", format!("release-http-status: {}", response.status)));
+        }
+        let release: Value = serde_json::from_slice(&response.body)
+            .map_err(|e| observation("F", "release", e.to_string()))?;
+        if release["tag_name"].as_str() != Some(lookup_tag.as_str()) {
+            return Err(observation("F", "release.tag_name", "release-ref-mismatch"));
+        }
+        release
+    } else {
+        if reference.is_empty() || reference.starts_with('/') || reference.contains("..")
+            || !reference.bytes().all(|b| b.is_ascii_alphanumeric() || b"_./-".contains(&b))
+        {
+            return Err(observation("F", "source.ref", "release-ref-invalid"));
+        }
+        let mut repo_url = api.clone();
+        {
+            let mut segments = repo_url.path_segments_mut()
+                .map_err(|_| observation("F", "source", "forge-path-invalid"))?;
+            segments.pop_if_empty();
+            for part in repo.split('/') { segments.push(part); }
+        }
+        let read_page = |kind: &str, page: usize| -> Result<Vec<Value>> {
+            let mut url = repo_url.clone();
+            url.path_segments_mut().map_err(|_| observation("F", "source", "forge-path-invalid"))?.push(kind);
+            {
+                let mut query = url.query_pairs_mut();
+                if kind == "commits" { query.append_pair("sha", reference); }
+                query.append_pair("limit", "50").append_pair("page", &page.to_string());
+            }
+            let response = https(url.as_str(), &token)?;
+            if response.status != 200 {
+                return Err(observation("F", "release", format!("release-http-status: {}", response.status)));
+            }
+            let value: Value = serde_json::from_slice(&response.body)
+                .map_err(|_| observation("F", "release", "release-json-invalid"))?;
+            value.as_array().filter(|rows| rows.iter().all(Value::is_object)).cloned()
+                .ok_or_else(|| observation("F", "release", if kind == "releases" { "release-list-invalid" } else { "release-branch-history-invalid" }))
+        };
+        let mut releases = Vec::new();
+        let mut complete = false;
+        for page in 1..=100 {
+            let rows = read_page("releases", page)?;
+            let short = rows.len() < 50;
+            releases.extend(rows);
+            if short { complete = true; break; }
+        }
+        if !complete { return Err(observation("F", "release", "release-list-limit")); }
+        releases.retain(|row| {
+            !row.get("draft").and_then(Value::as_bool).unwrap_or(false)
+                && row.get("target_commitish").and_then(Value::as_str)
+                    .is_some_and(|sha| sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+        });
+        releases.sort_by(|a, b| {
+            let time_a = a.get("created_at").and_then(Value::as_str).unwrap_or("");
+            let time_b = b.get("created_at").and_then(Value::as_str).unwrap_or("");
+            let id_a = a.get("id").and_then(Value::as_i64).unwrap_or(0);
+            let id_b = b.get("id").and_then(Value::as_i64).unwrap_or(0);
+            (time_b, id_b).cmp(&(time_a, id_a))
+        });
+        let targets: std::collections::HashSet<String> = releases.iter()
+            .filter_map(|row| row["target_commitish"].as_str().map(str::to_owned)).collect();
+        let mut history = std::collections::HashSet::new();
+        let mut complete = false;
+        for page in 1..=100 {
+            let rows = read_page("commits", page)?;
+            let short = rows.len() < 50;
+            history.extend(rows.iter().filter_map(|row| row["sha"].as_str().map(str::to_owned)));
+            if targets.is_subset(&history) || short { complete = true; break; }
+        }
+        if !complete { return Err(observation("F", "release", "release-branch-history-limit")); }
+        let release = releases.into_iter().find(|row| row["target_commitish"].as_str().is_some_and(|sha| history.contains(sha)))
+            .ok_or_else(|| observation("F", "release", "release-branch-not-found"))?;
+        let sha = release["target_commitish"].as_str().unwrap_or("");
+        let prefixed = format!("sha-{sha}");
+        if !matches!(release["tag_name"].as_str(), Some(tag) if tag == sha || tag == prefixed) {
+            return Err(observation("F", "release.tag_name", "release-ref-mismatch"));
+        }
+        release
+    };
     let assets = release["assets"]
         .as_array()
         .ok_or_else(|| observation("F", "release.assets", "release-assets-absent"))?;
