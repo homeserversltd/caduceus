@@ -1,6 +1,6 @@
 {
   "schema": "appliance.crossings.v1",
-  "profile": "lab",
+  "profile": "specula",
   "bands": [
     "storage/backup/ledger",
     "storage/nas/drives",

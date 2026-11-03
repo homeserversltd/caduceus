@@ -57,7 +57,7 @@ fn load_once() -> Result<Loaded, String> {
         Some(entry) => entry,
         None => EMBEDDED_CROSSINGS
             .iter()
-            .find(|(id, _)| *id == "lab")
+            .find(|(id, _)| *id == "specula")
             .ok_or_else(|| {
                 let expected = EMBEDDED_CROSSINGS
                     .iter()

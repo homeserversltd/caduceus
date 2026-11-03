@@ -413,10 +413,10 @@ fn bounded_json_nofollow(path: &Path, limit: usize) -> Result<Option<Value>, Str
 fn administrative_profile() -> Result<String, String> {
     let path = crate::shared::config::path("etc/appliance/profile.json");
     let Some(value) = bounded_json_nofollow(&path, ADMINISTRATIVE_PROFILE_MAX_BYTES)? else {
-        return Ok("lab".to_string());
+        return Ok("specula".to_string());
     };
     let Some(profile) = value.get("profile") else {
-        return Ok("lab".to_string());
+        return Ok("specula".to_string());
     };
     let profile = profile
         .as_str()

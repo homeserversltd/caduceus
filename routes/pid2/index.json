@@ -2,7 +2,7 @@
   "namespace": "pid2",
   "admittance": "open",
   "flags": {"posture": "public-safe"},
-  "profiles": ["homeserver", "homesi", "specula", "everything-lit"],
+  "profiles": ["homeserver", "homesi", "specula"],
   "needs": [],
   "commands": ["enable", "disable", "start", "stop", "restart", "hold", "release", "status", "list"],
   "serve": [{"snake":"unit/start", "verb":["unit", "start"]}, {"snake":"unit/stop", "verb":["unit", "stop"]}, {"snake":"unit/restart", "verb":["unit", "restart"]}, {"snake":"unit/enable", "verb":["unit", "enable"]}, {"snake":"unit/disable", "verb":["unit", "disable"]}, {"snake":"unit/status", "verb":["unit", "status"]}],

@@ -270,6 +270,11 @@ fn main() {
     let birth_certificate = birth_certificate_path(&root);
     let explicit = env::var("CADUCEUS_PROFILE").ok();
     let requested = resolve_build_profile(explicit.as_deref(), &root);
+    let profiles = ["homeserver", "homeconsole", "tv", "homesi", "specula"];
+    assert!(
+        profiles.contains(&requested.as_str()),
+        "unknown CADUCEUS_PROFILE: {requested}"
+    );
     let profile_path = format!("schema/carapace/{requested}.json");
     let profile_source = fs::read_to_string(&profile_path)
         .unwrap_or_else(|_| panic!("profile authority must be readable: {profile_path}"));
@@ -486,7 +491,7 @@ fn main() {
         .expect("embedded public seats writable");
 
     let mut embedded_crossings = String::from("const EMBEDDED_CROSSINGS: &[(&str, &str)] = &[\n");
-    for profile in ["homeserver", "homeconsole", "tv", "homesi", "lab"] {
+    for profile in ["homeserver", "homeconsole", "tv", "homesi", "specula"] {
         let path = format!("crossings/{profile}.json");
         println!("cargo:rerun-if-changed={path}");
         let bytes = fs::read_to_string(&path).unwrap_or_else(|error| {
@@ -557,19 +562,7 @@ fn main() {
 
     // The feature model is the sole capability authority. Defconfigs answer the
     // model; the same resolution derives code, /doors, commands, and the inspectable tree.
-    let profiles = [
-        "homeserver",
-        "homeconsole",
-        "tv",
-        "homesi",
-        "specula",
-        "bench",
-        "everything-lit",
-    ];
-    assert!(
-        profiles.contains(&requested.as_str()),
-        "unknown CADUCEUS_PROFILE: {requested}"
-    );
+
     println!("cargo:rerun-if-changed=carapace/index.json");
     println!("cargo:rerun-if-changed=carapace/index.rs");
     println!("cargo:rerun-if-changed=schema/carapace");
