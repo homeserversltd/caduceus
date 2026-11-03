@@ -7,12 +7,6 @@ static STREAM_ACTIVE: AtomicBool = AtomicBool::new(false);
 struct Lease;
 impl Drop for Lease { fn drop(&mut self) { STREAM_ACTIVE.store(false, Ordering::Release); } }
 
-// stand-in, replaced by lane 1
-fn admitted(mac: &str, credential: &str) -> bool {
-    std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some()
-        && mac == "02:00:00:00:00:01" && credential == "scratch-pair-only"
-}
-
 fn refusal(status: StatusCode, signal: &str) -> Response {
     (status, Json(serde_json::json!({"ok": false, "signal": signal}))).into_response()
 }
@@ -33,7 +27,13 @@ async fn route(mut request: Request<Body>) -> Response {
     let headers = request.headers();
     let mac = headers.get("x-caduceus-pair-mac").and_then(|v| v.to_str().ok()).unwrap_or("");
     let credential = headers.get("x-caduceus-pair-credential").and_then(|v| v.to_str().ok()).unwrap_or("");
-    if !admitted(mac, credential) { return refusal(StatusCode::UNAUTHORIZED, "backup-pair-unknown"); }
+    let pair_mac = mac.to_owned();
+    let pair_credential = credential.to_owned();
+    match tokio::task::spawn_blocking(move || crate::routes::leaf_storage_backup_pair::admitted(&pair_mac, &pair_credential)).await {
+        Ok(true) => {},
+        Ok(false) => return refusal(StatusCode::UNAUTHORIZED, "backup-pair-unknown"),
+        Err(_) => return refusal(StatusCode::SERVICE_UNAVAILABLE, "backup-pair-unavailable"),
+    }
     let mac = mac.to_owned();
     let upgrade = headers.get("upgrade").and_then(|v| v.to_str().ok()).is_some_and(|v| v.eq_ignore_ascii_case("caduceus-rsync"));
     let connection = headers.get("connection").and_then(|v| v.to_str().ok()).is_some_and(|v| v.split(',').any(|s| s.trim().eq_ignore_ascii_case("upgrade")));
@@ -92,9 +92,14 @@ async fn route(mut request: Request<Body>) -> Response {
             let mut stdin = Counted { inner: child_stdin, count: input_bytes.clone() };
             let mut stdout = child_stdout;
             let mut writer = Counted { inner: writer, count: output_bytes.clone() };
+            let sender = tokio::io::copy(&mut stdout, &mut writer);
+            tokio::pin!(sender);
             tokio::select! {
-                _ = tokio::io::copy(&mut reader, &mut stdin) => {},
-                _ = tokio::io::copy(&mut stdout, &mut writer) => {},
+                received = tokio::io::copy(&mut reader, &mut stdin) => {
+                    let _ = stdin.shutdown().await;
+                    if received.is_ok() { let _ = sender.await; }
+                },
+                _ = &mut sender => {},
             }
             let _ = stdin.shutdown().await;
         }
