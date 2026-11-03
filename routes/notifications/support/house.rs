@@ -325,17 +325,12 @@ pub(super) fn validate_names(
     Ok(())
 }
 
-pub(super) async fn admit(args: Vec<String>) -> Result<Value, Failure> {
+pub(super) async fn admit(portal: String, lan_ip: String, upstream: String, aliases: Vec<String>) -> Result<Value, Failure> {
     if crate::shared::policy::allows_command("cert portal-admit").ok() != Some(true) {
         return Err((StatusCode::FORBIDDEN, "link-up-accept-on-homeserver"));
     }
     crate::gate::blocking_task("cert portal-admit", move || {
-        crate::shared::agathodaimon::crossing_value_preserving_receipt(
-            "cert",
-            "house-ca",
-            &json!({"args": args}),
-            false,
-        )
+        crate::routes::issue_certificate::portal_admit_receipt(&portal, &lan_ip, &upstream, &aliases, false)
         // Structured staff refusals cross intact, including unknown fields.
         .unwrap_or_else(|value| value)
     })

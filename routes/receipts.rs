@@ -151,17 +151,6 @@ fn resolve_manifest_entry(noun: &str, verb: &str) -> Value {
         Ok(None) => {}
         Err(error) => return error,
     }
-    if noun == "cert"
-        && verb == "house-ca"
-        && std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_none()
-    {
-        let program = Path::new("/usr/local/sbin/caduceus-house-ca");
-        return if executable(program) {
-            json!({"ok":true,"resolution":"executable-program","program":program})
-        } else {
-            json!({"ok":false,"class":"resolve","exit":null,"stderr":"caduceus-house-ca unavailable"})
-        };
-    }
     let cli = match selected_cli() {
         Ok(path) => path,
         Err(error) => return error,

@@ -10,9 +10,33 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-pub fn invoke_json(args: &[String]) -> Result<Value, String> {
-    let input = json!({"args": args});
-    crate::shared::agathodaimon::crossing_value("cert", "house-ca", &input).map_err(|value| {
+fn house_ca_stop(verb: &str) -> Option<&'static str> {
+    match verb {
+        "status" => Some("network/cert/house-ca/status"),
+        "ensure-root" => Some("network/cert/house-ca/ensure-root"),
+        "issue-leaf" => Some("network/cert/house-ca/issue-leaf"),
+        "sign-csr" => Some("network/cert/house-ca/sign-csr"),
+        "bundle-export" => Some("network/cert/house-ca/bundle-export"),
+        "bundle-read" => Some("network/cert/house-ca/bundle-read"),
+        "trust-install" => Some("network/cert/house-ca/trust-install"),
+        "apply-nginx" => Some("network/cert/house-ca/apply-nginx"),
+        "constituent-lock" => Some("network/cert/house-ca/constituent-lock"),
+        "portal-admit" => Some("network/cert/house-ca/portal-admit"),
+        _ => None,
+    }
+}
+
+fn house_ca_crossing(verb: &str, payload: Value, seconds: u64) -> Result<Value, Value> {
+    let path = house_ca_stop(verb).ok_or_else(|| json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}))?;
+    let wrapper = crate::gate::snake::crossing_path_with_timeout(path, &payload, Duration::from_secs(seconds))
+        .map_err(|signal| json!({"ok":false,"firstMissingSignal":signal}))?;
+    let receipt = wrapper.get("receiptPayload").filter(|v| v.is_object()).cloned()
+        .unwrap_or_else(|| json!({"ok":false,"firstMissingSignal":"caduceus-house-ca-refused"}));
+    if receipt.get("ok").and_then(Value::as_bool) == Some(true) { Ok(receipt) } else { Err(receipt) }
+}
+
+fn invoke_stop_json(verb: &str, payload: Value, seconds: u64) -> Result<Value, String> {
+    house_ca_crossing(verb, payload, seconds).map_err(|value| {
         if value.get("firstMissingSignal").and_then(Value::as_str)
             == Some("caduceus-pin-not-yet-provisioned")
         {
@@ -27,35 +51,56 @@ pub fn invoke_json(args: &[String]) -> Result<Value, String> {
     })
 }
 
-fn invoke_receipt(args: &[String]) -> Result<Value, String> {
-    invoke_json(args)
+pub fn invoke_json(args: &[String]) -> Result<Value, String> {
+    let verb = args.first().map(String::as_str).unwrap_or("");
+    let keys: &[&str] = match verb {
+        "status" | "ensure-root" => &[],
+        "issue-leaf" => &["identity"],
+        "sign-csr" => &["csrPem"],
+        "bundle-export" | "bundle-read" => &["platform"],
+        "trust-install" => &["bundle"],
+        "apply-nginx" => &["portal", "upstream", "certificate", "key-path"],
+        "constituent-lock" => &["portal", "lan-ip"],
+        "portal-admit" => &["portal", "lan-ip", "upstream"],
+        _ => return Err("agathodaimon-house-ca-refused".into()),
+    };
+    let seconds = match verb { "status" | "bundle-read" => 60, "sign-csr" | "bundle-export" | "constituent-lock" => 120, "portal-admit" => 600, _ => 300 };
+    let mut payload = json!({});
+    let mut i = 1;
+    for key in keys {
+        if let Some(value) = args.get(i).filter(|v| !v.starts_with("--")) {
+            payload[*key] = json!(value); i += 1;
+        }
+    }
+    while let Some(flag) = args.get(i) {
+        let key = flag.strip_prefix("--").unwrap_or("");
+        let allowed = match verb {
+            "ensure-root" => &["dry-run", "renewal-authority"][..],
+            "issue-leaf" => &["dry-run", "sans", "ips"],
+            "bundle-export" => &["dry-run"],
+            "trust-install" => &["dry-run", "platform", "fingerprint", "renew-ring"],
+            "apply-nginx" | "constituent-lock" | "portal-admit" => &["dry-run", "aliases"],
+            _ => &[],
+        };
+        if !allowed.contains(&key) { return Err("agathodaimon-house-ca-refused".into()); }
+        if key == "dry-run" || key == "renew-ring" { payload[key] = json!(true); i += 1; }
+        else if let Some(value) = args.get(i + 1) { payload[key] = json!(value); i += 2; }
+        else { return Err("agathodaimon-house-ca-refused".into()); }
+    }
+    invoke_stop_json(verb, payload, seconds)
 }
 
-fn invoke_json_with_stdin(args: &[String], stdin: Option<&[u8]>) -> Result<Value, String> {
-    let mut input: Value = stdin
-        .map(|bytes| {
-            serde_json::from_slice(bytes).map_err(|_| "caduceus-cert-invalid-request".to_string())
-        })
-        .transpose()?
-        .unwrap_or_else(|| json!({}));
-    input["args"] = json!(args);
-    crate::shared::agathodaimon::crossing_value("cert", "house-ca", &input).map_err(|value| {
-        value
-            .get("firstMissingSignal")
-            .and_then(Value::as_str)
-            .unwrap_or(if value.get("firstMissingSignal").is_some() {
-                "caduceus-cert-house-ca-failed"
-            } else {
-                "caduceus-house-ca-refused"
-            })
+fn invoke_json_with_stdin(verb: &str, input: Value) -> Result<Value, String> {
+    house_ca_crossing(verb, input, 120).map_err(|value| {
+        value.get("firstMissingSignal").and_then(Value::as_str)
+            .unwrap_or(if value.get("firstMissingSignal").is_some() { "caduceus-cert-house-ca-failed" } else { "caduceus-house-ca-refused" })
             .to_string()
     })
 }
 
 pub fn sign_csr_json(csr_pem: &str) -> Result<Value, String> {
     let request = json!({ "csrPem": csr_pem });
-    let body = request.to_string();
-    let private = invoke_json_with_stdin(&["sign-csr".into()], Some(body.as_bytes()))?;
+    let private = invoke_json_with_stdin("sign-csr", request)?;
     let text = |field: &str| {
         private
             .get(field)
@@ -96,21 +141,19 @@ fn print(value: Result<Value, String>) -> i32 {
 }
 
 pub fn status_json() -> Result<Value, String> {
-    invoke_receipt(&["status".into()])
+    invoke_stop_json("status", json!({}), 60)
 }
 pub fn status() -> i32 {
     print(status_json())
 }
 
 pub fn ensure_root_json(dry_run: bool, renewal_authority: Option<&str>) -> Result<Value, String> {
-    let mut args = vec!["ensure-root".into()];
-    if dry_run {
-        args.push("--dry-run".into());
-    }
+    let mut payload = json!({});
+    if dry_run { payload["dry-run"] = json!(true); }
     if let Some(authority) = renewal_authority.filter(|value| !value.is_empty()) {
-        args.extend(["--renewal-authority".into(), authority.into()]);
+        payload["renewal-authority"] = json!(authority);
     }
-    invoke_json(&args).and_then(|receipt| {
+    invoke_stop_json("ensure-root", payload, 300).and_then(|receipt| {
         let changed = receipt
             .get("changed")
             .and_then(Value::as_bool)
@@ -128,17 +171,11 @@ pub fn issue_leaf_json(
     ips: &[String],
     dry_run: bool,
 ) -> Result<Value, String> {
-    let mut args = vec!["issue-leaf".into(), identity.into()];
-    if !sans.is_empty() {
-        args.extend(["--sans".into(), sans.join(",")]);
-    }
-    if !ips.is_empty() {
-        args.extend(["--ips".into(), ips.join(",")]);
-    }
-    if dry_run {
-        args.push("--dry-run".into());
-    }
-    invoke_json(&args).and_then(|receipt| {
+    let mut payload = json!({"identity": identity});
+    if !sans.is_empty() { payload["sans"] = json!(sans.join(",")); }
+    if !ips.is_empty() { payload["ips"] = json!(ips.join(",")); }
+    if dry_run { payload["dry-run"] = json!(true); }
+    invoke_stop_json("issue-leaf", payload, 300).and_then(|receipt| {
         let changed = receipt
             .get("changed")
             .and_then(Value::as_bool)
@@ -157,11 +194,9 @@ pub fn bundle_create_json(platform: &str, dry_run: bool) -> Result<Value, String
     if !["windows", "android", "chromeos", "linux", "macos"].contains(&platform) {
         return Err("caduceus-cert-platform-invalid".into());
     }
-    let mut args = vec!["bundle-export".into(), platform.into()];
-    if dry_run {
-        args.push("--dry-run".into());
-    }
-    invoke_json(&args)
+    let mut payload = json!({"platform": platform});
+    if dry_run { payload["dry-run"] = json!(true); }
+    invoke_stop_json("bundle-export", payload, 120)
 }
 pub fn bundle_create(platform: &str, dry_run: bool) -> i32 {
     print(bundle_create_json(platform, dry_run))
@@ -261,10 +296,10 @@ fn bundle_metadata(platform: &str) -> Result<(String, &'static str), String> {
 
 pub fn bundle_download_json(platform: &str) -> Result<BundleDownload, String> {
     let (expected_filename, expected_mime) = bundle_metadata(platform)?;
-    let value = invoke_json(&["bundle-read".into(), platform.into()])?;
+    let value = invoke_stop_json("bundle-read", json!({"platform":platform}), 60)?;
     let receipt: BundleReadReceipt = serde_json::from_value(value)
         .map_err(|_| "caduceus-cert-bundle-read-invalid-receipt".to_string())?;
-    if receipt.schema != "caduceus.staff.house_ca.bundle_read.v1"
+    if receipt.schema != "caduceus.network.cert.house-ca.bundle-read.v1"
         || !receipt.ok
         || receipt.platform != platform
         || receipt.filename != expected_filename
@@ -339,17 +374,9 @@ pub fn apply_json(
     key: &str,
     dry_run: bool,
 ) -> Result<Value, String> {
-    let mut args = vec![
-        "apply-nginx".into(),
-        portal.into(),
-        upstream.into(),
-        certificate.into(),
-        key.into(),
-    ];
-    if dry_run {
-        args.push("--dry-run".into());
-    }
-    invoke_json(&args).and_then(|receipt| {
+    let mut payload = json!({"portal":portal,"upstream":upstream,"certificate":certificate,"key-path":key});
+    if dry_run { payload["dry-run"] = json!(true); }
+    invoke_stop_json("apply-nginx", payload, 300).and_then(|receipt| {
         let changed = receipt
             .get("changed")
             .and_then(Value::as_bool)
@@ -361,23 +388,14 @@ pub fn apply_json(
     })
 }
 pub fn constituent_lock_json(portal: &str, lan_ip: &str, dry_run: bool) -> Result<Value, String> {
-    let mut args = vec!["constituent-lock".into(), portal.into(), lan_ip.into()];
-    if dry_run {
-        args.push("--dry-run".into());
-    }
-    invoke_json(&args)
+    let mut payload = json!({"portal":portal,"lan-ip":lan_ip});
+    if dry_run { payload["dry-run"] = json!(true); }
+    invoke_stop_json("constituent-lock", payload, 120)
 }
 pub fn trust_install_json(bundle: &str, platform: &str, dry_run: bool) -> Result<Value, String> {
-    let mut args = vec![
-        "trust-install".into(),
-        bundle.into(),
-        "--platform".into(),
-        platform.into(),
-    ];
-    if dry_run {
-        args.push("--dry-run".into());
-    }
-    invoke_json(&args)
+    let mut payload = json!({"bundle":bundle,"platform":platform});
+    if dry_run { payload["dry-run"] = json!(true); }
+    invoke_stop_json("trust-install", payload, 300)
 }
 
 fn trust_install_with_renew_receipt(
@@ -387,21 +405,10 @@ fn trust_install_with_renew_receipt(
     dry_run: bool,
     renew: bool,
 ) -> Result<Value, Value> {
-    let mut args: Vec<String> = vec![
-        "trust-install".into(),
-        bundle.into(),
-        "--platform".into(),
-        platform.into(),
-        "--fingerprint".into(),
-        fingerprint.into(),
-    ];
-    if dry_run {
-        args.push("--dry-run".into());
-    }
-    if renew {
-        args.push("--renew-ring".into());
-    }
-    crate::shared::agathodaimon::crossing_value("cert", "house-ca", &json!({"args": args}))
+    let mut payload = json!({"bundle":bundle,"platform":platform,"fingerprint":fingerprint});
+    if dry_run { payload["dry-run"] = json!(true); }
+    if renew { payload["renew-ring"] = json!(true); }
+    house_ca_crossing("trust-install", payload, 300)
 }
 
 fn staff_receipt_reason(receipt: &Value) -> Value {
@@ -566,6 +573,13 @@ pub fn trust_fetch_json(server: &str, platform: &str, renew: bool) -> Result<Val
         })),
     }
 }
+pub(crate) fn portal_admit_receipt(portal: &str, ip: &str, upstream: &str, aliases: &[String], dry_run: bool) -> Result<Value, Value> {
+    let mut payload = json!({"portal":portal,"lan-ip":ip,"upstream":upstream});
+    if !aliases.is_empty() { payload["aliases"] = json!(aliases.join(",")); }
+    if dry_run { payload["dry-run"] = json!(true); }
+    house_ca_crossing("portal-admit", payload, 600)
+}
+
 pub fn portal_admit_json(
     portal: &str,
     ip: &str,
@@ -573,19 +587,13 @@ pub fn portal_admit_json(
     aliases: &[String],
     dry_run: bool,
 ) -> Result<Value, String> {
-    let mut args = vec![
-        "portal-admit".into(),
-        portal.into(),
-        ip.into(),
-        upstream.into(),
-    ];
-    if !aliases.is_empty() {
-        args.extend(["--aliases".into(), aliases.join(",")]);
-    }
-    if dry_run {
-        args.push("--dry-run".into());
-    }
-    invoke_json(&args)
+    portal_admit_receipt(portal, ip, upstream, aliases, dry_run).map_err(|value| {
+        if value.get("firstMissingSignal").and_then(Value::as_str) == Some("caduceus-pin-not-yet-provisioned") {
+            "caduceus-house-ca-refused".to_string()
+        } else {
+            value.get("firstMissingSignal").and_then(Value::as_str).unwrap_or("caduceus-house-ca-refused").to_string()
+        }
+    })
 }
 pub fn rotate_ca(_dry_run: bool, _understood: bool) -> i32 {
     eprintln!("caduceus-cert-rotate-ca-not-v1");

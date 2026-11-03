@@ -358,14 +358,15 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool) -> Res
             results.push(result);
             continue;
         }
-        let args = vec!["portal-admit".to_owned(), name.to_owned(), ip.to_string(), upstream];
+        let portal = name.to_owned();
+        let lan_ip = ip.to_string();
         if dry_run {
             let mut argv = vec!["caduceus".to_owned(), "cert".to_owned()];
-            argv.extend(args);
+            argv.extend(["portal-admit".to_owned(), portal.clone(), lan_ip.clone(), upstream.clone()]);
             results.push(json!({"portal":name,"ok":true,"attempted":false,"argv":argv}));
             continue;
         }
-        let result = match house::admit(args).await {
+        let result = match house::admit(portal, lan_ip, upstream, Vec::new()).await {
             Ok(value) if value["ok"] == true && value["converged"] != false => json!({"portal":name,"ok":true}),
             Ok(value) => json!({"portal":name,"ok":false,"firstMissingSignal":value["firstMissingSignal"].as_str().unwrap_or("link-up-portal-admit-incomplete")}),
             Err((_, signal)) => json!({"portal":name,"ok":false,"firstMissingSignal":signal}),
@@ -435,18 +436,14 @@ async fn mutate(
         })
         .await
         .map_err(|_| unavailable("link-up-name-observation-failed"))??;
-        let mut args = vec![
-            "portal-admit".to_owned(),
-            names[0].clone(),
-            candidate["from"]["ipv4"].as_str().unwrap().to_owned(),
-            candidate["upstream"].as_str().unwrap().to_owned(),
-        ];
-        if names.len() > 1 {
-            args.extend(["--aliases".to_owned(), names[1..].join(",")]);
-        }
+        let portal = names[0].clone();
+        let lan_ip = candidate["from"]["ipv4"].as_str().unwrap().to_owned();
+        let upstream = candidate["upstream"].as_str().unwrap().to_owned();
+        let aliases = names[1..].to_vec();
         if body["dry_run"] == true {
             let mut argv = vec!["caduceus".to_owned(), "cert".to_owned()];
-            argv.extend(args);
+            argv.extend(["portal-admit".to_owned(), portal.clone(), lan_ip.clone(), upstream.clone()]);
+            if !aliases.is_empty() { argv.extend(["--aliases".to_owned(), aliases.join(",")]); }
             let child = roster["staves"].as_array().into_iter().flatten()
                 .find(|row| row["mac"] == candidate["from"]["mac"] && row["ipv4"] == candidate["from"]["ipv4"]);
             let child_portals = match child {
@@ -461,7 +458,7 @@ async fn mutate(
                 "portal": names[0], "names": names, "argv": argv, "child_portals": child_portals}),
             );
         }
-        let mut receipt = house::admit(args).await?;
+        let mut receipt = house::admit(portal, lan_ip, upstream, aliases).await?;
         // Preserve every staff receipt field. A failed composite is never called
         // accepted, and a pending dismissal is cleared only after full success.
         if receipt.get("converged").is_some_and(|v| v == false) && receipt["ok"] == true {
