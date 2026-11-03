@@ -228,18 +228,20 @@ pub fn named(command: &str) -> Option<&'static ReadCommand> {
         .find(|candidate| candidate.command == command)
 }
 
-fn band_request(command: &ReadCommand) -> Result<(&'static str, &'static [&'static str]), String> {
-    if command.command.starts_with("network dhcp ") {
-        Ok(("network/dhcp", command.args))
-    } else if command.command.starts_with("network dns ") {
-        Ok(("network/dns", command.args))
-    } else if command.command == "network device list" {
-        Ok(("network/identity", &["device-list"]))
-    } else {
-        Err(format!(
+fn band_request(command: &ReadCommand) -> Result<&'static str, String> {
+    match command.command {
+        "network dhcp status" => Ok("network/dhcp/status"),
+        "network dhcp statistics" => Ok("network/dhcp/statistics"),
+        "network dhcp health" => Ok("network/dhcp/health"),
+        "network dhcp boundary show" => Ok("network/dhcp/boundary/show"),
+        "network device list" => Ok("network/identity/device/list"),
+        "network dns status" => Ok("network/dns/status"),
+        "network dns read" => Ok("network/dns/read"),
+        "network dns resolver status" => Ok("network/dns/resolver/status"),
+        _ => Err(format!(
             "caduceus-network-read-band-unmapped:{}",
             command.command
-        ))
+        )),
     }
 }
 
@@ -299,8 +301,8 @@ pub fn invoke(command: &ReadCommand) -> Result<Value, String> {
         }
         payload
     } else {
-        let (band, args) = band_request(command)?;
-        crate::gate::snake::crossing_path(band, &json!({"args": args}))?
+        let band = band_request(command)?;
+        crate::gate::snake::crossing_path(band, &json!({}))?
     };
     if payload.get("ok") == Some(&json!(false)) {
         let signal = payload

@@ -42,7 +42,35 @@ pub fn invoke(args: &[String]) -> Result<Value, String> {
     if !valid_claim_args(args) {
         return Err("caduceus-network-identity-claim-arguments-invalid".into());
     }
-    crate::gate::snake::crossing_path("network/identity", &serde_json::json!({"args": args}))
+    let mut payload = serde_json::Map::new();
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--auto-ip" => {
+                payload.insert("auto-ip".into(), Value::Bool(true));
+                index += 1;
+            }
+            flag => {
+                let key = match flag {
+                    "--mac" => "mac",
+                    "--hostname" => "hostname",
+                    "--ip" => "ip",
+                    _ => unreachable!("claim arguments already validated"),
+                };
+                payload.insert(key.into(), Value::String(args[index + 1].clone()));
+                index += 2;
+            }
+        }
+    }
+    let wrapper = crate::gate::snake::crossing_path_with_timeout(
+        "network/identity/claim",
+        &Value::Object(payload),
+        std::time::Duration::from_secs(30),
+    )?;
+    match wrapper.get("receiptPayload") {
+        Some(receipt) if receipt.is_object() => Ok(receipt.clone()),
+        _ => Err("caduceus-network-identity-claim-receipt-invalid".into()),
+    }
 }
 
 pub fn command(args: &[String]) -> i32 {
