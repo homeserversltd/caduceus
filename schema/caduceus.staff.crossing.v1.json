@@ -4,6 +4,7 @@
   "role": "newline-delimited staff socket request and reply",
   "authority": {"owner": "caduceus", "path": "schema/caduceus.staff.crossing.v1.json"},
   "evolution": {"law": "additive-only", "unknown_fields_skipped": true},
+  "required": ["schema"],
   "request": {
     "required": ["schema", "band", "envelope", "timeoutMs"],
     "fields": {
