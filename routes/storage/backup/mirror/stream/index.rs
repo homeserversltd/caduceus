@@ -1,7 +1,7 @@
 use axum::{body::Body, http::Request, response::{IntoResponse, Response}, routing::post, Json, Router};
 use axum::http::StatusCode;
 use std::{io, pin::Pin, process::Stdio, sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}}, task::{Context, Poll}, time::{Duration, Instant}};
-use tokio::{io::{AsyncReadExt, AsyncWrite, AsyncWriteExt}, process::Command};
+use tokio::{io::{AsyncReadExt, AsyncWrite}, process::Command};
 
 static STREAM_ACTIVE: AtomicBool = AtomicBool::new(false);
 struct Lease;
@@ -96,12 +96,12 @@ async fn route(mut request: Request<Body>) -> Response {
             tokio::pin!(sender);
             tokio::select! {
                 received = tokio::io::copy(&mut reader, &mut stdin) => {
-                    let _ = stdin.shutdown().await;
+                    // On Unix a pipe is closed by dropping it; shutdown is a no-op.
+                    drop(stdin);
                     if received.is_ok() { let _ = sender.await; }
                 },
                 _ = &mut sender => {},
             }
-            let _ = stdin.shutdown().await;
         }
         if exited.is_none() {
             // SIGTERM lets sudo forward termination to its privileged child.
