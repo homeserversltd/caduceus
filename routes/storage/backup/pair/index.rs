@@ -1,7 +1,7 @@
 // HomeServer backup-box pairing. The request carries only the digest.
 use axum::extract::OriginalUri;
 use axum::{extract::ConnectInfo, http::StatusCode, response::{IntoResponse, Response}, Json, Router};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::{io::Write, process::{Command, Stdio}, time::{Instant, SystemTime, UNIX_EPOCH}};
 
@@ -10,9 +10,29 @@ const UNAVAILABLE: Failure = (StatusCode::SERVICE_UNAVAILABLE, "backup-pair-unav
 const INVALID: Failure = (StatusCode::BAD_REQUEST, "backup-pair-invalid");
 const UNKNOWN: Failure = (StatusCode::UNAUTHORIZED, "backup-pair-unknown");
 
-fn initialize() -> Result<(), Failure> {
-    let db = crate::stats::open_db().map_err(|_| UNAVAILABLE)?.lock().map_err(|_| UNAVAILABLE)?;
+fn initialize(db: &Connection) -> Result<(), Failure> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS backup_pairs (mac TEXT PRIMARY KEY, hostname TEXT, ipv4 TEXT, credential_sha256 TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','accepted')), requested_at INTEGER NOT NULL, accepted_at INTEGER);").map_err(|_| UNAVAILABLE)
+}
+
+fn with_db<T>(action: impl FnOnce(&mut Connection) -> Result<T, Failure>) -> Result<T, Failure> {
+    match crate::stats::open_db() {
+        Ok(shared) => {
+            let mut db = shared.lock().map_err(|_| UNAVAILABLE)?;
+            initialize(&db)?;
+            action(&mut db)
+        }
+        Err(_) => {
+            // The shared stats opener caches an initial failure. Retry this
+            // store independently so a repaired directory needs no restart.
+            static FALLBACK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+            let _guard = FALLBACK.lock().map_err(|_| UNAVAILABLE)?;
+            let path = crate::stats::db_path();
+            std::fs::create_dir_all(path.parent().ok_or(UNAVAILABLE)?).map_err(|_| UNAVAILABLE)?;
+            let mut db = Connection::open(path).map_err(|_| UNAVAILABLE)?;
+            initialize(&db)?;
+            action(&mut db)
+        }
+    }
 }
 
 fn now() -> i64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs().min(i64::MAX as u64) as i64 }
@@ -49,9 +69,10 @@ fn equal_digest(left: &str, right: &str) -> bool {
 fn matching_state(mac: &str, credential: &str) -> Result<Option<String>, Failure> {
     if !valid_mac(mac) || !valid_credential(credential) { return Ok(None); }
     let supplied = digest(credential)?;
-    let db = crate::stats::open_db().map_err(|_| UNAVAILABLE)?.lock().map_err(|_| UNAVAILABLE)?;
-    let row: Option<(String, String)> = db.query_row("SELECT credential_sha256,state FROM backup_pairs WHERE mac=?1", [mac], |r| Ok((r.get(0)?,r.get(1)?))).optional().map_err(|_| UNAVAILABLE)?;
-    Ok(row.and_then(|(stored,state)| if equal_digest(&stored,&supplied) { Some(state) } else { None }))
+    with_db(|db| {
+        let row: Option<(String, String)> = db.query_row("SELECT credential_sha256,state FROM backup_pairs WHERE mac=?1", [mac], |r| Ok((r.get(0)?,r.get(1)?))).optional().map_err(|_| UNAVAILABLE)?;
+        Ok(row.and_then(|(stored,state)| if equal_digest(&stored,&supplied) { Some(state) } else { None }))
+    })
 }
 
 /// The mirror and key doors call this with the presented credential, not its digest.
@@ -61,7 +82,7 @@ pub fn admitted(mac: &str, credential: &str) -> bool {
 
 fn request(mac: &str, hostname: &str, supplied: &str, ipv4: &str) -> Result<(Value, bool), Failure> {
     if !valid_mac(mac) || !valid_digest(supplied) || hostname.is_empty() || hostname.len() > 253 { return Err(INVALID); }
-    let mut db = crate::stats::open_db().map_err(|_| UNAVAILABLE)?.lock().map_err(|_| UNAVAILABLE)?;
+    with_db(|db| {
     let tx = db.transaction().map_err(|_| UNAVAILABLE)?;
     let old: Option<(String,String)> = tx.query_row("SELECT credential_sha256,state FROM backup_pairs WHERE mac=?1", [mac], |r| Ok((r.get(0)?,r.get(1)?))).optional().map_err(|_| UNAVAILABLE)?;
     if old.as_ref().is_some_and(|(digest,state)| state == "accepted" && equal_digest(digest,supplied)) {
@@ -70,19 +91,23 @@ fn request(mac: &str, hostname: &str, supplied: &str, ipv4: &str) -> Result<(Val
     tx.execute("INSERT INTO backup_pairs(mac,hostname,ipv4,credential_sha256,state,requested_at,accepted_at) VALUES(?1,?2,?3,?4,'pending',?5,NULL) ON CONFLICT(mac) DO UPDATE SET hostname=excluded.hostname,ipv4=excluded.ipv4,credential_sha256=excluded.credential_sha256,state='pending',requested_at=excluded.requested_at,accepted_at=NULL", params![mac,hostname,ipv4,supplied,now()]).map_err(|_| UNAVAILABLE)?;
     tx.commit().map_err(|_| UNAVAILABLE)?;
     Ok((json!({"ok":true,"state":"pending"}), true))
+    })
 }
 
 fn list() -> Result<Value, Failure> {
-    let db = crate::stats::open_db().map_err(|_| UNAVAILABLE)?.lock().map_err(|_| UNAVAILABLE)?;
-    let mut query = db.prepare("SELECT p.mac,COALESCE(json_extract(r.row,'$.hostname'),p.hostname),p.ipv4,p.state,p.requested_at,p.accepted_at FROM backup_pairs p LEFT JOIN ruyi r ON r.mac=p.mac ORDER BY p.mac").map_err(|_| UNAVAILABLE)?;
+    with_db(|db| {
+    let has_ruyi: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='ruyi')", [], |r| r.get(0)).map_err(|_| UNAVAILABLE)?;
+    let sql = if has_ruyi { "SELECT p.mac,COALESCE(json_extract(r.row,'$.hostname'),p.hostname),p.ipv4,p.state,p.requested_at,p.accepted_at FROM backup_pairs p LEFT JOIN ruyi r ON r.mac=p.mac ORDER BY p.mac" } else { "SELECT mac,hostname,ipv4,state,requested_at,accepted_at FROM backup_pairs ORDER BY mac" };
+    let mut query = db.prepare(sql).map_err(|_| UNAVAILABLE)?;
     let rows = query.query_map([], |r| Ok(json!({"mac":r.get::<_,String>(0)?,"hostname":r.get::<_,Option<String>>(1)?,"ipv4":r.get::<_,Option<String>>(2)?,"state":r.get::<_,String>(3)?,"requested_at":r.get::<_,i64>(4)?,"accepted_at":r.get::<_,Option<i64>>(5)?}))).map_err(|_| UNAVAILABLE)?;
     let rows = rows.collect::<Result<Vec<_>,_>>().map_err(|_| UNAVAILABLE)?;
     Ok(json!({"ok":true,"pairs":rows}))
+    })
 }
 
 fn change(mac: &str, accept: bool) -> Result<(Value, bool), Failure> {
     if !valid_mac(mac) { return Err(INVALID); }
-    let db = crate::stats::open_db().map_err(|_| UNAVAILABLE)?.lock().map_err(|_| UNAVAILABLE)?;
+    with_db(|db| {
     if accept {
         let count = db.execute("UPDATE backup_pairs SET state='accepted',accepted_at=?2 WHERE mac=?1 AND state='pending'", params![mac,now()]).map_err(|_| UNAVAILABLE)?;
         if count == 0 { return Err((StatusCode::NOT_FOUND,"backup-pair-not-pending")); }
@@ -92,6 +117,7 @@ fn change(mac: &str, accept: bool) -> Result<(Value, bool), Failure> {
         if count == 0 { return Err((StatusCode::NOT_FOUND,"backup-pair-unknown")); }
         Ok((json!({"ok":true}), true))
     }
+    })
 }
 
 fn record(verb: &str, success: bool, signal: &str, started: Instant) {
@@ -133,7 +159,7 @@ async fn handle(OriginalUri(uri): OriginalUri, peer: Option<ConnectInfo<crate::g
 }
 
 pub fn register(router: Router) -> Router {
-    initialize().expect("backup-pair-state-unavailable");
+    let _ = with_db(|_| Ok(()));
     router
         .route("/api/v1/storage/backup/pair/request", axum::routing::post(handle))
         .route("/api/v1/storage/backup/pair/status", axum::routing::post(handle))
