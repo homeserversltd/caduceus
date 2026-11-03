@@ -1,0 +1,48 @@
+use axum::{extract::Json, http::StatusCode, Router};
+use serde_json::{json, Value};
+
+const READ_COMMAND: &str = "settings shortcuts read";
+const MUTATE_COMMAND: &str = "settings shortcuts mutate";
+const BAND: &str = "settings/shortcuts";
+const SCHEMA: &str = "caduceus.staff.v1";
+
+fn admitted(command: &str) -> Result<(), (StatusCode, Json<Value>)> {
+    match crate::shared::policy::allows_command(command) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err((StatusCode::FORBIDDEN, Json(json!({"schema":"caduceus.api.error.v1","ok":false,"command":command,"first_missing_signal":"caduceus-public-action-not-allowed"})))),
+        Err(_) => Err((StatusCode::FORBIDDEN, Json(json!({"schema":"caduceus.api.error.v1","ok":false,"command":command,"first_missing_signal":"caduceus-carapace-desync"})))),
+    }
+}
+
+fn actuator_receipt(transition: &str, payload: Option<Value>) -> Result<Value, String> {
+    let mut envelope = json!({"schema":SCHEMA,"intent_id":format!("caduceus-settings-shortcuts-{transition}"),"transition":transition,"origin_of_intent":"near"});
+    if let Some(payload) = payload { envelope["payload"] = payload; }
+    let walked = crate::gate::snake::run(BAND, &envelope)?;
+    walked.get("envelope").and_then(|value| value.get("caduceusReceipt")).and_then(|value| value.get("stepReceipt")).cloned().ok_or_else(|| "caduceus-snake-staff-receipt-missing".to_string())
+}
+
+async fn read_http() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    admitted(READ_COMMAND)?;
+    let result = crate::gate::blocking_task(READ_COMMAND, || actuator_receipt("read", None))
+        .await
+        .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
+    result.map(|receipt| (crate::gate::mutation_status(&receipt), Json(receipt))).map_err(|signal| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"schema":SCHEMA,"ok":false,"command":READ_COMMAND,"firstMissingSignal":signal}))))
+}
+
+async fn mutate_http(Json(body): Json<Value>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    admitted(MUTATE_COMMAND)?;
+    let result = crate::gate::blocking_task(MUTATE_COMMAND, move || actuator_receipt("set", Some(body)))
+        .await
+        .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
+    result.map(|receipt| (crate::gate::mutation_status(&receipt), Json(receipt))).map_err(|signal| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"schema":SCHEMA,"ok":false,"command":MUTATE_COMMAND,"firstMissingSignal":signal}))))
+}
+
+pub fn register(router: Router) -> Router {
+    router.route(
+        "/api/v1/settings/shortcuts",
+        axum::routing::get(read_http)
+            .post(mutate_http)
+            .put(mutate_http)
+            .patch(mutate_http),
+    )
+}

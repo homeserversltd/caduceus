@@ -1,0 +1,1 @@
+{"namespace":"settings/shortcuts","admittance":"open","flags":{},"serve":[{"snake":"settings/shortcuts","verb":["settings","shortcuts"]}],"commands":["settings shortcuts read","settings shortcuts mutate"],"needs":["sway"]}
