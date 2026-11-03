@@ -196,11 +196,11 @@ fn advance_slot(tx:&rusqlite::Transaction<'_>,id:&str,fire:&str) -> Result<(),St
     Ok(())
 }
 pub fn queue(id:&str,trigger:&str,slot:Option<i64>) -> Result<Value,String> {
-    let mut result=queue_with_id(id,trigger,slot,&uuid::Uuid::new_v4().simple().to_string())?;
+    let mut result=queue_with_id(id,trigger,slot,&uuid::Uuid::new_v4().simple().to_string(),false)?;
     if let Some(object)=result.as_object_mut() {object.remove("max_seconds");}
     Ok(result)
 }
-fn queue_with_id(id:&str,trigger:&str,slot:Option<i64>,fire_id:&str) -> Result<Value,String> {
+fn queue_with_id(id:&str,trigger:&str,slot:Option<i64>,fire_id:&str,waiter:bool) -> Result<Value,String> {
     let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?; super::tables(&db)?;
     let tx=db.transaction().map_err(|e|e.to_string())?;
     let (raw,enabled,max):(Vec<u8>,bool,u64)=tx.query_row("SELECT envelope,enabled,max_seconds FROM pid2_schedules WHERE schedule_id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(|e|e.to_string())?.ok_or("pid2-schedule-not-found")?;
@@ -214,7 +214,14 @@ fn queue_with_id(id:&str,trigger:&str,slot:Option<i64>,fire_id:&str) -> Result<V
     if signal.is_some() {advance_slot(&tx,id,&fire_id)?;}
     tx.commit().map_err(|e|e.to_string())?;drop(db);
     if let Some(signal)=signal {fire_deed(id,&fire_id,"Refused",0,Some(&signal));return Err(signal);}
-    super::events::notify_schedule()?;Ok(json!({"ok":true,"fire_id":fire_id,"state":"Queued","max_seconds":max}))
+    if let Err(signal)=super::events::notify_schedule() {
+        if !waiter {return Err(signal);}
+        // The fire is already committed, so the waiting caller must not be
+        // told that no fire exists. Keep watching it and surface the failed
+        // nudge separately; a later wake may still dispatch the queued fire.
+        eprintln!("pid2-schedule-wake-after-queue: {signal}");
+    }
+    Ok(json!({"ok":true,"fire_id":fire_id,"state":"Queued","max_seconds":max}))
 }
 
 /// Return the next clock delay and queue any missed slots. No periodic polling.
@@ -361,14 +368,18 @@ fn run_cli(id:&str,options:&[String]) -> i32 {
             Err(signal)=>{if round {println!("{}",json!({"ok":false,"signal":signal,"fire":null}));} else {eprintln!("{signal}");}1}
         };
     }
+    let mut committed_fire=None;
     let result=(|| -> Result<(Value,i32),String> {
+        let begin=std::time::Instant::now();
+        if deadline.is_some_and(|seconds|begin.checked_add(Duration::from_secs(seconds)).is_none()) {return Err("pid2-schedule-deadline-unusable".into());}
         let fire=uuid::Uuid::new_v4().simple().to_string();
         let address=fire_address(&fire)?;
         let socket=std::os::unix::net::UnixDatagram::bind_addr(&address).map_err(|e|format!("pid2-schedule-wait-socket: {e}"))?;
-        let queued=queue_with_id(id,trigger,None,&fire)?;
+        let queued=queue_with_id(id,trigger,None,&fire,true)?;
+        committed_fire=Some(fire.clone());
         let max=queued.get("max_seconds").and_then(Value::as_u64).ok_or("pid2-schedule-deadline-unusable")?;
         let seconds=deadline.unwrap_or(max.saturating_add(300));
-        let end=std::time::Instant::now().checked_add(Duration::from_secs(seconds)).ok_or("pid2-schedule-deadline-unusable")?;
+        let end=begin.checked_add(Duration::from_secs(seconds)).ok_or("pid2-schedule-deadline-unusable")?;
         let mut terminal_notice:Option<Value>=None;
         loop {
             let db=super::read_db()?.ok_or("pid2-schedule-database-unavailable")?;
@@ -376,12 +387,12 @@ fn run_cli(id:&str,options:&[String]) -> i32 {
             drop(db);
             let row=terminal_notice.take().or(current);
             let state=row.as_ref().and_then(|row|row.get("state")).and_then(Value::as_str).unwrap_or("");
+            let remaining=end.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {return Ok((json!({"ok":false,"signal":"pid2-schedule-wait-deadline","fire":row}),1));}
             if matches!(state,"Done"|"Refused"|"Failed"|"Interrupted") {
                 let ok=state=="Done";
                 return Ok((json!({"ok":ok,"fire":row}),if ok {0} else {1}));
             }
-            let remaining=end.saturating_duration_since(std::time::Instant::now());
-            if remaining.is_zero() {return Ok((json!({"ok":false,"signal":"pid2-schedule-wait-deadline","fire":row}),1));}
             socket.set_read_timeout(Some(remaining)).map_err(|e|e.to_string())?;
             let mut buffer=[0u8;65536];
             match socket.recv(&mut buffer) {
@@ -395,7 +406,7 @@ fn run_cli(id:&str,options:&[String]) -> i32 {
             }
         }
     })();
-    match result {Ok((value,code))=>{println!("{value}");code},Err(signal)=>{println!("{}",json!({"ok":false,"signal":signal,"fire":null}));1}}
+    match result {Ok((value,code))=>{println!("{value}");code},Err(signal)=>{println!("{}",json!({"ok":false,"signal":signal,"fire":committed_fire.map(|fire_id|json!({"fire_id":fire_id}))}));1}}
 }
 
 pub fn cli(args:&[String]) -> i32 {
@@ -408,7 +419,6 @@ pub fn cli(args:&[String]) -> i32 {
         [verb,id] if verb=="status"=>status(id),
         [verb,id] if verb=="enable"=>set_enabled(id,true,false),
         [verb,id] if verb=="disable"=>set_enabled(id,false,false),
-
         [verb,id] if verb=="update"=>std::io::stdin().take(1024*1024+1).read_to_end(&mut raw).map_err(|e|e.to_string()).and_then(|_|if raw.len()>1024*1024 {Err("pid2-envelope-too-large".into())} else {serde_json::from_slice::<Value>(&raw).map_err(|e|e.to_string()).and_then(|v|update(id,&v))}),
         _=>Err("pid2-schedule-arguments-invalid".into()),
     };
