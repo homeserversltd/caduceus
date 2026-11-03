@@ -64,17 +64,18 @@ async fn route(mut request: Request<Body>) -> Response {
         }}
         captured
     });
-    match tokio::time::timeout(Duration::from_secs(2), child.wait()).await {
-        Ok(Ok(status)) => {
-            let captured = tokio::time::timeout(Duration::from_secs(2), stderr_task).await.ok().and_then(Result::ok).unwrap_or_default();
+    let early_deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    match tokio::time::timeout_at(early_deadline, child.wait()).await {
+        Ok(Ok(_status)) => {
+            let captured = tokio::time::timeout_at(early_deadline, stderr_task).await.ok().and_then(Result::ok).unwrap_or_default();
             let signal = captured.split(|byte| *byte == b'\n').next()
                 .and_then(|line| serde_json::from_slice::<serde_json::Value>(line).ok())
                 .and_then(|json| json.get("signal").and_then(|value| value.as_str()).map(str::to_owned))
                 .filter(|signal| signal.len() <= 128 && !signal.is_empty() && !credential.is_empty() && !signal.contains(credential)
                     && signal.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'))
                 .unwrap_or_else(|| "backup-mirror-child-failed".to_owned());
-            let code = if !status.success() && signal != "backup-mirror-child-failed" { StatusCode::CONFLICT } else { StatusCode::INTERNAL_SERVER_ERROR };
-            return refusal(code, &signal);
+            // An early child exit is a pre-upgrade conflict; never echo raw stderr.
+            return refusal(StatusCode::CONFLICT, &signal);
         }
         Ok(Err(_)) => { stderr_task.abort(); return refusal(StatusCode::INTERNAL_SERVER_ERROR, "backup-mirror-child-failed"); }
         Err(_) => {}
@@ -94,7 +95,6 @@ async fn route(mut request: Request<Body>) -> Response {
             tokio::select! {
                 _ = tokio::io::copy(&mut reader, &mut stdin) => {},
                 _ = tokio::io::copy(&mut stdout, &mut writer) => {},
-                status = child.wait() => { exited = status.ok(); }
             }
             let _ = stdin.shutdown().await;
         }
