@@ -141,10 +141,11 @@ async fn dhcp_staff_actuator_route(
 async fn dhcp_reservation_staff_actuator_route(
     method: axum::http::Method,
     Path(reservation_id): Path<String>,
-    Json(mut metadata): Json<Value>,
+    payload: Option<Json<Value>>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let metadata = payload.map(|Json(value)| value).unwrap_or_else(|| serde_json::json!({}));
     let object = metadata
-        .as_object_mut()
+        .as_object()
         .ok_or_else(|| api_error_signal("staff intent", "caduceus-dhcp-request-invalid"))?;
     if object.contains_key("reservationId") {
         return Err(api_error_signal(
@@ -152,10 +153,6 @@ async fn dhcp_reservation_staff_actuator_route(
             "caduceus-dhcp-reservation-client-supplied",
         ));
     }
-    object.insert(
-        "reservationId".to_string(),
-        Value::String(reservation_id.clone()),
-    );
     let route = format!("/api/dhcp/reservations/{reservation_id}");
     match policy::allows_command("staff intent") {
         Ok(true) => {
