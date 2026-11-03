@@ -1,1 +1,1 @@
-{"namespace":"network/device/ipv4","admittance":"open","flags":{},"serve":[{"rust":"network_device_ipv4_mutate"},{"snake":"network/wifi"}],"commands":["network device ipv4"],"needs":["nmcli"]}
+{"namespace":"network/device/ipv4","admittance":"open","flags":{},"serve":[{"rust":"network_device_ipv4_mutate"},{"snake":"network/wifi/device/ipv4/set"}],"commands":["network device ipv4"],"needs":["nmcli"]}

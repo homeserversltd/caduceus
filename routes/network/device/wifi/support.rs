@@ -65,7 +65,7 @@ pub async fn execute(
         Ok(v) => v,
         Err(e) => return refuse(e),
     };
-    let mutation = matches!(&plan, Plan::Mutation(_));
+    let mutation = matches!(&plan, Plan::Mutation(_, _));
     let (success, result, failure) = match plan {
         Plan::Read(args) => {
             let result = crate::gate::blocking_task(command, move || run_readonly_nmcli(&args))
@@ -76,9 +76,9 @@ pub async fn execute(
                 Err(error) => (false, None, Some(error)),
             }
         }
-        Plan::Mutation(payload) => {
+        Plan::Mutation(stop_path, payload) => {
             let result = crate::gate::blocking_task(command, move || {
-                crate::gate::snake::crossing_path("network/wifi", &payload)
+                crate::gate::snake::crossing_path(stop_path, &payload)
             })
             .await
             .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
@@ -171,7 +171,7 @@ fn cidr(v: &str) -> Result<String, String> {
 }
 enum Plan {
     Read(Vec<String>),
-    Mutation(Value),
+    Mutation(&'static str, Value),
 }
 fn build_plan(
     action: &str,
@@ -214,12 +214,11 @@ fn build_plan(
                 .collect(),
         )),
         "connect" if command == "network device connect" => {
-            Ok(Plan::Mutation(json!({
-                "kind":"connect_device",
+            Ok(Plan::Mutation("network/wifi/device/connect", json!({
                 "interface":text(o, "interface", MAX_FIELD)?
             })))
         }
-        "connect" => {
+        "connect" if command == "network device wifi connect" => {
             let password = match o.get("password") {
                 Some(value) => {
                     let password = value
@@ -237,33 +236,31 @@ fn build_plan(
                 None => None,
             };
             let ssid = text(o, "ssid", MAX_FIELD)?;
-            let mut payload = json!({"kind":"connect_wifi","ssid":ssid});
+            let mut payload = json!({"ssid":ssid});
             if let Some(password) = password {
                 payload["password"] = password.into();
             }
-            Ok(Plan::Mutation(payload))
+            Ok(Plan::Mutation("network/wifi/network/connect", payload))
         }
-        "radio" => match o.get("enabled").and_then(Value::as_bool) {
-            Some(enabled) => Ok(Plan::Mutation(json!({"kind":"radio","enabled":enabled}))),
+        "radio" if command == "network device wifi radio" => match o.get("enabled").and_then(Value::as_bool) {
+            Some(enabled) => Ok(Plan::Mutation("network/wifi/radio/set", json!({"enabled":enabled}))),
             None => Err("wifi-enabled-required".into()),
         },
-        "disconnect" => Ok(Plan::Mutation(json!({
-            "kind":"disconnect",
+        "disconnect" if command == "network device disconnect" || command == "network device wifi disconnect" => Ok(Plan::Mutation("network/wifi/device/disconnect", json!({
             "interface":text(o, "interface", MAX_FIELD)?
         }))),
-        "forget" => Ok(Plan::Mutation(json!({
-            "kind":"forget",
+        "forget" if command == "network device wifi forget" => Ok(Plan::Mutation("network/wifi/connection/forget", json!({
             "uuid":text(o, "uuid", MAX_FIELD)?
         }))),
         "ipv4" if command == "network device ipv4" => {
-            ipv4_payload("ipv4_device", "interface", o)
+            ipv4_payload("network/wifi/device/ipv4/set", "interface", o)
         }
-        "ipv4" => ipv4_payload("ipv4_wifi", "uuid", o),
+        "ipv4" if command == "network device wifi ipv4" => ipv4_payload("network/wifi/connection/ipv4/set", "uuid", o),
         _ => Err("wifi-action-invalid".into()),
     }
 }
 fn ipv4_payload(
-    kind: &str,
+    stop_path: &'static str,
     target_field: &str,
     o: &serde_json::Map<String, Value>,
 ) -> Result<Plan, String> {
@@ -274,14 +271,14 @@ fn ipv4_payload(
     }
     let is_static = method == "static";
     let mut payload = serde_json::Map::new();
-    payload.insert("kind".into(), kind.into());
+
     payload.insert(target_field.into(), target.into());
     payload.insert("method".into(), method.into());
     if is_static {
         payload.insert("address".into(), cidr(&text(o, "address", MAX_FIELD)?)?.into());
         append_static_ipv4_payload_fields(&mut payload, o)?;
     }
-    Ok(Plan::Mutation(Value::Object(payload)))
+    Ok(Plan::Mutation(stop_path, Value::Object(payload)))
 }
 
 fn run_readonly_nmcli(args: &[String]) -> Result<(String, Vec<String>), String> {
