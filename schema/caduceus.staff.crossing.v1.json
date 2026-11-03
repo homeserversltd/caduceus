@@ -10,7 +10,7 @@
     "fields": {
       "schema": {"const": "caduceus.staff.crossing.v1"},
       "band": {"type": "string"},
-      "envelope": {"type": ["object", "string"], "description": "The original forwarded envelope, including unknown fields."},
+      "envelope": {"type": "object", "description": "The original forwarded envelope, including unknown fields."},
       "timeoutMs": {"type": "integer", "minimum": 1}
     },
     "additionalProperties": true,
@@ -20,7 +20,7 @@
     "required": ["schema", "exit", "stdout", "stderr"],
     "fields": {
       "schema": {"const": "caduceus.staff.crossing.v1"},
-      "exit": {"type": "integer", "minimum": 0, "maximum": 255},
+      "exit": {"type": "integer", "minimum": -127, "maximum": 255, "description": "Child exit code, or negative signal number if terminated by signal (Python subprocess convention)."},
       "stdout": {"type": "string", "max_utf8_bytes": 1048576},
       "stderr": {"type": "string", "max_utf8_bytes": 65536}
     },

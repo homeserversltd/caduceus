@@ -379,11 +379,12 @@ fn staff_socket_exchange(
     }
     let value: Value = serde_json::from_slice(&reply).map_err(|_| "caduceus-staff-socket-reply-invalid")?;
     if value.get("schema").and_then(Value::as_str) != Some("caduceus.staff.crossing.v1") { return Err("caduceus-staff-socket-schema-invalid".into()); }
-    let exit = value.get("exit").and_then(Value::as_i64).filter(|v| (0..=255).contains(v)).ok_or("caduceus-staff-socket-exit-invalid")? as i32;
+    let exit = value.get("exit").and_then(Value::as_i64).filter(|v| (-127..=255).contains(v)).ok_or("caduceus-staff-socket-exit-invalid")? as i32;
     let stdout = value.get("stdout").and_then(Value::as_str).ok_or("caduceus-staff-socket-stdout-invalid")?.as_bytes().to_vec();
     let stderr = value.get("stderr").and_then(Value::as_str).ok_or("caduceus-staff-socket-stderr-invalid")?.as_bytes().to_vec();
     if stdout.len() > MAX_CHORD_OUTPUT_BYTES || stderr.len() > MAX_OUTPUT_BYTES { return Err("caduceus-staff-socket-output-too-large".into()); }
-    Ok(Some((ExitStatus::from_raw(exit << 8), stdout, stderr)))
+    let wait_status = if exit < 0 { -exit } else { exit << 8 };
+    Ok(Some((ExitStatus::from_raw(wait_status), stdout, stderr)))
 }
 
 fn socket_ready(fd: libc::c_int, events: libc::c_short, deadline: Instant) -> bool {
@@ -420,7 +421,10 @@ fn execute_command_raw(
     let socket_reply = if socket_eligible {
         staff_socket_exchange(band, &raw, deadline, timeout_error)?
     } else { None };
-    let (status, stdout, stderr, stdin_ok) = if let Some((status, stdout, stderr)) = socket_reply {
+    let (status, stdout, stderr, stdin_ok) = if let Some((status, mut stdout, mut stderr)) = socket_reply {
+        // Match the fork readers' `take(bound + 1)` observations exactly.
+        stdout.truncate(output_bound.saturating_add(1));
+        stderr.truncate(MAX_OUTPUT_BYTES.saturating_add(1));
         (Some(status), Some(stdout), Some(stderr), true)
     } else {
     if socket_eligible && Instant::now() >= deadline { return Err(timeout_error.into()); }
