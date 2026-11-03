@@ -3,19 +3,19 @@
     "schema": "caduceus.agathodaimon.crossings.v1",
     "entries": [
       {
-        "noun": "attendance",
+        "noun": "exousia",
         "verb": "bind"
       },
       {
-        "noun": "attendance",
+        "noun": "exousia",
         "verb": "verify"
       },
       {
-        "noun": "pin",
+        "noun": "exousia",
         "verb": "change"
       },
       {
-        "noun": "pin",
+        "noun": "exousia",
         "verb": "reset-default"
       },
       {

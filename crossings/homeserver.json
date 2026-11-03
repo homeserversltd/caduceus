@@ -58,6 +58,8 @@
     "network/linker",
     "network/tailscale",
     "network/wake-on-lan",
+    "settings/datetime",
+    "settings/region",
     "settings/datetime/household-time",
     "settings/samba",
     "settings/ssh",
@@ -87,6 +89,8 @@
     "update/sources-reseed"
   ],
   "verbs": [
+    ["settings", "datetime"],
+    ["settings", "region"],
     ["backup", "ledger"],
     ["nas", "drives"],
     ["nas", "list"],
@@ -359,6 +363,8 @@
     "/api/v1/service/:service/status",
     "/api/v1/service/:service/stop",
     "/api/v1/settings/child-device",
+    "/api/v1/settings/datetime",
+    "/api/v1/settings/region",
     "/api/v1/settings/samba/status",
     "/api/v1/settings/ssh/status",
     "/api/v1/storage/nas/attach",
@@ -381,6 +387,7 @@
   ],
   "administrative": {
     "bands": [
+      "settings/datetime",
       "storage/nas/list",
       "storage/backup/forgejo/skip-check",
       "appliance/service/start",
@@ -424,6 +431,8 @@
       "transmission/up"
     ],
     "verbs": [
+      ["settings", "datetime"],
+      ["settings", "region"],
       ["nas", "list"],
       ["forgejo", "skip-check"],
       ["service", "start"],
@@ -485,6 +494,8 @@
       ]
     ],
     "routes": [
+      "/api/v1/settings/datetime",
+      "/api/v1/settings/region",
       "/api/v1/storage/nas/list",
       "/api/v1/storage/backup/forgejo/skip-check",
       "/api/v1/storage/backup/backblaze/bucket/add",

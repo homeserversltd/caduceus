@@ -2,6 +2,7 @@
   "schema": "caduceus.carapace.model.v1",
   "roots": [
     "all",
+    "settings",
     "kea",
     "unbound",
     "sway",
@@ -35,6 +36,10 @@
         "staff actuators",
         "staff intent"
       ]
+    },
+    "settings": {
+      "mandatory": true,
+      "description": "Compositor-free settings every appliance carries."
     },
     "benchmark": {
       "mandatory": true,
