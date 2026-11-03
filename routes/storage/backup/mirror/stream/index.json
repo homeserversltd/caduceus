@@ -1,0 +1,10 @@
+{
+  "namespace": "storage/backup/mirror/stream",
+  "admittance": "open",
+  "flags": {},
+  "commands": [],
+  "needs": ["nas"],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/mirror/stream",
+  "body": "none"
+}
