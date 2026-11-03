@@ -774,6 +774,7 @@ fn route_deadlines(tx:&Wake, fired:&mut HashSet<(String,String,i64,i64)>) -> Res
     Ok(next.map(|second|Duration::from_secs(second.max(0) as u64).saturating_sub(current)))
 }
 pub async fn run() {
+    if let Err(error)=super::schedule::wake_interrupted() {eprintln!("pid2-schedule-interrupted-wake: {error}");}
     if let Err(error)=refresh_units() {eprintln!("pid2-unit-watch-config: {error}");}
     let (channel,mut rx) = mpsc::channel::<()>(1);
     let (reconfigure,config_rx)=tokio::sync::watch::channel(());

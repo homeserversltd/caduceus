@@ -14,7 +14,7 @@
     "schedule": {"type": ["object", "null"], "properties": {
       "schedule_id": {"type": "string"},
       "enabled": {"type": ["boolean", "null"]},
-      "calendar": {"type": "object", "properties": {
+      "calendar": {"type": ["object", "null"], "properties": {
         "frequency": {"type": "string", "enum": ["daily", "weekly"]},
         "time": {"type": "string"}, "weekday": {"type": ["string", "null"]}
       }, "additionalProperties": true},
