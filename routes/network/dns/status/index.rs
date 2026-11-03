@@ -65,46 +65,6 @@ pub fn intent_json(method: &str, route: &str, metadata: Value) -> Result<Value, 
     invoke("network/dns/drop-in/apply", Value::Object(payload))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
-
-    #[test]
-    fn delegates_status_and_intent_without_touching_dns() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("target")
-            .join(format!("dns-fixture-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-        let args_log = root.join("args");
-        let stdin_log = root.join("stdin");
-        let script = root.join("staff-dns");
-        std::fs::write(
-            &script,
-            format!(
-                "#!/bin/sh\nprintf '%s' \"$*\" > {}\ncat > {}\nprintf '{{\"schema\":\"caduceus.network.dns.intent.v1\",\"ok\":true,\"mutationPerformed\":false}}\\n'\n",
-                args_log.display(),
-                stdin_log.display()
-            ),
-        )
-        .unwrap();
-        let mut permissions = std::fs::metadata(&script).unwrap().permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&script, permissions).unwrap();
-        std::env::set_var("CADUCEUS_AGATHODAIMON_CLI", script.to_str().unwrap());
-        let result =
-            intent_json("POST", "/api/dns/unbound/drop-in", json!({"dryRun":true})).unwrap();
-        assert_eq!(result["schema"], "caduceus.network.dns.public_receipt.v1");
-        assert_eq!(std::fs::read_to_string(args_log).unwrap(), "network dns");
-        assert!(std::fs::read_to_string(stdin_log).unwrap().contains("args"));
-        std::env::remove_var("CADUCEUS_AGATHODAIMON_CLI");
-        let _ = std::fs::remove_dir_all(root);
-    }
-}
-
-
 use axum::{extract::Json, http::StatusCode, Router};
 #[cfg(carapace_feature_unbound)]
 use axum::http::{HeaderMap};

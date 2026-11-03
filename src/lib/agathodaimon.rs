@@ -25,8 +25,8 @@ fn reflect_failure(
     duration_ms: u64,
     record_failure: bool,
 ) {
-    // Public bundle reads are observational and must not emit Hyalos writes.
-    if !record_failure || (noun == "cert" && verb == "house-ca") {
+    // Observational reads pass record_failure false and emit no Hyalos write.
+    if !record_failure {
         return;
     }
     // Reflection is deliberately best effort: it must never replace the crossing result.
@@ -91,11 +91,7 @@ fn failure_from_value(
     let signal = value
         .get("firstMissingSignal")
         .and_then(Value::as_str)
-        .unwrap_or(if noun == "cert" && verb == "house-ca" {
-            "caduceus-house-ca-refused"
-        } else {
-            "caduceus-agathodaimon-cli-refused"
-        });
+        .unwrap_or("caduceus-agathodaimon-cli-refused");
     let first_missing_field = value
         .get("firstMissingField")
         .or_else(|| value.get("field"))
@@ -114,18 +110,9 @@ fn failure_from_value(
         object.insert("class".into(), Value::String(class.to_string()));
         object.insert("exit".into(), exit.map_or(Value::Null, |code| json!(code)));
         object.insert("stderr".into(), Value::String(stderr.to_string()));
-        if noun == "cert" && verb == "house-ca" {
-            object
-                .entry("firstMissingSignal")
-                .or_insert_with(|| Value::String("caduceus-house-ca-refused".to_string()));
-        }
         return value;
     }
-    let signal = if noun == "cert" && verb == "house-ca" {
-        "caduceus-house-ca-refused"
-    } else {
-        "caduceus-agathodaimon-cli-response-not-object"
-    };
+    let signal = "caduceus-agathodaimon-cli-response-not-object";
     json!({
         "ok": false,
         "error": value,
@@ -398,7 +385,7 @@ fn crossing_value_mode(
 ) -> Result<Value, Value> {
     for (selector, variable) in [
         (noun == "time", "CADUCEUS_TIME_CMD"),
-        (noun == "network" && verb == "dns", "CADUCEUS_DNS_CMD"),
+
     ] {
         if selector {
             if let Ok(command_line) = std::env::var(variable) {

@@ -1,1 +1,1 @@
-{"namespace":"network/device/wake","admittance":"open","flags":{},"serve":[{"snake":"network/wake-on-lan","verb":["network","wake-on-lan"]}],"commands":["staff intent","network device wake"],"needs":["all"]}
+{"namespace":"network/device/wake","admittance":"open","flags":{},"serve":[{"snake":"network/wake-on-lan/send"},{"snake":"network/wake-on-lan/probe"}],"commands":["staff intent","network device wake"],"needs":["all"]}

@@ -2,7 +2,7 @@
 use serde_json::Value;
 
 pub fn command_json(metadata: Value) -> Result<Value, String> {
-    crate::routes::staff::named_actuator_json("wake-on-lan", metadata)
+    crate::routes::staff::wake_stop_json(metadata)
 }
 
 pub fn command(metadata: Value) -> i32 {
@@ -39,7 +39,7 @@ async fn wake_named_actuator_route(
     match crate::shared::policy::allows_command("staff intent") {
         Ok(true) => {
             let result = crate::gate::blocking_task("staff intent", move || {
-                crate::routes::staff::named_actuator_json("wake-on-lan", metadata)
+                crate::routes::staff::wake_stop_json(metadata)
             })
             .await?;
             result

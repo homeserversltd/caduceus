@@ -1,4 +1,4 @@
-// DHCP staff command, crossed only through agathodaimon network dhcp.
+// DHCP staff command, crossed through its stops network/dhcp/*.
 use serde_json::{json, Map, Value};
 
 const ROUTE_INVALID: &str = "caduceus-dhcp-route-invalid";
@@ -14,11 +14,9 @@ pub fn invoke(args: &[String]) -> Result<Value, String> {
     };
     let mut input = Map::new();
     match first.as_str() {
-        "status" | "config" | "validate" | "statistics" | "health" if args.len() == 1 => {
-            crate::gate::snake::crossing_path("network/dhcp", &json!({"args": args}))
-        }
+        "config" | "validate" if args.len() == 1 => cross(first.as_str(), Map::new()),
         "boundary" if args.len() == 1 || (args.len() == 2 && args[1] == "show") => {
-            crate::gate::snake::crossing_path("network/dhcp", &json!({"args": args}))
+            cross("boundary/show", Map::new())
         }
         "add-reservation" if args.len() >= 2 && !args[1].starts_with('-') => {
             input.insert("hw_address".into(), json!(args[1]));
@@ -54,9 +52,6 @@ pub fn invoke(args: &[String]) -> Result<Value, String> {
         _ => Err(ROUTE_INVALID.into()),
     }
 }
-pub fn command_json(args: &[String]) -> Result<Value, String> {
-    invoke(args)
-}
 pub fn command(args: &[String]) -> i32 {
     match invoke(args) {
         Ok(v) => {
@@ -68,9 +63,6 @@ pub fn command(args: &[String]) -> i32 {
             1
         }
     }
-}
-pub fn status_json() -> Result<Value, String> {
-    invoke(&["status".into()])
 }
 pub fn intent_json(method: &str, route: &str, metadata: Value) -> Result<Value, String> {
     let mut input = Map::new();

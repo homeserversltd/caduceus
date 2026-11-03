@@ -1,4 +1,4 @@
-// Firewall staff command, crossed only through agathodaimon network firewall.
+// Firewall staff command, crossed through its stops network/firewall/*.
 use serde_json::Value;
 
 fn firewall_stop(action: Option<&str>) -> Option<(&'static str, &'static [&'static str])> {

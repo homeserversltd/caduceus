@@ -1,1 +1,1 @@
-{"namespace":"appliance/name","admittance":"open","flags":{},"serve":[{"snake":"network/dns","verb":["network","dns"]}],"commands":["appliance name"],"needs":["all"]}
+{"namespace":"appliance/name","admittance":"open","flags":{},"serve":[{"snake":"network/dns/device-name/create"},{"snake":"network/dns/device-name/remove"},{"snake":"network/dns/alias/create"},{"snake":"network/dns/alias/remove"}],"commands":["appliance name"],"needs":["all"]}

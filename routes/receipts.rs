@@ -86,10 +86,10 @@ fn resolve_program(program: &str) -> Option<PathBuf> {
     })
 }
 
-fn special_program(noun: &str, verb: &str) -> Result<Option<PathBuf>, Value> {
+fn special_program(noun: &str) -> Result<Option<PathBuf>, Value> {
     for (matches, variable) in [
         (noun == "time", "CADUCEUS_TIME_CMD"),
-        (noun == "network" && verb == "dns", "CADUCEUS_DNS_CMD"),
+
     ] {
         if matches {
             let Some(command_line) = std::env::var_os(variable) else {
@@ -144,7 +144,7 @@ fn shelf_component(noun: &str) -> &str {
 }
 
 fn resolve_manifest_entry(noun: &str, verb: &str) -> Value {
-    match special_program(noun, verb) {
+    match special_program(noun) {
         Ok(Some(program)) => {
             return json!({"ok":true,"resolution":"executable-program","program":program});
         }
@@ -407,8 +407,7 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
             staff_actuator_receipt("service-control-doors", "portals/service-control", metadata)
         }
         "disk-doors" => staff_actuator_receipt("disk-doors", "storage/disk-doors", metadata),
-        "wake-on-lan" => wake_stop_json(metadata),
-        "child-device" => child_device_stop_json(metadata),
+
         #[cfg(leaf_pid2)]
         "nas-sync" => crate::pid2::schedule::face(&metadata),
         #[cfg(not(leaf_pid2))]
@@ -427,7 +426,7 @@ fn selected_fields(metadata: &Value, names: &[&str]) -> Value {
     Value::Object(fields)
 }
 
-fn wake_stop_json(metadata: Value) -> Result<Value, String> {
+pub fn wake_stop_json(metadata: Value) -> Result<Value, String> {
     let (stop, names): (&str, &[&str]) = match metadata.get("action").and_then(Value::as_str) {
         Some("send") => ("network/wake-on-lan/send", &["mac", "broadcast"]),
         Some("probe") => ("network/wake-on-lan/probe", &["ip"]),
@@ -436,7 +435,7 @@ fn wake_stop_json(metadata: Value) -> Result<Value, String> {
     stop_receipt(stop, selected_fields(&metadata, names))
 }
 
-fn child_device_stop_json(metadata: Value) -> Result<Value, String> {
+pub fn child_device_stop_json(metadata: Value) -> Result<Value, String> {
     let action = metadata.get("action").and_then(Value::as_str)
         .ok_or_else(|| "child-device-envelope-metadata-invalid".to_string())?;
     let (stop, names): (&str, &[&str]) = match action {

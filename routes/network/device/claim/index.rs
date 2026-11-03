@@ -1,5 +1,5 @@
-// Caduceus network-identity claim band — public Rust face over the pinned
-// `network.identity.claim` staff actuator. Rust validates the public shape and
+// Caduceus network-identity claim band — public Rust face over the stop
+// network/identity/claim. Rust validates the public shape and
 // relays the exact claim argv; selection, transaction, and rollback stay staff-side.
 
 use serde_json::Value;

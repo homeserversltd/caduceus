@@ -1,8 +1,8 @@
-// Child-device staff command, crossed only through agathodaimon network child-device.
+// Child-device staff command, crossed through its stops network/child-device/*.
 use serde_json::{json, Value};
 
 pub fn command_json(metadata: Value) -> Result<Value, String> {
-    crate::routes::staff::named_actuator_json("child-device", metadata)
+    crate::routes::staff::child_device_stop_json(metadata)
 }
 
 pub fn invoke(args: &[String]) -> Result<Value, String> {
