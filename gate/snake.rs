@@ -325,7 +325,7 @@ fn staff_socket_exchange(
     if connected != 0 {
         let error = io::Error::last_os_error();
         if error.raw_os_error() != Some(libc::EINPROGRESS) { return Ok(None); }
-        if !socket_ready(fd, libc::POLLOUT, deadline) { return Err(timeout_error.into()); }
+        if !socket_ready(fd, libc::POLLOUT, deadline)? { return Err(timeout_error.into()); }
         let mut error: libc::c_int = 0;
         let mut length = std::mem::size_of_val(&error) as libc::socklen_t;
         if unsafe { libc::getsockopt(fd, libc::SOL_SOCKET, libc::SO_ERROR, &mut error as *mut _ as *mut _, &mut length) } != 0 || error != 0 { return Ok(None); }
@@ -349,7 +349,7 @@ fn staff_socket_exchange(
                 Ok(n) => written += n,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    if !socket_ready(stream.as_raw_fd(), libc::POLLOUT, deadline) { return Err(timeout_error.into()); }
+                    if !socket_ready(stream.as_raw_fd(), libc::POLLOUT, deadline)? { return Err(timeout_error.into()); }
                 }
                 Err(_) => return Ok(None),
             }
@@ -372,14 +372,14 @@ fn staff_socket_exchange(
             }
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                if !socket_ready(fd, libc::POLLIN, deadline) { return Err(timeout_error.into()); }
+                if !socket_ready(fd, libc::POLLIN, deadline)? { return Err(timeout_error.into()); }
             }
             Err(_) => return Err("caduceus-staff-socket-reply-read-failed".into()),
         }
     }
     let value: Value = serde_json::from_slice(&reply).map_err(|_| "caduceus-staff-socket-reply-invalid")?;
     if value.get("schema").and_then(Value::as_str) != Some("caduceus.staff.crossing.v1") { return Err("caduceus-staff-socket-schema-invalid".into()); }
-    let exit = value.get("exit").and_then(Value::as_i64).filter(|v| (-127..=255).contains(v)).ok_or("caduceus-staff-socket-exit-invalid")? as i32;
+    let exit = value.get("exit").and_then(Value::as_i64).filter(|v| (-64..=255).contains(v)).ok_or("caduceus-staff-socket-exit-invalid")? as i32;
     let stdout = value.get("stdout").and_then(Value::as_str).ok_or("caduceus-staff-socket-stdout-invalid")?.as_bytes().to_vec();
     let stderr = value.get("stderr").and_then(Value::as_str).ok_or("caduceus-staff-socket-stderr-invalid")?.as_bytes().to_vec();
     if stdout.len() > MAX_CHORD_OUTPUT_BYTES || stderr.len() > MAX_OUTPUT_BYTES { return Err("caduceus-staff-socket-output-too-large".into()); }
@@ -387,16 +387,16 @@ fn staff_socket_exchange(
     Ok(Some((ExitStatus::from_raw(wait_status), stdout, stderr)))
 }
 
-fn socket_ready(fd: libc::c_int, events: libc::c_short, deadline: Instant) -> bool {
+fn socket_ready(fd: libc::c_int, events: libc::c_short, deadline: Instant) -> Result<bool, String> {
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() { return false; }
+        if remaining.is_zero() { return Ok(false); }
         let millis = remaining.as_millis().max(1).min(i32::MAX as u128) as i32;
         let mut pollfd = libc::pollfd { fd, events, revents: 0 };
         let result = unsafe { libc::poll(&mut pollfd, 1, millis) };
-        if result > 0 { return true; }
-        if result == 0 { return false; }
-        if io::Error::last_os_error().kind() != io::ErrorKind::Interrupted { return false; }
+        if result > 0 { return Ok(true); }
+        if result == 0 { return Ok(false); }
+        if io::Error::last_os_error().kind() != io::ErrorKind::Interrupted { return Err("caduceus-staff-socket-poll-failed".into()); }
     }
 }
 

@@ -20,7 +20,7 @@
     "required": ["schema", "exit", "stdout", "stderr"],
     "fields": {
       "schema": {"const": "caduceus.staff.crossing.v1"},
-      "exit": {"type": "integer", "minimum": -127, "maximum": 255, "description": "Child exit code, or negative signal number if terminated by signal (Python subprocess convention)."},
+      "exit": {"type": "integer", "minimum": -64, "maximum": 255, "description": "Child exit code, or negative signal number if terminated by signal (Python subprocess convention)."},
       "stdout": {"type": "string", "max_utf8_bytes": 1048576},
       "stderr": {"type": "string", "max_utf8_bytes": 65536}
     },
