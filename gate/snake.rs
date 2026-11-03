@@ -334,12 +334,14 @@ fn staff_socket_exchange(
     // Compute the relative budget only after the potentially large envelope has
     // crossed, immediately before transmitting the final timeout and newline.
     let mut request = format!("{{\"schema\":\"caduceus.staff.crossing.v1\",\"band\":{},\"envelope\":{},\"timeoutMs\":", serde_json::to_string(band).map_err(|_| "caduceus-staff-socket-request-invalid")?, raw).into_bytes();
-    if request.len() + 22 > REQUEST_BOUND { return Err("caduceus-staff-socket-request-too-large".into()); }
+    if request.len() + 3 > REQUEST_BOUND { return Err("caduceus-staff-socket-request-too-large".into()); }
+    let prefix_len = request.len();
     for part in 0..2 {
         if part == 1 {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() { return Err(timeout_error.into()); }
             request = format!("{}}}\n", remaining.as_millis().max(1)).into_bytes();
+            if prefix_len + request.len() > REQUEST_BOUND { return Err("caduceus-staff-socket-request-too-large".into()); }
         }
         let mut written = 0;
         while written < request.len() {
