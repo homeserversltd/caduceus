@@ -5,7 +5,8 @@ use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 
 const APPLIANCE_CONFIG: &str = "/etc/appliance/config.json";
-const POLICY_RECEIPT_SCHEMA: &str = "caduceus.vault.policy-write.v1";
+const POLICY_READ_RECEIPT_SCHEMA: &str = "caduceus.storage.vault.policy.read.v1";
+const POLICY_WRITE_RECEIPT_SCHEMA: &str = "caduceus.storage.vault.policy.write.v1";
 const CONFIG_MUTATION_SCHEMA: &str = "caduceus.household-config.mutation.v1";
 const AUTO_UNLOCK_CONFIG_PATH: &str = "global.mounts.vault.auto_unlock";
 const HOUSEHOLD_CONFIG_PATH: &str = "/etc/appliance/config.json";
@@ -204,10 +205,10 @@ fn decode_mountinfo(s: &str) -> String {
         .replace("\\134", "\\")
 }
 fn read_policy(cfg: &VaultConfig) -> Result<Value, String> {
-    let payload = json!({"mapper": &cfg.mapper, "op": "read"});
-    let receipt = crate::gate::snake::crossing_path("storage/vault/policy", &payload)
+    let payload = json!({"mapper": &cfg.mapper});
+    let receipt = crate::gate::snake::crossing_path("storage/vault/policy/read", &payload)
         .map_err(|_| "vault-policy-missing".to_string())?;
-    if receipt.get("schema").and_then(Value::as_str) != Some(POLICY_RECEIPT_SCHEMA)
+    if receipt.get("schema").and_then(Value::as_str) != Some(POLICY_READ_RECEIPT_SCHEMA)
         || receipt.get("op").and_then(Value::as_str) != Some("read")
         || receipt.get("ok").and_then(Value::as_bool) != Some(true)
     {
@@ -365,15 +366,16 @@ fn open_vault(cfg: &VaultConfig, passphrase: Option<&str>) -> Result<Value, Stri
         .filter(|seconds| (1..=600).contains(seconds))
         .ok_or_else(|| "vault-open-deadline-invalid".to_string())?;
     let device = resolve_device(&cfg.device)?;
-    let payload = json!({
-        "op": "unlock",
+    let mut payload = json!({
         "mapper": &cfg.mapper,
         "device": device,
         "mountpoint": logical(&mountpoint_path(cfg)),
-        "passphrase": passphrase,
     });
+    if let Some(passphrase) = passphrase {
+        payload["passphrase"] = json!(passphrase);
+    }
     let crossing = crate::gate::snake::crossing_path_with_timeout(
-        "storage/vault/open", &payload, std::time::Duration::from_secs(seconds),
+        "storage/vault/open/unlock", &payload, std::time::Duration::from_secs(seconds),
     ).map_err(|signal| {
         if signal == "caduceus-agathodaimon-timeout" {
             format!("vault-open-timeout: {seconds} seconds")
@@ -501,25 +503,23 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
     let payload = if enabled {
         json!({
             "mapper": &cfg.mapper,
-            "op": "write",
             "unlock": "crypttab_keyfile",
             "keyfile": &cfg.keyfile,
         })
     } else {
         json!({
             "mapper": &cfg.mapper,
-            "op": "write",
             "unlock": "manual_passphrase",
         })
     };
-    let receipt = match crate::gate::snake::crossing_path("storage/vault/policy", &payload) {
+    let receipt = match crate::gate::snake::crossing_path("storage/vault/policy/write", &payload) {
         Ok(receipt) => receipt,
         Err(error) => {
             log_internal("auto-decrypt", &error);
             return auto_decrypt_failure(config_rollback);
         }
     };
-    if receipt.get("schema").and_then(Value::as_str) != Some(POLICY_RECEIPT_SCHEMA)
+    if receipt.get("schema").and_then(Value::as_str) != Some(POLICY_WRITE_RECEIPT_SCHEMA)
         || receipt.get("op").and_then(Value::as_str) != Some("write")
         || receipt.get("unlock").and_then(Value::as_str) != Some(unlock)
         || receipt.get("ok").and_then(Value::as_bool) != Some(true)
