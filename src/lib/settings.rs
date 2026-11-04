@@ -284,9 +284,39 @@ pub fn read_json(family: &str) -> Result<Value, String> {
     {
         return Err("caduceus-settings-read-field-not-allowed".to_string());
     }
-    Ok(
-        json!({"schema":"caduceus.settings.read.v1","ok":true,"family":family,"values":values,"firstMissingSignal":"none"}),
-    )
+    let mut result =
+        json!({"schema":"caduceus.settings.read.v1","ok":true,"family":family,"values":values,"firstMissingSignal":"none"});
+    let mut options = serde_json::Map::new();
+    if let Some(received) = receipt.get("options").and_then(Value::as_object) {
+        for (field, entries) in received {
+            if !allowed.contains(&field.as_str()) {
+                continue;
+            }
+            let Some(entries) = entries.as_array() else {
+                continue;
+            };
+            let choices: Vec<Value> = entries
+                .iter()
+                .filter(|entry| {
+                    let Some(object) = entry.as_object() else {
+                        return false;
+                    };
+                    object.get("value").is_some_and(|value| value.is_string() || value.is_number())
+                        && object.get("label").and_then(Value::as_str)
+                            .is_some_and(|label| label.chars().count() <= 200)
+                })
+                .take(2000)
+                .cloned()
+                .collect();
+            if !choices.is_empty() {
+                options.insert(field.clone(), Value::Array(choices));
+            }
+        }
+    }
+    if !options.is_empty() {
+        result["options"] = Value::Object(options);
+    }
+    Ok(result)
 }
 
 pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
