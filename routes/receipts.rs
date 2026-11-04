@@ -506,6 +506,7 @@ pub fn disk_wipe_payload(metadata: &Value, require_action: bool) -> Result<Value
 }
 
 fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Result<Value, String> {
+    let mut projected: Option<(String, &str)> = None;
     let walked = if actuator_id == "disk-doors" {
         let fields = disk_wipe_payload(&metadata, true)?;
         crate::gate::snake::crossing_path_with_timeout(band, &fields, Duration::from_secs(30))?
@@ -513,17 +514,32 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         let fields = selected_fields(&metadata, &["bucket", "path", "expected"]);
         crate::gate::snake::crossing_path_with_timeout(band, &fields, Duration::from_secs(60))?
     } else if actuator_id == "backblaze-forgejo-b2-push" {
-        let input = json!({"actuator": actuator_id, "metadata": metadata});
-        let envelope = json!({
-            "schema": crate::protocol::SCHEMA_ID,
-            "intent_id": format!("caduceus-{band}"),
-            "transition": band,
-            "origin_of_intent": "near",
-            "payload": input,
-            "actuator": actuator_id,
-            "metadata": input["metadata"].clone(),
-        });
-        crate::gate::snake::run(band, &envelope)?
+        let act = match metadata.get("plan") {
+            None | Some(Value::Bool(false)) => "run",
+            Some(Value::Bool(true)) => "plan",
+            Some(_) => return Ok(json!({"schema": "caduceus.forgejo.backup-b2.v1", "ok": false, "step": "shape", "reason": "plan-invalid"})),
+        };
+        let stop = format!("storage/backup/forgejo/backup-b2/{act}");
+        projected = Some((format!("caduceus.storage.backup.forgejo.backup-b2.{act}.v1"), "caduceus.forgejo.backup-b2.v1"));
+        let fields = selected_fields(&metadata, &["bucket"]);
+        crate::gate::snake::crossing_path_with_timeout(&stop, &fields, Duration::from_secs(30))?
+    } else if actuator_id == "keyman-doors" {
+        let (act, names): (&str, &[&str]) = match metadata.get("action").and_then(Value::as_str) {
+            Some("create-key") => ("create-key", &["target", "strategy", "password", "devices", "vaultPassword", "flexibleOption", "keySlot", "devicePasswords"]),
+            Some("update-key") => ("update-key", &["device", "strategy", "currentPassword", "flexibleOption", "keySlot"]),
+            Some("admin-password") => ("admin-password", &["oldPassword", "newPassword", "sambaUser"]),
+            Some("rotate-capability") => ("rotate-capability", &[]),
+            Some("key-status") => ("key-status", &["device"]),
+            _ => return Err("agathodaimon-keyman-action-invalid".into()),
+        };
+        let mut fields = selected_fields(&metadata, names);
+        if let Some(value) = metadata.get("dryRun") {
+            let planned = value.as_bool().ok_or_else(|| "agathodaimon-keyman-dry-run-invalid".to_string())?;
+            fields["dry-run"] = json!(planned);
+        }
+        let stop = format!("storage/vault/keyman/{act}");
+        projected = Some((format!("caduceus.storage.vault.keyman.{act}.v1"), "caduceus.keyman.door.v1"));
+        crate::gate::snake::crossing_path_with_timeout(&stop, &fields, Duration::from_secs(300))?
     } else if actuator_id == "backblaze-forgejo-migrate" {
         crate::gate::snake::crossing_path_with_timeout(band, &metadata, Duration::from_secs(30))?
     } else if actuator_id.starts_with("backblaze-bucket-")
@@ -568,6 +584,17 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         .cloned()
         .filter(Value::is_object)
         .ok_or_else(|| "caduceus-staff-invalid-receipt".to_string())?;
+    if let Some((expected, served)) = projected {
+        if receipt.get("schema").and_then(Value::as_str) != Some(expected.as_str()) {
+            return Err("caduceus-schema-desync".into());
+        }
+        if let Some(object) = receipt.as_object_mut() {
+            for field in ["envelope", "raw_envelope", "intent_id", "stamps", "staff"] {
+                object.remove(field);
+            }
+        }
+        receipt["schema"] = json!(served);
+    }
     if actuator_id == "disk-doors"
         && receipt.get("schema").and_then(Value::as_str) != Some("caduceus.storage.disk.wipe.v1")
     {
