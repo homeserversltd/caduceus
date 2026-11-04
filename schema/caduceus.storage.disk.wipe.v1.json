@@ -1,0 +1,15 @@
+{
+  "schema": "caduceus.storage.disk.wipe.v1",
+  "schema_version": "1.0.0",
+  "role": "Disk wipe stop receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.storage.disk.wipe.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true
+  },
+  "required": ["schema", "ok", "action", "planned", "mutationPerformed", "commands", "firstMissingSignal"],
+  "additionalProperties": true
+}

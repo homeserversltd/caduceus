@@ -413,7 +413,7 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
         "service-control-doors" => {
             staff_actuator_receipt("service-control-doors", "portals/service-control", metadata)
         }
-        "disk-doors" => staff_actuator_receipt("disk-doors", "storage/disk-doors", metadata),
+        "disk-doors" => staff_actuator_receipt("disk-doors", "storage/disk/wipe", metadata),
 
         #[cfg(leaf_pid2)]
         "nas-sync" => crate::pid2::schedule::face(&metadata),
@@ -484,8 +484,32 @@ pub fn bucket_items_stop_json(band: &str, metadata: Value) -> Result<Value, Stri
     staff_actuator_receipt("backblaze-bucket-items", band, metadata)
 }
 
+pub fn disk_wipe_payload(metadata: &Value, require_action: bool) -> Result<Value, String> {
+    match metadata.get("action") {
+        Some(value) if value.as_str() != Some("wipe") => return Err("agathodaimon-disk-action-invalid".into()),
+        None if require_action => return Err("agathodaimon-disk-action-invalid".into()),
+        _ => {}
+    }
+    let mut planned = false;
+    let mut present = false;
+    for key in ["dryRun", "planned", "dry-run"] {
+        if let Some(value) = metadata.get(key) {
+            present = true;
+            planned |= value.as_bool().ok_or_else(|| "agathodaimon-disk-planned-invalid".to_string())?;
+        }
+    }
+    let mut payload = selected_fields(metadata, &["device"]);
+    if present {
+        payload["dry-run"] = json!(planned);
+    }
+    Ok(payload)
+}
+
 fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Result<Value, String> {
-    let walked = if actuator_id == "backblaze-bucket-items" {
+    let walked = if actuator_id == "disk-doors" {
+        let fields = disk_wipe_payload(&metadata, true)?;
+        crate::gate::snake::crossing_path_with_timeout(band, &fields, Duration::from_secs(30))?
+    } else if actuator_id == "backblaze-bucket-items" {
         let fields = selected_fields(&metadata, &["bucket", "path", "expected"]);
         crate::gate::snake::crossing_path_with_timeout(band, &fields, Duration::from_secs(60))?
     } else if actuator_id == "backblaze-forgejo-b2-push" {
@@ -544,6 +568,11 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         .cloned()
         .filter(Value::is_object)
         .ok_or_else(|| "caduceus-staff-invalid-receipt".to_string())?;
+    if actuator_id == "disk-doors"
+        && receipt.get("schema").and_then(Value::as_str) != Some("caduceus.storage.disk.wipe.v1")
+    {
+        return Err("caduceus-staff-invalid-receipt".into());
+    }
     if actuator_id == "backblaze-bucket-items" {
         let expected = match band {
             "storage/backup/backblaze/bucket-items/add" => "caduceus.storage.backup.backblaze.bucket-items.add.v1",
@@ -569,6 +598,14 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
             .and_then(Value::as_str)
             .unwrap_or("caduceus-staff-refused")
             .to_string());
+    }
+    if actuator_id == "disk-doors" {
+        receipt["schema"] = json!("caduceus.disk.door.v1");
+        if let Some(object) = receipt.as_object_mut() {
+            for field in ["envelope", "raw_envelope", "intent_id", "stamps", "staff"] {
+                object.remove(field);
+            }
+        }
     }
     Ok(receipt)
 }

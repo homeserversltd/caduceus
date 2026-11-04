@@ -461,6 +461,7 @@ fn main() {
         "caduceus.nas.role.observe.v1",
         "caduceus.nas.key.probe.v1",
         "caduceus.disk.partlabel.assign.v1",
+        "caduceus.storage.disk.wipe.v1",
         "caduceus.transmission.up.v1",
         "caduceus.transmission.down.v1",
         "caduceus.transmission.status.v1",

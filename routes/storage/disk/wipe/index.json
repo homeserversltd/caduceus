@@ -1,1 +1,14 @@
-{"namespace":"storage/disk/wipe","admittance":"open","flags":{},"serve":[],"commands":["disk format","disk wipe"],"needs":["all"]}
+{
+  "namespace": "storage/disk/wipe",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "storage/disk/wipe"}],
+  "commands": ["staff intent", "storage disk wipe"],
+  "needs": ["all"],
+  "profiles": ["specula"],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/disk/wipe",
+  "body": "required",
+  "receipt": "caduceus.storage.disk.wipe.v1",
+  "administrative": true
+}
