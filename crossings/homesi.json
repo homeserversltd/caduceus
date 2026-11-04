@@ -113,12 +113,16 @@
     "settings/samba",
     "settings/sound",
     "settings/ssh",
+    "storage/backup/drive/ask",
+    "storage/backup/drive/status",
     "storage/backup/forgejo/credential",
+    "storage/backup/mirror/pull",
     "storage/disk/test",
     "storage/upload/force-permissions",
     "storage/upload/ingress",
-    "storage/vault/open",
-    "storage/vault/policy",
+    "storage/vault/open/unlock",
+    "storage/vault/policy/read",
+    "storage/vault/policy/write",
     "update/service",
     "update/sources-reseed"
   ],
@@ -281,8 +285,10 @@
       "network/firewall/whitelist/set",
       "settings/datetime",
       "settings/input",
-      "storage/vault/open",
-      "storage/vault/policy"
+      "storage/backup/drive/ask",
+      "storage/backup/mirror/pull",
+      "storage/vault/policy/read",
+      "storage/vault/policy/write"
     ],
     "verbs": [
       ["service", "start"],
