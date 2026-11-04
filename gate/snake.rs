@@ -1009,11 +1009,15 @@ pub fn schedule_crossing(path: &str, metadata: &Value, timeout: Duration) -> Res
         return Err("pid2-schedule-timeout-out-of-range".into());
     }
     let band = safe_band_path(path)?;
-    let actuator = band.rsplit('/').next().unwrap_or(&band);
-    let input = json!({"actuator":actuator, "metadata":metadata});
-    let envelope = json!({"schema":crate::protocol::SCHEMA_ID, "intent_id":format!("caduceus-{band}"),
-        "transition":band, "origin_of_intent":"near", "payload":input,
-        "actuator":actuator, "metadata":metadata});
+    let envelope = if band == "storage/backup/nas-sync/sync" {
+        crossing_envelope(&band, metadata)
+    } else {
+        let actuator = band.rsplit('/').next().unwrap_or(&band);
+        let input = json!({"actuator":actuator, "metadata":metadata});
+        json!({"schema":crate::protocol::SCHEMA_ID, "intent_id":format!("caduceus-{band}"),
+            "transition":band, "origin_of_intent":"near", "payload":input,
+            "actuator":actuator, "metadata":metadata})
+    };
     let (command,face_path)=band_invocation(&band)?;
     execute_command(&band,&envelope,command,timeout,face_path,"caduceus-agathodaimon-timeout","caduceus-agathodaimon-cli-unavailable",true,MAX_OUTPUT_BYTES)
 }

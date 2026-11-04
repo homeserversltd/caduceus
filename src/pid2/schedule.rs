@@ -269,7 +269,10 @@ pub fn execute(id:&str) -> Result<bool,String> {
     let result=(|| -> Result<bool,String> {
     // A NAS fire and a NAS role swap must never cross the staff concurrently.
     // The shared nonblocking lease is held until the crossing has ended.
-    let _nas_lease=if band=="storage/backup/nas-sync" {
+    // Existing registrations keep their parent band and raw envelope.  Resolve
+    // that legacy name only at the fire boundary, without rewriting the row.
+    let nas_sync=matches!(band.as_str(),"storage/backup/nas-sync"|"storage/backup/nas-sync/sync");
+    let _nas_lease=if nas_sync {
         match super::swap_lease() {
             Ok(lease)=>Some(lease),
             Err(signal) if signal=="pid2-swap-busy"=>{
@@ -296,19 +299,21 @@ pub fn execute(id:&str) -> Result<bool,String> {
     let baseline:Option<(i64,i64)>=tx.query_row("SELECT file_count,total_bytes FROM pid2_sync_baselines WHERE schedule_id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
     tx.commit().map_err(|e|e.to_string())?;drop(db);
     let started=std::time::Instant::now();
-    let mut input=json!({"action":action,"baseline":baseline.map(|(f,b)|json!({"fileCount":f,"totalBytes":b})),"acceptShrink":false,"dryRun":false});
+    let baseline=baseline.map(|(f,b)|json!({"fileCount":f,"totalBytes":b}));
+    let mut input=if nas_sync {json!({"baseline":baseline,"accept-shrink":false})} else {json!({"action":action,"baseline":baseline,"acceptShrink":false,"dryRun":false})};
     let envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
     if let Some(payload)=envelope.pointer("/schedule/job/payload").and_then(Value::as_object) {
         let target=input.as_object_mut().ok_or("pid2-schedule-input-unusable")?;
-        for (key,value) in payload { if !matches!(key.as_str(),"action"|"baseline"|"acceptShrink"|"dryRun") {target.insert(key.clone(),value.clone());} }
+        for (key,value) in payload { if !matches!(key.as_str(),"action"|"baseline"|"acceptShrink"|"dryRun") && !(nas_sync && key=="accept-shrink") {target.insert(key.clone(),value.clone());} }
     }
-    let result=crate::gate::snake::schedule_crossing(&band,&input,Duration::from_secs(max as u64));
+    let crossing_band=if nas_sync {"storage/backup/nas-sync/sync"} else {&band};
+    let result=crate::gate::snake::schedule_crossing(crossing_band,&input,Duration::from_secs(max as u64));
     let (state,signal,exit,counts)=match result {
         Err(signal)=>("Failed",Some(signal),None,None),
         Ok(result)=>{
             let r=result.get("receiptPayload").unwrap_or(&Value::Null);
-            let seat_ok=band!="storage/backup/nas-sync" || (r.get("schema").and_then(Value::as_str)==Some("caduceus.nas.sync.v1") && r.get("action").and_then(Value::as_str)==Some("sync"));
-            let outcome_ok=band!="storage/backup/nas-sync" || r.get("outcome").and_then(Value::as_str)==Some("ok");
+            let seat_ok=!nas_sync || (r.get("schema").and_then(Value::as_str)==Some("caduceus.nas.sync.v1") && r.get("action").and_then(Value::as_str)==Some("sync"));
+            let outcome_ok=!nas_sync || r.get("outcome").and_then(Value::as_str)==Some("ok");
             let ok=seat_ok && outcome_ok && result.get("ok").and_then(Value::as_bool)==Some(true) && r.get("ok").and_then(Value::as_bool)==Some(true) && r.get("converged").and_then(Value::as_bool)!=Some(false);
             let state=if ok {"Done"} else if r.get("outcome").and_then(Value::as_str)==Some("refused") {"Refused"} else {"Failed"};
             let signal=if ok {None} else if !seat_ok {Some("pid2-schedule-receipt-schema-desync".to_owned())} else {Some(r.get("firstMissingSignal").or_else(||result.get("firstMissingSignal")).and_then(Value::as_str).filter(|s|!s.is_empty() && *s!="none").unwrap_or("pid2-schedule-crossing-failed").to_owned())};
