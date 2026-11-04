@@ -422,7 +422,10 @@ fn emit_owner_states() -> Result<(),String> {
     std::io::stdout().flush().map_err(|e|e.to_string())
 }
 async fn owner_child() -> Result<(),String> {
-    let mut stdin=BufReader::new(tokio::io::stdin());
+    let fd=unsafe { libc::fcntl(libc::STDIN_FILENO,libc::F_DUPFD_CLOEXEC,0) };
+    if fd<0 {return Err(std::io::Error::last_os_error().to_string());}
+    let file=std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+    let mut stdin=BufReader::new(tokio::fs::File::from_std(file));
     let mut raw=Vec::new();
     let count=(&mut stdin).take(4097).read_until(b'\n',&mut raw).await.map_err(|e|e.to_string())?;
     if count==0 {return Err("pid2-owner-child-units-missing".into());}
