@@ -2,7 +2,7 @@
 use futures_util::{FutureExt, StreamExt};
 use serde_json::Value;
 use std::{collections::{HashMap, HashSet, VecDeque}, ffi::CString, io::{Read, Seek, SeekFrom, Write}, os::fd::{AsRawFd, FromRawFd, OwnedFd}, path::PathBuf, sync::{Arc, Mutex, OnceLock, RwLock, atomic::{AtomicBool, Ordering}}, time::Duration};
-use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, AsyncReadExt, BufReader, Interest}, sync::mpsc};
+use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Interest}, sync::mpsc};
 use zbus::{Connection, Message, MatchRule, MessageStream, Proxy, message::Type, zvariant::{OwnedObjectPath, OwnedValue}};
 
 #[path="kernel_senses.rs"]
@@ -422,9 +422,26 @@ fn emit_owner_states() -> Result<(),String> {
     std::io::stdout().flush().map_err(|e|e.to_string())
 }
 async fn owner_child() -> Result<(),String> {
-    let raw=std::env::var("CADUCEUS_PID2_OWNER_UNITS").map_err(|_|"pid2-owner-child-units-missing")?;
-    let units:HashSet<String>=serde_json::from_str(&raw).map_err(|_|"pid2-owner-child-units-invalid")?;
+    let mut stdin=BufReader::new(tokio::io::stdin());
+    let mut raw=Vec::new();
+    let count=(&mut stdin).take(4097).read_until(b'\n',&mut raw).await.map_err(|e|e.to_string())?;
+    if count==0 {return Err("pid2-owner-child-units-missing".into());}
+    if raw.len()>4096 || raw.last()!=Some(&b'\n') {return Err("pid2-owner-child-units-invalid".into());}
+    let units:HashSet<String>=serde_json::from_slice(&raw).map_err(|_|"pid2-owner-child-units-invalid")?;
     unit_sets().write().map_err(|_|"pid2-unit-watch-lock-poisoned")?.insert("owner".into(),units);
+    let mut extra=[0u8;1];
+    tokio::select! {
+        biased;
+        result=stdin.read(&mut extra) => match result {
+            Ok(0)=>Ok(()),
+            Ok(_)=>Err("pid2-owner-child-units-invalid".into()),
+            Err(error)=>Err(error.to_string()),
+        },
+        result=owner_child_watch()=>result,
+    }
+}
+
+async fn owner_child_watch() -> Result<(),String> {
     let uid=owner_uid()?;
     if unsafe { libc::geteuid() } != uid { return Err("pid2-owner-child-wrong-uid".into()); }
     let address=format!("unix:path=/run/user/{uid}/bus");
@@ -474,7 +491,10 @@ pub fn owner_sense_cli() -> i32 {
     let runtime=match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(runtime)=>runtime, Err(error)=>{ eprintln!("pid2-owner-runtime: {error}"); return 1; }
     };
-    match runtime.block_on(owner_child()) { Ok(())=>0, Err(error)=>{eprintln!("pid2-owner-child: {error}");1} }
+    let result=runtime.block_on(owner_child());
+    // Tokio's stdin uses a blocking reader; do not wait for it if the bus fails.
+    runtime.shutdown_background();
+    match result { Ok(())=>0, Err(error)=>{eprintln!("pid2-owner-child: {error}");1} }
 }
 
 async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::watch::Receiver<()>) {
@@ -490,10 +510,15 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::w
                 let mut c=tokio::process::Command::new("runuser"); c.arg("-u").arg("owner").arg("--").arg(executable); c
             } else if unsafe { libc::geteuid() } == uid {
                 tokio::process::Command::new(executable)
-            } else { return Err("pid2-owner-sense-wrong-uid".into()); };
+            } else {
+                let mut c=tokio::process::Command::new("/usr/bin/sudo"); c.args(["-n","-u","owner","--"]).arg(executable); c
+            };
             let watched_json=serde_json::to_string(&watched).map_err(|e|e.to_string())?;
-            command.arg("pid2-owner-sense").env("CADUCEUS_PID2_OWNER_UNITS",watched_json).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).kill_on_drop(true);
+            command.arg("pid2-owner-sense").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).kill_on_drop(true);
             let mut child=command.spawn().map_err(|e|e.to_string())?;
+            let stdin=child.stdin.as_mut().ok_or("pid2-owner-child-stdin-missing")?;
+            stdin.write_all(watched_json.as_bytes()).await.map_err(|e|e.to_string())?;
+            stdin.write_all(b"\n").await.map_err(|e|e.to_string())?;
             let stdout=child.stdout.take().ok_or("pid2-owner-child-pipe-missing")?;
             let mut lines=BufReader::new(stdout);
             let mut bytes=Vec::new();
@@ -537,12 +562,8 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::w
         clear_installed("owner");
         crate::stats::indicators::unit_state::set_online("owner",false);
         online.store(false,Ordering::Release); tx.offline("owner");
-        // This identity cannot become root or owner within this process.  Do
-        // not let unrelated systemd activity re-arm a permanently failed sense.
-        let wrong_uid=matches!(&connected, Err(error) if error=="pid2-owner-sense-wrong-uid");
         let reconfigured=matches!(&connected,Err(error) if error=="pid2-unit-watch-reconfigured");
         if let Err(error)=connected { if !reconfigured {eprintln!("pid2-owner-systemd-watch: {error}");} }
-        if wrong_uid { return; }
         if tx.closed() { return; }
         if reconfigured {continue;}
         tokio::time::sleep(Duration::from_secs(300)).await;
