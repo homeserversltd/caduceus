@@ -63,7 +63,9 @@ fn https(url: &str, token: &str) -> Result<HttpsResponse> {
         return Err(observation("F", "source", "curl-absent"));
     }
     let parsed = url::Url::parse(url).map_err(|e| observation("F", "source", e.to_string()))?;
-    if parsed.scheme() != "https" || !parsed.username().is_empty() || parsed.password().is_some() {
+    if parsed.scheme() != "https" || parsed.host_str() != Some("git.home.arpa")
+        || parsed.port().is_some_and(|port| port != 443)
+        || !parsed.username().is_empty() || parsed.password().is_some() {
         return Err(observation("F", "source", "release-https-required"));
     }
     let escaped = token.replace('\\', "\\\\").replace('"', "\\\"");
@@ -149,6 +151,57 @@ fn https(url: &str, token: &str) -> Result<HttpsResponse> {
         status,
         body: bytes,
     })
+}
+
+/// Read public GitHub evidence without credentials. Redirects are inspected
+/// before each request rather than delegated to curl's unrestricted -L.
+fn github_read(initial: &str) -> Result<HttpsResponse> {
+    let mut current = initial.to_owned();
+    for _ in 0..=5 {
+        let url = url::Url::parse(&current)
+            .map_err(|_| observation("F", "source", "candidate-url-invalid"))?;
+        if url.scheme() != "https" || url.port().is_some_and(|port| port != 443)
+            || !url.username().is_empty() || url.password().is_some()
+            || !matches!(url.host_str(), Some("api.github.com" | "github.com" | "release-assets.githubusercontent.com"))
+        {
+            return Err(observation("F", "source", "candidate-redirect-host-forbidden"));
+        }
+        let mut child = Command::new("/usr/bin/curl")
+            .args(["--disable", "--silent", "--fail", "--proto", "=https",
+                "--max-time", "15", "--connect-timeout", "5", "--max-filesize", "1048576",
+                "--user-agent", "caduceus", "--write-out", "\n%{http_code} %{redirect_url}",
+                "--cacert", "/etc/ssl/certs/ca-certificates.crt", "--url", url.as_str()])
+            .env_remove("CURL_CA_BUNDLE").env_remove("SSL_CERT_FILE").env_remove("SSL_CERT_DIR")
+            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+            .map_err(|e| observation("F", "source", format!("curl-launch: {e}")))?;
+        let mut bytes = Vec::new();
+        let read = child.stdout.take().ok_or_else(|| observation("F", "source", "curl-pipe-absent"))?
+            .take((LIMIT + 8193) as u64).read_to_end(&mut bytes);
+        if read.is_err() || bytes.len() > LIMIT + 8192 {
+            let _ = child.kill(); let _ = child.wait();
+            return Err(observation("F", "source", "release-response-size-or-read-failed"));
+        }
+        let exit = child.wait().map_err(|e| observation("F", "source", e.to_string()))?;
+        let split = bytes.iter().rposition(|b| *b == b'\n')
+            .ok_or_else(|| observation("F", "source", "release-http-status-absent"))?;
+        let trailer = std::str::from_utf8(&bytes[split + 1..])
+            .map_err(|_| observation("F", "source", "release-http-status-absent"))?;
+        let (status, redirect) = trailer.split_once(' ')
+            .ok_or_else(|| observation("F", "source", "release-http-status-absent"))?;
+        let status: u16 = status.parse().map_err(|_| observation("F", "source", "release-http-status-absent"))?;
+        if !exit.success() && !(exit.code() == Some(22) && status == 404) {
+            return Err(observation("F", "source", format!("curl-failed: {exit}")));
+        }
+        if (300..400).contains(&status) {
+            if redirect.is_empty() { return Err(observation("F", "source", "candidate-redirect-absent")); }
+            current = url.join(redirect).map_err(|_| observation("F", "source", "candidate-url-invalid"))?.to_string();
+            continue;
+        }
+        bytes.truncate(split);
+        if bytes.len() > LIMIT { return Err(observation("F", "source", "release-response-size-or-read-failed")); }
+        return Ok(HttpsResponse { status, body: bytes });
+    }
+    Err(observation("F", "source", "candidate-redirect-limit"))
 }
 
 /// Local HTTP observations never use the release transport or carry credentials.
@@ -368,6 +421,108 @@ pub fn health() -> Result<Value> {
     Ok(json!({"crown": crown, "staff": staff}))
 }
 
+fn candidate_selection(source: &Value, api: &url::Url, repo: &str, reference: &str, token: &str) -> Result<(Value, Option<String>)> {
+    let candidates = source["candidates"].as_array()
+        .ok_or_else(|| observation("F", "source.candidates", "candidate-list-invalid"))?;
+    let mut repo_url = api.clone();
+    {
+        let mut segments = repo_url.path_segments_mut().map_err(|_| observation("F", "source", "forge-path-invalid"))?;
+        segments.pop_if_empty();
+        for part in repo.split('/') { segments.push(part); }
+    }
+    let read = |url: &url::Url| -> Result<HttpsResponse> { https(url.as_str(), token) };
+    let mut releases = Vec::new();
+    let commit = commit_reference(reference);
+    if let Some((_, sha)) = &commit {
+        for tag in [sha.clone(), format!("sha-{sha}")] {
+            let mut url = repo_url.clone();
+            url.path_segments_mut().map_err(|_| observation("F", "source", "forge-path-invalid"))?
+                .extend(["releases", "tags", &tag]);
+            let response = read(&url)?;
+            if response.status == 404 { continue; }
+            if response.status != 200 { return Err(observation("F", "release", format!("release-http-status: {}", response.status))); }
+            let value: Value = serde_json::from_slice(&response.body).map_err(|_| observation("F", "release", "release-json-invalid"))?;
+            releases.push(value);
+        }
+    } else {
+        if reference.is_empty() || reference.starts_with('/') || reference.contains("..")
+            || !reference.bytes().all(|b| b.is_ascii_alphanumeric() || b"_./-".contains(&b)) {
+            return Err(observation("F", "source.ref", "release-ref-invalid"));
+        }
+        let mut complete = false;
+        for page in 1..=100 {
+            let mut url = repo_url.clone();
+            url.path_segments_mut().map_err(|_| observation("F", "source", "forge-path-invalid"))?.push("releases");
+            url.query_pairs_mut().append_pair("limit", "50").append_pair("page", &page.to_string());
+            let response = read(&url)?;
+            if response.status != 200 { return Err(observation("F", "release", format!("release-http-status: {}", response.status))); }
+            let value: Value = serde_json::from_slice(&response.body).map_err(|_| observation("F", "release", "release-json-invalid"))?;
+            let rows = value.as_array().filter(|rows| rows.iter().all(Value::is_object))
+                .ok_or_else(|| observation("F", "release", "release-list-invalid"))?;
+            releases.extend(rows.iter().cloned());
+            if rows.len() < 50 { complete = true; break; }
+        }
+        if !complete { return Err(observation("F", "release", "release-list-limit")); }
+    }
+    releases.sort_by(|a, b| {
+        let time_a = a.get("created_at").and_then(Value::as_str).unwrap_or("");
+        let time_b = b.get("created_at").and_then(Value::as_str).unwrap_or("");
+        let id_a = a.get("id").and_then(Value::as_i64).unwrap_or(0);
+        let id_b = b.get("id").and_then(Value::as_i64).unwrap_or(0);
+        (time_b, id_b).cmp(&(time_a, id_a))
+    });
+    let mut cached: Vec<Option<Option<Value>>> = vec![None; candidates.len()];
+    let mut page = 1usize;
+    loop {
+        let history: Vec<String> = if let Some((_, sha)) = &commit { vec![sha.clone()] } else {
+            let mut url = repo_url.clone();
+            url.path_segments_mut().map_err(|_| observation("F", "source", "forge-path-invalid"))?.push("commits");
+            url.query_pairs_mut().append_pair("sha", reference).append_pair("limit", "50").append_pair("page", &page.to_string());
+            let response = read(&url)?;
+            if response.status != 200 { return Err(observation("F", "release", format!("release-http-status: {}", response.status))); }
+            let value: Value = serde_json::from_slice(&response.body).map_err(|_| observation("F", "release", "release-json-invalid"))?;
+            value.as_array().filter(|rows| rows.iter().all(Value::is_object))
+                .ok_or_else(|| observation("F", "release", "release-branch-history-invalid"))?
+                .iter().map(|row| row["sha"].as_str().filter(|sha| commit_reference(sha).is_some()).map(str::to_owned)
+                    .ok_or_else(|| observation("F", "release", "release-branch-history-invalid")))
+                .collect::<Result<Vec<_>>>()?
+        };
+        for sha in &history {
+            let prefixed = format!("sha-{sha}");
+            if let Some(found) = releases.iter().find(|row| {
+                row["target_commitish"].as_str() == Some(sha)
+                    && matches!(row["tag_name"].as_str(), Some(tag) if tag == sha || tag == prefixed)
+                    && row.get("draft") == Some(&Value::Bool(false))
+            }) { return Ok((found.clone(), None)); }
+            for (index, candidate) in candidates.iter().enumerate() {
+                let locator = candidate["url"].as_str().ok_or_else(|| observation("F", "source.candidates", "candidate-url-invalid"))?;
+                if cached[index].is_none() {
+                    let repo_path = locator.strip_prefix("https://github.com/")
+                        .ok_or_else(|| observation("F", "source.candidates", "candidate-url-invalid"))?;
+                    let url = format!("https://api.github.com/repos/{repo_path}/releases/tags/latest");
+                    let response = github_read(&url)?;
+                    cached[index] = Some(if response.status == 404 { None } else {
+                        if response.status != 200 { return Err(observation("F", "release", format!("candidate-http-status: {}", response.status))); }
+                        let release: Value = serde_json::from_slice(&response.body).map_err(|_| observation("F", "release", "release-json-invalid"))?;
+                        if release["tag_name"].as_str() != Some("latest")
+                            || release.get("draft") != Some(&Value::Bool(false))
+                            || !release["target_commitish"].as_str().is_some_and(|sha| commit_reference(sha).is_some()) {
+                            return Err(observation("F", "release", "candidate-release-invalid"));
+                        }
+                        Some(release)
+                    });
+                }
+                if let Some(Some(release)) = &cached[index] {
+                    if release["target_commitish"].as_str() == Some(sha) { return Ok((release.clone(), Some(locator.to_owned()))); }
+                }
+            }
+        }
+        if commit.is_some() || history.len() < 50 { return Err(observation("F", "release", "release-branch-not-found")); }
+        page += 1;
+        if page > 100 { return Err(observation("F", "release", "release-branch-history-limit")); }
+    }
+}
+
 pub fn release(manifest: &Value) -> Result<Value> {
     if !std::path::Path::new("/usr/bin/curl").is_file() {
         return Err(observation("F", "source", "curl-absent"));
@@ -396,7 +551,10 @@ pub fn release(manifest: &Value) -> Result<Value> {
         Ok(url)
     };
     let commit = commit_reference(reference);
-    let release: Value = if let Some((lookup_tag, _)) = &commit {
+    let candidate_mode = source.get("candidates").is_some_and(|value| !value.is_null());
+    let (release, candidate): (Value, Option<String>) = if candidate_mode {
+        candidate_selection(source, &api, repo, reference, &token)?
+    } else { (if let Some((lookup_tag, _)) = &commit {
         let response = https(release_url(lookup_tag)?.as_str(), &token)?;
         if response.status != 200 {
             return Err(observation("F", "release", format!("release-http-status: {}", response.status)));
@@ -485,7 +643,7 @@ pub fn release(manifest: &Value) -> Result<Value> {
             return Err(observation("F", "release.tag_name", "release-ref-mismatch"));
         }
         release
-    };
+    }, None) };
     let assets = release["assets"]
         .as_array()
         .ok_or_else(|| observation("F", "release.assets", "release-assets-absent"))?;
@@ -507,12 +665,22 @@ pub fn release(manifest: &Value) -> Result<Value> {
             .as_str()
             .ok_or_else(|| observation("F", name, "release-evidence-url-absent"))?;
         let url = url::Url::parse(value).map_err(|e| observation("F", name, e.to_string()))?;
-        if url.origin() != api.origin() {
+        if let Some(locator) = &candidate {
+            let prefix = format!("{locator}/releases/download/latest/");
+            if !value.starts_with(&prefix) || url.query().is_some() || url.fragment().is_some()
+                || url.as_str() != format!("{prefix}{name}") {
+                return Err(observation("F", name, "release-evidence-foreign-origin"));
+            }
+        } else if url.origin() != api.origin() {
             return Err(observation("F", name, "release-evidence-foreign-origin"));
         }
         Ok(value.into())
     };
-    let sidecar_response = https(&asset_url(&sidecar_name)?, &token)?;
+    let evidence_read = |name: &str| -> Result<HttpsResponse> {
+        let url = asset_url(name)?;
+        if candidate.is_some() { github_read(&url) } else { https(&url, &token) }
+    };
+    let sidecar_response = evidence_read(&sidecar_name)?;
     if sidecar_response.status != 200 {
         return Err(observation("F", "sidecar", "release-evidence-http-failed"));
     }
@@ -543,7 +711,7 @@ pub fn release(manifest: &Value) -> Result<Value> {
     {
         return Err(observation("F", "sidecar", "sidecar-asset-mismatch"));
     }
-    let flag_response = https(&asset_url("release.flag")?, &token)?;
+    let flag_response = evidence_read("release.flag")?;
     if flag_response.status != 200 {
         return Err(observation(
             "F",
@@ -589,7 +757,10 @@ pub fn release(manifest: &Value) -> Result<Value> {
             ));
         }
     }
-    Ok(
-        json!({"release": release, "sidecar": sidecar, "flag": flag, "digest": digest, "binary_fetched": false}),
-    )
+    let mut evidence = json!({"release": release, "sidecar": sidecar, "flag": flag, "digest": digest, "binary_fetched": false});
+    if candidate_mode {
+        evidence["source"] = json!(if candidate.is_some() { "candidate" } else { "forge" });
+        evidence["candidate_url"] = json!(candidate);
+    }
+    Ok(evidence)
 }
