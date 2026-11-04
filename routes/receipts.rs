@@ -378,7 +378,14 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
         "backblaze-bucket-credentials" => staff_actuator_receipt("backblaze-bucket-credentials", "storage/backup/backblaze/bucket-credentials", metadata),
         "backblaze-bucket-verify" => staff_actuator_receipt("backblaze-bucket-verify", "storage/backup/backblaze/bucket-verify", metadata),
         "backblaze-bucket-remove" => staff_actuator_receipt("backblaze-bucket-remove", "storage/backup/backblaze/bucket-remove", metadata),
-        "backblaze-bucket-items" => staff_actuator_receipt("backblaze-bucket-items", "storage/backup/backblaze/bucket-items", metadata),
+        "backblaze-bucket-items" => {
+            let band = match metadata.get("op").and_then(Value::as_str) {
+                Some("add") => "storage/backup/backblaze/bucket-items/add",
+                Some("remove") => "storage/backup/backblaze/bucket-items/remove",
+                _ => return Err("operation-invalid".into()),
+            };
+            bucket_items_stop_json(band, metadata)
+        },
         "backblaze-bucket-save" => staff_actuator_receipt("backblaze-bucket-save", "storage/backup/backblaze/bucket-save", metadata),
         "backblaze-bucket-run" => staff_actuator_receipt("backblaze-bucket-run", "storage/backup/backblaze/bucket-run", metadata),
         "backblaze-status" => staff_actuator_receipt("backblaze-status", "storage/backup/backblaze/status", metadata),
@@ -473,8 +480,15 @@ pub fn stop_receipt(stop: &str, fields: Value) -> Result<Value, String> {
     Ok(receipt)
 }
 
+pub fn bucket_items_stop_json(band: &str, metadata: Value) -> Result<Value, String> {
+    staff_actuator_receipt("backblaze-bucket-items", band, metadata)
+}
+
 fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Result<Value, String> {
-    let walked = if actuator_id == "backblaze-forgejo-b2-push" {
+    let walked = if actuator_id == "backblaze-bucket-items" {
+        let fields = selected_fields(&metadata, &["bucket", "path", "expected"]);
+        crate::gate::snake::crossing_path_with_timeout(band, &fields, Duration::from_secs(60))?
+    } else if actuator_id == "backblaze-forgejo-b2-push" {
         let input = json!({"actuator": actuator_id, "metadata": metadata});
         let envelope = json!({
             "schema": crate::protocol::SCHEMA_ID,
@@ -525,11 +539,22 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         });
         crate::gate::snake::run(band, &envelope)?
     };
-    let receipt = walked
+    let mut receipt = walked
         .get("receiptPayload")
         .cloned()
         .filter(Value::is_object)
         .ok_or_else(|| "caduceus-staff-invalid-receipt".to_string())?;
+    if actuator_id == "backblaze-bucket-items" {
+        let expected = match band {
+            "storage/backup/backblaze/bucket-items/add" => "caduceus.storage.backup.backblaze.bucket-items.add.v1",
+            "storage/backup/backblaze/bucket-items/remove" => "caduceus.storage.backup.backblaze.bucket-items.remove.v1",
+            _ => return Err("operation-invalid".into()),
+        };
+        if receipt.get("schema").and_then(Value::as_str) != Some(expected) {
+            return Err("caduceus-schema-desync".into());
+        }
+        receipt["schema"] = json!("caduceus.backblaze.bucket-items.v1");
+    }
     if (matches!(actuator_id, "backblaze-config" | "backblaze-forgejo-b2-push" | "backblaze-status" | "backblaze-snapshots")
         || actuator_id.starts_with("backblaze-bucket-"))
         && receipt.get("ok").and_then(Value::as_bool) == Some(false)

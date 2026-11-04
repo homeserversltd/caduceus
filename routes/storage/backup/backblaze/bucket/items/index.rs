@@ -11,8 +11,13 @@ async fn route(Json(metadata): Json<Value>) -> Result<(StatusCode, Json<Value>),
 
     match policy::allows_command(COMMAND) {
         Ok(true) => {
+            let band = match metadata.get("op").and_then(Value::as_str) {
+                Some("add") => "storage/backup/backblaze/bucket-items/add",
+                Some("remove") => "storage/backup/backblaze/bucket-items/remove",
+                _ => return Err(api_error_signal(COMMAND, "operation-invalid")),
+            };
             let receipt = blocking_task(COMMAND, move || {
-                crate::routes::staff::named_actuator_json("backblaze-bucket-items", metadata)
+                crate::routes::staff::bucket_items_stop_json(band, metadata)
             }).await?.map_err(|signal| api_error_signal(COMMAND, &signal))?;
             Ok((mutation_status(&receipt), Json(receipt)))
         }

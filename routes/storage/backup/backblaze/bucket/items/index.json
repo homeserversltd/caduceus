@@ -4,7 +4,14 @@
   "flags": {},
   "serve": [
     {
-      "snake": "storage/backup/backblaze/bucket-items",
+      "snake": "storage/backup/backblaze/bucket-items/add",
+      "verb": [
+        "backblaze",
+        "bucket-items"
+      ]
+    },
+    {
+      "snake": "storage/backup/backblaze/bucket-items/remove",
       "verb": [
         "backblaze",
         "bucket-items"
