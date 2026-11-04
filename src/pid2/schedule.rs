@@ -272,6 +272,7 @@ pub fn execute(id:&str) -> Result<bool,String> {
     // Existing registrations keep their parent band and raw envelope.  Resolve
     // that legacy name only at the fire boundary, without rewriting the row.
     let nas_sync=matches!(band.as_str(),"storage/backup/nas-sync"|"storage/backup/nas-sync/sync");
+    let forgejo=matches!(band.as_str(),"storage/backup/forgejo/backup-b2"|"storage/backup/forgejo/backup-b2/run");
     let _nas_lease=if nas_sync {
         match super::swap_lease() {
             Ok(lease)=>Some(lease),
@@ -300,15 +301,20 @@ pub fn execute(id:&str) -> Result<bool,String> {
     tx.commit().map_err(|e|e.to_string())?;drop(db);
     let started=std::time::Instant::now();
     let baseline=baseline.map(|(f,b)|json!({"fileCount":f,"totalBytes":b}));
-    let mut input=if nas_sync {json!({"baseline":baseline,"accept-shrink":false})} else {json!({"action":action,"baseline":baseline,"acceptShrink":false,"dryRun":false})};
     let envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
-    if let Some(payload)=envelope.pointer("/schedule/job/payload").and_then(Value::as_object) {
+    // Match the run stop's bucket grammar before crossing, without changing the row.
+    let bucket=envelope.pointer("/schedule/job/payload/bucket").and_then(Value::as_str).filter(|value| {
+        (6..=63).contains(&value.len()) && value.bytes().all(|b|b.is_ascii_alphanumeric() || b==b'-') && !value.get(..3).is_some_and(|prefix|prefix.eq_ignore_ascii_case("b2-"))
+    });
+    let mut input=if forgejo {json!({"bucket":bucket})} else if nas_sync {json!({"baseline":baseline,"accept-shrink":false})} else {json!({"action":action,"baseline":baseline,"acceptShrink":false,"dryRun":false})};
+    if !forgejo {if let Some(payload)=envelope.pointer("/schedule/job/payload").and_then(Value::as_object) {
         let target=input.as_object_mut().ok_or("pid2-schedule-input-unusable")?;
         for (key,value) in payload { if !matches!(key.as_str(),"action"|"baseline"|"acceptShrink"|"dryRun") && !(nas_sync && key=="accept-shrink") {target.insert(key.clone(),value.clone());} }
-    }
-    let crossing_band=if nas_sync {"storage/backup/nas-sync/sync"} else {&band};
-    let result=crate::gate::snake::schedule_crossing(crossing_band,&input,Duration::from_secs(max as u64));
-    let (state,signal,exit,counts)=match result {
+    }}
+    let crossing_band=if nas_sync {"storage/backup/nas-sync/sync"} else if forgejo {"storage/backup/forgejo/backup-b2/run"} else {&band};
+    let (state,signal,exit,counts)=if forgejo && bucket.is_none() {
+        ("Refused",Some("pid2-schedule-forgejo-bucket-invalid".to_owned()),None,None)
+    } else {match crate::gate::snake::schedule_crossing(crossing_band,&input,Duration::from_secs(max as u64)) {
         Err(signal)=>("Failed",Some(signal),None,None),
         Ok(result)=>{
             let r=result.get("receiptPayload").unwrap_or(&Value::Null);
@@ -320,7 +326,7 @@ pub fn execute(id:&str) -> Result<bool,String> {
             let counts=match (r.get("finalFileCount").and_then(Value::as_i64),r.get("finalTotalBytes").and_then(Value::as_i64)) {(Some(f),Some(b)) if ok && f>=0 && b>=0=>Some((f,b)),_=>None};
             (state,signal,r.get("rsyncExitCode").and_then(Value::as_i64),counts)
         }
-    };
+    }};
     let elapsed=started.elapsed().as_millis().min(i64::MAX as u128) as i64;
     let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;let tx=db.transaction().map_err(|e|e.to_string())?;
     let changed=tx.execute("UPDATE pid2_fires SET state=?3,finished_at=?4,duration_ms=?5,first_missing_signal=?6,rsync_exit_code=?7,final_file_count=?8,final_total_bytes=?9 WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,state,super::now(),elapsed,signal,exit,counts.map(|v|v.0),counts.map(|v|v.1)]).map_err(|e|e.to_string())?;
