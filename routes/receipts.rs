@@ -395,11 +395,6 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
             "storage/backup/forgejo/backup-b2",
             metadata,
         ),
-        "backblaze-forgejo-migrate" => staff_actuator_receipt(
-            "backblaze-forgejo-migrate",
-            "storage/backup/forgejo/migrate",
-            metadata,
-        ),
         "backblaze-config" => staff_actuator_receipt(
             "backblaze-config",
             "storage/backup/backblaze-config",
@@ -540,8 +535,6 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         let stop = format!("storage/vault/keyman/{act}");
         projected = Some((format!("caduceus.storage.vault.keyman.{act}.v1"), "caduceus.keyman.door.v1"));
         crate::gate::snake::crossing_path_with_timeout(&stop, &fields, Duration::from_secs(300))?
-    } else if actuator_id == "backblaze-forgejo-migrate" {
-        crate::gate::snake::crossing_path_with_timeout(band, &metadata, Duration::from_secs(30))?
     } else if actuator_id.starts_with("backblaze-bucket-")
         || matches!(actuator_id, "backblaze-status" | "backblaze-snapshots")
     {
