@@ -125,26 +125,47 @@ fn declaration_equal(existing: &Value, entry: &Value) -> Result<bool> {
 
 fn source(manifest: &Value) -> Result<bool> {
     let source = &manifest["source"];
-    seat::field(XENIA, "source", source, "E", "manifest.source")?;
     if source["kind"].as_str() == Some("clone") {
         return Err(refuse("E", "manifest.source.kind", "clone-road-retired"));
     }
     if source["kind"].as_str() == Some("own-service") {
+        seat::field(XENIA, "source", source, "E", "manifest.source")?;
         if ["repo", "release_repo", "ref", "candidates", "url"].iter().any(|key| source.get(*key).is_some()) {
             return Err(refuse("E", "manifest.source", "own-service-source-fields-forbidden"));
         }
         return Ok(false);
     }
-    if source
-        .get("candidates")
-        .is_some_and(|value| !value.is_null())
-    {
-        return Err(refuse(
-            "E",
-            "manifest.source.candidates",
-            "source-road-deferred",
-        ));
+    if let Some(candidates) = source.get("candidates").filter(|value| !value.is_null()) {
+        let candidates = candidates.as_array().filter(|items| (1..=4).contains(&items.len()))
+            .ok_or_else(|| refuse("E", "manifest.source.candidates", "candidate-list-invalid"))?;
+        for (index, candidate) in candidates.iter().enumerate() {
+            let path = format!("manifest.source.candidates[{index}]");
+            let object = candidate.as_object()
+                .ok_or_else(|| refuse("E", &path, "candidate-object-invalid"))?;
+            if object.get("kind").and_then(Value::as_str) != Some("release") {
+                return Err(refuse("E", &format!("{path}.kind"), "source-road-deferred"));
+            }
+            if object.get("credential_selector") != Some(&Value::Null) {
+                return Err(refuse("E", &format!("{path}.credential_selector"), "candidate-credential-forbidden"));
+            }
+            let valid_url = object.get("url").and_then(Value::as_str)
+                .and_then(|url| url.strip_prefix("https://github.com/"))
+                .is_some_and(|path| {
+                    let parts: Vec<_> = path.split('/').collect();
+                    parts.len() == 2 && parts.iter().all(|part| {
+                        !part.is_empty() && *part != "." && *part != ".."
+                            && part.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+                    })
+                });
+            if !valid_url {
+                return Err(refuse("E", &format!("{path}.url"), "candidate-url-invalid"));
+            }
+            if object.len() != 3 {
+                return Err(refuse("E", &path, "candidate-object-invalid"));
+            }
+        }
     }
+    seat::field(XENIA, "source", source, "E", "manifest.source")?;
     forbidden(
         source,
         policy_keys("forbidden_instructions")?,
