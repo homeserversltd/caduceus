@@ -109,6 +109,9 @@
     "settings/datetime",
     "settings/region",
     "settings/datetime/household-time",
+    "settings/datetime/household-time/ensure-ntp",
+    "settings/datetime/household-time/resolve",
+    "settings/datetime/household-time/state",
     "settings/samba",
     "settings/samba/status",
     "settings/ssh",
@@ -404,6 +407,8 @@
   "administrative": {
     "bands": [
       "settings/datetime",
+      "settings/datetime/household-time/ensure-ntp",
+      "settings/datetime/household-time/resolve",
       "storage/nas/list",
       "storage/backup/forgejo/skip-check",
       "storage/backup/mirror/serve",

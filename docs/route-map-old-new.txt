@@ -88,7 +88,7 @@
 | `/api/v1/sync/now` | `/api/v1/update/now` |
 | `/api/v1/sync/status` | `/api/v1/update/status` |
 | `/api/v1/tailscale/status` | `/api/v1/network/tailnet` |
-| `/api/v1/time/state` | `/api/v1/network/status` |
+| `/api/v1/time/state` | `/api/v1/time/state` |
 | `/api/v1/update/check` | `/api/v1/update/check` |
 | `/api/v1/update/now` | `/api/v1/update/now` |
 | `/api/v1/update/service/status` | `/api/v1/update/service/status` |

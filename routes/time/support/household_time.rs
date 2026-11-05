@@ -1,8 +1,6 @@
 // Caduceus household-time band — bounded Rust face over `agathodaimon.household_time`.
 //
-// The public read endpoint is only admitted from a LAN peer and only when a
-// future profile explicitly admits `time state`; time mutation commands are
-// likewise profile-gated, but this slice adds no appliance admission entries.
+// The state endpoint is restricted to LAN peers on the serving profiles.
 
 use serde_json::{json, Value};
 
@@ -10,7 +8,16 @@ fn invoke(args: &[String]) -> Result<Value, String> {
     if args.is_empty() {
         return Err("caduceus-household-time-command-missing".to_string());
     }
-    crate::gate::snake::crossing_path("settings/datetime/household-time", &json!({"args": args}))
+    let (verb, payload) = match args {
+        [verb] if matches!(verb.as_str(), "state" | "resolve" | "ensure-ntp") => {
+            (verb.as_str(), json!({}))
+        }
+        [verb, timezone] if verb == "set-timezone" => {
+            (verb.as_str(), json!({"timezone": timezone}))
+        }
+        _ => return Err("caduceus-household-time-command-invalid".to_string()),
+    };
+    crate::gate::snake::crossing_path(&format!("settings/datetime/household-time/{verb}"), &payload)
 }
 
 pub fn state_json() -> Result<Value, String> {
