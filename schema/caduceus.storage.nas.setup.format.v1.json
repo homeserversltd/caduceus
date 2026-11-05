@@ -94,7 +94,14 @@
         "string",
         "null"
       ]
+    },
+    "diskMutationAttempted": {
+      "type": "boolean"
+    },
+    "deviceIdentity": {
+      "type": ["string", "null"]
     }
   },
+  "optional": ["diskMutationAttempted", "deviceIdentity"],
   "additionalProperties": true
 }

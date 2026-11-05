@@ -94,7 +94,11 @@
         "string",
         "null"
       ]
+    },
+    "directMountStarted": {
+      "type": "boolean"
     }
   },
+  "optional": ["directMountStarted"],
   "additionalProperties": true
 }
