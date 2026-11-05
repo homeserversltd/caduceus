@@ -10,6 +10,7 @@ pub static RUST_PRIMITIVES: &[&str] = &[
     "staff",
     "discovery",
     "caduceus_staff_receipt",
+    "keyman_crown",
     "network_wifi_scan_read",
     "network_wifi_status_read",
     "network_wifi_saved_read",
