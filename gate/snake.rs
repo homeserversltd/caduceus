@@ -237,7 +237,7 @@ fn execute_command(
     face_path: Value,
     timeout_error: &str,
     spawn_error: &str,
-    terminate_group: bool,
+    termination_grace: Option<Duration>,
     output_bound: usize,
 ) -> Result<Value, String> {
     let Some(context) = crate::shared::load_trace::current() else {
@@ -250,7 +250,7 @@ fn execute_command(
             face_path,
             timeout_error,
             spawn_error,
-            terminate_group,
+            termination_grace,
             output_bound,
             None,
             &mut appended_staff_stamps,
@@ -272,7 +272,7 @@ fn execute_command(
         face_path,
         timeout_error,
         spawn_error,
-        terminate_group,
+        termination_grace,
         output_bound,
         Some(&context),
         &mut appended_staff_stamps,
@@ -410,7 +410,7 @@ fn execute_command_raw(
     face_path: Value,
     timeout_error: &str,
     spawn_error: &str,
-    terminate_group: bool,
+    termination_grace: Option<Duration>,
     output_bound: usize,
     trace_context: Option<&crate::shared::load_trace::ContextHandle>,
     appended_staff_stamps: &mut usize,
@@ -419,7 +419,7 @@ fn execute_command_raw(
     let deadline = Instant::now() + timeout;
     // Only the standard bounded band invocation may use this transport;
     // xenos and schedule process-group invocations retain their fork path.
-    let socket_eligible = !terminate_group && timeout_error == "caduceus-agathodaimon-timeout" && timeout <= MAX_CROSSING_TIMEOUT;
+    let socket_eligible = termination_grace.is_none() && timeout_error == "caduceus-agathodaimon-timeout" && timeout <= MAX_CROSSING_TIMEOUT;
     let socket_reply = if socket_eligible {
         staff_socket_exchange(band, &raw, deadline, timeout_error)?
     } else { None };
@@ -430,7 +430,7 @@ fn execute_command_raw(
         (Some(status), Some(stdout), Some(stderr), true)
     } else {
     if socket_eligible && Instant::now() >= deadline { return Err(timeout_error.into()); }
-    if terminate_group {
+    if termination_grace.is_some() {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
@@ -473,10 +473,10 @@ fn execute_command_raw(
     let status = match crate::shared::child_wait::until(&mut child, deadline) {
         Ok(Some(status)) => Some(status),
         _ => {
-            if terminate_group {
+            if let Some(grace) = termination_grace {
                 // Give the sudo monitor a bounded chance to forward TERM.
                 unsafe { libc::kill(-(child.id() as i32), libc::SIGTERM); }
-                let _ = crate::shared::child_wait::grace(&mut child, Duration::from_secs(1));
+                let _ = crate::shared::child_wait::grace(&mut child, grace);
                 unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL); }
             }
             let _ = child.kill();
@@ -634,7 +634,7 @@ fn execute_with_timeout_and_bound(
         face_path,
         "caduceus-agathodaimon-timeout",
         "caduceus-agathodaimon-cli-unavailable",
-        false,
+        None,
         output_bound,
     )
 }
@@ -710,7 +710,7 @@ pub fn run_launcher(argv: &[String], envelope: &Value, timeout: Duration) -> Res
         Value::Null,
         "xenos-run-timeout",
         "xenos-launcher-absent",
-        false,
+        None,
         MAX_OUTPUT_BYTES,
     )
 }
@@ -1002,6 +1002,24 @@ pub fn crossing_path_with_timeout(
     execute_with_timeout(&band, &envelope, timeout)
 }
 
+/// Cross a chord in its own group, leaving its rescue a bounded grace.
+pub(crate) fn crossing_path_with_chord_grace(
+    path: &str,
+    input: &Value,
+    timeout: Duration,
+    grace: Duration,
+) -> Result<Value, String> {
+    if timeout.is_zero() || timeout > MAX_CROSSING_TIMEOUT || grace.is_zero() {
+        return Err("caduceus-snake-timeout-out-of-range".to_string());
+    }
+    let band = safe_band_path(path)?;
+    let envelope = crossing_envelope(&band, input);
+    let (command, face_path) = band_invocation(&band)?;
+    execute_command(&band, &envelope, command, timeout, face_path,
+        "caduceus-agathodaimon-timeout", "caduceus-agathodaimon-cli-unavailable",
+        Some(grace), MAX_CHORD_OUTPUT_BYTES)
+}
+
 /// A schedule owns its own deadline; all other crossings retain their limits.
 #[cfg(leaf_pid2)]
 pub fn schedule_crossing(path: &str, metadata: &Value, timeout: Duration) -> Result<Value, String> {
@@ -1019,7 +1037,7 @@ pub fn schedule_crossing(path: &str, metadata: &Value, timeout: Duration) -> Res
             "actuator":actuator, "metadata":metadata})
     };
     let (command,face_path)=band_invocation(&band)?;
-    execute_command(&band,&envelope,command,timeout,face_path,"caduceus-agathodaimon-timeout","caduceus-agathodaimon-cli-unavailable",true,MAX_OUTPUT_BYTES)
+    execute_command(&band,&envelope,command,timeout,face_path,"caduceus-agathodaimon-timeout","caduceus-agathodaimon-cli-unavailable",Some(Duration::from_secs(1)),MAX_OUTPUT_BYTES)
 }
 
 pub fn crossing_path(path: &str, input: &Value) -> Result<Value, String> {

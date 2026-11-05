@@ -1,0 +1,93 @@
+{
+  "schema": "caduceus.storage.nas.setup.plan.v1",
+  "schema_version": "1.0.0",
+  "role": "NAS setup plan stage receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.storage.nas.setup.plan.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true
+  },
+  "required": [
+    "schema",
+    "ok",
+    "firstMissingSignal",
+    "role",
+    "device",
+    "partition",
+    "partlabel",
+    "mapper",
+    "mountpoint",
+    "steps",
+    "servicesStarted",
+    "servicesNotRunning",
+    "rolledBack",
+    "rollbackSteps"
+  ],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.storage.nas.setup.plan.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "firstMissingSignal": {
+      "type": "string"
+    },
+    "role": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "device": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "steps": {
+      "type": "array"
+    },
+    "partition": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "partlabel": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "mapper": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "mountpoint": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "servicesStarted": {
+      "type": "array"
+    },
+    "servicesNotRunning": {
+      "type": "array"
+    },
+    "rollbackSteps": {
+      "type": "array"
+    },
+    "rolledBack": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": true
+}

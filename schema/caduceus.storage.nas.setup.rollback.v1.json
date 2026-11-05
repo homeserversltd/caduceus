@@ -1,0 +1,49 @@
+{
+  "schema": "caduceus.storage.nas.setup.rollback.v1",
+  "schema_version": "1.0.0",
+  "role": "NAS setup rollback stage receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.storage.nas.setup.rollback.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_preserved": true
+  },
+  "required": [
+    "schema",
+    "ok",
+    "firstMissingSignal",
+    "role",
+    "device",
+    "steps"
+  ],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.storage.nas.setup.rollback.v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "firstMissingSignal": {
+      "type": "string"
+    },
+    "role": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "device": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "steps": {
+      "type": "array"
+    }
+  },
+  "additionalProperties": true
+}
