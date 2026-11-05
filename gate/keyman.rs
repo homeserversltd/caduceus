@@ -83,7 +83,7 @@ fn finish(verb: &str, mut result: Value, payload: &Value, backend: Option<&Value
     let mut secret_set = HashSet::new(); collect_secrets(payload, &mut secret_set);
     if let Some(backend) = backend { collect_secrets(backend, &mut secret_set); }
     let mut secrets: Vec<_> = secret_set.into_iter().collect(); secrets.sort_by_key(|s| std::cmp::Reverse(s.len()));
-    let mut envelope = crate::gate::snake::route_envelope(&format!("keyman/{verb}"), payload);
+    let mut envelope = crate::gate::snake::crossing_envelope(&format!("keyman/{verb}"), payload);
     envelope["version"] = json!(env!("CARGO_PKG_VERSION"));
     envelope["timestamp"] = json!(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
     let stamp = json!({"verb":verb,"outcome":if result["ok"] == true {"ok"} else {"failed"},"timestamp":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros,true)});

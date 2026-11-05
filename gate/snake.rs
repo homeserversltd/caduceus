@@ -856,7 +856,7 @@ pub async fn execute_ordered_serve_with_timeout(
     Ok(aggregate)
 }
 
-fn crossing_envelope(path: &str, input: &Value) -> Value {
+pub(crate) fn crossing_envelope(path: &str, input: &Value) -> Value {
     let context = crate::shared::load_trace::current();
     let mut payload = input.clone();
     let flags = if context.is_some() {
