@@ -23,7 +23,7 @@ async fn status_route(
 
     let payload = json!({"state":"status"});
     let crossed = crate::gate::blocking_task(COMMAND, move || {
-        crate::gate::snake::crossing_path_with_timeout("settings/samba", &payload, TIMEOUT)
+        crate::gate::snake::crossing_path_with_timeout("settings/samba/status", &payload, TIMEOUT)
     })
     .await?;
     let crossing = crossed.map_err(|signal| crate::gate::service_unavailable(COMMAND, &signal))?;
