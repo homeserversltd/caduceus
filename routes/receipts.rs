@@ -404,7 +404,6 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
             staff_actuator_receipt("calibre-helper-daemon", "portals/calibre", metadata)
         }
         "calibre-watch" => staff_actuator_receipt("calibre-watch", "portals/calibre", metadata),
-        "keyman-doors" => staff_actuator_receipt("keyman-doors", "storage/vault/keyman", metadata),
         "service-control-doors" => {
             staff_actuator_receipt("service-control-doors", "portals/service-control", metadata)
         }
@@ -500,51 +499,6 @@ pub fn disk_wipe_payload(metadata: &Value, require_action: bool) -> Result<Value
     Ok(payload)
 }
 
-fn project_admin_password_chord(aggregate: &Value, metadata: &Value) -> Value {
-    let stages = aggregate.get("stages").and_then(Value::as_array);
-    let mut commands = Vec::new();
-    let mut mutation = false;
-    let mut owner_rollback = false;
-    let mut suite_rollback = false;
-    let mut first_refusal = None;
-    if let Some(stages) = stages {
-        for stage in stages {
-            let receipt = stage.get("receipt").unwrap_or(&Value::Null);
-            if let Some(items) = receipt.get("commands").and_then(Value::as_array) {
-                commands.extend(items.iter().cloned());
-            } else if let Some(command) = receipt.get("command").filter(|value| value.is_array()) {
-                commands.push(command.clone());
-            }
-            let performed = receipt.get("mutationPerformed").and_then(Value::as_bool) == Some(true)
-                || receipt.get("mutation_performed").and_then(Value::as_bool) == Some(true);
-            mutation |= performed;
-            if stage.get("outcome").and_then(Value::as_str) == Some("stage-completed")
-                && receipt.get("ok").and_then(Value::as_bool) == Some(true) && performed {
-                match stage.get("stage_id").and_then(Value::as_str) {
-                    Some("owner-revert") => owner_rollback = true,
-                    Some("suite-revert") => suite_rollback = true,
-                    _ => {}
-                }
-            }
-            if first_refusal.is_none()
-                && stage.get("outcome").and_then(Value::as_str) == Some("stage-refused")
-                && aggregate.get("failedStage").and_then(Value::as_str).is_some_and(|failed|
-                    stage.get("stage_id").and_then(Value::as_str) == Some(failed)) {
-                first_refusal = receipt.get("firstMissingSignal").and_then(Value::as_str)
-                    .filter(|signal| *signal != "none");
-            }
-        }
-    }
-    let ok = aggregate.get("ok").and_then(Value::as_bool) == Some(true);
-    let signal = aggregate.get("firstMissingSignal").and_then(Value::as_str)
-        .filter(|signal| *signal != "none")
-        .or(first_refusal).unwrap_or(if ok { "none" } else { "caduceus-staff-refused" });
-    json!({"schema":"caduceus.storage.vault.keyman.admin-password.v1", "ok":ok,
-        "firstMissingSignal":signal, "planned":metadata.get("dryRun").and_then(Value::as_bool).unwrap_or(false),
-        "mutationPerformed":mutation, "ownerRolledBack":owner_rollback,
-        "serviceSuiteRolledBack":suite_rollback, "commands":commands})
-}
-
 fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Result<Value, String> {
     let mut projected: Option<(String, &str)> = None;
     let walked = if actuator_id == "disk-doors" {
@@ -563,29 +517,6 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         projected = Some((format!("caduceus.storage.backup.forgejo.backup-b2.{act}.v1"), "caduceus.forgejo.backup-b2.v1"));
         let fields = selected_fields(&metadata, &["bucket"]);
         crate::gate::snake::crossing_path_with_timeout(&stop, &fields, Duration::from_secs(30))?
-    } else if actuator_id == "keyman-doors" {
-        let (act, names): (&str, &[&str]) = match metadata.get("action").and_then(Value::as_str) {
-            Some("create-key") => ("create-key", &["target", "strategy", "password", "devices", "vaultPassword", "flexibleOption", "keySlot", "devicePasswords"]),
-            Some("update-key") => ("update-key", &["device", "strategy", "currentPassword", "flexibleOption", "keySlot"]),
-            Some("admin-password") => ("admin-password", &["oldPassword", "newPassword", "sambaUser"]),
-            Some("rotate-capability") => ("rotate-capability", &[]),
-            Some("key-status") => ("key-status", &["device"]),
-            _ => return Err("agathodaimon-keyman-action-invalid".into()),
-        };
-        let mut fields = selected_fields(&metadata, names);
-        if let Some(value) = metadata.get("dryRun") {
-            let planned = value.as_bool().ok_or_else(|| "agathodaimon-keyman-dry-run-invalid".to_string())?;
-            fields["dry-run"] = json!(planned);
-        }
-        let stop = format!("storage/vault/keyman/{act}");
-        projected = Some((format!("caduceus.storage.vault.keyman.{act}.v1"), "caduceus.keyman.door.v1"));
-        if act == "admin-password" {
-            crate::gate::snake::crossing_path_with_chord_grace(
-                &stop, &fields, Duration::from_secs(300), Duration::from_secs(30),
-            )?
-        } else {
-            crate::gate::snake::crossing_path_with_timeout(&stop, &fields, Duration::from_secs(300))?
-        }
     } else if actuator_id.starts_with("backblaze-bucket-")
         || matches!(actuator_id, "backblaze-status" | "backblaze-snapshots")
     {
@@ -628,35 +559,6 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         .cloned()
         .filter(Value::is_object)
         .ok_or_else(|| "caduceus-staff-invalid-receipt".to_string())?;
-    if actuator_id == "keyman-doors"
-        && metadata.get("action").and_then(Value::as_str) == Some("admin-password")
-    {
-        if receipt.get("schema").and_then(Value::as_str) == Some("caduceus.chord.receipt.v1") {
-            if !crate::routes::leaf_schema::accepts("caduceus.chord.receipt.v1", &receipt) {
-                return Err("caduceus-schema-desync".into());
-            }
-            if walked.get("ok").and_then(Value::as_bool) != Some(true)
-                && receipt.get("ok").and_then(Value::as_bool) == Some(true)
-            {
-                return Err(walked.get("firstMissingSignal").and_then(Value::as_str)
-                    .filter(|signal| *signal != "none")
-                    .unwrap_or("caduceus-agathodaimon-refused").to_string());
-            }
-            return Ok(project_admin_password_chord(&receipt, &metadata));
-        }
-        if walked.get("ok").and_then(Value::as_bool) != Some(true) {
-            return Err(receipt.get("firstMissingSignal").and_then(Value::as_str)
-                .filter(|signal| *signal != "none")
-                .or_else(|| walked.get("firstMissingSignal").and_then(Value::as_str)
-                    .filter(|signal| *signal != "none"))
-                .unwrap_or("caduceus-agathodaimon-refused").to_string());
-        }
-        if receipt.get("ok").and_then(Value::as_bool) != Some(true) {
-            return Err(receipt.get("firstMissingSignal").and_then(Value::as_str)
-                .filter(|signal| *signal != "none")
-                .unwrap_or("caduceus-staff-refused").to_string());
-        }
-    }
     if let Some((expected, served)) = projected {
         if receipt.get("schema").and_then(Value::as_str) != Some(expected.as_str()) {
             return Err("caduceus-schema-desync".into());

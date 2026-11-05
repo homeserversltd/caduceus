@@ -9,7 +9,7 @@ use std::time::Duration;
 
 pub const NAMESPACE: &str = "keyman/create-key";
 const COMMAND: &str = "keyman create-key";
-const BAND: &str = "keyman/create-key";
+const VERB: &str = "create-key";
 
 type DoorReply = Result<
     (StatusCode, ResponseJson<Value>),
@@ -53,31 +53,14 @@ async fn cross(headers: HeaderMap, payload: Value) -> DoorReply {
     admit_document(&headers)?;
 
     let result = crate::gate::blocking_task(COMMAND, move || {
-        crate::gate::snake::crossing_path_with_timeout(
-            BAND,
-            &payload,
-            Duration::from_secs(30),
-        )
-    })
-    .await?;
-
+        crate::gate::keyman::execute(VERB, &payload, Duration::from_secs(30))
+    }).await?;
     match result {
-        Ok(executor) => {
-            let Some(receipt_payload) = executor.get("receiptPayload").cloned() else {
-                return Err(crate::gate::service_unavailable(
-                    COMMAND,
-                    "caduceus-snake-receipt-payload-missing",
-                ));
-            };
-            let status = if executor.get("ok").and_then(Value::as_bool) == Some(true)
-                && receipt_payload.get("ok").and_then(Value::as_bool) == Some(true)
-                && receipt_payload.get("converged").and_then(Value::as_bool) != Some(false)
-            {
-                StatusCode::OK
-            } else {
-                StatusCode::SERVICE_UNAVAILABLE
-            };
-            Ok((status, ResponseJson(receipt_payload)))
+        Ok(receipt) => {
+            let status = if receipt.get("ok").and_then(Value::as_bool) == Some(true)
+                && receipt.get("converged").and_then(Value::as_bool) != Some(false)
+            { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+            Ok((status, ResponseJson(receipt)))
         }
         Err(signal) => Err(crate::gate::service_unavailable(COMMAND, &signal)),
     }

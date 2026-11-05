@@ -40,6 +40,8 @@ use tokio::{
 };
 use tower::ServiceExt;
 
+#[path = "keyman.rs"]
+pub mod keyman;
 #[path = "../gate/snake.rs"]
 pub mod snake;
 #[path = "door.rs"]
@@ -274,6 +276,9 @@ pub(crate) fn document_attendance_admits(
 
 const ADMINISTRATIVE_PROFILE_MAX_BYTES: usize = 16 * 1024;
 const ADMINISTRATIVE_ROUTES_MAX_BYTES: usize = 64 * 1024;
+const KEYMAN_ADMIN_PASSWORD_HTTP_PATH: &str = "/api/v1/keyman/admin-password";
+const KEYMAN_CREATE_KEY_HTTP_PATH: &str = "/api/v1/keyman/create-key";
+const KEYMAN_UPDATE_KEY_HTTP_PATH: &str = "/api/v1/keyman/update-key";
 const NAS_SETUP_HTTP_PATH: &str = "/api/v1/storage/nas/setup";
 const NAS_ATTACH_HTTP_PATH: &str = "/api/v1/storage/nas/attach";
 const NAS_DETACH_HTTP_PATH: &str = "/api/v1/storage/nas/detach";
@@ -639,7 +644,10 @@ fn administrative_routes_match(method: Option<&str>, path: &str) -> Result<bool,
     // shelf replaces the fallback list and omits either newer door.
     if method.is_some_and(|method| {
         method.eq_ignore_ascii_case("POST")
-            && (path == NAS_SETUP_HTTP_PATH
+            && (path == KEYMAN_ADMIN_PASSWORD_HTTP_PATH
+                || path == KEYMAN_CREATE_KEY_HTTP_PATH
+                || path == KEYMAN_UPDATE_KEY_HTTP_PATH
+                || path == NAS_SETUP_HTTP_PATH
                 || path == NAS_ATTACH_HTTP_PATH
                 || path == NAS_DETACH_HTTP_PATH
                 || path == TRANSMISSION_UP_HTTP_PATH
