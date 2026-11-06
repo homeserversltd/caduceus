@@ -523,7 +523,7 @@ fn candidate_selection(source: &Value, api: &url::Url, repo: &str, reference: &s
     }
 }
 
-pub fn release(manifest: &Value) -> Result<Value> {
+pub fn release(manifest: &Value, ref_translated: bool) -> Result<Value> {
     if !std::path::Path::new("/usr/bin/curl").is_file() {
         return Err(observation("F", "source", "curl-absent"));
     }
@@ -741,7 +741,7 @@ pub fn release(manifest: &Value) -> Result<Value> {
             "release-flag-source-mismatch",
         ));
     }
-    if digest != manifest["content_inventory_digest"].as_str().unwrap_or("") {
+    if !ref_translated && digest != manifest["content_inventory_digest"].as_str().unwrap_or("") {
         return Err(observation(
             "F",
             "content_inventory_digest",

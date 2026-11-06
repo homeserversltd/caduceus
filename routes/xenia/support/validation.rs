@@ -748,23 +748,42 @@ pub fn validate(body: &Value) -> Result<Candidate> {
 }
 
 pub fn validate_only(body: &Value) -> Result<Candidate> {
-    if body.pointer("/manifest/source/kind").and_then(Value::as_str) == Some("clone") {
-        return Err(refuse("E", "manifest.source.kind", "clone-road-retired"));
+    let mut normalized = body.get("manifest").cloned().unwrap_or(Value::Null);
+    let mut translated = Vec::new();
+    let mut ref_translated = false;
+    if let Some(source) = normalized.get_mut("source").and_then(Value::as_object_mut) {
+        let was_clone = source.get("kind").and_then(Value::as_str) == Some("clone");
+        if was_clone {
+            let repo = source.get("repo").and_then(Value::as_str).filter(|repo| !repo.is_empty())
+                .ok_or_else(|| refuse("E", "manifest.source.kind", "clone-road-retired"))?.to_owned();
+            source.remove("kind");
+            source.remove("repo");
+            source.insert("release_repo".into(), json!(repo));
+            translated.push("source-clone-to-release");
+        }
+        if source.get("kind").and_then(Value::as_str) != Some("own-service") {
+            let reference = source.get("ref").and_then(Value::as_str);
+            let reason = if source.get("ref").is_none() || reference == Some("") {
+                Some("source-ref-absent-to-main")
+            } else if reference.is_some_and(|r| r.len() == 40 && r.bytes().all(|b| b.is_ascii_hexdigit())) {
+                Some("source-ref-pinned-to-main")
+            } else { None };
+            if let Some(reason) = reason {
+                source.insert("ref".into(), json!("main"));
+                translated.push(reason);
+                ref_translated = true;
+            } else if was_clone && reference != Some("main") {
+                source.insert("ref".into(), json!("main"));
+                ref_translated = true;
+            }
+        }
     }
     seat::startup().map_err(|e| observation("A", "schema", e))?;
     // A: snapshot lock ends before the first HTTP read.
     let house = store::snapshot()?;
     let health = remote::health()?;
-    let mut normalized = body
-        .get("manifest")
-        .ok_or_else(|| refuse("B", "manifest", "manifest-absent"))?
-        .clone();
-    if let Some(source) = normalized.get_mut("source").and_then(Value::as_object_mut) {
-        if !matches!(source.get("kind").and_then(Value::as_str), Some("own-service" | "clone"))
-            && (source.get("ref").is_none() || source.get("ref").and_then(Value::as_str) == Some(""))
-        {
-            source.insert("ref".into(), json!("main"));
-        }
+    if body.get("manifest").is_none() {
+        return Err(refuse("B", "manifest", "manifest-absent"));
     }
     let manifest = &normalized;
     let is_own_service = manifest.pointer("/source/kind").and_then(Value::as_str) == Some("own-service");
@@ -932,8 +951,16 @@ pub fn validate_only(body: &Value) -> Result<Candidate> {
     } else if clone {
         json!({"road": "clone", "host": "git.home.arpa", "release": null})
     } else {
-        remote::release(manifest)?
+        remote::release(manifest, ref_translated)?
     };
+    if ref_translated {
+        let digest = release["digest"].as_str()
+            .ok_or_else(|| observation("F", "release.digest", "release-digest-absent"))?;
+        if manifest["content_inventory_digest"].as_str() != Some(digest) {
+            entry["content_inventory_digest"] = json!(digest);
+            translated.push("digest-adopted-from-release");
+        }
+    }
     // G, H, I and J, in that order.
     if is_own_service { own_service(manifest)?; } else { install(manifest, id)?; }
     style_sheet(manifest)?;
@@ -980,6 +1007,6 @@ pub fn validate_only(body: &Value) -> Result<Candidate> {
         house,
         entry,
         row,
-        observed: json!({"health": health, "release": release, "listeners": listeners}),
+        observed: json!({"health": health, "release": release, "listeners": listeners, "translated": translated}),
     })
 }
