@@ -14,6 +14,7 @@ pub struct Candidate {
     pub entry: Value,
     pub row: Value,
     pub observed: Value,
+    pub translated: Vec<&'static str>,
 }
 
 fn refuse(check: &str, field: &str, message: &str) -> Refusal {
@@ -772,9 +773,6 @@ pub fn validate_only(body: &Value) -> Result<Candidate> {
                 source.insert("ref".into(), json!("main"));
                 translated.push(reason);
                 ref_translated = true;
-            } else if was_clone && reference != Some("main") {
-                source.insert("ref".into(), json!("main"));
-                ref_translated = true;
             }
         }
     }
@@ -1008,5 +1006,6 @@ pub fn validate_only(body: &Value) -> Result<Candidate> {
         entry,
         row,
         observed: json!({"health": health, "release": release, "listeners": listeners, "translated": translated}),
+        translated,
     })
 }

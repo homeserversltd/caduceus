@@ -160,8 +160,13 @@ async fn mutation_or_validation(body: Body, mutate: bool) -> Reply {
         if mutate { authorized()?; }
         let body = body?;
         let candidate = if mutate { validation::validate(&body)? } else { validation::validate_only(&body)? };
-        if mutate { store::admit(&candidate.house, &candidate.entry, &candidate.row) }
-        else { Ok(json!({"entry": candidate.entry, "tabs": candidate.row, "observed": candidate.observed})) }
+        if mutate {
+            let mut answer = store::admit(&candidate.house, &candidate.entry, &candidate.row)?;
+            answer["translated"] = json!(candidate.translated);
+            Ok(answer)
+        } else {
+            Ok(json!({"entry": candidate.entry, "tabs": candidate.row, "observed": candidate.observed, "translated": candidate.translated}))
+        }
     }).await.unwrap_or_else(|error| Err(observation("transaction", "worker", error.to_string())));
     let verb = if mutate { "admitted" } else { "admissible" };
     finish(
