@@ -64,6 +64,7 @@ fn discard_transient_receipt(value: &Value) {
 fn fields(family: &str) -> Option<&'static [&'static str]> {
     match family {
         "display" => Some(&[
+            "output",
             "resolution",
             "refresh_rate",
             "scale",
