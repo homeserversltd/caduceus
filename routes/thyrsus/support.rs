@@ -45,7 +45,7 @@ impl Verb {
     }
 }
 
-// The only secret buffer owned by the CLI crossing; never included in Debug or argv.
+// Secret buffers owned by the CLI crossing; never included in Debug or argv.
 struct Secret(Vec<u8>);
 impl Drop for Secret {
     fn drop(&mut self) {
@@ -223,6 +223,16 @@ fn receipt(
 }
 
 fn invoke(verb: Verb, args: Vec<String>, secret: Secret) -> Result<Value, &'static str> {
+    let mut input = Secret(Vec::new());
+    if matches!(verb, Verb::ForgeToken) {
+        let token = std::str::from_utf8(&secret.0).map_err(|_| "thyrsus-request-invalid")?;
+        #[derive(serde::Serialize)]
+        struct StaffRequest<'a> {
+            token: &'a str,
+        }
+        serde_json::to_writer(&mut input.0, &StaffRequest { token })
+            .map_err(|_| "thyrsus-request-invalid")?;
+    }
     let cli = crate::gate::snake::cli_path();
     let mut command = if std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some() {
         Command::new(&cli)
@@ -255,7 +265,7 @@ fn invoke(verb: Verb, args: Vec<String>, secret: Secret) -> Result<Value, &'stat
     });
     let stdin = child.stdin.take();
     let writer = std::thread::spawn(move || {
-        let written = stdin.map_or(Ok(()), |mut stdin| stdin.write_all(&secret.0));
+        let written = stdin.map_or(Ok(()), |mut stdin| stdin.write_all(&input.0));
         (written, secret)
     });
     let deadline = Instant::now() + DEADLINE;
