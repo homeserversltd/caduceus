@@ -186,6 +186,41 @@ pub fn show_json() -> Result<Value, String> {
     }))
 }
 
+pub fn public_document(document: &Value) -> Value {
+    let mut projected = document.clone();
+    if let Some(pin) = projected
+        .get_mut("global")
+        .and_then(|global| global.get_mut("admin"))
+        .and_then(|admin| admin.get_mut("pin"))
+    {
+        *pin = Value::String("[REDACTED]".to_string());
+    }
+    projected
+}
+
+pub fn show_public_json() -> Result<Value, String> {
+    let mut shown = show_json()?;
+    shown["document"] = public_document(&shown["document"]);
+    Ok(shown)
+}
+
+pub fn get_public_json(path: &str) -> Result<Value, String> {
+    validate_dotted(path)?;
+    let shown = show_public_json()?;
+    let value = path
+        .split('.')
+        .try_fold(&shown["document"], |value, key| value.get(key))
+        .cloned()
+        .ok_or_else(|| "caduceus-household-config-key-missing".to_string())?;
+    Ok(json!({
+        "schema": "caduceus.household-config.get.v1",
+        "ok": true,
+        "profile": shown["profile"],
+        "path": path,
+        "value": value,
+    }))
+}
+
 pub fn declared_bind() -> Result<SocketAddr, String> {
     let value =
         get_json("caduceus.bind").map_err(|error| format!("caduceus-bind-undeclared: {error}"))?;

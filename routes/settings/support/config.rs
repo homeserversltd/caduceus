@@ -79,14 +79,14 @@ pub async fn path() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     read("config path", config::path_json).await
 }
 pub async fn show() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    read("config show", config::show_json).await
+    read("config show", config::show_public_json).await
 }
 pub async fn get(
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     let path = q.get("path").cloned();
     read("config get", move || {
-        config::get_json(
+        config::get_public_json(
             path.as_deref()
                 .ok_or_else(|| "caduceus-household-config-path-invalid".to_string())?,
         )

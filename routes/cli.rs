@@ -402,10 +402,10 @@ where
             config_command("config path", config::path_json)
         }
         [domain, verb] if domain == "config" && verb == "show" => {
-            config_command("config show", config::show_json)
+            config_command("config show", config::show_public_json)
         }
         [domain, verb, key] if domain == "config" && verb == "get" => {
-            config_command("config get", || config::get_json(key))
+            config_command("config get", || config::get_public_json(key))
         }
         [domain, verb, key, value, rest @ ..] if domain == "config" && verb == "set" => {
             match require_policy("config set", rest) {
