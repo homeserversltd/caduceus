@@ -2089,6 +2089,7 @@ fn snapshot_with_state(
         "ts":ts,
         "collectedAt":chrono::DateTime::<chrono::Utc>::from_timestamp(ts,0).map(|d|d.to_rfc3339()),
         "cpu":{"usagePercent":cpu_usage},
+        "uptime":{"seconds":proc_uptime_seconds()},
         "pressure":{"io":io_pressure()},
         "load":load(),
         "temperature":temperature,

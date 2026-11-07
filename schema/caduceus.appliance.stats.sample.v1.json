@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.appliance.stats.sample.v1",
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "role": "One emitted Caduceus appliance statistics sample",
   "authority": {
     "owner": "caduceus",
@@ -24,6 +24,7 @@
     "ts": {"type": "integer"},
     "collectedAt": {"type": ["string", "null"]},
     "cpu": {"type": "object"},
+    "uptime": {"type": "object", "properties": {"seconds": {"type": ["number", "null"]}}},
     "pressure": {"type": "object"},
     "load": {"type": ["object", "null"]},
     "temperature": {
@@ -152,6 +153,7 @@
     "ts": "integer",
     "collectedAt": "string|null",
     "cpu": "object",
+    "uptime": "object",
     "pressure": "object",
     "load": "object|null",
     "temperature": "object|null",
@@ -183,6 +185,7 @@
     "ts",
     "collectedAt",
     "cpu",
+    "uptime",
     "pressure",
     "load",
     "temperature",
