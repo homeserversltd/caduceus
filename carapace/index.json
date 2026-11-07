@@ -17,6 +17,7 @@
     "local-ai-memory-card",
     "local-ai-nap",
     "hermes",
+    "woodpecker",
     "portals"
   ],
   "features": {
@@ -166,6 +167,9 @@
     },
     "hermes": {
       "description": "HomeSI native Hermes process-presence door."
+    },
+    "woodpecker": {
+      "description": "HomeSI Woodpecker agent token and posture doors."
     },
     "portals": {
       "description": "HomeSI appliance-owned portal tile registry."
