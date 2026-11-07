@@ -19,7 +19,7 @@ fn read_radio() -> Result<Value, &'static str> {
         command.arg("-n").arg(&cli);
         command
     };
-    let mut child = command.args(["network", "wifi/radio/get"])
+    let mut child = command.args(["network/wifi/radio/get"])
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
         .spawn().map_err(|_| "wifi-radio-staff-unavailable")?;
     let stdout = child.stdout.take().ok_or("wifi-radio-staff-output-unavailable")?;
