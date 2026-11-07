@@ -480,6 +480,7 @@ fn main() {
         "caduceus.thyrsus.forge-token.v1",
         "caduceus.thyrsus.forge.v1",
         "caduceus.network.tailscale.v1",
+        "caduceus.network.wifi.radio.v1",
         "caduceus.disk.census.v1",
         "caduceus.pid2.routine.v1",
         "caduceus.pid2.schedule.v1",
