@@ -398,6 +398,7 @@ fn main() {
         "caduceus.carapace.v1",
         "caduceus.docs.seal.v1",
         "caduceus.hermes.alive.v1",
+        "caduceus.hermes.dashboard-login.v1",
         "caduceus.portals.v2",
         "caduceus.notifications.v1",
         "caduceus.ruyi.v1",

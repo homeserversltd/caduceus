@@ -1,0 +1,33 @@
+{
+  "namespace": "hermes/dashboard-login",
+  "admittance": "open",
+  "flags": {},
+  "http_method": "POST",
+  "administrative": true,
+  "mutation_allowed": true,
+  "profiles": ["homesi"],
+  "needs": ["hermes"],
+  "commands": [],
+  "serve": [
+    {
+      "snake": "hermes/dashboard-login",
+      "verb": ["hermes", "dashboard-login"],
+      "stdin": "secret"
+    }
+  ],
+  "operations": [
+    {
+      "http_method": "GET",
+      "http_path": "/api/v1/hermes/dashboard-login",
+      "administrative": false,
+      "mutation_allowed": false,
+      "needs": ["hermes"],
+      "commands": []
+    }
+  ],
+  "ledger_deed": {
+    "organ": "hermes",
+    "verb": "dashboard-login",
+    "target": "dashboard"
+  }
+}
