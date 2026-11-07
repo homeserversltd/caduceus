@@ -223,7 +223,13 @@ fn receipt(
 }
 
 fn invoke(verb: Verb, args: Vec<String>, secret: Secret) -> Result<Value, &'static str> {
-    let mut input = Secret(Vec::new());
+    // Reserve the JSON wrapper plus the worst-case six-byte escape for each
+    // token byte, so serialization cannot leave a secret in a freed allocation.
+    let mut input = Secret(if matches!(verb, Verb::ForgeToken) {
+        Vec::with_capacity(secret.0.len() * 6 + 12)
+    } else {
+        Vec::new()
+    });
     if matches!(verb, Verb::ForgeToken) {
         let token = std::str::from_utf8(&secret.0).map_err(|_| "thyrsus-request-invalid")?;
         #[derive(serde::Serialize)]
