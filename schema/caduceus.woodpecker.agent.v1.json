@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema": "caduceus.woodpecker.agent.v1",
+  "schema_version": "1.0.0",
+  "role": "Woodpecker agent posture only",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.woodpecker.agent.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_skipped": true
+  },
+  "required": [],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.woodpecker.agent.v1"
+    },
+    "token_present": {
+      "type": "boolean"
+    },
+    "unit_active": {
+      "type": "boolean"
+    }
+  },
+  "optional": [
+    "token_present",
+    "unit_active"
+  ],
+  "forms": {
+    "receipt": {
+      "required": [
+        "token_present",
+        "unit_active"
+      ],
+      "fields": {
+        "token_present": {
+          "type": "boolean"
+        },
+        "unit_active": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "http": {
+    "method": "GET",
+    "path": "/api/v1/woodpecker/agent",
+    "administrative": false,
+    "mutation_allowed": false
+  },
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

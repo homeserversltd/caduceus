@@ -1,0 +1,25 @@
+{
+  "namespace": "woodpecker/agent",
+  "admittance": "open",
+  "flags": {},
+  "http_method": "GET",
+  "administrative": false,
+  "mutation_allowed": false,
+  "profiles": [
+    "homesi"
+  ],
+  "needs": [
+    "woodpecker"
+  ],
+  "commands": [],
+  "serve": [
+    {
+      "snake": "woodpecker/agent",
+      "verb": [
+        "woodpecker",
+        "agent"
+      ],
+      "stdin": "none"
+    }
+  ]
+}

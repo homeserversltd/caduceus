@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema": "caduceus.woodpecker.agent-token.v1",
+  "schema_version": "1.0.0",
+  "role": "Woodpecker agent token write-only HTTP request and secret-free staff receipt",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.woodpecker.agent-token.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_skipped": true
+  },
+  "required": [],
+  "fields": {
+    "schema": {
+      "type": "string",
+      "const": "caduceus.woodpecker.agent-token.v1"
+    },
+    "ok": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "firstMissingSignal": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "restarted": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    }
+  },
+  "optional": [
+    "ok",
+    "firstMissingSignal",
+    "restarted"
+  ],
+  "forms": {
+    "request": {
+      "required": [
+        "token"
+      ],
+      "fields": {
+        "token": {
+          "type": "string",
+          "writeOnly": true,
+          "description": "1 to 256 UTF-8 bytes; sent to the staff on stdin only"
+        }
+      },
+      "additionalProperties": true
+    },
+    "receipt": {
+      "required": [
+        "ok"
+      ],
+      "fields": {
+        "ok": {
+          "type": "boolean"
+        },
+        "firstMissingSignal": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "restarted": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "http": {
+    "method": "POST",
+    "path": "/api/v1/woodpecker/agent-token",
+    "administrative": true,
+    "mutation_allowed": true
+  },
+  "secrecy": {
+    "request_body_logged": false,
+    "response_body_logged": false,
+    "token_returned": false,
+    "transport": "stdin-only"
+  },
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

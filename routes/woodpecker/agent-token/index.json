@@ -1,0 +1,30 @@
+{
+  "namespace": "woodpecker/agent-token",
+  "admittance": "open",
+  "flags": {},
+  "http_method": "POST",
+  "administrative": true,
+  "mutation_allowed": true,
+  "profiles": [
+    "homesi"
+  ],
+  "needs": [
+    "woodpecker"
+  ],
+  "commands": [],
+  "serve": [
+    {
+      "snake": "woodpecker/agent-token",
+      "verb": [
+        "woodpecker",
+        "agent-token"
+      ],
+      "stdin": "secret"
+    }
+  ],
+  "ledger_deed": {
+    "organ": "woodpecker",
+    "verb": "agent-token",
+    "target": "agent"
+  }
+}

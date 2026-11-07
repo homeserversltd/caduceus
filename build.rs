@@ -399,6 +399,8 @@ fn main() {
         "caduceus.docs.seal.v1",
         "caduceus.hermes.alive.v1",
         "caduceus.hermes.dashboard-login.v1",
+        "caduceus.woodpecker.agent-token.v1",
+        "caduceus.woodpecker.agent.v1",
         "caduceus.portals.v2",
         "caduceus.notifications.v1",
         "caduceus.ruyi.v1",
