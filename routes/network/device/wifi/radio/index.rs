@@ -41,6 +41,9 @@ fn read_radio() -> Result<Value, &'static str> {
 }
 
 async fn posture() -> Response {
+    if !crate::gate::roster_allows("GET", "network/device/wifi/radio").unwrap_or(false) {
+        return crate::gate::api_error("network/device/wifi/radio").into_response();
+    }
     match tokio::task::spawn_blocking(read_radio).await {
         Ok(Ok(value)) => (StatusCode::OK, Json(value)).into_response(),
         Ok(Err(signal)) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "firstMissingSignal": signal}))).into_response(),
