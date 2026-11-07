@@ -11,8 +11,15 @@ async fn route(
 }
 fn read_radio() -> Result<Value, &'static str> {
     const LIMIT: usize = 64 * 1024;
-    let mut child = Command::new(crate::gate::snake::cli_path())
-        .args(["network", "wifi/radio/get"])
+    let cli = crate::gate::snake::cli_path();
+    let mut command = if std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some() {
+        Command::new(&cli)
+    } else {
+        let mut command = Command::new("/usr/bin/sudo");
+        command.arg("-n").arg(&cli);
+        command
+    };
+    let mut child = command.args(["network", "wifi/radio/get"])
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
         .spawn().map_err(|_| "wifi-radio-staff-unavailable")?;
     let stdout = child.stdout.take().ok_or("wifi-radio-staff-output-unavailable")?;
