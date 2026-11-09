@@ -297,7 +297,7 @@ fn display_mutation_error(
 
 pub fn read_json(family: &str) -> Result<Value, String> {
     fields(family).ok_or_else(|| "caduceus-settings-family-invalid".to_string())?;
-    let receipt = if matches!(family, "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region") {
+    let receipt = if matches!(family, "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region" | "keyboard" | "energy") {
         cross_settings(&format!("settings/{family}/read"), &json!({}))?
     } else {
         run(family, &["get".into(), "--json".into()])?
@@ -351,6 +351,9 @@ pub fn read_json(family: &str) -> Result<Value, String> {
 pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
     let values = validated_fields(family, body)?;
     validate_display_config_fields(family, &values)?;
+    if family == "energy" && values.contains_key("sleep_seconds") {
+        return Err("unknown-field:sleep_seconds".to_string());
+    }
     if family == "appearance" || family == "notifications" || family == "datetime" {
         for field in values.keys() {
             if matches!((family, field.as_str()),
@@ -389,7 +392,7 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
             }
         }
     }
-    let crossed = if matches!(family, "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region") {
+    let crossed = if matches!(family, "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region" | "keyboard" | "energy") {
         let (path, payload) = if family == "sound" && values.contains_key("test_tone") {
             ("settings/sound/test-tone/play".to_string(), json!({}))
         } else {
