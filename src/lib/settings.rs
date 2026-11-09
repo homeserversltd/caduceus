@@ -297,7 +297,7 @@ fn display_mutation_error(
 
 pub fn read_json(family: &str) -> Result<Value, String> {
     fields(family).ok_or_else(|| "caduceus-settings-family-invalid".to_string())?;
-    let receipt = if matches!(family, "appearance" | "sound" | "notifications") {
+    let receipt = if matches!(family, "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region") {
         cross_settings(&format!("settings/{family}/read"), &json!({}))?
     } else {
         run(family, &["get".into(), "--json".into()])?
@@ -351,11 +351,12 @@ pub fn read_json(family: &str) -> Result<Value, String> {
 pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
     let values = validated_fields(family, body)?;
     validate_display_config_fields(family, &values)?;
-    if family == "appearance" || family == "notifications" {
+    if family == "appearance" || family == "notifications" || family == "datetime" {
         for field in values.keys() {
             if matches!((family, field.as_str()),
                 ("appearance", "accent_color" | "wallpaper") |
-                ("notifications", "enabled" | "show_banners" | "show_on_lock_screen" | "sound_enabled")) {
+                ("notifications", "enabled" | "show_banners" | "show_on_lock_screen" | "sound_enabled") |
+                ("datetime", "automatic_timezone" | "date_format" | "time_format")) {
                 return Err(format!("unknown-field:{field}"));
             }
         }
@@ -388,7 +389,7 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
             }
         }
     }
-    let crossed = if matches!(family, "appearance" | "sound" | "notifications") {
+    let crossed = if matches!(family, "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region") {
         let (path, payload) = if family == "sound" && values.contains_key("test_tone") {
             ("settings/sound/test-tone/play".to_string(), json!({}))
         } else {
