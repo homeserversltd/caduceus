@@ -29,13 +29,12 @@ fn hermes_entry(args: &[&[u8]]) -> bool {
     }
     // Both launchers belong to the declared HomeSI venv. A same-named binary
     // elsewhere, or system Python running a similarly named module, is not it.
-    let Some(version) = program.strip_prefix(b"/opt/hermes/venv/bin/python") else {
-        return false;
-    };
-    if !version
-        .iter()
-        .all(|byte| byte.is_ascii_digit() || *byte == b'.')
-    {
+    let venv = venv_python(program);
+    // hermes_bootstrap re-execs the venv-started gateway into the runtime
+    // Hermes manages under its own HERMES_HOME; only that relaunch is accepted
+    // from there (pali:si-homesi-website-portals-and-hermes-count-20261024
+    // organ HermesIdentity).
+    if !venv && !relaunch_python(program) {
         return false;
     }
     let mut index = 1;
@@ -43,23 +42,69 @@ fn hermes_entry(args: &[&[u8]]) -> bool {
         match *argument {
             b"-I" | b"-B" | b"-u" | b"-s" | b"-E" | b"-S" | b"-O" | b"-OO" => index += 1,
             b"-c" => {
+                let Some(script) = args.get(index + 1) else {
+                    return false;
+                };
+                let script = String::from_utf8_lossy(script);
+                let script = script.trim_end();
+                if !venv {
+                    // The relaunch carries gateway/run inside its own argv
+                    // assignment and execs the venv bootstrap verbatim.
+                    return args.len() == index + 2
+                        && script.contains("sys._hermes_relaunched = True")
+                        && script.contains("sys.argv = ['-c', 'gateway', 'run']")
+                        && script.ends_with(
+                            "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)\")",
+                        );
+                }
                 // The gateway service's isolated bootstrap ends with this
                 // entry call and carries the explicit gateway/run argv. Its
                 // stop-mark and cgroup-cleanup helpers cannot match either.
                 let gateway_run = args.get(index + 2).copied() == Some(b"gateway".as_slice())
                     && args.get(index + 3).copied() == Some(b"run".as_slice());
                 return gateway_run
-                    && args.get(index + 1).is_some_and(|script| {
-                        let script = String::from_utf8_lossy(script);
-                        script.trim_end().ends_with(
+                    && script.ends_with(
                         "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)",
-                    )
-                    });
+                    );
             }
-            script => return script == b"/opt/hermes/venv/bin/hermes",
+            script => return venv && script == b"/opt/hermes/venv/bin/hermes",
         }
     }
     false
+}
+
+fn venv_python(program: &[u8]) -> bool {
+    program
+        .strip_prefix(b"/opt/hermes/venv/bin/python")
+        .is_some_and(|version| version.iter().all(|byte| byte.is_ascii_digit() || *byte == b'.'))
+}
+
+// /home/<user>/.hermes/tools/python-<build>/bin/python3[.N]
+fn relaunch_python(program: &[u8]) -> bool {
+    let Some(rest) = program.strip_prefix(b"/home/") else {
+        return false;
+    };
+    let Some(user_end) = rest.iter().position(|byte| *byte == b'/') else {
+        return false;
+    };
+    let (user, rest) = rest.split_at(user_end);
+    let Some(rest) = rest.strip_prefix(b"/.hermes/tools/python-") else {
+        return false;
+    };
+    let Some(build_end) = rest.iter().position(|byte| *byte == b'/') else {
+        return false;
+    };
+    let (build, rest) = rest.split_at(build_end);
+    let Some(version) = rest.strip_prefix(b"/bin/python3") else {
+        return false;
+    };
+    !user.is_empty()
+        && user != b"."
+        && user != b".."
+        && !build.is_empty()
+        && build != b"."
+        && build != b".."
+        && version.iter().all(|byte| byte.is_ascii_digit() || *byte == b'.')
 }
 
 fn disappeared(error: &io::Error) -> bool {
