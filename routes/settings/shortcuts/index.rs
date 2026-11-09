@@ -35,7 +35,7 @@ fn shortcut_payload(body: &Value) -> Value {
     let source = if body.get("from").is_some() {
         body
     } else {
-        body.get("payload").filter(|inner| inner.get("from").is_some()).unwrap_or(body)
+        body.get("payload").unwrap_or(body)
     };
     let mut payload = serde_json::Map::new();
     for field in ["from", "to"] {
