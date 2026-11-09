@@ -367,13 +367,10 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool, deadli
     let mut results = Vec::new();
     // Snapshot names before rejecting invalid ports or other malformed entries.
     let declared: BTreeSet<String> = entries.iter().filter_map(|entry| entry.local_url.as_str())
-        .filter_map(|url| url.strip_prefix("https://"))
-        .map(|url| url.strip_suffix('/').unwrap_or(url).to_owned()).collect();
-    let safe_to_retire = !entries.is_empty() && entries.iter().all(|entry| {
-        entry.local_url.as_str().and_then(|url| url.strip_prefix("https://"))
-            .is_some_and(|url| house::valid_name(url.strip_suffix('/').unwrap_or(url)))
-            || entry.local_url.as_str().is_some_and(|url| url.starts_with('/'))
-    });
+        .filter_map(|url| url.split_once("://").map(|(_, host)| host))
+        .filter_map(|host| host.split(['/', '?', '#', ':']).next())
+        .map(str::to_ascii_lowercase).collect();
+    let safe_to_retire = !entries.is_empty();
     if !dry_run {
         let mut failed = failed_binds().lock().map_err(|_| unavailable("link-up-bind-memory-unavailable"))?;
         failed.retain(|name, (_, owner)| owner != &mac || declared.contains(name));
@@ -417,6 +414,8 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool, deadli
         if dry_run {
             let mut argv = vec!["caduceus".to_owned(), "cert".to_owned()];
             argv.extend(["portal-admit".to_owned(), portal.clone(), lan_ip.clone(), upstream.clone()]);
+            if !aliases.is_empty() { argv.extend(["--aliases".to_owned(), aliases.join(",")]); }
+            argv.extend(["--owner-mac".to_owned(), mac.clone(), "--origin".to_owned(), "tile".to_owned(), "--dry-run".to_owned()]);
             results.push(json!({"portal":name,"ok":true,"attempted":false,"argv":argv}));
             continue;
         }
@@ -460,8 +459,9 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool, deadli
         for portal in status["portals"].as_array().into_iter().flatten() {
             if deadline.is_some_and(|end| Instant::now() >= end) { return Err(unavailable("link-up-sweep-budget-exhausted")); }
             let Some(name) = portal["fqdn"].as_str() else { continue; };
-            if portal["origin"] != "tile" || !portal["owner_mac"].as_str().is_some_and(|owner| owner.eq_ignore_ascii_case(&mac)) || declared.contains(name) { continue; }
-            if dry_run { results.push(json!({"portal":name,"ok":true,"attempted":false,"argv":["caduceus","cert","portal-retire",name,&mac]})); continue; }
+            if portal["origin"] != "tile" || !portal["owner_mac"].as_str().is_some_and(|owner| owner.eq_ignore_ascii_case(&mac)) || declared.contains(name)
+                || portal["lan_ip"].as_str().is_some_and(|address| roster["seat"]["ipv4"].as_str() == Some(address)) { continue; }
+            if dry_run { results.push(json!({"portal":name,"ok":true,"attempted":false,"argv":["caduceus","cert","portal-retire","--dry-run",name,&mac]})); continue; }
             let started = Instant::now();
             let result = match house::retire(name.to_owned(), mac.clone(), deadline).await {
                 Ok(value) if deadline.is_some() && matches!(value["firstMissingSignal"].as_str(), Some("caduceus-agathodaimon-timeout" | "link-up-sweep-budget-exhausted")) => {
@@ -532,12 +532,22 @@ async fn mutate(
         let upstream = candidate["upstream"].as_str().unwrap().to_owned();
         let mac = candidate["from"]["mac"].as_str().filter(|s| !s.is_empty()).ok_or_else(|| unavailable("link-up-child-mac-unavailable"))?.to_ascii_lowercase();
         let aliases = names[1..].to_vec();
+        let child = roster["staves"].as_array().into_iter().flatten()
+            .find(|row| row["mac"] == candidate["from"]["mac"] && row["ipv4"] == candidate["from"]["ipv4"]);
+        let claim_tiles: Vec<String> = if let Some(child) = child {
+            let listener = child["caduceus_port"].as_u64().and_then(|n| u16::try_from(n).ok()).filter(|n| *n != 0).unwrap_or(8787);
+            let ip = lan_ip.parse::<std::net::Ipv4Addr>().map_err(|_| unavailable("link-up-child-address-unavailable"))?;
+            house::child_portals(ip, listener).await.unwrap_or_default().iter().filter_map(|entry| entry.local_url.as_str())
+                .filter_map(|url| url.strip_prefix("https://"))
+                .map(|url| url.strip_suffix('/').unwrap_or(url))
+                .filter(|name| house::valid_name(name)).map(str::to_owned).collect()
+        } else { Vec::new() };
         if body["dry_run"] == true {
             let mut argv = vec!["caduceus".to_owned(), "cert".to_owned()];
             argv.extend(["portal-admit".to_owned(), portal.clone(), lan_ip.clone(), upstream.clone()]);
             if !aliases.is_empty() { argv.extend(["--aliases".to_owned(), aliases.join(",")]); }
-            let child = roster["staves"].as_array().into_iter().flatten()
-                .find(|row| row["mac"] == candidate["from"]["mac"] && row["ipv4"] == candidate["from"]["ipv4"]);
+            argv.extend(["--owner-mac".to_owned(), mac.clone(), "--origin".to_owned(), "face".to_owned(), "--dry-run".to_owned()]);
+            if !claim_tiles.is_empty() { argv.extend(["--claim-tiles".to_owned(), claim_tiles.join(",")]); }
             let child_portals = match child {
                 Some(child) => match bind_child_portals(child, &roster, true, None).await {
                     Ok(results) => json!(results),
@@ -550,16 +560,6 @@ async fn mutate(
                 "portal": names[0], "names": names, "argv": argv, "child_portals": child_portals}),
             );
         }
-        let child = roster["staves"].as_array().into_iter().flatten()
-            .find(|row| row["mac"] == candidate["from"]["mac"] && row["ipv4"] == candidate["from"]["ipv4"]);
-        let claim_tiles = if let Some(child) = child {
-            let listener = child["caduceus_port"].as_u64().and_then(|n| u16::try_from(n).ok()).filter(|n| *n != 0).unwrap_or(8787);
-            let ip = lan_ip.parse::<std::net::Ipv4Addr>().map_err(|_| unavailable("link-up-child-address-unavailable"))?;
-            house::child_portals(ip, listener).await.unwrap_or_default().iter().filter_map(|entry| entry.local_url.as_str())
-                .filter_map(|url| url.strip_prefix("https://"))
-                .map(|url| url.strip_suffix('/').unwrap_or(url))
-                .filter(|name| house::valid_name(name)).map(str::to_owned).collect()
-        } else { Vec::new() };
         failed_binds().lock().map_err(|_| unavailable("link-up-bind-memory-unavailable"))?.retain(|_, (_, owner)| owner != &mac);
         let mut receipt = house::admit(portal, lan_ip, upstream, aliases, mac, "face", claim_tiles, None).await?;
         // Preserve every staff receipt field. A failed composite is never called
