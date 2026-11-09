@@ -481,7 +481,9 @@ fn execute_command_raw(
             }
             let _ = child.kill();
             let _ = child.wait();
-            None
+            // The pipes may still be held by descendants. Dropping these
+            // handles detaches the workers; joining them defeats the deadline.
+            return Err(timeout_error.to_string());
         }
     };
     let stdin_ok = writer.join().ok().is_some_and(|result| result.is_ok());

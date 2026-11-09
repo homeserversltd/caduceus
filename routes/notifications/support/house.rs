@@ -157,14 +157,24 @@ pub(super) async fn child_portals(ip: Ipv4Addr, port: u16) -> Result<Vec<ChildPo
     }).await.map_err(|_| unavailable("link-up-child-portals-unavailable"))?
 }
 
-pub(super) async fn portals() -> Result<Value, Failure> {
+pub(super) async fn portals(deadline: Option<std::time::Instant>) -> Result<Value, Failure> {
     match crate::shared::policy::allows_command("cert status") {
         Ok(true) => {}
         _ => return Err(unavailable("link-up-portal-status-unavailable")),
     }
-    crate::gate::blocking_task("cert status", || {
-        let value = crate::routes::issue_certificate::status_json()
-            .map_err(|_| unavailable("link-up-portal-status-unavailable"))?;
+    crate::gate::blocking_task("cert status", move || {
+        let bound = match deadline {
+            Some(end) => {
+                let remaining = end.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() { return Err(unavailable("link-up-sweep-budget-exhausted")); }
+                remaining.min(Duration::from_secs(60))
+            }
+            None => Duration::from_secs(60),
+        };
+        let value = crate::routes::issue_certificate::status_json_with_timeout(bound)
+            .map_err(|signal| if deadline.is_some() && signal == "caduceus-agathodaimon-timeout" {
+                unavailable("link-up-sweep-budget-exhausted")
+            } else { unavailable("link-up-portal-status-unavailable") })?;
         if value["ok"] != true || !value["portals"].is_array() {
             return Err(unavailable("link-up-portal-status-unavailable"));
         }
@@ -325,12 +335,22 @@ pub(super) fn validate_names(
     Ok(())
 }
 
-pub(super) async fn admit(portal: String, lan_ip: String, upstream: String, aliases: Vec<String>) -> Result<Value, Failure> {
+pub(super) async fn admit(portal: String, lan_ip: String, upstream: String, aliases: Vec<String>, deadline: Option<std::time::Instant>) -> Result<Value, Failure> {
     if crate::shared::policy::allows_command("cert portal-admit").ok() != Some(true) {
         return Err((StatusCode::FORBIDDEN, "link-up-accept-on-homeserver"));
     }
     crate::gate::blocking_task("cert portal-admit", move || {
-        crate::routes::issue_certificate::portal_admit_receipt(&portal, &lan_ip, &upstream, &aliases, false)
+        let timeout = match deadline {
+            Some(deadline) => {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    return json!({"ok":false,"firstMissingSignal":"link-up-sweep-budget-exhausted"});
+                }
+                Some(remaining.min(Duration::from_secs(600)))
+            }
+            None => None,
+        };
+        crate::routes::issue_certificate::portal_admit_receipt(&portal, &lan_ip, &upstream, &aliases, false, timeout)
         // Structured staff refusals cross intact, including unknown fields.
         .unwrap_or_else(|value| value)
     })

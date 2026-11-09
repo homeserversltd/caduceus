@@ -27,8 +27,12 @@ fn house_ca_stop(verb: &str) -> Option<&'static str> {
 }
 
 fn house_ca_crossing(verb: &str, payload: Value, seconds: u64) -> Result<Value, Value> {
+    house_ca_crossing_with_timeout(verb, payload, Duration::from_secs(seconds))
+}
+
+fn house_ca_crossing_with_timeout(verb: &str, payload: Value, timeout: Duration) -> Result<Value, Value> {
     let path = house_ca_stop(verb).ok_or_else(|| json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}))?;
-    let wrapper = crate::gate::snake::crossing_path_with_timeout(path, &payload, Duration::from_secs(seconds))
+    let wrapper = crate::gate::snake::crossing_path_with_timeout(path, &payload, timeout)
         .map_err(|signal| json!({"ok":false,"firstMissingSignal":signal}))?;
     let receipt = wrapper.get("receiptPayload").filter(|v| v.is_object()).cloned()
         .unwrap_or_else(|| json!({"ok":false,"firstMissingSignal":"caduceus-house-ca-refused"}));
@@ -36,7 +40,11 @@ fn house_ca_crossing(verb: &str, payload: Value, seconds: u64) -> Result<Value, 
 }
 
 fn invoke_stop_json(verb: &str, payload: Value, seconds: u64) -> Result<Value, String> {
-    house_ca_crossing(verb, payload, seconds).map_err(|value| {
+    invoke_stop_json_with_timeout(verb, payload, Duration::from_secs(seconds))
+}
+
+fn invoke_stop_json_with_timeout(verb: &str, payload: Value, timeout: Duration) -> Result<Value, String> {
+    house_ca_crossing_with_timeout(verb, payload, timeout).map_err(|value| {
         if value.get("firstMissingSignal").and_then(Value::as_str)
             == Some("caduceus-pin-not-yet-provisioned")
         {
@@ -141,7 +149,10 @@ fn print(value: Result<Value, String>) -> i32 {
 }
 
 pub fn status_json() -> Result<Value, String> {
-    invoke_stop_json("status", json!({}), 60)
+    status_json_with_timeout(Duration::from_secs(60))
+}
+pub(crate) fn status_json_with_timeout(timeout: Duration) -> Result<Value, String> {
+    invoke_stop_json_with_timeout("status", json!({}), timeout)
 }
 pub fn status() -> i32 {
     print(status_json())
@@ -573,11 +584,11 @@ pub fn trust_fetch_json(server: &str, platform: &str, renew: bool) -> Result<Val
         })),
     }
 }
-pub(crate) fn portal_admit_receipt(portal: &str, ip: &str, upstream: &str, aliases: &[String], dry_run: bool) -> Result<Value, Value> {
+pub(crate) fn portal_admit_receipt(portal: &str, ip: &str, upstream: &str, aliases: &[String], dry_run: bool, timeout: Option<Duration>) -> Result<Value, Value> {
     let mut payload = json!({"portal":portal,"lan-ip":ip,"upstream":upstream});
     if !aliases.is_empty() { payload["aliases"] = json!(aliases.join(",")); }
     if dry_run { payload["dry-run"] = json!(true); }
-    house_ca_crossing("portal-admit", payload, 600)
+    house_ca_crossing_with_timeout("portal-admit", payload, timeout.unwrap_or(Duration::from_secs(600)))
 }
 
 pub fn portal_admit_json(
@@ -587,7 +598,7 @@ pub fn portal_admit_json(
     aliases: &[String],
     dry_run: bool,
 ) -> Result<Value, String> {
-    portal_admit_receipt(portal, ip, upstream, aliases, dry_run).map_err(|value| {
+    portal_admit_receipt(portal, ip, upstream, aliases, dry_run, None).map_err(|value| {
         if value.get("firstMissingSignal").and_then(Value::as_str) == Some("caduceus-pin-not-yet-provisioned") {
             "caduceus-house-ca-refused".to_string()
         } else {

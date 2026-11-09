@@ -9,7 +9,7 @@ use axum::{
 };
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
-use std::{collections::BTreeSet, time::Instant};
+use std::{collections::BTreeSet, time::{Duration, Instant}};
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
 
@@ -203,7 +203,7 @@ pub(crate) async fn post_stave(stave: Value) -> Result<(), Failure> {
     let rows = candidates(&roster);
     if rows.is_empty() { return Ok(()); }
     let _permit = MUTATIONS.try_acquire().map_err(|_| unavailable("link-up-busy"))?;
-    let portals = house::portals().await?;
+    let portals = house::portals(None).await?;
     for mut row in rows {
         let admitted = portals["portals"].as_array().is_some_and(|items| items.iter().any(|p| p["fqdn"] == row["names"][0]));
         row["color"] = json!("blue");
@@ -300,12 +300,26 @@ pub(crate) fn signal_child_portals() {
         tokio::spawn(async move {
             while receiver.recv().await.is_some() {
                 let Ok(_permit) = MUTATIONS.acquire().await else { break; };
-                let Ok(roster) = roster().await else { continue; };
+                let deadline = Instant::now() + Duration::from_secs(150);
+                let roster = match tokio::time::timeout_at(deadline.into(), roster()).await {
+                    Ok(Ok(roster)) => roster,
+                    Ok(Err(_)) => continue,
+                    Err(_) => {
+                        record("sweep", "auto-bind", &json!({"ok":false,"firstMissingSignal":"link-up-sweep-budget-exhausted"}), deadline - Duration::from_secs(150));
+                        continue;
+                    }
+                };
                 for child in roster["staves"].as_array().into_iter().flatten() {
                     let started = Instant::now();
-                    if let Err((_, signal)) = bind_child_portals(child, &roster, false).await {
+                    let result = if Instant::now() >= deadline {
+                        Err(unavailable("link-up-sweep-budget-exhausted"))
+                    } else {
+                        bind_child_portals(child, &roster, false, Some(deadline)).await.map(|_| ())
+                    };
+                    if let Err((_, signal)) = result {
                         let id = child["mac"].as_str().unwrap_or("unknown-child");
                         record(id, "auto-bind", &json!({"ok":false,"firstMissingSignal":signal}), started);
+                        if signal == "link-up-sweep-budget-exhausted" { break; }
                     }
                 }
             }
@@ -319,21 +333,29 @@ pub(crate) fn signal_child_portals() {
 // Caller holds MUTATIONS: accept already owns it, and the signal worker takes
 // it once before its sweep. Authority is the gateway's current status, never
 // the announcement, the child's registry, or Hestia membership.
-async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool) -> Result<Vec<Value>, Failure> {
+async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool, deadline: Option<Instant>) -> Result<Vec<Value>, Failure> {
+    if deadline.is_some_and(|end| Instant::now() >= end) { return Err(unavailable("link-up-sweep-budget-exhausted")); }
     if !gateway_profile() { return Ok(Vec::new()); }
     let ip = child["ipv4"].as_str().and_then(|v| v.parse::<std::net::Ipv4Addr>().ok())
         .ok_or_else(|| unavailable("link-up-child-address-unavailable"))?;
     if roster["seat"]["ipv4"].as_str() == Some(ip.to_string().as_str()) { return Ok(Vec::new()); }
-    let mut status = house::portals().await?;
+    let mut status = house::portals(deadline).await?;
+    if deadline.is_some_and(|end| Instant::now() >= end) { return Err(unavailable("link-up-sweep-budget-exhausted")); }
     let accepted = status["portals"].as_array().into_iter().flatten().any(|portal| {
         portal["lan_ip"].as_str().and_then(|v| v.parse::<std::net::Ipv4Addr>().ok()) == Some(ip)
     });
     if !accepted { return Ok(Vec::new()); }
     let listener = child["caduceus_port"].as_u64().and_then(|n| u16::try_from(n).ok())
         .filter(|n| *n != 0).unwrap_or(8787);
-    let entries = house::child_portals(ip, listener).await?;
+    let entries = if let Some(end) = deadline {
+        tokio::time::timeout_at(end.into(), house::child_portals(ip, listener)).await
+            .map_err(|_| unavailable("link-up-sweep-budget-exhausted"))??
+    } else {
+        house::child_portals(ip, listener).await?
+    };
     let mut results = Vec::new();
     for entry in entries {
+        if deadline.is_some_and(|end| Instant::now() >= end) { return Err(unavailable("link-up-sweep-budget-exhausted")); }
         let Some(url) = entry.local_url.as_str().and_then(|s| s.strip_prefix("https://")) else { continue; };
         let name = url.strip_suffix('/').unwrap_or(url);
         if !name.ends_with(".home.arpa") || name.contains('/') { continue; }
@@ -349,8 +371,14 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool) -> Res
             let names = names.clone();
             let roster = roster.clone();
             let status = status.clone();
-            tokio::task::spawn_blocking(move || house::validate_names(&names, &candidate, &roster, &status))
-                .await.map_err(|_| unavailable("link-up-name-observation-failed"))?
+            let task = tokio::task::spawn_blocking(move || house::validate_names(&names, &candidate, &roster, &status));
+            if let Some(end) = deadline {
+                tokio::time::timeout_at(end.into(), task).await
+                    .map_err(|_| unavailable("link-up-sweep-budget-exhausted"))?
+                    .map_err(|_| unavailable("link-up-name-observation-failed"))?
+            } else {
+                task.await.map_err(|_| unavailable("link-up-name-observation-failed"))?
+            }
         } else { Err((StatusCode::BAD_REQUEST, "link-up-name-invalid")) };
         if let Err((_, signal)) = validation {
             let result = json!({"portal":name,"ok":false,"firstMissingSignal":signal});
@@ -366,7 +394,13 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool) -> Res
             results.push(json!({"portal":name,"ok":true,"attempted":false,"argv":argv}));
             continue;
         }
-        let result = match house::admit(portal, lan_ip, upstream, Vec::new()).await {
+        let result = match house::admit(portal, lan_ip, upstream, Vec::new(), deadline).await {
+            Ok(value) if deadline.is_some() && matches!(value["firstMissingSignal"].as_str(), Some("caduceus-agathodaimon-timeout" | "link-up-sweep-budget-exhausted")) => {
+                return Err(unavailable("link-up-sweep-budget-exhausted"));
+            }
+            Err((_, "caduceus-agathodaimon-timeout" | "link-up-sweep-budget-exhausted")) if deadline.is_some() => {
+                return Err(unavailable("link-up-sweep-budget-exhausted"));
+            }
             Ok(value) if value["ok"] == true && value["converged"] != false => json!({"portal":name,"ok":true}),
             Ok(value) => json!({"portal":name,"ok":false,"firstMissingSignal":value["firstMissingSignal"].as_str().unwrap_or("link-up-portal-admit-incomplete")}),
             Err((_, signal)) => json!({"portal":name,"ok":false,"firstMissingSignal":signal}),
@@ -375,8 +409,11 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool) -> Res
         let succeeded = result["ok"] == true;
         results.push(result);
         if succeeded {
-            match house::portals().await {
+            match house::portals(deadline).await {
                 Ok(current) => status = current,
+                Err((_, "link-up-sweep-budget-exhausted")) if deadline.is_some() => {
+                    return Err(unavailable("link-up-sweep-budget-exhausted"));
+                }
                 Err((_, signal)) => {
                     let failure = json!({"portal":name,"ok":false,"firstMissingSignal":signal});
                     record(name, "auto-bind-refresh", &failure, started);
@@ -386,6 +423,7 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool) -> Res
             }
         }
     }
+    if deadline.is_some_and(|end| Instant::now() >= end) { return Err(unavailable("link-up-sweep-budget-exhausted")); }
     Ok(results)
 }
 
@@ -427,7 +465,7 @@ async fn mutate(
             return Ok(json!({"schema": SCHEMA, "ok": true, "id": id, "state": "dismissed"}));
         }
         let names = names(&body, &candidate)?;
-        let portals = house::portals().await?;
+        let portals = house::portals(None).await?;
         let owned_names = names.clone();
         let owned_candidate = candidate.clone();
         let validation_roster = roster.clone();
@@ -447,7 +485,7 @@ async fn mutate(
             let child = roster["staves"].as_array().into_iter().flatten()
                 .find(|row| row["mac"] == candidate["from"]["mac"] && row["ipv4"] == candidate["from"]["ipv4"]);
             let child_portals = match child {
-                Some(child) => match bind_child_portals(child, &roster, true).await {
+                Some(child) => match bind_child_portals(child, &roster, true, None).await {
                     Ok(results) => json!(results),
                     Err((_, signal)) => json!([{"ok":false,"firstMissingSignal":signal}]),
                 },
@@ -458,7 +496,7 @@ async fn mutate(
                 "portal": names[0], "names": names, "argv": argv, "child_portals": child_portals}),
             );
         }
-        let mut receipt = house::admit(portal, lan_ip, upstream, aliases).await?;
+        let mut receipt = house::admit(portal, lan_ip, upstream, aliases, None).await?;
         // Preserve every staff receipt field. A failed composite is never called
         // accepted, and a pending dismissal is cleared only after full success.
         if receipt.get("converged").is_some_and(|v| v == false) && receipt["ok"] == true {
@@ -471,7 +509,7 @@ async fn mutate(
         let child = roster["staves"].as_array().into_iter().flatten()
             .find(|row| row["mac"] == candidate["from"]["mac"] && row["ipv4"] == candidate["from"]["ipv4"]);
         receipt["child_portals"] = match child {
-            Some(child) => match bind_child_portals(child, &roster, false).await {
+            Some(child) => match bind_child_portals(child, &roster, false, None).await {
                 Ok(results) => json!(results),
                 Err((_, signal)) => json!([{"ok":false,"firstMissingSignal":signal}]),
             },
