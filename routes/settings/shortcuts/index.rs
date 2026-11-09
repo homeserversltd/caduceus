@@ -3,7 +3,6 @@ use serde_json::{json, Value};
 
 const READ_COMMAND: &str = "settings shortcuts read";
 const MUTATE_COMMAND: &str = "settings shortcuts mutate";
-const BAND: &str = "settings/shortcuts";
 const SCHEMA: &str = "caduceus.staff.v1";
 
 fn admitted(command: &str) -> Result<(), (StatusCode, Json<Value>)> {
@@ -15,14 +14,36 @@ fn admitted(command: &str) -> Result<(), (StatusCode, Json<Value>)> {
 }
 
 fn actuator_receipt(transition: &str, payload: Option<Value>) -> Result<Value, String> {
-    let mut envelope = json!({"schema":SCHEMA,"intent_id":format!("caduceus-settings-shortcuts-{transition}"),"transition":transition,"origin_of_intent":"near"});
-    if let Some(payload) = payload { envelope["payload"] = payload; }
-    let walked = crate::gate::snake::run(BAND, &envelope)?;
-    let receipt = walked.get("envelope").and_then(|value| value.get("caduceusReceipt")).and_then(|value| value.get("stepReceipt")).cloned().ok_or_else(|| "caduceus-snake-staff-receipt-missing".to_string())?;
-    if walked.get("ok").and_then(Value::as_bool) == Some(false) && !receipt.is_object() {
-        return Err(walked.get("rawChildStderr").and_then(Value::as_str).map(str::trim).filter(|signal| !signal.is_empty()).or_else(|| walked.get("firstMissingSignal").and_then(Value::as_str)).unwrap_or("caduceus-agathodaimon-refused").to_string());
+    let input = payload.unwrap_or_else(|| json!({}));
+    let walked = crate::gate::snake::crossing_path_with_timeout(
+        &format!("settings/shortcuts/{transition}"),
+        &input,
+        std::time::Duration::from_secs(180),
+    )?;
+    if walked.get("ok").and_then(Value::as_bool) == Some(true) {
+        Ok(walked.get("receiptPayload").cloned().unwrap_or(walked))
+    } else {
+        Err(walked.get("receiptPayload")
+            .and_then(|receipt| receipt.get("error").or_else(|| receipt.get("firstMissingSignal")))
+            .and_then(Value::as_str)
+            .or_else(|| walked.get("firstMissingSignal").and_then(Value::as_str))
+            .unwrap_or("caduceus-agathodaimon-refused").to_string())
     }
-    Ok(receipt)
+}
+
+fn shortcut_payload(body: &Value) -> Value {
+    let source = if body.get("from").is_some() {
+        body
+    } else {
+        body.get("payload").filter(|inner| inner.get("from").is_some()).unwrap_or(body)
+    };
+    let mut payload = serde_json::Map::new();
+    for field in ["from", "to"] {
+        if let Some(value) = source.get(field) {
+            payload.insert(field.to_string(), value.clone());
+        }
+    }
+    Value::Object(payload)
 }
 
 async fn read_http() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
@@ -35,7 +56,7 @@ async fn read_http() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Valu
 
 async fn mutate_http(Json(body): Json<Value>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     admitted(MUTATE_COMMAND)?;
-    let result = crate::gate::blocking_task(MUTATE_COMMAND, move || actuator_receipt("set", Some(body)))
+    let result = crate::gate::blocking_task(MUTATE_COMMAND, move || actuator_receipt("set", Some(shortcut_payload(&body))))
         .await
         .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
     result.map(|receipt| (crate::gate::mutation_status(&receipt), Json(receipt))).map_err(|signal| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"schema":SCHEMA,"ok":false,"command":MUTATE_COMMAND,"firstMissingSignal":signal}))))

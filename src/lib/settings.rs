@@ -297,7 +297,7 @@ fn display_mutation_error(
 
 pub fn read_json(family: &str) -> Result<Value, String> {
     fields(family).ok_or_else(|| "caduceus-settings-family-invalid".to_string())?;
-    let receipt = if matches!(family, "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region" | "keyboard" | "energy") {
+    let receipt = if matches!(family, "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region" | "keyboard" | "energy" | "input") {
         cross_settings(&format!("settings/{family}/read"), &json!({}))?
     } else {
         run(family, &["get".into(), "--json".into()])?
@@ -315,6 +315,13 @@ pub fn read_json(family: &str) -> Result<Value, String> {
     }
     let mut result =
         json!({"schema":"caduceus.settings.read.v1","ok":true,"family":family,"values":values,"firstMissingSignal":"none"});
+    if family == "input" {
+        for field in ["sources", "base", "override"] {
+            if let Some(value) = receipt.get(field) {
+                result[field] = value.clone();
+            }
+        }
+    }
     let mut options = serde_json::Map::new();
     if let Some(received) = receipt.get("options").and_then(Value::as_object) {
         for (field, entries) in received {
@@ -392,7 +399,7 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
             }
         }
     }
-    let crossed = if matches!(family, "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region" | "keyboard" | "energy") {
+    let crossed = if matches!(family, "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region" | "keyboard" | "energy" | "input") {
         let (path, payload) = if family == "sound" && values.contains_key("test_tone") {
             ("settings/sound/test-tone/play".to_string(), json!({}))
         } else {
