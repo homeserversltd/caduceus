@@ -1,0 +1,10 @@
+{
+  "rev": "lenovo-83lt",
+  "cpu_temperature": [
+    {"hwmon_name": "k10temp", "label": "Tctl"}
+  ],
+  "gpus": [
+    {"id": "nvidia", "vendor": "0x10de", "source": "nvidia-smi", "card_match": "pci:0000:01:00.0"},
+    {"id": "amd", "vendor": "0x1002", "source": "drm-sysfs", "card_match": "pci:0000:05:00.0", "temperature_labels": ["edge"]}
+  ]
+}

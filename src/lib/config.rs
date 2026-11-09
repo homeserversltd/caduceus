@@ -120,6 +120,24 @@ fn normalize(value: &str) -> Option<String> {
     }
 }
 
+mod hardware_table {
+    include!(concat!(env!("OUT_DIR"), "/hardware_table.rs"));
+}
+
+/// Resolve only the explicitly planted hardware Rev; absence is not a boot error.
+pub(crate) fn hardware_for_profile() -> Option<Value> {
+    static TABLE: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        serde_json::from_str(hardware_table::HARDWARE_TABLE_JSON)
+            .expect("compiled hardware table must be valid JSON")
+    });
+    let paper: Value = serde_json::from_str(
+        &fs::read_to_string(paths::path("/etc/appliance/profile.json")).ok()?
+    ).ok()?;
+    let rev = paper.pointer("/hardware/rev")?.as_str()?;
+    table.get(rev).cloned()
+}
+
 fn resolve() -> Result<Resolved, String> {
     let profile_file: Option<Value> =
         fs::read_to_string(paths::path("/etc/appliance/profile.json"))

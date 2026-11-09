@@ -1,0 +1,9 @@
+{
+  "rev": "msi-ms7c56-rx9070",
+  "cpu_temperature": [
+    {"hwmon_name": "k10temp", "label": "Tctl"}
+  ],
+  "gpus": [
+    {"id": "amd", "vendor": "0x1002", "source": "drm-sysfs", "card_match": "vendor:0x1002", "temperature_labels": ["edge", "junction", "mem"]}
+  ]
+}

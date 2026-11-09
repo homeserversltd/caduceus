@@ -390,6 +390,28 @@ fn main() {
     fs::write(Path::new(&out_dir).join("protocol_seat.rs"), generated)
         .expect("generated protocol metadata must be writable");
 
+    // The hardware registry is authored at build time and embedded in the binary.
+    let mut hardware = serde_json::Map::new();
+    let hardware_dir = Path::new("schema/hardware");
+    let entries = fs::read_dir(hardware_dir).expect("hardware table directory must be readable");
+    for entry in entries {
+        let path = entry.expect("hardware table entry must be readable").path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let rev = path.file_stem().and_then(|value| value.to_str())
+            .expect("hardware table filename must be UTF-8");
+        assert!(!rev.is_empty() && rev.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'), "hardware-rev-invalid:{}", path.display());
+        let text = fs::read_to_string(&path).expect("hardware table must be readable");
+        let value: serde_json::Value = serde_json::from_str(&text).expect("hardware table must be valid JSON");
+        assert_eq!(value.get("rev").and_then(serde_json::Value::as_str), Some(rev), "hardware-rev-filename-mismatch:{}", path.display());
+        assert!(hardware.insert(rev.to_owned(), value).is_none(), "duplicate hardware rev");
+    }
+    let embedded = serde_json::Value::Object(hardware).to_string();
+    fs::write(Path::new(&out_dir).join("hardware_table.rs"),
+        format!("pub const HARDWARE_TABLE_JSON: &str = {};\n", rust_string(&embedded)))
+        .expect("hardware table output must be writable");
+
     // Public seats have one source each. Preserve their exact bytes in the binary.
     println!("cargo:rerun-if-changed=schema");
     // Expose the contracted public seats, including release and update-set.

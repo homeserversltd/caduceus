@@ -38,8 +38,6 @@ struct StatsState {
     last_model_lane_pulse_unix: AtomicU64,
     model_lane_pulse_requested: AtomicBool,
     error: Option<String>,
-    gpu_cache: Option<NvidiaGpuCache>,
-    last_gpu_refresh: Option<Instant>,
 }
 static STATE: OnceLock<Arc<RwLock<StatsState>>> = OnceLock::new();
 static DATABASE: OnceLock<Result<Mutex<Connection>, String>> = OnceLock::new();
@@ -52,6 +50,8 @@ const MODEL_LANE_TIMEOUT: Duration = Duration::from_millis(400);
 
 #[path = "stats/indicators.rs"]
 pub(crate) mod indicators;
+#[path = "stats/hardware.rs"]
+mod hardware;
 
 #[derive(Clone, Copy, Debug)]
 pub enum IndicatorBlock {
@@ -962,6 +962,10 @@ fn discover_fan_sources() -> Vec<FanSource> {
     if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
         for entry in entries.flatten() {
             let driver = clean_optional_text(&entry.path().join("name"));
+            // GPU fan observations are device-scoped by the Rev collector.
+            if driver.as_deref().map_or(false, |name| name == "amdgpu" || name.starts_with("nvidia")) {
+                continue;
+            }
             if let Ok(files) = fs::read_dir(entry.path()) {
                 for file in files.flatten() {
                     let filename = file.file_name().to_string_lossy().to_string();
@@ -2030,16 +2034,13 @@ impl TcpCache {
 
 fn snapshot_with_state(
     previous: Option<&Value>,
+    hardware_cache: &mut hardware::HardwareCache,
     process_cache: &mut ProcessCache,
     tcp_cache: &mut TcpCache,
-    thermal_cache: &mut ThermalCache,
     fan_cache: &mut FanCache,
-    gpu_sysfs_cache: &mut GpuSysfsCache,
     interface_cache: &mut InterfaceCache,
     mount_cache: &mut MountCache,
     self_cache: &mut SelfMetricsCache,
-    gpu_cache: Option<&NvidiaGpuCache>,
-    gpu_cache_ts: Option<i64>,
     doors: Value,
     tick_millis: u64,
     persist_millis: u64,
@@ -2064,20 +2065,16 @@ fn snapshot_with_state(
         elapsed,
         self_cache,
     );
-    let (
-        temperature,
-        temperature_ts,
-        storage_temperature_ts,
-        gpu_temperature,
-        gpu_temperature_observed,
-    ) = temperatures(thermal_cache, gpu_cache);
-    let (gpu, gpu_fans_unavailable) = gpu(
-        gpu_cache,
-        gpu_sysfs_cache,
-        gpu_temperature,
-        gpu_temperature_observed,
-    );
-    let (accepted_fans, mut unavailable_fans) = fans(fan_cache);
+    let hardware = config::hardware_for_profile();
+    let (temperature, gpu, gpu_fans_unavailable, gpu_cache_ts) =
+        hardware::collect(hardware_cache, hardware.as_ref());
+    let temperature_ts = if hardware.is_some() { ts } else { 0 };
+    let storage_temperature_ts = 0;
+    let (accepted_fans, mut unavailable_fans) = if hardware.is_some() {
+        fans(fan_cache)
+    } else {
+        (Vec::new(), Vec::new())
+    };
     unavailable_fans.extend(gpu_fans_unavailable);
     let fan_value = if accepted_fans.is_empty() {
         Value::Null
@@ -2109,6 +2106,10 @@ fn snapshot_with_state(
         "selfFdTs":fd_ts,
         "self":self_value
     });
+    if hardware.is_none() {
+        value["gaps"] = json!(["hardware-rev-unknown"]);
+        value["quality"] = json!("partial");
+    }
     if !unavailable_fans.is_empty() {
         value["fansUnavailable"] = json!(unavailable_fans);
     }
@@ -2670,18 +2671,14 @@ fn collect_loop(
     let mut bucket_rss_end = 0u64;
     let mut bucket_rss_max = 0u64;
     let mut minute_doors = crate::routes::leaf_appliance_stats::DoorSnapshot::default();
+    let mut hardware_cache = hardware::HardwareCache::default();
     let mut process_cache = ProcessCache::default();
     let mut tcp_cache = TcpCache::default();
-    let mut thermal_cache = ThermalCache::default();
     let mut fan_cache = FanCache::default();
-    let mut gpu_sysfs_cache = GpuSysfsCache::default();
     let mut interface_cache = InterfaceCache::default();
     let mut mount_cache = MountCache::default();
     let mut self_cache = SelfMetricsCache::default();
     let mut indicators = indicators::Collector::start();
-    let mut gpu_cache = None;
-    let mut gpu_cache_ts = None;
-    let mut last_gpu_refresh: Option<Instant> = None;
     let mut skipped_ticks = 0u64;
     let mut collector_healthy = true;
     loop {
@@ -2755,19 +2752,7 @@ fn collect_loop(
             }
             Err(_) => false,
         };
-        gpu_sysfs_cache.refresh_discovery_if_due();
-        if gpu_sysfs_cache.nvidia_present
-            && last_gpu_refresh.map_or(true, |at| at.elapsed() >= Duration::from_secs(60))
-        {
-            if let Some((ok, output)) = refresh_nvidia_gpu_cache() {
-                if ok {
-                    let value = nvidia_gpu_output(&output);
-                    gpu_cache_ts = Some(value.sampled_at);
-                    gpu_cache = Some(value);
-                }
-            }
-            last_gpu_refresh = Some(instant);
-        }
+        // GPU collection is scoped by the hardware Rev in snapshot_with_state.
         if pulse {
             let lanes = scan_model_lanes();
             if let Ok(guard) = state.read() {
@@ -2827,16 +2812,13 @@ fn collect_loop(
         let sample_started = Instant::now();
         let (mut value, self_ticks, self_rss, cpu_counters) = snapshot_with_state(
             previous.as_ref(),
+            &mut hardware_cache,
             &mut process_cache,
             &mut tcp_cache,
-            &mut thermal_cache,
             &mut fan_cache,
-            &mut gpu_sysfs_cache,
             &mut interface_cache,
             &mut mount_cache,
             &mut self_cache,
-            gpu_cache.as_ref(),
-            gpu_cache_ts,
             doors,
             0,
             previous_persist_millis.unwrap_or(0),
@@ -2898,8 +2880,6 @@ fn collect_loop(
             guard.latest = Some(Arc::clone(&data));
             guard.latest_admin = Some(Arc::clone(&admin_data));
             guard.latest_ts = ts;
-            guard.gpu_cache = gpu_cache.clone();
-            guard.last_gpu_refresh = last_gpu_refresh;
         }
         previous = Some(value);
     }
@@ -2921,8 +2901,6 @@ pub fn start() {
         last_model_lane_pulse_unix: AtomicU64::new(0),
         model_lane_pulse_requested: AtomicBool::new(false),
         error: None,
-        gpu_cache: None,
-        last_gpu_refresh: None,
     }));
     let _ = STATE.set(Arc::clone(&state));
     let pending = RAW_PENDING.get_or_init(|| Mutex::new(VecDeque::new()));
@@ -2983,26 +2961,22 @@ fn state() -> Result<Arc<RwLock<StatsState>>, String> {
 }
 
 pub fn snapshot() -> Value {
+    let mut hardware_cache = hardware::HardwareCache::default();
     let mut process_cache = ProcessCache::default();
     let mut tcp_cache = TcpCache::default();
-    let mut thermal_cache = ThermalCache::default();
     let mut fan_cache = FanCache::default();
-    let mut gpu_sysfs_cache = GpuSysfsCache::default();
     let mut interface_cache = InterfaceCache::default();
     let mut mount_cache = MountCache::default();
     let mut self_cache = SelfMetricsCache::default();
     snapshot_with_state(
         None,
+        &mut hardware_cache,
         &mut process_cache,
         &mut tcp_cache,
-        &mut thermal_cache,
         &mut fan_cache,
-        &mut gpu_sysfs_cache,
         &mut interface_cache,
         &mut mount_cache,
         &mut self_cache,
-        None,
-        None,
         crate::routes::leaf_appliance_stats::door_stats(false),
         0,
         0,

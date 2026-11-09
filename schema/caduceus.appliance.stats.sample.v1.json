@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.appliance.stats.sample.v1",
-  "schema_version": "1.3.0",
+  "schema_version": "1.4.0",
   "role": "One emitted Caduceus appliance statistics sample",
   "authority": {
     "owner": "caduceus",
@@ -111,10 +111,13 @@
         "temperatureCelsius": {"type": ["number", "null"], "minimum": -100, "maximum": 250},
         "fanPercent": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
         "memoryUsedBytes": {"type": ["integer", "null"]},
-        "memoryTotalBytes": {"type": ["integer", "null"]}
+        "memoryTotalBytes": {"type": ["integer", "null"]},
+        "devices": {"type": "array", "description": "Per-device figures; top-level figures are copied from the busiest device, never merged.", "items": {"type": "object", "properties": {"id": {"type": "string"}, "vendor": {"type": "string"}, "utilizationPercent": {"type": ["number", "null"]}, "temperatureCelsius": {"type": ["number", "null"]}, "fanPercent": {"type": ["number", "null"]}, "memoryUsedBytes": {"type": ["integer", "null"]}, "memoryTotalBytes": {"type": ["integer", "null"]}}, "additionalProperties": true}}
       },
       "additionalProperties": true
     },
+    "gaps": {"type": "array", "items": {"type": "string"}, "description": "Reasons a sample could not supply a contracted observation, including hardware-rev-unknown."},
+    "quality": {"type": "string", "description": "partial when a hardware Rev is unknown."},
     "memory": {"type": "object"},
     "network": {"type": "object"},
     "power": {"type": "object"},
@@ -160,6 +163,8 @@
     "fans": "array|null",
     "fansUnavailable": "array|null",
     "gpu": "object|null",
+    "gaps": "array",
+    "quality": "string",
     "memory": "object",
     "network": "object",
     "power": "object",
@@ -192,6 +197,8 @@
     "fans",
     "fansUnavailable",
     "gpu",
+    "gaps",
+    "quality",
     "memory",
     "network",
     "power",
