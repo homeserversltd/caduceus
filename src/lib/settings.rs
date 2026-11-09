@@ -9,6 +9,7 @@ use crate::shared::agathodaimon;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::time::Duration;
 
 pub const FAMILIES: &[&str] = &[
     "display",
@@ -165,6 +166,29 @@ fn run(family: &str, args: &[String]) -> Result<Value, String> {
     })
 }
 
+fn cross_settings(path: &str, input: &Value) -> Result<Value, String> {
+    let value = crate::gate::snake::crossing_path_with_timeout(
+        path,
+        input,
+        Duration::from_secs(180),
+    )?;
+    if value.get("ok").and_then(Value::as_bool) == Some(true) {
+        Ok(value.get("receiptPayload").cloned().unwrap_or(value))
+    } else {
+        Err(value
+            .get("receiptPayload")
+            .and_then(|payload| {
+                payload
+                    .get("error")
+                    .or_else(|| payload.get("firstMissingSignal"))
+                    .and_then(Value::as_str)
+            })
+            .or_else(|| value.get("firstMissingSignal").and_then(Value::as_str))
+            .unwrap_or("caduceus-agathodaimon-refused")
+            .into())
+    }
+}
+
 fn bounded_value(value: &Value) -> bool {
     match value {
         Value::Null | Value::Bool(_) | Value::Number(_) => true,
@@ -274,7 +298,7 @@ fn display_mutation_error(
 pub fn read_json(family: &str) -> Result<Value, String> {
     fields(family).ok_or_else(|| "caduceus-settings-family-invalid".to_string())?;
     let receipt = if matches!(family, "appearance" | "sound" | "notifications") {
-        crate::gate::snake::crossing_path(&format!("settings/{family}/read"), &json!({}))?
+        cross_settings(&format!("settings/{family}/read"), &json!({}))?
     } else {
         run(family, &["get".into(), "--json".into()])?
     };
@@ -370,7 +394,7 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
         } else {
             (format!("settings/{family}/set"), json!(values))
         };
-        crate::gate::snake::crossing_path(&path, &payload)
+        cross_settings(&path, &payload)
     } else {
         let mut args = vec!["set".to_string()];
         for (field, value) in &values {
