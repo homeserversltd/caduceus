@@ -3,6 +3,12 @@
   "profile": "specula",
   "gui_face": null,
   "mode": "specula",
+  "services": {
+    "update": {
+      "timer": "harmonia.timer",
+      "latest_receipt": "/var/lib/harmonia/receipts/update-latest/run.json"
+    }
+  },
   "harmonia_routes": {
     "interactable_list": {
       "bin": "/usr/local/bin/harmonia",
