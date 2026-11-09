@@ -22,6 +22,7 @@ fn house_ca_stop(verb: &str) -> Option<&'static str> {
         "apply-nginx" => Some("network/cert/house-ca/apply-nginx"),
         "constituent-lock" => Some("network/cert/house-ca/constituent-lock"),
         "portal-admit" => Some("network/cert/house-ca/portal-admit"),
+        "portal-retire" => Some("network/cert/house-ca/portal-retire"),
         _ => None,
     }
 }
@@ -70,9 +71,10 @@ pub fn invoke_json(args: &[String]) -> Result<Value, String> {
         "apply-nginx" => &["portal", "upstream", "certificate", "key-path"],
         "constituent-lock" => &["portal", "lan-ip"],
         "portal-admit" => &["portal", "lan-ip", "upstream"],
+        "portal-retire" => &["portal", "owner-mac"],
         _ => return Err("agathodaimon-house-ca-refused".into()),
     };
-    let seconds = match verb { "status" | "bundle-read" => 60, "sign-csr" | "bundle-export" | "constituent-lock" => 120, "portal-admit" => 600, _ => 300 };
+    let seconds = match verb { "status" | "bundle-read" => 60, "sign-csr" | "bundle-export" | "constituent-lock" => 120, "portal-admit" | "portal-retire" => 600, _ => 300 };
     let mut payload = json!({});
     let mut i = 1;
     for key in keys {
@@ -87,7 +89,9 @@ pub fn invoke_json(args: &[String]) -> Result<Value, String> {
             "issue-leaf" => &["dry-run", "sans", "ips"],
             "bundle-export" => &["dry-run"],
             "trust-install" => &["dry-run", "platform", "fingerprint", "renew-ring"],
-            "apply-nginx" | "constituent-lock" | "portal-admit" => &["dry-run", "aliases"],
+            "apply-nginx" | "constituent-lock" => &["dry-run", "aliases"],
+            "portal-admit" => &["dry-run", "aliases", "owner-mac", "origin", "claim-tiles"],
+            "portal-retire" => &["dry-run"],
             _ => &[],
         };
         if !allowed.contains(&key) { return Err("agathodaimon-house-ca-refused".into()); }
@@ -589,6 +593,20 @@ pub(crate) fn portal_admit_receipt(portal: &str, ip: &str, upstream: &str, alias
     if !aliases.is_empty() { payload["aliases"] = json!(aliases.join(",")); }
     if dry_run { payload["dry-run"] = json!(true); }
     house_ca_crossing_with_timeout("portal-admit", payload, timeout.unwrap_or(Duration::from_secs(600)))
+}
+
+pub(crate) fn portal_owned_admit_receipt(portal: &str, ip: &str, upstream: &str, aliases: &[String], mac: &str, origin: &str, claim_tiles: &[String], dry_run: bool, timeout: Option<Duration>) -> Result<Value, Value> {
+    let mut payload = json!({"portal":portal,"lan-ip":ip,"upstream":upstream,"owner-mac":mac,"origin":origin});
+    if !aliases.is_empty() { payload["aliases"] = json!(aliases.join(",")); }
+    if !claim_tiles.is_empty() { payload["claim-tiles"] = json!(claim_tiles.join(",")); }
+    if dry_run { payload["dry-run"] = json!(true); }
+    house_ca_crossing_with_timeout("portal-admit", payload, timeout.unwrap_or(Duration::from_secs(600)))
+}
+
+pub(crate) fn portal_retire_receipt(portal: &str, mac: &str, dry_run: bool, timeout: Option<Duration>) -> Result<Value, Value> {
+    let mut payload = json!({"portal":portal,"owner-mac":mac});
+    if dry_run { payload["dry-run"] = json!(true); }
+    house_ca_crossing_with_timeout("portal-retire", payload, timeout.unwrap_or(Duration::from_secs(600)))
 }
 
 pub fn portal_admit_json(

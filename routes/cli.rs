@@ -126,7 +126,7 @@ where
         [domain, profile, flag] if domain == "carapace" && flag == "--tree" => {
             crate::routes::profile_routes::show_tree(profile)
         }
-        [domain] if domain == "help" => help::show(),
+        [domain] if domain == "help" => { let result = help::show(); print_help(); result },
         [domain, verb] if domain == "identity" && verb == "show" => identity::show(),
         [domain, verb] if domain == "profile" && verb == "show" => profile::show(),
         [domain, object, verb, rest @ ..]
@@ -368,11 +368,32 @@ where
             })
         }
         #[cfg(leaf_portals_admit)]
+        [domain, verb, rest @ ..] if domain == "cert" && verb == "portal-retire" => {
+            cert_command("cert portal-retire", "portal_retire", &[], || {
+                let positional: Vec<_> = rest.iter().filter(|arg| arg.as_str() != "--dry-run").collect();
+                if positional.len() != 2 || rest.iter().any(|arg| arg.starts_with("--") && arg != "--dry-run") {
+                    eprintln!("agathodaimon-house-ca-refused");
+                    return 1;
+                }
+                match crate::routes::issue_certificate::portal_retire_receipt(positional[0], positional[1], rest.iter().any(|arg| arg == "--dry-run"), None) {
+                    Ok(value) => { println!("{value}"); 0 },
+                    Err(value) => { eprintln!("{value}"); 1 },
+                }
+            })
+        }
+        #[cfg(leaf_portals_admit)]
         [domain, verb, portal, ip, upstream, rest @ ..]
             if domain == "cert" && verb == "portal-admit" =>
         {
             cert_command("cert portal-admit", "portal_admit", &[], || {
                 let aliases = option_list(rest, "--aliases");
+                if let (Some(mac), Some(origin)) = (option_value(rest, "--owner-mac"), option_value(rest, "--origin")) {
+                    let claim_tiles = option_list(rest, "--claim-tiles");
+                    return match crate::routes::issue_certificate::portal_owned_admit_receipt(portal, ip, upstream, &aliases, mac, origin, &claim_tiles, rest.iter().any(|a| a == "--dry-run"), None) {
+                        Ok(value) => { println!("{value}"); 0 },
+                        Err(value) => { eprintln!("{value}"); 1 },
+                    };
+                }
                 let result = crate::routes::admit_portal::portal_admit_json(
                     portal,
                     ip,
@@ -999,6 +1020,7 @@ fn print_usage(args: Option<&[String]>) {
     println!(
         "  caduceus cert portal-admit <portal> <lan-ip> <upstream> [--aliases a,b] [--dry-run]"
     );
+    println!("  caduceus cert portal-retire [--dry-run] <portal> <owner-mac>");
     println!("  caduceus legacy-sbin list");
     println!("  caduceus legacy-sbin show <script-id>");
     println!("  caduceus homeserver-sbin list");

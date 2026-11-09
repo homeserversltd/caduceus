@@ -268,6 +268,7 @@ pub(super) fn validate_names(
     candidate: &Value,
     roster: &Value,
     portals: &Value,
+    claim: bool,
 ) -> Result<(), Failure> {
     let taken = (StatusCode::CONFLICT, "link-up-name-taken");
     let rows = roster["staves"]
@@ -277,8 +278,12 @@ pub(super) fn validate_names(
         .as_array()
         .ok_or_else(|| unavailable("link-up-portal-status-unavailable"))?;
     let existing = portal_rows.iter().find(|p| p["fqdn"] == names[0]);
+    let mac = candidate["from"]["mac"].as_str().filter(|s| !s.is_empty())
+        .ok_or((StatusCode::BAD_REQUEST, "link-up-child-mac-unavailable"))?;
     let same_portal = existing.is_some_and(|p| {
-        p["upstream"] == candidate["upstream"] && p["lan_ip"] == candidate["from"]["ipv4"]
+        p["owner_mac"].as_str().is_some_and(|owner| owner.eq_ignore_ascii_case(mac))
+            || (claim && p["owner_mac"].as_str().map_or(true, str::is_empty)
+                && p["lan_ip"] == candidate["from"]["ipv4"])
     });
     let gateway_ip = roster["seat"]["ipv4"]
         .as_str()
@@ -335,7 +340,7 @@ pub(super) fn validate_names(
     Ok(())
 }
 
-pub(super) async fn admit(portal: String, lan_ip: String, upstream: String, aliases: Vec<String>, deadline: Option<std::time::Instant>) -> Result<Value, Failure> {
+pub(super) async fn admit(portal: String, lan_ip: String, upstream: String, aliases: Vec<String>, mac: String, origin: &'static str, claim_tiles: Vec<String>, deadline: Option<std::time::Instant>) -> Result<Value, Failure> {
     if crate::shared::policy::allows_command("cert portal-admit").ok() != Some(true) {
         return Err((StatusCode::FORBIDDEN, "link-up-accept-on-homeserver"));
     }
@@ -350,10 +355,30 @@ pub(super) async fn admit(portal: String, lan_ip: String, upstream: String, alia
             }
             None => None,
         };
-        crate::routes::issue_certificate::portal_admit_receipt(&portal, &lan_ip, &upstream, &aliases, false, timeout)
+        crate::routes::issue_certificate::portal_owned_admit_receipt(&portal, &lan_ip, &upstream, &aliases, &mac, origin, &claim_tiles, false, timeout)
         // Structured staff refusals cross intact, including unknown fields.
         .unwrap_or_else(|value| value)
     })
     .await
     .map_err(|_| unavailable("link-up-portal-admit-unavailable"))
+}
+
+pub(super) async fn retire(portal: String, mac: String, deadline: Option<std::time::Instant>) -> Result<Value, Failure> {
+    if crate::shared::policy::allows_command("cert portal-retire").ok() != Some(true) {
+        return Err((StatusCode::FORBIDDEN, "link-up-accept-on-homeserver"));
+    }
+    crate::gate::blocking_task("cert portal-retire", move || {
+        let timeout = match deadline {
+            Some(deadline) => {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    return json!({"ok":false,"firstMissingSignal":"link-up-sweep-budget-exhausted"});
+                }
+                Some(remaining.min(Duration::from_secs(600)))
+            }
+            None => None,
+        };
+        crate::routes::issue_certificate::portal_retire_receipt(&portal, &mac, false, timeout)
+            .unwrap_or_else(|value| value)
+    }).await.map_err(|_| unavailable("link-up-portal-retire-unavailable"))
 }

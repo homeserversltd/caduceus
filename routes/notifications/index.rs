@@ -205,7 +205,8 @@ pub(crate) async fn post_stave(stave: Value) -> Result<(), Failure> {
     let _permit = MUTATIONS.try_acquire().map_err(|_| unavailable("link-up-busy"))?;
     let portals = house::portals(None).await?;
     for mut row in rows {
-        let admitted = portals["portals"].as_array().is_some_and(|items| items.iter().any(|p| p["fqdn"] == row["names"][0]));
+        let mac = row["from"]["mac"].as_str().unwrap_or("");
+        let admitted = !mac.is_empty() && portals["portals"].as_array().is_some_and(|items| items.iter().any(|p| p["fqdn"] == row["names"][0] && p["origin"] == "face" && p["owner_mac"].as_str().is_some_and(|owner| owner.eq_ignore_ascii_case(mac))));
         row["color"] = json!("blue");
         row["ttl"] = json!("until-acted");
         row["actions"] = json!([{"verb":"accept","label":"Accept","fields":{"names":"list"}},{"verb":"dismiss","label":"Dismiss"}]);
@@ -292,6 +293,11 @@ fn record(id: &str, verb: &str, outcome: &Value, started: Instant) {
 // The single worker owns a bounded one-slot coalescing trigger. A trigger
 // represents a fresh whole-roster observation, not a child-supplied authority.
 static CHILD_BIND_SIGNAL: std::sync::OnceLock<tokio::sync::mpsc::Sender<()>> = std::sync::OnceLock::new();
+static FAILED_BINDS: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeMap<String, (String, String)>>> = std::sync::OnceLock::new();
+
+fn failed_binds() -> &'static std::sync::Mutex<std::collections::BTreeMap<String, (String, String)>> {
+    FAILED_BINDS.get_or_init(|| std::sync::Mutex::new(std::collections::BTreeMap::new()))
+}
 
 pub(crate) fn signal_child_portals() {
     if !gateway_profile() { return; }
@@ -309,6 +315,9 @@ pub(crate) fn signal_child_portals() {
                         continue;
                     }
                 };
+                let live: BTreeSet<String> = roster["staves"].as_array().into_iter().flatten()
+                    .filter_map(|child| child["mac"].as_str()).map(str::to_ascii_lowercase).collect();
+                if let Ok(mut failed) = failed_binds().lock() { failed.retain(|_, (_, mac)| live.contains(mac)); }
                 for child in roster["staves"].as_array().into_iter().flatten() {
                     let started = Instant::now();
                     let result = if Instant::now() >= deadline {
@@ -338,11 +347,13 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool, deadli
     if !gateway_profile() { return Ok(Vec::new()); }
     let ip = child["ipv4"].as_str().and_then(|v| v.parse::<std::net::Ipv4Addr>().ok())
         .ok_or_else(|| unavailable("link-up-child-address-unavailable"))?;
+    let mac = child["mac"].as_str().filter(|s| !s.is_empty())
+        .ok_or_else(|| unavailable("link-up-child-mac-unavailable"))?.to_ascii_lowercase();
     if roster["seat"]["ipv4"].as_str() == Some(ip.to_string().as_str()) { return Ok(Vec::new()); }
     let mut status = house::portals(deadline).await?;
     if deadline.is_some_and(|end| Instant::now() >= end) { return Err(unavailable("link-up-sweep-budget-exhausted")); }
     let accepted = status["portals"].as_array().into_iter().flatten().any(|portal| {
-        portal["lan_ip"].as_str().and_then(|v| v.parse::<std::net::Ipv4Addr>().ok()) == Some(ip)
+        portal["origin"] == "face" && portal["owner_mac"].as_str().is_some_and(|owner| owner.eq_ignore_ascii_case(&mac))
     });
     if !accepted { return Ok(Vec::new()); }
     let listener = child["caduceus_port"].as_u64().and_then(|n| u16::try_from(n).ok())
@@ -354,6 +365,19 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool, deadli
         house::child_portals(ip, listener).await?
     };
     let mut results = Vec::new();
+    // Snapshot names before rejecting invalid ports or other malformed entries.
+    let declared: BTreeSet<String> = entries.iter().filter_map(|entry| entry.local_url.as_str())
+        .filter_map(|url| url.strip_prefix("https://"))
+        .map(|url| url.strip_suffix('/').unwrap_or(url).to_owned()).collect();
+    let safe_to_retire = !entries.is_empty() && entries.iter().all(|entry| {
+        entry.local_url.as_str().and_then(|url| url.strip_prefix("https://"))
+            .is_some_and(|url| house::valid_name(url.strip_suffix('/').unwrap_or(url)))
+            || entry.local_url.as_str().is_some_and(|url| url.starts_with('/'))
+    });
+    if !dry_run {
+        let mut failed = failed_binds().lock().map_err(|_| unavailable("link-up-bind-memory-unavailable"))?;
+        failed.retain(|name, (_, owner)| owner != &mac || declared.contains(name));
+    }
     for entry in entries {
         if deadline.is_some_and(|end| Instant::now() >= end) { return Err(unavailable("link-up-sweep-budget-exhausted")); }
         let Some(url) = entry.local_url.as_str().and_then(|s| s.strip_prefix("https://")) else { continue; };
@@ -362,16 +386,18 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool, deadli
         let Some(port) = entry.port.as_u64().and_then(|port| u16::try_from(port).ok()).filter(|port| *port != 0) else { continue; };
         let started = Instant::now();
         let upstream = format!("http://{ip}:{port}");
-        if status["portals"].as_array().into_iter().flatten().any(|p| p["fqdn"] == name && p["upstream"] == upstream) {
+        let existing = status["portals"].as_array().into_iter().flatten().find(|p| p["fqdn"] == name);
+        if existing.is_some_and(|p| p["upstream"] == upstream && p["lan_ip"] == ip.to_string() && p["owner_mac"].as_str().is_some_and(|owner| owner.eq_ignore_ascii_case(&mac))) {
             continue;
         }
-        let candidate = json!({"from":{"ipv4":ip.to_string()}, "upstream":upstream});
+        let aliases: Vec<String> = existing.and_then(|p| p["aliases"].as_array()).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+        let candidate = json!({"from":{"ipv4":ip.to_string(),"mac":mac}, "upstream":upstream});
         let names = vec![name.to_owned()];
         let validation = if house::valid_name(name) {
             let names = names.clone();
             let roster = roster.clone();
             let status = status.clone();
-            let task = tokio::task::spawn_blocking(move || house::validate_names(&names, &candidate, &roster, &status));
+            let task = tokio::task::spawn_blocking(move || house::validate_names(&names, &candidate, &roster, &status, false));
             if let Some(end) = deadline {
                 tokio::time::timeout_at(end.into(), task).await
                     .map_err(|_| unavailable("link-up-sweep-budget-exhausted"))?
@@ -394,7 +420,9 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool, deadli
             results.push(json!({"portal":name,"ok":true,"attempted":false,"argv":argv}));
             continue;
         }
-        let result = match house::admit(portal, lan_ip, upstream, Vec::new(), deadline).await {
+        let pair = (upstream.clone(), mac.clone());
+        if failed_binds().lock().map_err(|_| unavailable("link-up-bind-memory-unavailable"))?.get(name) == Some(&pair) { continue; }
+        let result = match house::admit(portal, lan_ip, upstream, aliases, mac.clone(), "tile", Vec::new(), deadline).await {
             Ok(value) if deadline.is_some() && matches!(value["firstMissingSignal"].as_str(), Some("caduceus-agathodaimon-timeout" | "link-up-sweep-budget-exhausted")) => {
                 return Err(unavailable("link-up-sweep-budget-exhausted"));
             }
@@ -407,6 +435,10 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool, deadli
         };
         record(name, "auto-bind", &result, started);
         let succeeded = result["ok"] == true;
+        {
+            let mut failed = failed_binds().lock().map_err(|_| unavailable("link-up-bind-memory-unavailable"))?;
+            if succeeded { failed.remove(name); } else { failed.insert(name.to_owned(), pair); }
+        }
         results.push(result);
         if succeeded {
             match house::portals(deadline).await {
@@ -424,6 +456,27 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool, deadli
         }
     }
     if deadline.is_some_and(|end| Instant::now() >= end) { return Err(unavailable("link-up-sweep-budget-exhausted")); }
+    if safe_to_retire {
+        for portal in status["portals"].as_array().into_iter().flatten() {
+            if deadline.is_some_and(|end| Instant::now() >= end) { return Err(unavailable("link-up-sweep-budget-exhausted")); }
+            let Some(name) = portal["fqdn"].as_str() else { continue; };
+            if portal["origin"] != "tile" || !portal["owner_mac"].as_str().is_some_and(|owner| owner.eq_ignore_ascii_case(&mac)) || declared.contains(name) { continue; }
+            if dry_run { results.push(json!({"portal":name,"ok":true,"attempted":false,"argv":["caduceus","cert","portal-retire",name,&mac]})); continue; }
+            let started = Instant::now();
+            let result = match house::retire(name.to_owned(), mac.clone(), deadline).await {
+                Ok(value) if deadline.is_some() && matches!(value["firstMissingSignal"].as_str(), Some("caduceus-agathodaimon-timeout" | "link-up-sweep-budget-exhausted")) => {
+                    return Err(unavailable("link-up-sweep-budget-exhausted"));
+                }
+                Err((_, "caduceus-agathodaimon-timeout" | "link-up-sweep-budget-exhausted")) if deadline.is_some() => {
+                    return Err(unavailable("link-up-sweep-budget-exhausted"));
+                }
+                Ok(value) => value,
+                Err((_, signal)) => json!({"ok":false,"firstMissingSignal":signal}),
+            };
+            record(name, "auto-retire", &result, started);
+            results.push(result);
+        }
+    }
     Ok(results)
 }
 
@@ -470,13 +523,14 @@ async fn mutate(
         let owned_candidate = candidate.clone();
         let validation_roster = roster.clone();
         tokio::task::spawn_blocking(move || {
-            house::validate_names(&owned_names, &owned_candidate, &validation_roster, &portals)
+            house::validate_names(&owned_names, &owned_candidate, &validation_roster, &portals, true)
         })
         .await
         .map_err(|_| unavailable("link-up-name-observation-failed"))??;
         let portal = names[0].clone();
         let lan_ip = candidate["from"]["ipv4"].as_str().unwrap().to_owned();
         let upstream = candidate["upstream"].as_str().unwrap().to_owned();
+        let mac = candidate["from"]["mac"].as_str().filter(|s| !s.is_empty()).ok_or_else(|| unavailable("link-up-child-mac-unavailable"))?.to_ascii_lowercase();
         let aliases = names[1..].to_vec();
         if body["dry_run"] == true {
             let mut argv = vec!["caduceus".to_owned(), "cert".to_owned()];
@@ -496,7 +550,18 @@ async fn mutate(
                 "portal": names[0], "names": names, "argv": argv, "child_portals": child_portals}),
             );
         }
-        let mut receipt = house::admit(portal, lan_ip, upstream, aliases, None).await?;
+        let child = roster["staves"].as_array().into_iter().flatten()
+            .find(|row| row["mac"] == candidate["from"]["mac"] && row["ipv4"] == candidate["from"]["ipv4"]);
+        let claim_tiles = if let Some(child) = child {
+            let listener = child["caduceus_port"].as_u64().and_then(|n| u16::try_from(n).ok()).filter(|n| *n != 0).unwrap_or(8787);
+            let ip = lan_ip.parse::<std::net::Ipv4Addr>().map_err(|_| unavailable("link-up-child-address-unavailable"))?;
+            house::child_portals(ip, listener).await.unwrap_or_default().iter().filter_map(|entry| entry.local_url.as_str())
+                .filter_map(|url| url.strip_prefix("https://"))
+                .map(|url| url.strip_suffix('/').unwrap_or(url))
+                .filter(|name| house::valid_name(name)).map(str::to_owned).collect()
+        } else { Vec::new() };
+        failed_binds().lock().map_err(|_| unavailable("link-up-bind-memory-unavailable"))?.retain(|_, (_, owner)| owner != &mac);
+        let mut receipt = house::admit(portal, lan_ip, upstream, aliases, mac, "face", claim_tiles, None).await?;
         // Preserve every staff receipt field. A failed composite is never called
         // accepted, and a pending dismissal is cleared only after full success.
         if receipt.get("converged").is_some_and(|v| v == false) && receipt["ok"] == true {
