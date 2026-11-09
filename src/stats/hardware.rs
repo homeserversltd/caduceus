@@ -5,6 +5,7 @@ use super::*;
 pub(super) struct HardwareCache {
     rev: Option<String>,
     nvidia: BTreeMap<String, (Instant, Option<NvidiaGpuCache>)>,
+    rc6: BTreeMap<String, (Instant, u64)>,
 }
 
 fn matches_device(device: &PathBuf, spec: &Value) -> bool {
@@ -95,7 +96,7 @@ fn busiest(devices: &[Value]) -> Option<serde_json::Map<String, Value>> {
 
 pub(super) fn collect(cache: &mut HardwareCache, hardware: Option<&Value>) -> (Value, Value, Vec<Value>, Option<i64>) {
     let rev = hardware.and_then(|value| value.get("rev")).and_then(Value::as_str).map(str::to_owned);
-    if cache.rev != rev { cache.nvidia.clear(); cache.rev = rev; }
+    if cache.rev != rev { cache.nvidia.clear(); cache.rc6.clear(); cache.rev = rev; }
     let Some(hardware) = hardware else { return (Value::Null, Value::Null, Vec::new(), None) };
     let mut readings = Vec::new();
     let mut unavailable = Vec::new();
@@ -113,6 +114,23 @@ pub(super) fn collect(cache: &mut HardwareCache, hardware: Option<&Value>) -> (V
         let mut row = serde_json::Map::new();
         row.insert("id".into(), json!(id)); row.insert("vendor".into(), json!(vendor));
         match source {
+            "i915-rc6" => {
+                let Some(device) = sysfs_device(spec) else { devices.push(Value::Object(row)); continue };
+                // sysfs_device returns cardN/device, not the resolved PCI path.
+                let Some(card) = device.parent() else { devices.push(Value::Object(row)); continue };
+                if let Some(rc6_ms) = clean_optional_text(&card.join("gt/gt0/rc6_residency_ms")).and_then(|value| value.parse::<u64>().ok()) {
+                    let now = Instant::now();
+                    if let Some((previous, previous_ms)) = cache.rc6.insert(id.to_owned(), (now, rc6_ms)) {
+                        let wall_ms = now.duration_since(previous).as_secs_f64() * 1000.0;
+                        if let Some(delta) = rc6_ms.checked_sub(previous_ms) {
+                            if wall_ms > 0.0 {
+                                let busy = (100.0 - 100.0 * delta as f64 / wall_ms).clamp(0.0, 100.0).round() as u64;
+                                row.insert("utilizationPercent".into(), json!(busy));
+                            }
+                        }
+                    }
+                }
+            }
             "drm-sysfs" => {
                 let Some(device) = sysfs_device(spec) else { devices.push(Value::Object(row)); continue };
                 for (file, key) in [("gpu_busy_percent", "utilizationPercent"), ("mem_info_vram_used", "memoryUsedBytes"), ("mem_info_vram_total", "memoryTotalBytes")] {

@@ -1,0 +1,9 @@
+{
+  "rev": "chuwi-larkbox-x",
+  "cpu_temperature": [
+    {"hwmon_name": "coretemp", "label": "Package id 0"}
+  ],
+  "gpus": [
+    {"id": "intel", "vendor": "0x8086", "source": "i915-rc6", "card_match": "vendor:0x8086"}
+  ]
+}
