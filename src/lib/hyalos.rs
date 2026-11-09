@@ -5,7 +5,7 @@ use serde_json::{json, Map, Value};
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::sync::{Mutex, OnceLock};
+use std::os::fd::AsRawFd;
 
 pub const EVENT_SCHEMA: &str = crate::protocol::hyalos_event_schema();
 pub const CHANNEL_PATH: &str = "/var/log/appliance/appliance.log";
@@ -99,6 +99,10 @@ fn project_attributes(event: &ChannelEvent, run_profile: bool) -> Result<Value, 
         "signal": metadata_alias(source, &["signal", "firstMissingSignal", "first_missing_signal"], if event.kind == "generic-http-door" { 64 } else { 40 }),
         "first_missing_field": metadata_alias(source, &["first_missing_field", "firstMissingField", "field"], 32),
     });
+    if event.organ == "caduceus" && event.kind == "caduceus.maintenance" {
+        attributes["freed_bytes"] = json!(source.get("freed_bytes").and_then(Value::as_u64));
+        attributes["rotated"] = json!(source.get("rotated").and_then(Value::as_bool));
+    }
     if event.kind == "generic-http-door" {
         // The routine id is the target for a generic deed; do not duplicate it.
         attributes.as_object_mut().expect("object").remove("target");
@@ -559,12 +563,20 @@ fn channel_line(event: &ChannelEvent) -> Result<Vec<u8>, String> {
     Ok(line)
 }
 
+// The open file description holds the advisory lock until the File is dropped.
+pub(crate) fn lock_channel(file: &File) -> std::io::Result<()> {
+    loop {
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
 fn append(event: &ChannelEvent) -> Result<(), String> {
-    static APPEND_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let _guard = APPEND_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .map_err(|_| "hyalos-channel-lock-poisoned".to_string())?;
     let path = config::path(CHANNEL_PATH);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
@@ -575,6 +587,7 @@ fn append(event: &ChannelEvent) -> Result<(), String> {
         .append(true)
         .open(&path)
         .map_err(|err| format!("{}: {err}", path.display()))?;
+    lock_channel(&file).map_err(|err| format!("hyalos-channel-lock-failed: {err}"))?;
     file.write_all(&line)
         .map_err(|err| format!("{}: {err}", path.display()))
 }

@@ -1,24 +1,19 @@
 //! Bounded native maintenance for the appliance journal and log channel.
 
-use crate::shared::{config, hyalos::CHANNEL_PATH};
+use crate::shared::{config, hyalos::{self, CHANNEL_PATH}};
 use chrono::{TimeZone, Utc};
 use serde_json::{json, Value};
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        OnceLock,
-    },
+    sync::OnceLock,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::time::{interval, Duration};
 
 const LOG_LIMIT: u64 = 200 * 1024 * 1024;
-const RECEIPT_DIR: &str = "var/lib/caduceus/receipts";
 static STARTED: OnceLock<()> = OnceLock::new();
-static RECEIPT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub fn start() {
     if STARTED.set(()).is_err() {
@@ -45,26 +40,31 @@ pub fn start() {
 
 fn maintenance_tick() -> Result<(), String> {
     let mut errors = Vec::new();
-
+    let mut freed_bytes = 0;
+    let mut rotated = false;
     match vacuum_journal() {
-        Ok(freed) => {
-            let mut receipt = json!({
-                "schema": "caduceus.log-maintenance.v1",
-                "event": "journal-vacuum",
-                "ok": true,
-            });
-            if let Some(freed) = freed.filter(|freed| *freed > 0) {
-                receipt["freed_bytes"] = json!(freed);
-            }
-            if let Err(error) = write_receipt(&receipt) {
-                errors.push(format!("journal-vacuum receipt: {error}"));
-            }
-        }
+        Ok(freed) => freed_bytes = freed.unwrap_or(0),
         Err(error) => errors.push(format!("journal-vacuum: {error}")),
     }
-
-    if let Err(error) = maintain_appliance_log_with_limit(LOG_LIMIT) {
-        errors.push(format!("appliance-log rotation: {error}"));
+    match maintain_appliance_log_with_limit(LOG_LIMIT) {
+        Ok(result) => {
+            rotated = result.get("rotated").and_then(Value::as_bool).unwrap_or(false);
+            if let Some(error) = result.get("rotationError").and_then(Value::as_str) {
+                errors.push(format!("appliance-log rotation: {error}"));
+            }
+        }
+        Err(error) => errors.push(format!("appliance-log rotation: {error}")),
+    }
+    if freed_bytes > 0 || rotated {
+        if let Err(error) = hyalos::reflect_json(json!({
+            "organ": "caduceus", "kind": "caduceus.maintenance", "message": "maintenance",
+            "ok": errors.is_empty(),
+            "attributes_redacted": {"verb": "maintenance", "target": "appliance-log",
+                "freed_bytes": freed_bytes, "rotated": rotated,
+                "signal": if errors.is_empty() { Value::Null } else { json!("caduceus-maintenance-failed") }}
+        })) {
+            errors.push(format!("maintenance log: {error}"));
+        }
     }
 
     if errors.is_empty() {
@@ -155,13 +155,15 @@ mod tests {
 
 pub fn maintain_appliance_log_with_limit(limit: u64) -> Result<Value, String> {
     let path = config::path(CHANNEL_PATH);
-    let size = match fs::metadata(&path) {
-        Ok(metadata) => metadata.len(),
+    let file = match OpenOptions::new().read(true).write(true).open(&path) {
+        Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Ok(json!({"rotated": false}));
         }
         Err(error) => return Err(error.to_string()),
     };
+    hyalos::lock_channel(&file).map_err(|error| error.to_string())?;
+    let size = file.metadata().map_err(|error| error.to_string())?.len();
     if size <= limit {
         return Ok(json!({"rotated": false, "fileSize": size}));
     }
@@ -185,44 +187,15 @@ pub fn maintain_appliance_log_with_limit(limit: u64) -> Result<Value, String> {
         let _ = fs::remove_file(&temporary);
         return Err(e.to_string());
     }
-    if let Err(e) = OpenOptions::new().write(true).truncate(true).open(&path) {
-        let _ = write_receipt(
-            &json!({"schema":"caduceus.log-maintenance.v1","event":"rotation","ok":false,"mutation":"archive-renamed","generation":name,"error":bounded_error(&e.to_string())}),
-        );
-        return Err(e.to_string());
-    }
-    if let Err(error) = remove_older_generations(parent, &name) {
-        let cleanup_error = bounded_error(&error);
-        let receipt_error = write_receipt(&json!({
-            "schema": "caduceus.log-maintenance.v1",
-            "event": "rotation",
-            "ok": false,
-            "mutation": "archive-renamed-and-truncated",
-            "generation": name,
-            "error": cleanup_error,
-        }))
-        .err();
-        return Err(match receipt_error {
-            Some(receipt_error) => {
-                bounded_error(&format!("{error}; failure receipt: {receipt_error}"))
-            }
-            None => error,
-        });
-    }
+    let rotation_error = file.set_len(0).map_err(|error| error.to_string())
+        .and_then(|()| remove_older_generations(parent, &name)).err();
     let result = json!({
         "rotated": true,
         "fileSize": size,
         "generation": name,
         "rotationTimestamp": timestamp_for(stamp),
+        "rotationError": rotation_error,
     });
-    write_receipt(&json!({
-        "schema": "caduceus.log-maintenance.v1",
-        "event": "rotation",
-        "ok": true,
-        "generation": result["generation"],
-        "rotation_timestamp": result["rotationTimestamp"],
-        "file_size": size,
-    }))?;
     Ok(result)
 }
 
@@ -299,20 +272,7 @@ fn write_gzip(path: &Path, source: &Path) -> io::Result<()> {
     output.flush()?;
     output.sync_all()
 }
-fn write_receipt(body: &Value) -> Result<(), String> {
-    let dir = config::path(RECEIPT_DIR);
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let sequence = RECEIPT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    let path = dir.join(format!("log-maintenance-{}-{sequence}.json", now_nanos()));
-    let mut f = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|e| e.to_string())?;
-    serde_json::to_writer(&mut f, body).map_err(|e| e.to_string())?;
-    f.write_all(b"\n").map_err(|e| e.to_string())?;
-    f.sync_all().map_err(|e| e.to_string())
-}
+
 fn bounded_error(error: &str) -> String {
     error.chars().take(240).collect()
 }
