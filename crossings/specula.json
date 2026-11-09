@@ -519,7 +519,6 @@
     "/api/v1/legacy-sbin",
     "/api/v1/legacy-sbin/show",
     "/api/v1/local-ai/runtime/status",
-    "/api/v1/log/clear",
     "/api/v1/log/read",
     "/api/v1/log/receipts",
     "/api/v1/log/reflect",

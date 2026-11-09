@@ -44,9 +44,6 @@ pub fn command(args: &[String]) -> i32 {
             }
             hyalos::reflect_json(value)
         }
-        [verb, event] if verb == "append" => serde_json::from_str::<Value>(event)
-            .map_err(|err| format!("hyalos-channel-event-invalid: {err}"))
-            .and_then(hyalos::append_json),
         [verb, rest @ ..] if verb == "tail" => parse_tail_filters(rest).and_then(hyalos::tail_json),
         _ => Err("caduceus-hyalos-command-invalid".to_string()),
     };
@@ -65,10 +62,6 @@ pub fn command(args: &[String]) -> i32 {
 
 pub fn reflect_json(value: Value) -> Result<Value, String> {
     hyalos::reflect_json(value)
-}
-
-pub fn append_json(value: Value) -> Result<Value, String> {
-    hyalos::append_json(value)
 }
 
 pub fn tail_json(filters: TailFilters) -> Result<Value, String> {

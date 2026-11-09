@@ -1,4 +1,4 @@
-// Canonical appliance log readback and clear doors.
+// Canonical appliance log readback.
 //
 // Every appliance speaks through one path.  The appliance profile identifies
 // the speaker; this band never selects a body-specific fallback log.
@@ -45,31 +45,6 @@ pub fn read_json(offset: usize, limit: usize) -> Value {
     }
 }
 
-pub fn clear_json() -> Value {
-    match fs::OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .open(config::path(LOG_PATH))
-    {
-        Ok(file) => match file.metadata() {
-            Ok(metadata) => json!({
-                "schema": "caduceus.appliance.logs.clear.v1",
-                "status": "success",
-                "ok": true,
-                "message": "Logs cleared successfully",
-                "cleared": true,
-                "file_size": metadata.len(),
-                "file_path": LOG_PATH,
-                "last_rotation_timestamp": crate::maintenance::latest_rotation_timestamp(),
-                "firstMissingSignal": "none"
-            }),
-            Err(error) => failure_receipt("clear", &error),
-        },
-        Err(error) if error.kind() == io::ErrorKind::NotFound => missing_receipt("clear"),
-        Err(error) => failure_receipt("clear", &error),
-    }
-}
-
 pub fn is_missing(value: &Value) -> bool {
     value.get("firstMissingSignal").and_then(Value::as_str)
         == Some("caduceus-appliance-log-missing")
@@ -82,17 +57,6 @@ pub fn is_failure(value: &Value) -> bool {
 pub fn show(offset: usize, limit: usize) -> i32 {
     println!("{}", read_json(offset, limit));
     0
-}
-
-pub fn clear() -> i32 {
-    let receipt = clear_json();
-    let status = if receipt.get("ok").and_then(Value::as_bool) == Some(true) {
-        0
-    } else {
-        1
-    };
-    println!("{receipt}");
-    status
 }
 
 fn missing_receipt(action: &str) -> Value {

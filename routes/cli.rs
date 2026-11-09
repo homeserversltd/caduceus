@@ -155,12 +155,6 @@ where
                 }
             }
         }
-        [domain, verb, rest @ ..] if domain == "logs" && verb == "clear" => {
-            match require_policy("logs clear", rest) {
-                Ok(_) => logs::clear(),
-                Err(code) => code,
-            }
-        }
         [domain, object, verb]
             if domain == "storage" && object == "categories" && verb == "scan" =>
         {
@@ -983,7 +977,6 @@ fn print_usage(args: Option<&[String]>) {
     println!("  caduceus profile sources reseed");
     println!("  caduceus health");
     println!("  caduceus logs read [--offset N] [--limit N]");
-    println!("  caduceus logs clear");
     println!("  caduceus storage categories scan");
     println!("  caduceus disk census");
     println!("  caduceus time state");

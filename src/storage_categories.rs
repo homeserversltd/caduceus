@@ -214,14 +214,7 @@ fn categories() -> Vec<(
             "/var/lib/harmonia/artifacts",
             "cache",
         ),
-        ("logs", "logs-0", "Logs", "/var/log/arcadia", "logs"),
-        (
-            "logs",
-            "logs-1",
-            "Logs",
-            "/var/log/homeconsole-sync",
-            "logs",
-        ),
+        ("logs", "logs-0", "Logs", "/var/log/appliance", "logs"),
         (
             "logs",
             "logs-2",
