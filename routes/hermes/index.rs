@@ -27,13 +27,14 @@ fn hermes_entry(args: &[&[u8]]) -> bool {
     if *program == b"/opt/hermes/venv/bin/hermes" {
         return true;
     }
-    // Both launchers belong to the declared HomeSI venv. A same-named binary
-    // elsewhere, or system Python running a similarly named module, is not it.
+    // Two anchors only. The declared HomeSI venv (/opt/hermes/venv) launches
+    // the gateway; hermes_bootstrap then re-execs it into the runtime Hermes
+    // manages under the hermes account's HERMES_HOME, /home/hermes/.hermes/tools.
+    // From that runtime only the exact relaunched gateway shape counts. A
+    // same-named binary elsewhere, another account's home, or system Python
+    // running a similarly named module is not it
+    // (pali:si-homesi-website-portals-and-hermes-count-20261024 organ HermesIdentity).
     let venv = venv_python(program);
-    // hermes_bootstrap re-execs the venv-started gateway into the runtime
-    // Hermes manages under its own HERMES_HOME; only that relaunch is accepted
-    // from there (pali:si-homesi-website-portals-and-hermes-count-20261024
-    // organ HermesIdentity).
     if !venv && !relaunch_python(program) {
         return false;
     }
@@ -79,16 +80,10 @@ fn venv_python(program: &[u8]) -> bool {
         .is_some_and(|version| version.iter().all(|byte| byte.is_ascii_digit() || *byte == b'.'))
 }
 
-// /home/<user>/.hermes/tools/python-<build>/bin/python3[.N]
+// /home/hermes/.hermes/tools/python-<build>/bin/python3[.N]: the runtime under
+// the hermes account's own HERMES_HOME, nobody else's.
 fn relaunch_python(program: &[u8]) -> bool {
-    let Some(rest) = program.strip_prefix(b"/home/") else {
-        return false;
-    };
-    let Some(user_end) = rest.iter().position(|byte| *byte == b'/') else {
-        return false;
-    };
-    let (user, rest) = rest.split_at(user_end);
-    let Some(rest) = rest.strip_prefix(b"/.hermes/tools/python-") else {
+    let Some(rest) = program.strip_prefix(b"/home/hermes/.hermes/tools/python-") else {
         return false;
     };
     let Some(build_end) = rest.iter().position(|byte| *byte == b'/') else {
@@ -98,10 +93,7 @@ fn relaunch_python(program: &[u8]) -> bool {
     let Some(version) = rest.strip_prefix(b"/bin/python3") else {
         return false;
     };
-    !user.is_empty()
-        && user != b"."
-        && user != b".."
-        && !build.is_empty()
+    !build.is_empty()
         && build != b"."
         && build != b".."
         && version.iter().all(|byte| byte.is_ascii_digit() || *byte == b'.')
