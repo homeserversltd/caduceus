@@ -52,6 +52,7 @@
       }
     },
     "internet": {
+      "description": "A non-gateway body with a house seat reports null publicIp with firstMissingSignal caduceus-stats-public-ip-held-by-the-house.",
       "fields": {
         "publicIp": "string|null",
         "ts": "integer",

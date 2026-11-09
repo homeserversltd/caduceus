@@ -104,6 +104,24 @@ fn gateway_is_local(perspective: &Value, gateway: Option<Ipv4Addr>) -> bool {
     })
 }
 
+fn house_seat(perspective: &Value) -> Option<(Ipv4Addr, u16)> {
+    perspective
+        .pointer("/gateway_seat/ipv4")
+        .and_then(Value::as_str)
+        .and_then(|ip| ip.parse::<Ipv4Addr>().ok())
+        .zip(
+            perspective.pointer("/gateway_seat/caduceus_port")
+                .and_then(Value::as_u64)
+                .and_then(|port| u16::try_from(port).ok())
+                .filter(|port| *port != 0),
+        )
+}
+
+pub(super) fn public_ip_held_by_house() -> bool {
+    let perspective = perspective();
+    !gateway_is_local(&perspective, default_gateway()) && house_seat(&perspective).is_some()
+}
+
 pub(super) struct Sampler {
     runtime: Option<tokio::runtime::Runtime>,
     gateway: Option<gateway::Gateway>,
@@ -141,17 +159,7 @@ impl Sampler {
         }
         // Role changes retire evidence/listeners, never the body's echo budget.
         self.gateway = None;
-        let seat = perspective
-            .pointer("/gateway_seat/ipv4")
-            .and_then(Value::as_str)
-            .and_then(|ip| ip.parse::<Ipv4Addr>().ok())
-            .zip(
-                perspective.pointer("/gateway_seat/caduceus_port")
-                    .and_then(Value::as_u64)
-                    .and_then(|port| u16::try_from(port).ok())
-                    .filter(|port| *port != 0),
-            );
-        if let Some((ip, port)) = seat {
+        if let Some((ip, port)) = house_seat(&perspective) {
             if let Some(runtime) = self.runtime.as_ref() {
                 let (sample, _) = runtime.block_on(fetch_peer_stats(&ip.to_string(), port));
                 if let Some(answer) = sample.and_then(|value| gateway_answer(&value).ok()) {

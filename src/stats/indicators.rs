@@ -775,7 +775,11 @@ impl Collector {
             let shared = Arc::clone(&shared);
             let fallback = Arc::clone(&shared);
             match spawn_worker("caduceus-stats-public-ip", move || {
-                let observation = read_public_ip();
+                let observation = if internet::public_ip_held_by_house() {
+                    PublicIpObservation::unavailable("caduceus-stats-public-ip-held-by-the-house")
+                } else {
+                    read_public_ip()
+                };
                 let next = if observation.ip.is_some() {
                     PUBLIC_IP_TTL
                 } else {
