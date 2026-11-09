@@ -36,9 +36,20 @@ fn meter(envelope: &Value) -> Result<Value, &'static str> {
         "gpu" => ("GPU", "GPU utilization is missing from the sample"),
         _ => return Err("face-meter-kind-invalid"),
     };
+    let device = if kind == "gpu" {
+        match envelope.get("payload").and_then(|payload| payload.get("device")) {
+            None => 0,
+            Some(value) => value.as_u64().ok_or("face-meter-device-invalid")?,
+        }
+    } else {
+        0
+    };
     let sample = crate::stats::current()
         .ok()
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
+    if kind == "gpu" {
+        return Ok(gpu_meter(sample.as_ref(), device));
+    }
     let Some(sample) = sample else {
         return Ok(unknown(label, "No current statistics sample"));
     };
@@ -113,22 +124,43 @@ fn meter(envelope: &Value) -> Result<Value, &'static str> {
                     json!(celsius as i64),
                 )
             }),
-        "gpu" => number(&sample, "/gpu/utilizationPercent").map(|pct| {
-            let pct = pct.round() as i128;
-            let mut tooltip = format!("GPU: {pct}%");
-            if let Some(temp) = number(&sample, "/gpu/temperatureCelsius") {
-                tooltip.push_str(&format!(" · {}°C", temp.round() as i64));
-            }
-            success(
-                format!("GPU {}", bars(pct)),
-                tooltip,
-                class_for(pct),
-                json!(pct as i64),
-            )
-        }),
         _ => unreachable!(),
     };
     Ok(reading.unwrap_or_else(|| unknown(label, missing)))
+}
+
+fn gpu_meter(sample: Option<&Value>, device: u64) -> Value {
+    let label = if device == 0 {
+        "GPU".to_owned()
+    } else {
+        format!("GPU{}", u128::from(device) + 1)
+    };
+    let row = sample
+        .and_then(|sample| sample.pointer("/gpu/devices"))
+        .and_then(Value::as_array)
+        .and_then(|devices| usize::try_from(device).ok().and_then(|index| devices.get(index)));
+    let Some(row) = row else {
+        return if device == 0 {
+            unknown(&label, "GPU utilization is missing from the sample")
+        } else {
+            success(String::new(), String::new(), "absent", Value::Null)
+        };
+    };
+    let Some(pct) = number(row, "/utilizationPercent") else {
+        return unknown(&label, "GPU utilization is missing from the sample");
+    };
+    let pct = pct.round() as i128;
+    let id = row.get("id").and_then(Value::as_str).unwrap_or("unknown");
+    let mut tooltip = format!("{label}: {id} {pct}%");
+    if let Some(temp) = number(row, "/temperatureCelsius") {
+        tooltip.push_str(&format!(" · {}°C", temp.round() as i64));
+    }
+    success(
+        format!("{label} {}", bars(pct)),
+        tooltip,
+        class_for(pct),
+        json!(pct as i64),
+    )
 }
 
 fn number(value: &Value, pointer: &str) -> Option<f64> {
