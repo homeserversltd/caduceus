@@ -173,6 +173,13 @@
     "settings/sound/set",
     "settings/sound/test-tone/play",
     "settings/ssh",
+    "settings/ssh/config/read",
+    "settings/ssh/config/restore",
+    "settings/ssh/config/set",
+    "settings/ssh/off",
+    "settings/ssh/on",
+    "settings/ssh/unit/resolve",
+    "settings/ssh/verify",
     "settings/ssh/status",
     "storage/backup/forgejo/credential",
     "storage/disk/test",
@@ -600,8 +607,8 @@
     "/api/v1/settings/sound",
     "/api/v1/settings/ssh/authorized-keys",
     "/api/v1/settings/ssh/config",
-    "/api/v1/settings/ssh/service/disable",
-    "/api/v1/settings/ssh/service/enable",
+    "/api/v1/settings/ssh/off",
+    "/api/v1/settings/ssh/on",
     "/api/v1/settings/ssh/status",
     "/api/v1/staff/actuators",
     "/api/v1/storage/categories",
@@ -706,7 +713,9 @@
       "settings/notifications",
       "settings/sound",
       "settings/ssh",
-      "storage/backup/drive/ask"
+      "storage/backup/drive/ask",
+      "settings/ssh/off",
+      "settings/ssh/on"
     ],
     "verbs": [
       ["nas", "list"],
@@ -841,9 +850,9 @@
       "/api/v1/settings/sound",
       "/api/v1/settings/ssh/authorized-keys",
       "/api/v1/settings/ssh/config",
-      "/api/v1/settings/ssh/service/disable",
-      "/api/v1/settings/ssh/service/enable",
-      "/api/v1/storage/vault/auto-decrypt"
+      "/api/v1/storage/vault/auto-decrypt",
+      "/api/v1/settings/ssh/off",
+      "/api/v1/settings/ssh/on"
     ]
   }
 }

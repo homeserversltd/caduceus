@@ -1,0 +1,1 @@
+{"namespace":"settings/ssh/on","admittance":"open","flags":{},"serve":[{"snake":"settings/ssh/on","verb":["settings","ssh","on"]}],"commands":["settings ssh on"],"needs":["all"]}

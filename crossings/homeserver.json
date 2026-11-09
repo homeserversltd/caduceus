@@ -119,6 +119,13 @@
     "settings/samba",
     "settings/samba/status",
     "settings/ssh",
+    "settings/ssh/config/read",
+    "settings/ssh/config/restore",
+    "settings/ssh/config/set",
+    "settings/ssh/off",
+    "settings/ssh/on",
+    "settings/ssh/unit/resolve",
+    "settings/ssh/verify",
     "settings/ssh/status",
     "storage/backup/forgejo/credential",
     "storage/backup/nas-sync/hold",
@@ -389,6 +396,8 @@
     "/api/v1/settings/datetime",
     "/api/v1/settings/region",
     "/api/v1/settings/samba/status",
+    "/api/v1/settings/ssh/off",
+    "/api/v1/settings/ssh/on",
     "/api/v1/settings/ssh/status",
     "/api/v1/storage/nas/attach",
     "/api/v1/storage/nas/detach",
@@ -475,7 +484,9 @@
       "storage/vault/policy/write",
       "transmission/down",
       "transmission/keys",
-      "transmission/up"
+      "transmission/up",
+      "settings/ssh/off",
+      "settings/ssh/on"
     ],
     "verbs": [
       ["settings", "datetime"],
@@ -601,7 +612,9 @@
       "/api/v1/transmission/keys/replace",
       "/api/v1/transmission/keys/rotate",
       "POST /api/v1/transmission/vpn/settings",
-      "/api/v1/transmission/up"
+      "/api/v1/transmission/up",
+      "/api/v1/settings/ssh/off",
+      "/api/v1/settings/ssh/on"
     ]
   }
 }

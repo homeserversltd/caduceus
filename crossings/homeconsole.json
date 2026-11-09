@@ -111,6 +111,13 @@
     "settings/sound/set",
     "settings/sound/test-tone/play",
     "settings/ssh",
+    "settings/ssh/config/read",
+    "settings/ssh/config/restore",
+    "settings/ssh/config/set",
+    "settings/ssh/off",
+    "settings/ssh/on",
+    "settings/ssh/unit/resolve",
+    "settings/ssh/verify",
     "settings/ssh/status",
     "storage/backup/drive/ask",
     "storage/backup/drive/status",
@@ -259,6 +266,8 @@
     "/api/v1/settings/input",
     "/api/v1/settings/notifications",
     "/api/v1/settings/sound",
+    "/api/v1/settings/ssh/off",
+    "/api/v1/settings/ssh/on",
     "/api/v1/settings/ssh/status",
     "/api/v1/storage/vault/auto-decrypt",
     "/api/v1/storage/vault/unlock",
@@ -307,7 +316,9 @@
       "storage/backup/drive/ask",
       "storage/backup/mirror/pull",
       "storage/vault/policy/read",
-      "storage/vault/policy/write"
+      "storage/vault/policy/write",
+      "settings/ssh/off",
+      "settings/ssh/on"
     ],
     "verbs": [
       ["service", "start"],
@@ -371,7 +382,9 @@
       "/api/v1/settings/input",
       "/api/v1/settings/notifications",
       "/api/v1/settings/sound",
-      "/api/v1/storage/vault/auto-decrypt"
+      "/api/v1/storage/vault/auto-decrypt",
+      "/api/v1/settings/ssh/off",
+      "/api/v1/settings/ssh/on"
     ]
   }
 }
