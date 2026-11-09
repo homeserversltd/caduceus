@@ -41,7 +41,7 @@ fn selected_hwmon_sources(dir: &PathBuf, driver: &str, labels: &[String], catego
             let Some(channel) = indexed_input(&filename, "temp") else { continue };
             let path = file.path();
             let sensor_label = clean_optional_text(&path.with_file_name(format!("{channel}_label")));
-            if !labels.iter().any(|label| sensor_label.as_deref() == Some(label.as_str()) || filename == *label) { continue; }
+            if !labels.iter().any(|label| sensor_label.as_deref() == Some(label.as_str())) { continue; }
             let metadata = SensorMetadata { source: input_identity(&path), name: Some(driver.to_owned()), sensor_label, channel: channel.clone(), label: category };
             sources.push(TemperatureSource { validity_base: Some(path.with_file_name(channel.clone())), milli_celsius: temperature_unit_is_milli_celsius(Some(driver), &channel), path, metadata });
         }
