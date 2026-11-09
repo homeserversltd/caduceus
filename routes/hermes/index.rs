@@ -30,7 +30,10 @@ fn hermes_entry(args: &[&[u8]]) -> bool {
     // Two anchors only. The declared HomeSI venv (/opt/hermes/venv) launches
     // the gateway; hermes_bootstrap then re-execs it into the runtime Hermes
     // manages under the hermes account's HERMES_HOME, /home/hermes/.hermes/tools.
-    // From that runtime only the exact relaunched gateway shape counts. A
+    // From that runtime a process counts when its -c script is the last
+    // argument, carries the relaunch markers (sys._hermes_relaunched = True and
+    // the gateway/run argv assignment) and ends with the exec'd runpy entry, the
+    // same tail test the venv form uses. A
     // same-named binary elsewhere, another account's home, or system Python
     // running a similarly named module is not it
     // (pali:si-homesi-website-portals-and-hermes-count-20261024 organ HermesIdentity).
