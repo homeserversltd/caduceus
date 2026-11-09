@@ -273,7 +273,11 @@ fn display_mutation_error(
 
 pub fn read_json(family: &str) -> Result<Value, String> {
     fields(family).ok_or_else(|| "caduceus-settings-family-invalid".to_string())?;
-    let receipt = run(family, &["get".into(), "--json".into()])?;
+    let receipt = if matches!(family, "appearance" | "sound" | "notifications") {
+        crate::gate::snake::crossing_path(&format!("settings/{family}/read"), &json!({}))?
+    } else {
+        run(family, &["get".into(), "--json".into()])?
+    };
     let values = receipt
         .get("values")
         .and_then(Value::as_object)
@@ -323,15 +327,18 @@ pub fn read_json(family: &str) -> Result<Value, String> {
 pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
     let values = validated_fields(family, body)?;
     validate_display_config_fields(family, &values)?;
-    let mut args = vec!["set".to_string()];
-    for (field, value) in &values {
-        args.extend([
-            "--field".to_string(),
-            field.clone(),
-            "--value-json".to_string(),
-            serde_json::to_string(value)
-                .map_err(|_| "caduceus-settings-value-invalid".to_string())?,
-        ]);
+    if family == "appearance" || family == "notifications" {
+        for field in values.keys() {
+            if matches!((family, field.as_str()),
+                ("appearance", "accent_color" | "wallpaper") |
+                ("notifications", "enabled" | "show_banners" | "show_on_lock_screen" | "sound_enabled")) {
+                return Err(format!("unknown-field:{field}"));
+            }
+        }
+    }
+    if family == "sound" && values.contains_key("test_tone")
+        && (values.len() != 1 || values.get("test_tone") != Some(&Value::Bool(true))) {
+        return Err("caduceus-settings-value-invalid:test_tone".to_string());
     }
     let writes_display_config = family == "display"
         && ["resolution", "refresh_rate"]
@@ -357,7 +364,27 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
             }
         }
     }
-    let receipt = match run(family, &args) {
+    let crossed = if matches!(family, "appearance" | "sound" | "notifications") {
+        let (path, payload) = if family == "sound" && values.contains_key("test_tone") {
+            ("settings/sound/test-tone/play".to_string(), json!({}))
+        } else {
+            (format!("settings/{family}/set"), json!(values))
+        };
+        crate::gate::snake::crossing_path(&path, &payload)
+    } else {
+        let mut args = vec!["set".to_string()];
+        for (field, value) in &values {
+            args.extend([
+                "--field".to_string(),
+                field.clone(),
+                "--value-json".to_string(),
+                serde_json::to_string(value)
+                    .map_err(|_| "caduceus-settings-value-invalid".to_string())?,
+            ]);
+        }
+        run(family, &args)
+    };
+    let receipt = match crossed {
         Ok(receipt) => receipt,
         Err(error) if writes_display_config => {
             return Err(display_mutation_error(error, rollbacks));
