@@ -141,6 +141,30 @@ impl Sampler {
         }
         // Role changes retire evidence/listeners, never the body's echo budget.
         self.gateway = None;
+        let seat = perspective
+            .pointer("/gateway_seat/ipv4")
+            .and_then(Value::as_str)
+            .and_then(|ip| ip.parse::<Ipv4Addr>().ok())
+            .zip(
+                perspective.pointer("/gateway_seat/caduceus_port")
+                    .and_then(Value::as_u64)
+                    .and_then(|port| u16::try_from(port).ok())
+                    .filter(|port| *port != 0),
+            );
+        if let Some((ip, port)) = seat {
+            if let Some(runtime) = self.runtime.as_ref() {
+                let (sample, _) = runtime.block_on(fetch_peer_stats(&ip.to_string(), port));
+                if let Some(answer) = sample.and_then(|value| gateway_answer(&value).ok()) {
+                    return answer;
+                }
+            }
+            return InternetObservation {
+                ts: now_ts(),
+                status: Some("disconnected".to_owned()),
+                source: Some("gateway"),
+                first_missing_signal: Some("caduceus-stats-internet-house-unreachable".to_owned()),
+            };
+        }
         let signal = match (gateway, self.runtime.as_ref()) {
             (None, _) => "caduceus-stats-internet-gateway-no-default-route".to_owned(),
             (_, None) => "caduceus-stats-internet-gateway-runtime-unavailable".to_owned(),
