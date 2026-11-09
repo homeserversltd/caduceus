@@ -297,7 +297,7 @@ fn display_mutation_error(
 
 pub fn read_json(family: &str) -> Result<Value, String> {
     fields(family).ok_or_else(|| "caduceus-settings-family-invalid".to_string())?;
-    let receipt = if matches!(family, "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region" | "keyboard" | "energy" | "input") {
+    let receipt = if matches!(family, "display" | "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region" | "keyboard" | "energy" | "input") {
         cross_settings(&format!("settings/{family}/read"), &json!({}))?
     } else {
         run(family, &["get".into(), "--json".into()])?
@@ -358,6 +358,16 @@ pub fn read_json(family: &str) -> Result<Value, String> {
 pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
     let values = validated_fields(family, body)?;
     validate_display_config_fields(family, &values)?;
+    if family == "display" {
+        for field in values.keys() {
+            if matches!(field.as_str(), "brightness" | "night_light" | "overscan") {
+                return Err(format!("unknown-field:{field}"));
+            }
+        }
+        if values.len() > 1 {
+            return Err("mixed-display-fields".to_string());
+        }
+    }
     if family == "energy" && values.contains_key("sleep_seconds") {
         return Err("unknown-field:sleep_seconds".to_string());
     }
@@ -399,9 +409,13 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
             }
         }
     }
-    let crossed = if matches!(family, "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region" | "keyboard" | "energy" | "input") {
+    let crossed = if matches!(family, "display" | "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region" | "keyboard" | "energy" | "input") {
         let (path, payload) = if family == "sound" && values.contains_key("test_tone") {
             ("settings/sound/test-tone/play".to_string(), json!({}))
+        } else if family == "display" && values.contains_key("hdr") {
+            ("settings/display/hdr/set".to_string(), json!(values))
+        } else if family == "display" && values.contains_key("adaptive_sync") {
+            ("settings/display/adaptive-sync/set".to_string(), json!(values))
         } else {
             (format!("settings/{family}/set"), json!(values))
         };
