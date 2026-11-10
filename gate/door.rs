@@ -394,10 +394,14 @@ async fn dispatch(
         })?
     };
 
-    if validation_schema.is_some_and(|schema| !crate::routes::leaf_schema::accepts(schema, &receipt)) {
+    let crossed_stop = (!is_chord).then(|| serve.first().and_then(|step| step.get("snake")).and_then(Value::as_str)).flatten();
+    if validation_schema.is_some_and(|schema| {
+        !crate::routes::leaf_schema::accepts(schema, &receipt)
+            && !(schema != "caduceus.chord.receipt.v1" && crossed_stop.is_some_and(|stop| crate::routes::leaf_schema::bound(&receipt, stop)))
+    }) {
         return Err(DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-schema-desync").with_witness(receipt, None).after_attempt());
     }
-    let changed = declared_receipt_change(validation_schema, &receipt);
+    let changed = declared_receipt_change(validation_schema, crossed_stop, &receipt);
     let body = project_response(declaration, &receipt)
         .map_err(|signal| {
             let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, signal).with_witness(receipt.clone(), changed);
@@ -410,8 +414,11 @@ async fn dispatch(
 
 // Only a boolean declared by the expected public seat can establish a no-op.
 // An absent seat, undeclared extension, or malformed value remains unknown.
-pub(crate) fn declared_receipt_change(schema: Option<&str>, receipt: &Value) -> Option<bool> {
+pub(crate) fn declared_receipt_change(schema: Option<&str>, stop: Option<&str>, receipt: &Value) -> Option<bool> {
     let schema = schema?;
+    if stop.is_some_and(|path| crate::routes::leaf_schema::bound(receipt, path)) {
+        return receipt.get("changed").and_then(Value::as_bool);
+    }
     if !crate::routes::leaf_schema::accepts(schema, receipt) { return None; }
     let seat = crate::routes::leaf_schema::declaration(schema)?;
     let declared = ["required", "optional"].iter().any(|key| {

@@ -499,6 +499,7 @@ pub fn disk_wipe_payload(metadata: &Value, require_action: bool) -> Result<Value
 
 fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Result<Value, String> {
     let mut projected: Option<(String, &str)> = None;
+    let mut crossed_stop = band.to_owned();
     let walked = if actuator_id == "disk-doors" {
         let fields = disk_wipe_payload(&metadata, true)?;
         crate::gate::snake::crossing_path_with_timeout(band, &fields, Duration::from_secs(30))?
@@ -512,6 +513,7 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
             Some(_) => return Ok(json!({"schema": "caduceus.forgejo.backup-b2.v1", "ok": false, "step": "shape", "reason": "plan-invalid"})),
         };
         let stop = format!("storage/backup/forgejo/backup-b2/{act}");
+        crossed_stop = stop.clone();
         projected = Some((format!("caduceus.storage.backup.forgejo.backup-b2.{act}.v1"), "caduceus.forgejo.backup-b2.v1"));
         let fields = selected_fields(&metadata, &["bucket"]);
         crate::gate::snake::crossing_path_with_timeout(&stop, &fields, Duration::from_secs(30))?
@@ -558,7 +560,8 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         .filter(Value::is_object)
         .ok_or_else(|| "caduceus-staff-invalid-receipt".to_string())?;
     if let Some((expected, served)) = projected {
-        if receipt.get("schema").and_then(Value::as_str) != Some(expected.as_str()) {
+        if receipt.get("schema").and_then(Value::as_str) != Some(expected.as_str())
+            && !crate::routes::leaf_schema::bound(&receipt, &crossed_stop) {
             return Err("caduceus-schema-desync".into());
         }
         if let Some(object) = receipt.as_object_mut() {
@@ -570,6 +573,7 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
     }
     if actuator_id == "disk-doors"
         && receipt.get("schema").and_then(Value::as_str) != Some("caduceus.storage.disk.wipe.v1")
+        && !crate::routes::leaf_schema::bound(&receipt, &crossed_stop)
     {
         return Err("caduceus-staff-invalid-receipt".into());
     }
@@ -579,7 +583,8 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
             "storage/backup/backblaze/bucket-items/remove" => "caduceus.storage.backup.backblaze.bucket-items.remove.v1",
             _ => return Err("operation-invalid".into()),
         };
-        if receipt.get("schema").and_then(Value::as_str) != Some(expected) {
+        if receipt.get("schema").and_then(Value::as_str) != Some(expected)
+            && !crate::routes::leaf_schema::bound(&receipt, &crossed_stop) {
             return Err("caduceus-schema-desync".into());
         }
         receipt["schema"] = json!("caduceus.backblaze.bucket-items.v1");

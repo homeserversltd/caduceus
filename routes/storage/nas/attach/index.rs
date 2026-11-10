@@ -73,7 +73,7 @@ async fn attach_route(
             let receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
                 crate::gate::service_unavailable(COMMAND, "caduceus-nas-attach-receipt-missing")
             })?;
-            if !crate::routes::leaf_schema::accepts("caduceus.nas.attach.v1", &receipt) {
+            if !crate::routes::leaf_schema::accepts_bound("caduceus.nas.attach.v1", "storage/nas/attach", &receipt) {
                 return Err(crate::gate::service_unavailable(
                     COMMAND,
                     "caduceus-schema-desync",

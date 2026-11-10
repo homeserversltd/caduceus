@@ -85,7 +85,7 @@ async fn up_route(
             if let Some(rows) = rows { out.insert("steps".into(), Value::Array(rows.clone())); }
             out.insert("chord".into(), chord);
         }
-    } else if !crate::routes::leaf_schema::accepts("caduceus.transmission.up.v1", &receipt) {
+    } else if !crate::routes::leaf_schema::accepts_bound("caduceus.transmission.up.v1", "transmission/up", &receipt) {
         return Err(crate::gate::service_unavailable(
             COMMAND,
             "caduceus-schema-desync",

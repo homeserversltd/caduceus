@@ -312,9 +312,10 @@ fn bundle_metadata(platform: &str) -> Result<(String, &'static str), String> {
 pub fn bundle_download_json(platform: &str) -> Result<BundleDownload, String> {
     let (expected_filename, expected_mime) = bundle_metadata(platform)?;
     let value = invoke_stop_json("bundle-read", json!({"platform":platform}), 60)?;
+    let bound = crate::routes::leaf_schema::bound(&value, "network/cert/house-ca/bundle-read");
     let receipt: BundleReadReceipt = serde_json::from_value(value)
         .map_err(|_| "caduceus-cert-bundle-read-invalid-receipt".to_string())?;
-    if receipt.schema != "caduceus.network.cert.house-ca.bundle-read.v1"
+    if (receipt.schema != "caduceus.network.cert.house-ca.bundle-read.v1" && !bound)
         || !receipt.ok
         || receipt.platform != platform
         || receipt.filename != expected_filename
@@ -620,19 +621,6 @@ pub(crate) fn portal_admit_cli_receipt(
     if let Some(value) = tailnet_port { payload["tailnet-port"] = json!(value); }
     if let Some(value) = locations { payload["locations"] = json!(value); }
 
-    let seat_id = "caduceus.staff.receipt.v1";
-    let seat_path = crate::shared::config::root()
-        .join("opt/caduceus/source/schema").join(format!("{seat_id}.json"));
-    let seat_matches = match fs::read_to_string(seat_path) {
-        Ok(bytes) => serde_json::from_str::<Value>(&bytes).ok()
-            .and_then(|seat| seat.get("schema").and_then(Value::as_str).map(str::to_owned))
-            .is_some_and(|schema| schema == seat_id),
-        Err(_) => true, // Primitive when the seat is absent or unreadable.
-    };
-    if !seat_matches {
-        return Err(json!({"ok":false,"firstMissingSignal":"caduceus-schema-desync",
-            "expected_schema":seat_id}));
-    }
     let result = house_ca_crossing_with_timeout("portal-admit", payload, Duration::from_secs(600));
     let receipt = match &result { Ok(value) | Err(value) => value };
     // The shared crossing constructs a two-field error when no staff receipt exists.
@@ -642,9 +630,7 @@ pub(crate) fn portal_admit_cli_receipt(
     }
     let former = receipt.get("schema").and_then(Value::as_str)
         == Some("caduceus.network.cert.house-ca.portal-admit.v1");
-    let bound = receipt.get("schema").and_then(Value::as_str) == Some(seat_id)
-        && receipt.pointer("/stop/noun").and_then(Value::as_str) == Some("network/cert/house-ca")
-        && receipt.pointer("/stop/verb").and_then(Value::as_str) == Some("portal-admit");
+    let bound = crate::routes::leaf_schema::bound(receipt, "network/cert/house-ca/portal-admit");
     if former || bound {
         result
     } else {

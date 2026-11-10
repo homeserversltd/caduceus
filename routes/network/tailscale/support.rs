@@ -220,7 +220,8 @@ fn safe_receipt(crossing: &Value, action: &str, secret: Option<&str>) -> Option<
     let staff_ok = receipt.get("ok").and_then(Value::as_bool);
     let receipt_action = receipt.get("action").and_then(Value::as_str);
     let unknown_action_refusal = receipt_action == Some("unknown") && staff_ok == Some(false);
-    if receipt.get("schema").and_then(Value::as_str) != Some(stop_seat(action).as_str())
+    if (receipt.get("schema").and_then(Value::as_str) != Some(stop_seat(action).as_str())
+        && !crate::routes::leaf_schema::bound(receipt, stop(action)))
         || (receipt_action != Some(action) && !unknown_action_refusal)
     {
         return None;

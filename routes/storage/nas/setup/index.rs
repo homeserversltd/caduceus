@@ -118,7 +118,7 @@ async fn setup_route(
             if crate::routes::leaf_schema::accepts("caduceus.chord.receipt.v1", &receipt) {
                 receipt = project_chord(&receipt, &projection_request);
             }
-            if !crate::routes::leaf_schema::accepts("caduceus.nas.setup.v1", &receipt) {
+            if !crate::routes::leaf_schema::accepts_bound("caduceus.nas.setup.v1", "storage/nas/setup", &receipt) {
                 return Err(crate::gate::service_unavailable(
                     COMMAND,
                     "caduceus-schema-desync",

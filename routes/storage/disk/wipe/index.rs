@@ -18,7 +18,8 @@ async fn route(Json(payload): Json<Value>) -> Result<(StatusCode, Json<Value>), 
                 let walked = crate::gate::snake::crossing_path_with_timeout(NAMESPACE, &fields, Duration::from_secs(30))?;
                 let receipt = walked.get("receiptPayload").cloned().filter(Value::is_object)
                     .ok_or_else(|| "caduceus-staff-invalid-receipt".to_string())?;
-                if receipt.get("schema").and_then(Value::as_str) != Some("caduceus.storage.disk.wipe.v1") {
+                if receipt.get("schema").and_then(Value::as_str) != Some("caduceus.storage.disk.wipe.v1")
+                    && !crate::routes::leaf_schema::bound(&receipt, NAMESPACE) {
                     return Err("caduceus-staff-invalid-receipt".into());
                 }
                 if walked.get("ok").and_then(Value::as_bool) != Some(true) || receipt.get("ok").and_then(Value::as_bool) == Some(false) {

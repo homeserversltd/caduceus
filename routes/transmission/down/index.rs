@@ -40,7 +40,7 @@ async fn down_route(
             }
             out.insert("chord".into(), chord);
         }
-    } else if !crate::routes::leaf_schema::accepts("caduceus.transmission.down.v1", &receipt) {
+    } else if !crate::routes::leaf_schema::accepts_bound("caduceus.transmission.down.v1", "transmission/down", &receipt) {
         return Err(crate::gate::service_unavailable(
             COMMAND,
             "caduceus-schema-desync",

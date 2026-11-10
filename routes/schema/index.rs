@@ -116,6 +116,18 @@ pub(crate) fn accepts(id: &str, value: &Value) -> bool {
     })
 }
 
+/// A shared staff receipt identifies its crossing by the stamped stop.
+pub(crate) fn bound(value: &Value, stop_path: &str) -> bool {
+    let (noun, verb) = stop_path.rsplit_once('/').unwrap_or((stop_path, ""));
+    accepts("caduceus.staff.receipt.v1", value)
+        && value.pointer("/stop/noun").and_then(Value::as_str) == Some(noun)
+        && value.pointer("/stop/verb").and_then(Value::as_str) == Some(verb)
+}
+
+pub(crate) fn accepts_bound(id: &str, stop_path: &str, value: &Value) -> bool {
+    accepts(id, value) || (id != "caduceus.chord.receipt.v1" && bound(value, stop_path))
+}
+
 pub(crate) fn accepts_form(id: &str, form: &str, value: &Value) -> bool {
     if !accepts(id, value) {
         return false;

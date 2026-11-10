@@ -73,7 +73,7 @@ async fn detach_route(
             let receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
                 crate::gate::service_unavailable(COMMAND, "caduceus-nas-detach-receipt-missing")
             })?;
-            if !crate::routes::leaf_schema::accepts("caduceus.nas.detach.v1", &receipt) {
+            if !crate::routes::leaf_schema::accepts_bound("caduceus.nas.detach.v1", "storage/nas/detach", &receipt) {
                 return Err(crate::gate::service_unavailable(
                     COMMAND,
                     "caduceus-schema-desync",

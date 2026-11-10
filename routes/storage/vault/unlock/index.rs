@@ -208,7 +208,8 @@ fn read_policy(cfg: &VaultConfig) -> Result<Value, String> {
     let payload = json!({"mapper": &cfg.mapper});
     let receipt = crate::gate::snake::crossing_path("storage/vault/policy/read", &payload)
         .map_err(|_| "vault-policy-missing".to_string())?;
-    if receipt.get("schema").and_then(Value::as_str) != Some(POLICY_READ_RECEIPT_SCHEMA)
+    if (receipt.get("schema").and_then(Value::as_str) != Some(POLICY_READ_RECEIPT_SCHEMA)
+        && !crate::routes::leaf_schema::bound(&receipt, "storage/vault/policy/read"))
         || receipt.get("op").and_then(Value::as_str) != Some("read")
         || receipt.get("ok").and_then(Value::as_bool) != Some(true)
     {
@@ -519,7 +520,8 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
             return auto_decrypt_failure(config_rollback);
         }
     };
-    if receipt.get("schema").and_then(Value::as_str) != Some(POLICY_WRITE_RECEIPT_SCHEMA)
+    if (receipt.get("schema").and_then(Value::as_str) != Some(POLICY_WRITE_RECEIPT_SCHEMA)
+        && !crate::routes::leaf_schema::bound(&receipt, "storage/vault/policy/write"))
         || receipt.get("op").and_then(Value::as_str) != Some("write")
         || receipt.get("unlock").and_then(Value::as_str) != Some(unlock)
         || receipt.get("ok").and_then(Value::as_bool) != Some(true)

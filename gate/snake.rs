@@ -691,7 +691,11 @@ pub fn probe_cli() -> Value {
     if exit != Some(2) {
         return json!({"ok":false,"class":"exit","exit":exit,"stderr":stderr});
     }
-    if stderr != expected && stderr != format!("{expected}{}", char::from(10)) {
+    let receipt = serde_json::from_slice::<Value>(&output.stdout).ok();
+    let receipt_form = receipt.as_ref().is_some_and(|value| value.is_object()
+        && value.get("schema").and_then(Value::as_str) == Some("caduceus.staff.receipt.v1")
+        && value.get("ok").and_then(Value::as_bool) == Some(false));
+    if stderr != expected && stderr != format!("{expected}{}", char::from(10)) && !receipt_form {
         return json!({"ok":false,"class":"parse","exit":exit,"stderr":stderr});
     }
     json!({"ok":true,"class":Value::Null,"exit":exit,"stderr":stderr})
@@ -1543,7 +1547,11 @@ async fn native_chord_run_steps(
                 let expected_schema = raw_step.get("receipt").and_then(Value::as_str).map(ToOwned::to_owned)
                     .or_else(|| stage_declaration.as_ref().and_then(|d| d.get("receipt").and_then(Value::as_str)
                         .or_else(|| d.pointer("/flags/receiptSchema").and_then(Value::as_str))).map(ToOwned::to_owned));
-                let schema_ok = expected_schema.as_deref().is_none_or(|schema| crate::routes::leaf_schema::accepts(schema, &receipt));
+                let stage_stop = raw_step.get("snake").and_then(Value::as_str);
+                let schema_ok = expected_schema.as_deref().is_none_or(|schema| {
+                    crate::routes::leaf_schema::accepts(schema, &receipt)
+                        || (schema != "caduceus.chord.receipt.v1" && stage_stop.is_some_and(|stop| crate::routes::leaf_schema::bound(&receipt, stop)))
+                });
                 if !schema_ok && result.get("firstMissingSignal").and_then(Value::as_str)
                     != Some("caduceus-agathodaimon-output-too-large") {
                     state.changed = None;
@@ -1551,7 +1559,7 @@ async fn native_chord_run_steps(
                 } else {
                     let is_read = stage_declaration.as_ref().and_then(|d| d.get("mutation_allowed")).and_then(Value::as_bool) == Some(false);
                     if !is_read {
-                        state.changed = match (state.changed, crate::gate::door::declared_receipt_change(expected_schema.as_deref(), &receipt)) {
+                        state.changed = match (state.changed, crate::gate::door::declared_receipt_change(expected_schema.as_deref(), stage_stop, &receipt)) {
                             (Some(previous), Some(current)) => Some(previous || current),
                             _ => None,
                         };
