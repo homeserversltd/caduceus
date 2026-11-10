@@ -12,6 +12,7 @@
     "appliance.local_ai.v1": {"file": "schema/appliance.local_ai.v1.json", "schema_version": "1.0.0"},
     "caduceus.beam.v1": {"file": "schema/caduceus.beam.v1.json", "schema_version": "1.0.0"},
     "caduceus.staff.crossing.v1": {"file": "schema/caduceus.staff.crossing.v1.json", "schema_version": "1.0.0"},
+    "caduceus.staff.receipt.v1": {"file": "schema/caduceus.staff.receipt.v1.json", "schema_version": "1.0.0"},
     "caduceus.carapace.v1": {"file": "schema/caduceus.carapace.v1.json", "schema_version": "1.0.0"},
     "caduceus.pid2.routine.v1": {"file": "schema/caduceus.pid2.routine.v1.json", "schema_version": "1.0.0"},
     "caduceus.pid2.schedule.v1": {"file": "schema/caduceus.pid2.schedule.v1.json", "schema_version": "1.0.0"},

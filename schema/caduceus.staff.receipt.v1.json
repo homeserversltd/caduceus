@@ -1,0 +1,30 @@
+{
+  "schema": "caduceus.staff.receipt.v1",
+  "schema_version": "1.0.0",
+  "role": "The one staff receipt answered by every stop, every chord stage, and every misplaced call",
+  "authority": {"owner": "caduceus", "path": "schema/caduceus.staff.receipt.v1.json"},
+  "evolution": {"law": "additive-only", "missing_field_semantics": "Absent optional fields mean null", "unknown_fields_preserved": true},
+  "required": ["schema", "ok"],
+  "optional": ["stop", "observed", "could_change_to", "attempt", "final_receipt", "changed", "firstMissingSignal", "mutationPerformed", "values", "readback", "commands", "receipt", "error", "envelope", "seat_was", "seat"],
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.staff.receipt.v1"},
+    "ok": {"type": "boolean"},
+    "stop": {"type": "object", "properties": {"noun": {"type": "string", "description": "The stop's slash-joined noun ladder."}, "verb": {"type": "string"}}},
+    "observed": {"type": ["object", "null"], "description": "What the stop read, or the words received and the path they walked."},
+    "could_change_to": {"type": ["object", "null"], "description": "What was asked, or the available children, nearest child and stop payload fields."},
+    "attempt": {"type": ["object", "null"], "description": "Whether it acted and each step's outcome, or the step that stopped a misplaced call."},
+    "final_receipt": {"type": ["object", "null"], "description": "The final ok and named first missing signal."},
+    "changed": {"type": "boolean"},
+    "firstMissingSignal": {"type": "string"},
+    "mutationPerformed": {"type": "boolean"},
+    "values": {"type": "object"},
+    "readback": {"type": "object"},
+    "commands": {"type": "array"},
+    "receipt": {"type": "object"},
+    "error": {"type": "string"},
+    "envelope": {"type": "object"},
+    "seat_was": {"type": "string", "description": "The stop's former per-stop id while a reader still compares it."},
+    "seat": {"type": ["object", "null"], "description": "The folder and state read by the reader that stamped the receipt, including the degraded case."}
+  },
+  "additionalProperties": true
+}
