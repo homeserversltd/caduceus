@@ -423,9 +423,15 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool, deadli
         if failed_binds().lock().map_err(|_| unavailable("link-up-bind-memory-unavailable"))?.get(name) == Some(&pair) { continue; }
         let result = match house::admit(portal, lan_ip, upstream, aliases, mac.clone(), "tile", Vec::new(), deadline).await {
             Ok(value) if deadline.is_some() && matches!(value["firstMissingSignal"].as_str(), Some("caduceus-agathodaimon-timeout" | "link-up-sweep-budget-exhausted")) => {
+                if value["firstMissingSignal"] == "caduceus-agathodaimon-timeout" {
+                    failed_binds().lock().map_err(|_| unavailable("link-up-bind-memory-unavailable"))?.insert(name.to_owned(), pair.clone());
+                }
                 return Err(unavailable("link-up-sweep-budget-exhausted"));
             }
-            Err((_, "caduceus-agathodaimon-timeout" | "link-up-sweep-budget-exhausted")) if deadline.is_some() => {
+            Err((_, signal @ ("caduceus-agathodaimon-timeout" | "link-up-sweep-budget-exhausted"))) if deadline.is_some() => {
+                if signal == "caduceus-agathodaimon-timeout" {
+                    failed_binds().lock().map_err(|_| unavailable("link-up-bind-memory-unavailable"))?.insert(name.to_owned(), pair.clone());
+                }
                 return Err(unavailable("link-up-sweep-budget-exhausted"));
             }
             Ok(value) if value["ok"] == true && value["converged"] != false => json!({"portal":name,"ok":true}),
