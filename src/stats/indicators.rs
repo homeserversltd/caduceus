@@ -32,6 +32,8 @@ const SERVICES_CADENCE: Duration = Duration::from_secs(5);
 
 const PUBLIC_IP_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const PUBLIC_IP_RETRY: Duration = Duration::from_secs(300);
+const PUBLIC_IP_HOUSE_WAIT: Duration = Duration::from_secs(15 * 60);
+const PUBLIC_IP_HOUSE_RECHECK: Duration = Duration::from_secs(30);
 const CONFIG_MAX_BYTES: u64 = 1024 * 1024;
 const LOCAL_HTTP_HEADER_MAX: usize = 16 * 1024;
 const LOCAL_HTTP_BODY_MAX: usize = 256 * 1024;
@@ -774,13 +776,24 @@ impl Collector {
         {
             let shared = Arc::clone(&shared);
             let fallback = Arc::clone(&shared);
+            let mut started = None;
+            let mut ever_readable = false;
             match spawn_worker("caduceus-stats-public-ip", move || {
-                let observation = if internet::public_ip_held_by_house() {
+                let start = *started.get_or_insert_with(Instant::now);
+                let (readable, held) = internet::public_ip_house_state();
+                ever_readable |= readable;
+                let remaining = PUBLIC_IP_HOUSE_WAIT.saturating_sub(start.elapsed());
+                let awaiting = !ever_readable && !remaining.is_zero();
+                let observation = if awaiting {
+                    PublicIpObservation::unavailable("caduceus-stats-public-ip-awaiting-the-house")
+                } else if held {
                     PublicIpObservation::unavailable("caduceus-stats-public-ip-held-by-the-house")
                 } else {
                     read_public_ip()
                 };
-                let next = if observation.ip.is_some() {
+                let next = if awaiting {
+                    PUBLIC_IP_HOUSE_RECHECK.min(remaining)
+                } else if observation.ip.is_some() {
                     PUBLIC_IP_TTL
                 } else {
                     PUBLIC_IP_RETRY

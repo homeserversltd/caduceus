@@ -52,7 +52,7 @@
       }
     },
     "internet": {
-      "description": "A non-gateway body with a house seat reports null publicIp with firstMissingSignal caduceus-stats-public-ip-held-by-the-house.",
+      "description": "Before a readable perspective has been seen, publicIp is null with firstMissingSignal caduceus-stats-public-ip-awaiting-the-house for at most 15 minutes. A non-gateway body with a house seat reports null publicIp with firstMissingSignal caduceus-stats-public-ip-held-by-the-house.",
       "fields": {
         "publicIp": "string|null",
         "ts": "integer",

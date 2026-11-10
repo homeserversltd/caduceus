@@ -50,11 +50,14 @@ fn default_gateway() -> Option<Ipv4Addr> {
         .map(|(_, gateway)| gateway)
 }
 
-fn perspective() -> Value {
+fn readable_perspective() -> Option<Value> {
     read_text("etc/appliance/ruyi.json")
         .and_then(|text| serde_json::from_str::<Value>(&text).ok())
         .filter(|value| value["schema"] == "harmonia.ruyi-perspective.v1")
-        .unwrap_or(Value::Null)
+}
+
+fn perspective() -> Value {
+    readable_perspective().unwrap_or(Value::Null)
 }
 
 fn declared_port(perspective: &Value, gateway: Ipv4Addr) -> u16 {
@@ -117,9 +120,13 @@ fn house_seat(perspective: &Value) -> Option<(Ipv4Addr, u16)> {
         )
 }
 
-pub(super) fn public_ip_held_by_house() -> bool {
-    let perspective = perspective();
-    !gateway_is_local(&perspective, default_gateway()) && house_seat(&perspective).is_some()
+pub(super) fn public_ip_house_state() -> (bool, bool) {
+    let perspective = readable_perspective();
+    let readable = perspective.is_some();
+    let perspective = perspective.unwrap_or(Value::Null);
+    let held =
+        !gateway_is_local(&perspective, default_gateway()) && house_seat(&perspective).is_some();
+    (readable, held)
 }
 
 pub(super) struct Sampler {
