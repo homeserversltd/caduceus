@@ -461,6 +461,16 @@ fn launcher(verb: &str, id: &str) -> Result<Value> {
         let mut error = observation("transaction", "launcher", "install-receipt-absent");
         error.confirmed_launcher_failure = failure_exit; error
     })?;
+    if !receipt.is_object() {
+        let suggestion = if walked["ok"] == true {
+            "Launcher exited 0; restore its single-object answer before repeating this door."
+        } else {
+            "Launcher did not exit 0; restore its single-object answer before repeating this door."
+        };
+        let mut error = Refusal::new("transaction", "launcher", "launcher-answer-not-an-object", suggestion);
+        error.confirmed_launcher_failure = failure_exit;
+        return Err(error);
+    }
     if let Err(mut error) = seat::form("appliance.xenia.install.v1", None, &receipt, "transaction", "receipt") {
         if let Some(signal) = receipt["signal"].as_str().filter(|signal| *signal != "none") {
             error.message = format!("{}; launcher-signal: {signal}", error.message);

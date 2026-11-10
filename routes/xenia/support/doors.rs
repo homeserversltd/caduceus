@@ -351,6 +351,14 @@ pub async fn run(Path(id): Path<String>, body: Body) -> Reply {
                     "Restore the fixed xenos launcher and repeat the run door.",
                 )
             })?;
+        if !value["receiptPayload"].is_object() {
+            let suggestion = if value["ok"] == true {
+                "Launcher exited 0; restore its single-object answer before repeating this door."
+            } else {
+                "Launcher did not exit 0; restore its single-object answer before repeating this door."
+            };
+            return Err(Refusal::new("run", "launcher", "launcher-answer-not-an-object", suggestion));
+        }
         if value["ok"] != true {
             return Err(Refusal::new(
                 "run",
