@@ -1265,6 +1265,10 @@ async fn wait_for_shutdown(mut stop: watch::Receiver<bool>) {
 }
 
 pub async fn run_async() -> i32 {
+    match crate::routes::leaf_schema::initialize() {
+        Ok(census) => eprintln!("caduceus-seats: {census}"),
+        Err(error) => { eprintln!("{error}"); return 1; }
+    }
     #[cfg(leaf_pid2)]
     let pid2_gate_ok = match crate::pid2::reset_gate() {
         Ok(_) => true,

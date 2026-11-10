@@ -470,8 +470,6 @@ fn main() {
         "caduceus.storage.nas.setup.rollback.v1",
         "caduceus.nas.attach.v1",
         "caduceus.nas.detach.v1",
-        "caduceus.chord.v1",
-        "caduceus.chord.receipt.v1",
         "caduceus.nas.role.swap.v1",
         "caduceus.nas-sync.hold.v1",
         "caduceus.forgejo.backup-b2.v1",

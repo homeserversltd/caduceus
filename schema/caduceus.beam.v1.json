@@ -58,6 +58,15 @@
       ],
       "description": "Stored local-MAC Ruyi row syzygy, null when absent"
     },
+    "seats": {
+      "type": "object",
+      "description": "Startup census of shared seats from the device-logical folder",
+      "fields": {
+        "folder": {"type": "string"},
+        "loaded": {"type": "array", "items": {"type": "object", "fields": {"id": {"type": "string"}, "schema_version": {"type": ["string", "null"]}}}},
+        "absent": {"type": "array", "items": {"type": "string"}}
+      }
+    },
     "stamp_sha": {
       "type": [
         "string",
@@ -78,6 +87,7 @@
     "rustc_version": "string",
     "gui_face": "string|null",
     "syzygy_sha": "string|null",
+    "seats": "object",
     "stamp_sha": "string|null"
   },
   "required": [
@@ -93,7 +103,8 @@
     "syzygy_sha",
     "stamp_sha",
     "rustc_version",
-    "hostname"
+    "hostname",
+    "seats"
   ],
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }

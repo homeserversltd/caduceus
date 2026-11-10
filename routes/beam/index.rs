@@ -17,6 +17,7 @@ pub(crate) struct BeamBody {
     gui_face: Option<&'static str>,
     syzygy_sha: Option<String>,
     stamp_sha: Option<String>,
+    seats: &'static serde_json::Value,
 }
 
 pub(crate) async fn route() -> Result<Json<BeamBody>, (StatusCode, Json<crate::gate::ApiErrorBody>)>
@@ -56,6 +57,7 @@ pub(crate) async fn route() -> Result<Json<BeamBody>, (StatusCode, Json<crate::g
         gui_face,
         syzygy_sha,
         stamp_sha,
+        seats: crate::routes::leaf_schema::initialize().map_err(|_| failure("caduceus-seat-foreign"))?,
     };
     let value = serde_json::to_value(&body).map_err(|_| failure("caduceus-schema-desync"))?;
     if !crate::routes::leaf_schema::accepts(body.schema, &value) {
