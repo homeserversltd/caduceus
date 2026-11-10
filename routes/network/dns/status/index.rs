@@ -36,7 +36,7 @@ fn invoke_blocklist(band: &str, payload: Value) -> Result<Value, String> {
     if crossed.get("ok").and_then(Value::as_bool) != Some(true) {
         public["ok"] = json!(false);
     }
-    for key in ["outcome", "domainCount", "sources"] {
+    for key in ["outcome", "domainCount", "sources", "firstFailingSource"] {
         public[key] = receipt.get(key).cloned().unwrap_or(Value::Null);
     }
     Ok(public)
@@ -190,7 +190,6 @@ struct DnsBlocklistSourceBody {
     flags: Option<Value>,
 }
 
-
 #[cfg(carapace_feature_unbound)]
 fn dns_mutation_admits(
     command: &'static str,
@@ -321,7 +320,6 @@ async fn dns_blocklist_source_remove_route(
     dns_mutation_response(COMMAND, move || dns_control::blocklist_source_json("remove", json!({"url": body.url}))).await
 }
 
-
 #[cfg(carapace_feature_unbound)]
 async fn dns_device_name_create_route(
     headers: HeaderMap,
@@ -435,7 +433,6 @@ pub fn register(router: Router) -> Router {
         )
         .route("/api/v1/network/dns/blocklist/source/add", axum::routing::post(dns_blocklist_source_add_route))
         .route("/api/v1/network/dns/blocklist/source/remove", axum::routing::post(dns_blocklist_source_remove_route))
-
         .route(
             "/api/v1/network/dns/upstream",
             axum::routing::post(dns_resolver_upstream_route),
