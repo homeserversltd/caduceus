@@ -1,91 +1,4 @@
 {
-  "crossings": {
-    "schema": "caduceus.agathodaimon.crossings.v1",
-    "entries": [
-      {
-        "noun": "exousia",
-        "verb": "bind"
-      },
-      {
-        "noun": "exousia",
-        "verb": "verify"
-      },
-      {
-        "noun": "exousia",
-        "verb": "change"
-      },
-      {
-        "noun": "exousia",
-        "verb": "reset-default"
-      },
-      {
-        "noun": "settings",
-        "verb": "display"
-      },
-      {
-        "noun": "settings",
-        "verb": "appearance"
-      },
-      {
-        "noun": "settings",
-        "verb": "sound"
-      },
-      {
-        "noun": "settings",
-        "verb": "input"
-      },
-      {
-        "noun": "settings",
-        "verb": "notifications"
-      },
-      {
-        "noun": "settings",
-        "verb": "default-apps"
-      },
-      {
-        "noun": "settings",
-        "verb": "datetime"
-      },
-      {
-        "noun": "gui",
-        "verb": "update"
-      },
-      {
-        "noun": "update",
-        "verb": "sources-reseed"
-      },
-
-      {
-        "noun": "network",
-        "verb": "linker"
-      },
-      {
-        "noun": "vault",
-        "verb": "open"
-      },
-
-      {
-        "noun": "forgejo",
-        "verb": "credential-get"
-      },
-      {
-        "noun": "time",
-        "verb": "state"
-      },
-      {
-        "noun": "time",
-        "verb": "resolve"
-      },
-      {
-        "noun": "time",
-        "verb": "ensure-ntp"
-      },
-      {
-        "noun": "time",
-        "verb": "set-timezone"
-      }
-    ]
-  },
   "schema": "caduceus.staff.v1",
   "kernel": {
     "fields": [
@@ -108,7 +21,10 @@
     "fields": {
       "routine_id": "string",
       "request": "original envelope",
-      "stage": {"stage_id": "string", "arguments": "object"}
+      "stage": {
+        "stage_id": "string",
+        "arguments": "object"
+      }
     },
     "unknown_fields_preserved": true
   },
@@ -182,5 +98,12 @@
         }
       }
     }
-  }
+  },
+  "required": [
+    "schema",
+    "intent_id",
+    "transition",
+    "version",
+    "timestamp"
+  ]
 }

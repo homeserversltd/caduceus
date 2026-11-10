@@ -187,9 +187,7 @@ fn resolve_manifest_entry(noun: &str, verb: &str) -> Value {
 }
 
 pub fn crossings_json() -> Result<Value, String> {
-    let manifest = crate::protocol::seat()?
-        .get("crossings")
-        .and_then(Value::as_object)
+    let manifest = crate::routes::leaf_schema::declaration("caduceus.agathodaimon.crossings.v1")
         .and_then(|value| value.get("entries"))
         .and_then(Value::as_array)
         .cloned()

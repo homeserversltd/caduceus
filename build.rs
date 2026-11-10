@@ -297,10 +297,10 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CADUCEUS_ROOT");
     println!("cargo:rerun-if-changed={}", birth_certificate.display());
     println!("cargo:rerun-if-env-changed=CADUCEUS_SBIN_PATH");
-    println!("cargo:rerun-if-changed=schema.json");
+    println!("cargo:rerun-if-changed=schema/caduceus.staff.v1.json");
     println!("cargo:rerun-if-changed=routes");
 
-    let source = fs::read_to_string("schema.json").expect("protocol seat must be readable");
+    let source = fs::read_to_string("schema/caduceus.staff.v1.json").expect("protocol seat must be readable");
     let seat: serde_json::Value =
         serde_json::from_str(&source).expect("protocol seat must be valid JSON");
     let schema = seat
@@ -416,6 +416,8 @@ fn main() {
     println!("cargo:rerun-if-changed=schema");
     // Expose the contracted public seats, including release and update-set.
     let seats = [
+        "caduceus.staff.v1",
+        "caduceus.agathodaimon.crossings.v1",
         "caduceus.beam.v1",
         "caduceus.carapace.v1",
         "caduceus.docs.seal.v1",
