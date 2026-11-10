@@ -370,8 +370,14 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool, deadli
         .filter_map(|url| url.split_once("://").map(|(_, host)| host))
         .filter_map(|host| host.split(['/', '?', '#', ':']).next())
         .map(str::to_ascii_lowercase).collect();
-    let safe_to_retire = !entries.is_empty();
-    if !dry_run {
+    let safe_to_retire = !entries.is_empty() && entries.iter().all(|entry| {
+        entry.local_url.as_str().is_some_and(|url| {
+            url.starts_with('/') || url.split_once("://")
+                .and_then(|(_, host)| host.split(['/', '?', '#', ':']).next())
+                .is_some_and(|host| house::valid_name(&host.to_ascii_lowercase()))
+        })
+    });
+    if !dry_run && safe_to_retire {
         let mut failed = failed_binds().lock().map_err(|_| unavailable("link-up-bind-memory-unavailable"))?;
         failed.retain(|name, (_, owner)| owner != &mac || declared.contains(name));
     }
@@ -384,6 +390,7 @@ async fn bind_child_portals(child: &Value, roster: &Value, dry_run: bool, deadli
         let started = Instant::now();
         let upstream = format!("http://{ip}:{port}");
         let existing = status["portals"].as_array().into_iter().flatten().find(|p| p["fqdn"] == name);
+        if existing.is_some_and(|p| p["origin"] == "face") { continue; }
         if existing.is_some_and(|p| p["upstream"] == upstream && p["lan_ip"] == ip.to_string() && p["owner_mac"].as_str().is_some_and(|owner| owner.eq_ignore_ascii_case(&mac))) {
             continue;
         }
