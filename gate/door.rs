@@ -416,19 +416,25 @@ async fn dispatch(
 // An absent seat, undeclared extension, or malformed value remains unknown.
 pub(crate) fn declared_receipt_change(schema: Option<&str>, stop: Option<&str>, receipt: &Value) -> Option<bool> {
     let schema = schema?;
-    if stop.is_some_and(|path| crate::routes::leaf_schema::bound(receipt, path)) {
-        return receipt.get("changed").and_then(Value::as_bool);
-    }
-    if !crate::routes::leaf_schema::accepts(schema, receipt) { return None; }
-    let seat = crate::routes::leaf_schema::declaration(schema)?;
-    let declared = ["required", "optional"].iter().any(|key| {
-        seat.get(*key).and_then(Value::as_array)
-            .is_some_and(|fields| fields.iter().any(|field| field.as_str() == Some("changed")))
-    });
-    if !declared || seat.pointer("/fields/changed/type").and_then(Value::as_str) != Some("boolean") {
-        return None;
-    }
-    receipt.get("changed").and_then(Value::as_bool)
+    let seat_id = if stop.is_some_and(|path| crate::routes::leaf_schema::bound(receipt, path)) {
+        "caduceus.staff.receipt.v1"
+    } else {
+        if !crate::routes::leaf_schema::accepts(schema, receipt) { return None; }
+        schema
+    };
+    let seat = crate::routes::leaf_schema::declaration(seat_id)?;
+    ["changed", "mutationPerformed", "mutation_performed"].iter().find_map(|name| {
+        let declared = ["required", "optional"].iter().any(|key| {
+            seat.get(*key).and_then(Value::as_array)
+                .is_some_and(|fields| fields.iter().any(|field| field.as_str() == Some(*name)))
+        });
+        if declared && seat.get("fields").and_then(|fields| fields.get(*name))
+            .and_then(|field| field.get("type")).and_then(Value::as_str) == Some("boolean") {
+            receipt.get(*name).and_then(Value::as_bool)
+        } else {
+            None
+        }
+    })
 }
 
 fn first_command(declaration: &Value) -> Option<String> {
