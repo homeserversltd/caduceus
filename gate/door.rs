@@ -188,7 +188,8 @@ async fn handle_request(
     }
 
     let receipt_schema = match receipt_schema(&declaration) {
-        Some(schema) if crate::routes::leaf_schema::declaration(schema).is_some() => Some(schema.to_owned()),
+        Some(schema) if crate::routes::leaf_schema::declaration(schema).is_some()
+            || crate::routes::leaf_schema::shared_seat_absent(schema) => Some(schema.to_owned()),
         Some(_) => {
             let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-schema-desync");
             return finish_failure(&declaration, &request_id, started, mutation_allowed, &command, failure);
@@ -373,7 +374,8 @@ async fn dispatch(
     };
     let validation_schema = receipt_schema.or(chord_receipt_schema);
     if let Some(schema) = validation_schema {
-        if crate::routes::leaf_schema::declaration(schema).is_none() {
+        if crate::routes::leaf_schema::declaration(schema).is_none()
+            && !crate::routes::leaf_schema::shared_seat_absent(schema) {
             return Err(DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-schema-desync"));
         }
     }

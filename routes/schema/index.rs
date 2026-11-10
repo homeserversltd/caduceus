@@ -76,6 +76,11 @@ pub(crate) fn declaration(id: &str) -> Option<&'static Value> {
     seats().get(id).map(|seat| &seat.declaration)
 }
 
+/// Only a missing shared seat selects the schema-id primitive at the gate.
+pub(crate) fn shared_seat_absent(id: &str) -> bool {
+    SHARED_SEATS.contains(&id) && declaration(id).is_none()
+}
+
 pub(crate) fn row_schema() -> &'static str {
     schema_id("caduceus.ruyi.v1")
 }
