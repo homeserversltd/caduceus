@@ -309,6 +309,9 @@ const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "/api/v1/network/notes",
     "/api/v1/network/dns/adblock",
     "/api/v1/network/dns/blocklist/update",
+    "/api/v1/network/dns/blocklist/source/add",
+    "/api/v1/network/dns/blocklist/source/remove",
+
     "/api/v1/network/dns/upstream",
     "/api/v1/network/dns/device-name/create",
     "/api/v1/network/dns/device-name/remove",

@@ -3,6 +3,9 @@
 use serde_json::{json, Value};
 
 #[cfg(carapace_feature_unbound)]
+const BLOCKLIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+#[cfg(carapace_feature_unbound)]
 const DNS_INTENT_METHOD: &str = "POST";
 #[cfg(carapace_feature_unbound)]
 const DNS_INTENT_ROUTE: &str = "/api/dns/unbound/drop-in";
@@ -22,6 +25,21 @@ fn public_receipt(value: Value) -> Value {
 fn invoke(band: &str, payload: Value) -> Result<Value, String> {
     crate::gate::snake::crossing_path(band, &payload)
         .map(public_receipt)
+}
+
+#[cfg(carapace_feature_unbound)]
+fn invoke_blocklist(band: &str, payload: Value) -> Result<Value, String> {
+    let crossed = crate::gate::snake::crossing_path_with_timeout(band, &payload, BLOCKLIST_TIMEOUT)?;
+    let receipt = crossed.get("receiptPayload").filter(|v| v.is_object())
+        .ok_or_else(|| "caduceus-blocklist-receipt-missing".to_string())?;
+    let mut public = public_receipt(receipt.clone());
+    if crossed.get("ok").and_then(Value::as_bool) != Some(true) {
+        public["ok"] = json!(false);
+    }
+    for key in ["outcome", "domainCount", "sources"] {
+        public[key] = receipt.get(key).cloned().unwrap_or(Value::Null);
+    }
+    Ok(public)
 }
 
 pub fn status_json() -> Result<Value, String> {
@@ -65,7 +83,17 @@ pub fn resolver_json(action: &str, metadata: Option<Value>) -> Result<Value, Str
         }
         _ => return Err("dns-verb-unknown".into()),
     };
-    invoke(&format!("network/dns/resolver/{action}"), payload)
+    let band = format!("network/dns/resolver/{action}");
+    if action == "blocklist-update" {
+        invoke_blocklist(&band, payload)
+    } else {
+        invoke(&band, payload)
+    }
+}
+
+#[cfg(carapace_feature_unbound)]
+pub fn blocklist_source_json(verb: &str, payload: Value) -> Result<Value, String> {
+    invoke_blocklist(&format!("network/dns/blocklist/source/{verb}"), payload)
 }
 
 #[cfg(carapace_feature_unbound)]
@@ -153,6 +181,15 @@ struct DnsUpstreamBody {
     #[serde(flatten)]
     extra: serde_json::Map<String, Value>,
 }
+
+#[cfg(carapace_feature_unbound)]
+#[derive(Deserialize)]
+struct DnsBlocklistSourceBody {
+    url: String,
+    #[serde(default)]
+    flags: Option<Value>,
+}
+
 
 #[cfg(carapace_feature_unbound)]
 fn dns_mutation_admits(
@@ -265,6 +302,27 @@ async fn dns_resolver_upstream_route(
 }
 
 #[cfg(carapace_feature_unbound)]
+async fn dns_blocklist_source_add_route(
+    headers: HeaderMap,
+    Json(body): Json<DnsBlocklistSourceBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "network dns blocklist source add";
+    dns_mutation_admits(COMMAND, "/api/v1/network/dns/blocklist/source/add", &headers, &json!({"flags": body.flags.as_ref()}))?;
+    dns_mutation_response(COMMAND, move || dns_control::blocklist_source_json("add", json!({"url": body.url}))).await
+}
+
+#[cfg(carapace_feature_unbound)]
+async fn dns_blocklist_source_remove_route(
+    headers: HeaderMap,
+    Json(body): Json<DnsBlocklistSourceBody>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    const COMMAND: &str = "network dns blocklist source remove";
+    dns_mutation_admits(COMMAND, "/api/v1/network/dns/blocklist/source/remove", &headers, &json!({"flags": body.flags.as_ref()}))?;
+    dns_mutation_response(COMMAND, move || dns_control::blocklist_source_json("remove", json!({"url": body.url}))).await
+}
+
+
+#[cfg(carapace_feature_unbound)]
 async fn dns_device_name_create_route(
     headers: HeaderMap,
     Json(body): Json<DnsDeviceNameBody>,
@@ -375,6 +433,9 @@ pub fn register(router: Router) -> Router {
             "/api/v1/network/dns/blocklist/update",
             axum::routing::post(dns_resolver_blocklist_update_route),
         )
+        .route("/api/v1/network/dns/blocklist/source/add", axum::routing::post(dns_blocklist_source_add_route))
+        .route("/api/v1/network/dns/blocklist/source/remove", axum::routing::post(dns_blocklist_source_remove_route))
+
         .route(
             "/api/v1/network/dns/upstream",
             axum::routing::post(dns_resolver_upstream_route),
