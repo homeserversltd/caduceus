@@ -1,1 +1,1 @@
-{"namespace":"settings/energy","admittance":"open","flags":{},"serve":[{"snake":"settings/energy","verb":["settings","energy"]}],"commands":["settings energy read","settings energy mutate"],"needs":["sway"]}
+{"namespace":"settings/energy","admittance":"open","flags":{},"serve":[{"snake":"settings/energy/read"},{"snake":"settings/energy/set"}],"commands":["settings energy read","settings energy mutate"],"needs":["sway"]}

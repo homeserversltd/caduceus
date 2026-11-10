@@ -1,1 +1,1 @@
-{"namespace":"settings/datetime","admittance":"open","flags":{},"serve":[{"rust":"settings_datetime_read_mutate"},{"snake":"settings/datetime","verb":["settings","datetime"]}],"commands":["settings datetime read","settings datetime mutate"],"needs":["settings"]}
+{"namespace":"settings/datetime","admittance":"open","flags":{},"serve":[{"rust":"settings_datetime_read_mutate"},{"snake":"settings/datetime/read"},{"snake":"settings/datetime/set"}],"commands":["settings datetime read","settings datetime mutate"],"needs":["settings"]}

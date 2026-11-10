@@ -5,7 +5,6 @@
 //! actuator. Successful mutations must return a receipt rooted in the shared
 //! Caduceus ledger.
 
-use crate::shared::agathodaimon;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -148,24 +147,6 @@ pub fn mutate_command(family: &str) -> Option<String> {
     fields(family).map(|_| format!("settings {family} mutate"))
 }
 
-fn run(family: &str, args: &[String]) -> Result<Value, String> {
-    let input = json!({"args": args, "receiptRoot": RECEIPT_ROOT});
-    agathodaimon::crossing_value_with_record(
-        "settings",
-        family,
-        &input,
-        args.first().map(String::as_str) != Some("get"),
-    )
-    .map_err(|value| {
-        value
-            .get("firstMissingSignal")
-            .or_else(|| value.get("error"))
-            .and_then(Value::as_str)
-            .unwrap_or("caduceus-settings-staff-refused")
-            .to_string()
-    })
-}
-
 fn cross_settings(path: &str, input: &Value) -> Result<Value, String> {
     let value = crate::gate::snake::crossing_path_with_timeout(
         path,
@@ -297,11 +278,7 @@ fn display_mutation_error(
 
 pub fn read_json(family: &str) -> Result<Value, String> {
     fields(family).ok_or_else(|| "caduceus-settings-family-invalid".to_string())?;
-    let receipt = if matches!(family, "display" | "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region" | "keyboard" | "energy" | "input") {
-        cross_settings(&format!("settings/{family}/read"), &json!({}))?
-    } else {
-        run(family, &["get".into(), "--json".into()])?
-    };
+    let receipt = cross_settings(&format!("settings/{family}/read"), &json!({}))?;
     let values = receipt
         .get("values")
         .and_then(Value::as_object)
@@ -409,30 +386,16 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
             }
         }
     }
-    let crossed = if matches!(family, "display" | "appearance" | "sound" | "notifications" | "default-apps" | "datetime" | "region" | "keyboard" | "energy" | "input") {
-        let (path, payload) = if family == "sound" && values.contains_key("test_tone") {
-            ("settings/sound/test-tone/play".to_string(), json!({}))
-        } else if family == "display" && values.contains_key("hdr") {
-            ("settings/display/hdr/set".to_string(), json!(values))
-        } else if family == "display" && values.contains_key("adaptive_sync") {
-            ("settings/display/adaptive-sync/set".to_string(), json!(values))
-        } else {
-            (format!("settings/{family}/set"), json!(values))
-        };
-        cross_settings(&path, &payload)
+    let (path, payload) = if family == "sound" && values.contains_key("test_tone") {
+        ("settings/sound/test-tone/play".to_string(), json!({}))
+    } else if family == "display" && values.contains_key("hdr") {
+        ("settings/display/hdr/set".to_string(), json!(values))
+    } else if family == "display" && values.contains_key("adaptive_sync") {
+        ("settings/display/adaptive-sync/set".to_string(), json!(values))
     } else {
-        let mut args = vec!["set".to_string()];
-        for (field, value) in &values {
-            args.extend([
-                "--field".to_string(),
-                field.clone(),
-                "--value-json".to_string(),
-                serde_json::to_string(value)
-                    .map_err(|_| "caduceus-settings-value-invalid".to_string())?,
-            ]);
-        }
-        run(family, &args)
+        (format!("settings/{family}/set"), json!(values))
     };
+    let crossed = cross_settings(&path, &payload);
     let receipt = match crossed {
         Ok(receipt) => receipt,
         Err(error) if writes_display_config => {

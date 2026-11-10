@@ -22,7 +22,7 @@ async fn status_route(
     }
 
     let payload = json!({"state":"status"});
-    let envelope = crate::gate::snake::crossing_envelope("settings/samba", &payload);
+    let envelope = crate::gate::snake::crossing_envelope("settings/samba/status", &payload);
     let crossed = crate::gate::snake::execute_ordered_serve_with_timeout(
         &[json!({"snake":"settings/samba/status"})],
         &envelope,
