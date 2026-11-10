@@ -603,6 +603,57 @@ pub(crate) fn portal_owned_admit_receipt(portal: &str, ip: &str, upstream: &str,
     house_ca_crossing_with_timeout("portal-admit", payload, timeout.unwrap_or(Duration::from_secs(600)))
 }
 
+/// The CLI door preserves the staff receipt and binds it to this stop.
+pub(crate) fn portal_admit_cli_receipt(
+    portal: &str, ip: &str, upstream: &str, aliases: &[String],
+    owner: Option<(&str, &str)>, claim_tiles: &[String], dry_run: bool,
+    tailnet_port: Option<&str>, locations: Option<&str>,
+) -> Result<Value, Value> {
+    let mut payload = json!({"portal":portal,"lan-ip":ip,"upstream":upstream});
+    if !aliases.is_empty() { payload["aliases"] = json!(aliases.join(",")); }
+    if let Some((mac, origin)) = owner {
+        payload["owner-mac"] = json!(mac);
+        payload["origin"] = json!(origin);
+        if !claim_tiles.is_empty() { payload["claim-tiles"] = json!(claim_tiles.join(",")); }
+    }
+    if dry_run { payload["dry-run"] = json!(true); }
+    if let Some(value) = tailnet_port { payload["tailnet-port"] = json!(value); }
+    if let Some(value) = locations { payload["locations"] = json!(value); }
+
+    let seat_id = "caduceus.staff.receipt.v1";
+    let seat_path = crate::shared::config::root()
+        .join("opt/caduceus/source/schema").join(format!("{seat_id}.json"));
+    let seat_matches = match fs::read_to_string(seat_path) {
+        Ok(bytes) => serde_json::from_str::<Value>(&bytes).ok()
+            .and_then(|seat| seat.get("schema").and_then(Value::as_str).map(str::to_owned))
+            .is_some_and(|schema| schema == seat_id),
+        Err(_) => true, // Primitive when the seat is absent or unreadable.
+    };
+    if !seat_matches {
+        return Err(json!({"ok":false,"firstMissingSignal":"caduceus-schema-desync",
+            "expected_schema":seat_id}));
+    }
+    let result = house_ca_crossing_with_timeout("portal-admit", payload, Duration::from_secs(600));
+    let receipt = match &result { Ok(value) | Err(value) => value };
+    // The shared crossing constructs a two-field error when no staff receipt exists.
+    if result.is_err() && receipt.as_object().is_some_and(|object|
+        object.len() == 2 && object.contains_key("ok") && object.contains_key("firstMissingSignal")) {
+        return result;
+    }
+    let former = receipt.get("schema").and_then(Value::as_str)
+        == Some("caduceus.network.cert.house-ca.portal-admit.v1");
+    let bound = receipt.get("schema").and_then(Value::as_str) == Some(seat_id)
+        && receipt.pointer("/stop/noun").and_then(Value::as_str) == Some("network/cert/house-ca")
+        && receipt.pointer("/stop/verb").and_then(Value::as_str) == Some("portal-admit");
+    if former || bound {
+        result
+    } else {
+        Err(json!({"ok":false,"firstMissingSignal":"caduceus-schema-desync",
+            "expected_stop":{"noun":"network/cert/house-ca","verb":"portal-admit"},
+            "received_schema":receipt.get("schema"),"received_stop":receipt.get("stop")}))
+    }
+}
+
 pub(crate) fn portal_retire_receipt(portal: &str, mac: &str, dry_run: bool, timeout: Option<Duration>) -> Result<Value, Value> {
     let mut payload = json!({"portal":portal,"owner-mac":mac});
     if dry_run { payload["dry-run"] = json!(true); }

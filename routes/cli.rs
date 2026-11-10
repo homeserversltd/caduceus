@@ -386,30 +386,35 @@ where
             if domain == "cert" && verb == "portal-admit" =>
         {
             cert_command("cert portal-admit", "portal_admit", &[], || {
-                let aliases = option_list(rest, "--aliases");
-                if let (Some(mac), Some(origin)) = (option_value(rest, "--owner-mac"), option_value(rest, "--origin")) {
-                    let claim_tiles = option_list(rest, "--claim-tiles");
-                    return match crate::routes::issue_certificate::portal_owned_admit_receipt(portal, ip, upstream, &aliases, mac, origin, &claim_tiles, rest.iter().any(|a| a == "--dry-run"), None) {
-                        Ok(value) => { println!("{value}"); 0 },
-                        Err(value) => { eprintln!("{value}"); 1 },
-                    };
+                let mut i = 0;
+                while i < rest.len() {
+                    match rest[i].as_str() {
+                        "--dry-run" => i += 1,
+                        "--aliases" | "--owner-mac" | "--origin" | "--claim-tiles"
+                        | "--tailnet-port" | "--locations" => {
+                            if rest.get(i + 1).is_none_or(|value| value.starts_with("--")) {
+                                println!("{}", serde_json::json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}));
+                                return 1;
+                            }
+                            i += 2;
+                        }
+                        _ => {
+                            println!("{}", serde_json::json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}));
+                            return 1;
+                        }
+                    }
                 }
-                let result = crate::routes::admit_portal::portal_admit_json(
-                    portal,
-                    ip,
-                    upstream,
-                    &aliases,
-                    rest.iter().any(|a| a == "--dry-run"),
+                let aliases = option_list(rest, "--aliases");
+                let claim_tiles = option_list(rest, "--claim-tiles");
+                let owner = option_value(rest, "--owner-mac").zip(option_value(rest, "--origin"));
+                let result = crate::routes::issue_certificate::portal_admit_cli_receipt(
+                    portal, ip, upstream, &aliases, owner, &claim_tiles,
+                    rest.iter().any(|arg| arg == "--dry-run"),
+                    option_value(rest, "--tailnet-port"), option_value(rest, "--locations"),
                 );
                 match result {
-                    Ok(v) => {
-                        println!("{v}");
-                        0
-                    }
-                    Err(e) => {
-                        eprintln!("{e}");
-                        1
-                    }
+                    Ok(value) => { println!("{value}"); 0 }
+                    Err(value) => { println!("{value}"); 1 }
                 }
             })
         }
