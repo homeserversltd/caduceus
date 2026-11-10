@@ -691,6 +691,18 @@ async fn receive_post(
 async fn post(peer: Option<axum::extract::ConnectInfo<crate::gate::ConnectionInfo>>, bytes: axum::body::Bytes) -> Response { receive_post(false, peer, bytes).await }
 async fn forward(peer: Option<axum::extract::ConnectInfo<crate::gate::ConnectionInfo>>, bytes: axum::body::Bytes) -> Response { receive_post(true, peer, bytes).await }
 
+// The check runs on a blocking worker, so enter the same local post path as
+// HTTP without calling the live listener or bypassing peer forwarding.
+pub(crate) fn post_update_check(envelope: Value) {
+    match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        Ok(runtime) => {
+            let bytes = axum::body::Bytes::from(envelope.to_string());
+            let _ = runtime.block_on(receive_post(false, None, bytes));
+        }
+        Err(_) => record("update-available", "post", &json!({"ok":false,"firstMissingSignal":"notification-runtime-unavailable"}), Instant::now()),
+    }
+}
+
 async fn action(axum::extract::Path((id,verb)): axum::extract::Path<(String,String)>, headers: HeaderMap, body: Option<Json<Value>>) -> Response {
     if !gateway_profile() { return refusal((StatusCode::FORBIDDEN, if verb == "accept" && id.starts_with("link-up:") {"link-up-accept-on-homeserver"} else {"notification-act-on-homeserver"})); }
     if let Err(error) = admin(&headers) { return refusal(error); }

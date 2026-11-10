@@ -186,7 +186,48 @@ fn perform_update_check(daily: bool) -> Option<Value> {
         return Some(json!({"ok":false,"first_missing_signal":"caduceus-stats-store-unavailable"}));
     }
     *state.lock().unwrap_or_else(|e| e.into_inner()) = Some((checked_at, answer.clone()));
+    if answer.get("pending").and_then(Value::as_bool) == Some(true) {
+        post_update_available(&answer);
+    }
     Some(answer)
+}
+
+fn post_update_available(answer: &Value) {
+    let hostname = crate::shared::seat_identity::local_hostname();
+    let dns = crate::shared::seat_identity::resolve_home_arpa_ipv4(&hostname);
+    let bind = config::declared_bind().ok().and_then(|address| match address.ip() {
+        std::net::IpAddr::V4(ip) => Some(ip),
+        _ => None,
+    });
+    let seat = crate::shared::seat_identity::current(dns, bind);
+    let Some(mac) = seat.mac else {
+        record_update_post_failure("notification-body-mac-unavailable");
+        return;
+    };
+    let body = answer.pointer("/modules/pending").and_then(Value::as_u64)
+        .map(|count| format!("{count} modules behind"))
+        .unwrap_or_else(|| "Updates waiting".to_owned());
+    let envelope = json!({"repost": true, "notification": {
+        "id": format!("update-available:{mac}"), "kind": "update-available",
+        "color": "blue", "title": "Update available", "body": body,
+        "from": {"body": hostname, "hostname": hostname, "mac": mac, "ipv4": seat.ipv4.map(|ip| ip.to_string())},
+        "ttl": "1d", "max_rows": 50,
+        "actions": [{"label": "Dismiss", "verb": "dismiss"}]
+    }});
+    #[cfg(leaf_notifications)]
+    crate::routes::leaf_notifications::post_update_check(envelope);
+    #[cfg(not(leaf_notifications))]
+    {
+        let _ = envelope;
+        record_update_post_failure("notification-door-unavailable");
+    }
+}
+
+fn record_update_post_failure(signal: &str) {
+    let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
+        "organ":"notifications", "kind":"deed", "message":"notification deed", "ok":false,
+        "attributes_redacted":{"who":"caduceus", "verb":"post", "target":"notification", "outcome":"failed", "signal":signal}
+    }));
 }
 
 pub(crate) fn run_update_check() -> Value {
@@ -3092,8 +3133,8 @@ pub fn current() -> Result<String, String> {
         .as_deref()
         .ok_or_else(|| format!("{UNAVAILABLE}: no samples yet"))?;
     let mut sample = splice_model_lanes(latest, &guard.model_lanes);
-    let update = update_check_state()?.lock().map_err(|e| e.to_string())?
-        .as_ref().map(|(checked_at, answer)| json!({"checked_at": checked_at, "answer": answer}))
+    let update = update_check_state().ok().and_then(|state| state.lock().ok().and_then(|row|
+        row.as_ref().map(|(checked_at, answer)| json!({"checked_at": checked_at, "answer": answer}))))
         .unwrap_or(Value::Null);
     if let Some(end) = sample.rfind('}') {
         sample.insert_str(end, &format!(",\"update\":{update}"));
