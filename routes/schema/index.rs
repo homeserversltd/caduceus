@@ -10,7 +10,8 @@ use std::sync::OnceLock;
 include!(concat!(env!("OUT_DIR"), "/public_schema_seats.rs"));
 
 const SEAT_FOLDER: &str = "/opt/caduceus/source/schema";
-const SHARED_SEATS: [&str; 3] = [
+const SHARED_SEATS: [&str; 4] = [
+    crate::protocol::SCHEMA_ID,
     "caduceus.staff.receipt.v1",
     "caduceus.chord.v1",
     "caduceus.chord.receipt.v1",
@@ -55,6 +56,13 @@ fn registry() -> Result<&'static Registry, &'static str> {
             let found = declaration.get("schema").and_then(Value::as_str);
             if found != Some(id) {
                 return Err(format!("caduceus-seat-foreign: {id} found {}", found.unwrap_or("<missing-or-non-string>")));
+            }
+            if id == crate::protocol::SCHEMA_ID
+                && !declaration["kernel"]["required"].as_array()
+                    .is_some_and(|fields| fields.iter().all(|field| field.as_str().is_some()))
+            {
+                absent.push(id);
+                continue;
             }
             loaded.push(json!({"id": id, "schema_version": declaration.get("schema_version")}));
             seats.insert(id, Seat { bytes, declaration });

@@ -3,8 +3,14 @@ use std::time::Duration;
 
 include!(concat!(env!("OUT_DIR"), "/protocol_seat.rs"));
 
+pub const SCHEMA_ID: &str = "caduceus.staff.v1";
+// The primitive is used only when the envelope seat is absent or malformed.
+const PRIMITIVE_KERNEL: &[&str] = &["schema", "intent_id", "transition", "version", "timestamp"];
+
 pub fn seat() -> Result<Value, String> {
-    serde_json::from_str(SEAT_JSON).map_err(|error| format!("protocol-seat-invalid:{error}"))
+    crate::routes::schema::declaration(SCHEMA_ID)
+        .cloned()
+        .ok_or_else(|| "protocol-seat-absent".to_owned())
 }
 
 pub const fn hyalos_event_schema() -> &'static str {
@@ -144,11 +150,17 @@ impl Envelope {
 }
 
 fn required_kernel_string(object: &Map<String, Value>, index: usize) -> Result<String, String> {
-    let field = KERNEL_FIELDS
-        .get(index)
+    let seat = crate::routes::schema::declaration(SCHEMA_ID);
+    let field = match seat {
+        Some(declaration) => declaration["kernel"]["required"]
+            .as_array()
+            .and_then(|fields| fields.get(index))
+            .and_then(Value::as_str),
+        None => PRIMITIVE_KERNEL.get(index).copied(),
+    }
         .ok_or_else(|| format!("protocol-kernel-definition-missing:{index}"))?;
     object
-        .get(*field)
+        .get(field)
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
