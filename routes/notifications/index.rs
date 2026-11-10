@@ -202,7 +202,6 @@ pub(crate) async fn post_stave(stave: Value) -> Result<(), Failure> {
     let roster = json!({"staves":[stave]});
     let rows = candidates(&roster);
     if rows.is_empty() { return Ok(()); }
-    let _permit = MUTATIONS.try_acquire().map_err(|_| unavailable("link-up-busy"))?;
     let portals = house::portals(None).await?;
     for mut row in rows {
         let mac = row["from"]["mac"].as_str().unwrap_or("");
@@ -673,7 +672,6 @@ async fn receive_post(
             receipt["forwarded"] = json!(true);
             return Ok(receipt);
         }
-        let _permit = MUTATIONS.try_acquire().map_err(|_| unavailable("link-up-busy"))?;
         let repost = envelope["repost"] == true;
         let mut row = envelope["notification"].clone();
         if let Some(ip) = row["received_from"].as_str().filter(|ip| ip.parse::<std::net::Ipv4Addr>().is_ok_and(|address| !address.is_loopback())) {
