@@ -380,23 +380,26 @@ async fn dispatch(
         }
     }
     deed.attempted = true;
-    let receipt = if is_chord {
-        crate::gate::snake::execute_native_chord(
+    let (receipt, crossed_stop) = if is_chord {
+        let receipt = crate::gate::snake::execute_native_chord(
             namespace, serve, finally, &envelope, chord_receipt_schema.expect("chord schema selected"), deadline,
-        ).await.map_err(|signal| DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, signal).after_attempt())?
+        ).await.map_err(|signal| DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, signal).after_attempt())?;
+        (receipt, None)
     } else {
         let bounded_timeout = deadline.min(MAX_CROSSING_DEADLINE);
         let crossing = crate::gate::snake::execute_ordered_serve_with_timeout(
             serve, &envelope, Some(bounded_timeout),
         ).await.map_err(|signal| DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, signal).after_attempt())?;
-        crossing.get("receiptPayload").cloned().ok_or_else(|| {
+        let crossed_stop = crossing.get("crossedStop").and_then(Value::as_str).map(ToOwned::to_owned);
+        let receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
             DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-generic-receipt-missing").after_attempt()
-        })?
+        })?;
+        (receipt, crossed_stop)
     };
 
-    let crossed_stop = (!is_chord).then(|| serve.first().and_then(|step| step.get("snake")).and_then(Value::as_str)).flatten();
+    let crossed_stop = crossed_stop.as_deref();
     if validation_schema.is_some_and(|schema| {
-        !crate::routes::leaf_schema::accepts(schema, &receipt)
+        !(schema != "caduceus.staff.receipt.v1" && crate::routes::leaf_schema::accepts(schema, &receipt))
             && !(schema != "caduceus.chord.receipt.v1" && crossed_stop.is_some_and(|stop| crate::routes::leaf_schema::bound(&receipt, stop)))
     }) {
         return Err(DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-schema-desync").with_witness(receipt, None).after_attempt());

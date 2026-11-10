@@ -780,13 +780,14 @@ pub async fn execute_ordered_serve_with_timeout(
 
     let mut step_receipts = Vec::with_capacity(steps.len());
     let mut receipt_payload = None;
+    let mut crossed_stop = None;
     let mut all_ok = true;
     let benchmark = crate::protocol::benchmark_enabled(base_envelope);
     let mut benchmark_timings = if benchmark { Some(Vec::new()) } else { None };
     let mut staff_reports = if benchmark { Some(Vec::new()) } else { None };
     for (ordinal, step) in steps.into_iter().enumerate() {
         let started = benchmark.then(Instant::now);
-        let (label, stamp, payload) = if let Some(band) = step.snake {
+        let (label, stamp, payload, stop) = if let Some(band) = step.snake {
             let band = safe_band_path(&band)?;
             let execution_band = band.clone();
             let envelope = base_envelope.clone();
@@ -808,11 +809,12 @@ pub async fn execute_ordered_serve_with_timeout(
                 .get("receiptPayload")
                 .cloned()
                 .ok_or_else(|| "caduceus-snake-step-receipt-missing".to_string())?;
-            (band, stamp, payload)
+            let stop = Some(band.clone());
+            (band, stamp, payload, stop)
         } else if let Some(primitive) = step.rust {
             let payload = crate::shared::primitives::execute(&primitive, base_envelope).await?;
             let stamp = rust_step_stamp(base_envelope, &primitive, &payload)?;
-            (primitive, stamp, payload)
+            (primitive, stamp, payload, None)
         } else {
             return Err("gate-route-step-must-name-one-band".into());
         };
@@ -836,6 +838,7 @@ pub async fn execute_ordered_serve_with_timeout(
         }
         step_receipts.push(stamp);
         receipt_payload = Some(payload);
+        crossed_stop = stop;
         if !child_ok || !staff_ok {
             break;
         }
@@ -846,6 +849,7 @@ pub async fn execute_ordered_serve_with_timeout(
     let mut aggregate = json!({
         "ok": all_ok,
         "receiptPayload": receipt_payload,
+        "crossedStop": crossed_stop,
         "stepReceipts": step_receipts,
         "rawEnvelope": base_envelope,
     });
@@ -1549,7 +1553,7 @@ async fn native_chord_run_steps(
                         .or_else(|| d.pointer("/flags/receiptSchema").and_then(Value::as_str))).map(ToOwned::to_owned));
                 let stage_stop = raw_step.get("snake").and_then(Value::as_str);
                 let schema_ok = expected_schema.as_deref().is_none_or(|schema| {
-                    crate::routes::leaf_schema::accepts(schema, &receipt)
+                    (schema != "caduceus.staff.receipt.v1" && crate::routes::leaf_schema::accepts(schema, &receipt))
                         || (schema != "caduceus.chord.receipt.v1" && stage_stop.is_some_and(|stop| crate::routes::leaf_schema::bound(&receipt, stop)))
                 });
                 if !schema_ok && result.get("firstMissingSignal").and_then(Value::as_str)

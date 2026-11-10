@@ -125,7 +125,8 @@ pub(crate) fn bound(value: &Value, stop_path: &str) -> bool {
 }
 
 pub(crate) fn accepts_bound(id: &str, stop_path: &str, value: &Value) -> bool {
-    accepts(id, value) || (id != "caduceus.chord.receipt.v1" && bound(value, stop_path))
+    (id != "caduceus.staff.receipt.v1" && accepts(id, value))
+        || (id != "caduceus.chord.receipt.v1" && bound(value, stop_path))
 }
 
 pub(crate) fn accepts_form(id: &str, form: &str, value: &Value) -> bool {
