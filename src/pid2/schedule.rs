@@ -318,7 +318,7 @@ pub fn execute(id:&str) -> Result<bool,String> {
         Err(signal)=>("Failed",Some(signal),None,None),
         Ok(result)=>{
             let r=result.get("receiptPayload").unwrap_or(&Value::Null);
-            let seat_ok=!nas_sync || (r.get("schema").and_then(Value::as_str)==Some("caduceus.nas.sync.v1") && r.get("action").and_then(Value::as_str)==Some("sync"));
+            let seat_ok=!nas_sync || ((r.get("schema").and_then(Value::as_str)==Some("caduceus.nas.sync.v1") || crate::routes::leaf_schema::bound(r,crossing_band)) && r.get("action").and_then(Value::as_str)==Some("sync"));
             let outcome_ok=!nas_sync || r.get("outcome").and_then(Value::as_str)==Some("ok");
             let ok=seat_ok && outcome_ok && result.get("ok").and_then(Value::as_bool)==Some(true) && r.get("ok").and_then(Value::as_bool)==Some(true) && r.get("converged").and_then(Value::as_bool)!=Some(false);
             let state=if ok {"Done"} else if r.get("outcome").and_then(Value::as_str)==Some("refused") {"Refused"} else {"Failed"};
