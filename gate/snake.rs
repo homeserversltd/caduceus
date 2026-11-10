@@ -550,11 +550,14 @@ fn execute_command_raw(
     } else {
         json!({"exitCode":status.code(),"signal":status.code().is_none(),"payload":payload.clone()})
     };
-    let first_missing = if ok {
-        "none"
-    } else {
-        "caduceus-agathodaimon-refused"
-    };
+    let first_missing = payload
+        .get("firstMissingSignal")
+        .and_then(Value::as_str)
+        .unwrap_or(if ok {
+            "none"
+        } else {
+            "caduceus-agathodaimon-refused"
+        });
     let mut stamped = forwarded.clone();
     let object = stamped
         .as_object_mut()
@@ -565,7 +568,6 @@ fn execute_command_raw(
     object.insert(
         "caduceusReceipt".into(),
         json!({
-            "schema":"caduceus.staff.v1",
             "stepReceipt":payload,
             "rawChildStdout":stdout,
             "ok":ok,
