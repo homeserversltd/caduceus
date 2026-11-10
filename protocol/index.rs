@@ -8,7 +8,7 @@ pub const SCHEMA_ID: &str = "caduceus.staff.v1";
 const PRIMITIVE_KERNEL: &[&str] = &["schema", "intent_id", "transition", "version", "timestamp"];
 
 pub fn seat() -> Result<Value, String> {
-    crate::routes::schema::declaration(SCHEMA_ID)
+    crate::routes::leaf_schema::declaration(SCHEMA_ID)
         .cloned()
         .ok_or_else(|| "protocol-seat-absent".to_owned())
 }
@@ -150,7 +150,7 @@ impl Envelope {
 }
 
 fn required_kernel_string(object: &Map<String, Value>, index: usize) -> Result<String, String> {
-    let seat = crate::routes::schema::declaration(SCHEMA_ID);
+    let seat = crate::routes::leaf_schema::declaration(SCHEMA_ID);
     let field = match seat {
         Some(declaration) => declaration["kernel"]["required"]
             .as_array()
