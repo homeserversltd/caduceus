@@ -45,6 +45,10 @@ static RAW_PENDING: OnceLock<Mutex<VecDeque<PendingRaw>>> = OnceLock::new();
 static COLLECTOR: OnceLock<Mutex<Option<(Arc<AtomicBool>, JoinHandle<Result<(), String>>)>>> =
     OnceLock::new();
 static INDICATOR_POKE_MASK: AtomicU64 = AtomicU64::new(0);
+static UPDATE_CHECK_GATE: Mutex<()> = Mutex::new(());
+static UPDATE_CHECK_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static UPDATE_CHECK_LAST_ATTEMPT: AtomicU64 = AtomicU64::new(0);
+static UPDATE_CHECK: OnceLock<Result<Mutex<Option<(i64, Value)>>, String>> = OnceLock::new();
 const MODEL_LANE_PULSE_INTERVAL: u64 = 86_400;
 const MODEL_LANE_TIMEOUT: Duration = Duration::from_millis(400);
 
@@ -123,7 +127,81 @@ fn open_db_once() -> Result<Connection, String> {
     ).map_err(|e| e.to_string())?;
     c.execute_batch("CREATE TABLE IF NOT EXISTS ruyi_perspective (mac TEXT PRIMARY KEY, json TEXT NOT NULL, received_at INTEGER NOT NULL);")
         .map_err(|e| e.to_string())?;
+    c.execute_batch("CREATE TABLE IF NOT EXISTS harmonia_check (id INTEGER PRIMARY KEY CHECK(id=1), checked_at INTEGER NOT NULL, answer TEXT NOT NULL);")
+        .map_err(|e| e.to_string())?;
     Ok(c)
+}
+
+fn update_check_state() -> Result<&'static Mutex<Option<(i64, Value)>>, String> {
+    match UPDATE_CHECK.get_or_init(|| {
+        let db = open_db()?.lock().map_err(|e| e.to_string())?;
+        let row: Option<(i64, String)> = db.query_row(
+            "SELECT checked_at,answer FROM harmonia_check WHERE id=1", [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional().map_err(|e| e.to_string())?;
+        let row = row.map(|(checked_at, answer)| {
+            serde_json::from_str(&answer).map(|answer| (checked_at, answer)).map_err(|e| e.to_string())
+        }).transpose()?;
+        Ok(Mutex::new(row))
+    }) {
+        Ok(state) => Ok(state),
+        Err(error) => Err(error.clone()),
+    }
+}
+
+fn update_check_due() -> bool {
+    let last_attempt = UPDATE_CHECK_LAST_ATTEMPT.load(Ordering::Acquire);
+    if last_attempt != 0 && (now().max(0) as u64).saturating_sub(last_attempt) < MODEL_LANE_PULSE_INTERVAL {
+        return false;
+    }
+    match update_check_state().and_then(|state| state.lock().map_err(|e| e.to_string()).map(|row| row.as_ref().map(|(at, _)| *at))) {
+        Ok(None) => true,
+        Ok(Some(at)) => now().saturating_sub(at) >= MODEL_LANE_PULSE_INTERVAL as i64,
+        Err(error) => { eprintln!("harmonia check state outcome=failed signal={error}"); false }
+    }
+}
+
+fn perform_update_check(daily: bool) -> Option<Value> {
+    let _gate = UPDATE_CHECK_GATE.lock().unwrap_or_else(|e| e.into_inner());
+    if daily && !update_check_due() { return None; }
+    let state = match update_check_state() {
+        Ok(state) => state,
+        Err(error) => return Some(json!({"ok":false,"first_missing_signal":"caduceus-stats-store-unavailable","error":error})),
+    };
+    let (code, body) = crate::shared::harmonia::invoke("update_check", &[], false);
+    UPDATE_CHECK_LAST_ATTEMPT.store(now().max(0) as u64, Ordering::Release);
+    let answer = match serde_json::from_str::<Value>(body.trim()) {
+        Ok(answer) => answer,
+        _ => return Some(crate::shared::harmonia::invoke_body_to_json("update_check", code, &body)),
+    };
+    let checked_at = now();
+    let persisted = (|| -> Result<(), String> {
+        let mut db = open_db()?.lock().map_err(|e| e.to_string())?;
+        let tx = db.transaction().map_err(|e| e.to_string())?;
+        tx.execute("INSERT INTO harmonia_check(id,checked_at,answer) VALUES(1,?1,?2) ON CONFLICT(id) DO UPDATE SET checked_at=excluded.checked_at,answer=excluded.answer", params![checked_at, answer.to_string()]).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())
+    })();
+    if let Err(error) = persisted {
+        eprintln!("harmonia check store outcome=failed signal={error}");
+        return Some(json!({"ok":false,"first_missing_signal":"caduceus-stats-store-unavailable"}));
+    }
+    *state.lock().unwrap_or_else(|e| e.into_inner()) = Some((checked_at, answer.clone()));
+    Some(answer)
+}
+
+pub(crate) fn run_update_check() -> Value {
+    perform_update_check(false).unwrap_or(Value::Null)
+}
+
+fn pulse_update_check() {
+    if !update_check_due() || UPDATE_CHECK_IN_FLIGHT.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() { return; }
+    if let Err(error) = thread::Builder::new().name("caduceus-update-check".into()).spawn(|| {
+        let _ = perform_update_check(true);
+        UPDATE_CHECK_IN_FLIGHT.store(false, Ordering::Release);
+    }) {
+        UPDATE_CHECK_IN_FLIGHT.store(false, Ordering::Release);
+        eprintln!("harmonia check spawn outcome=failed signal={error}");
+    }
 }
 
 fn open_db_read_only() -> Result<Connection, String> {
@@ -2735,6 +2813,7 @@ fn collect_loop(
             continue;
         }
         let indicator_pokes = INDICATOR_POKE_MASK.swap(0, Ordering::AcqRel) as u32;
+        pulse_update_check();
         if indicator_pokes != 0 {
             indicators.wake(indicator_pokes);
         }
@@ -2893,6 +2972,9 @@ pub fn start() {
     if STATE.get().is_some() {
         return;
     }
+    if let Err(error) = update_check_state() {
+        eprintln!("harmonia check hydration outcome=failed signal={error}");
+    }
     let state = Arc::new(RwLock::new(StatsState {
         latest: None,
         latest_admin: None,
@@ -3009,7 +3091,14 @@ pub fn current() -> Result<String, String> {
         .latest
         .as_deref()
         .ok_or_else(|| format!("{UNAVAILABLE}: no samples yet"))?;
-    Ok(splice_model_lanes(latest, &guard.model_lanes))
+    let mut sample = splice_model_lanes(latest, &guard.model_lanes);
+    let update = update_check_state()?.lock().map_err(|e| e.to_string())?
+        .as_ref().map(|(checked_at, answer)| json!({"checked_at": checked_at, "answer": answer}))
+        .unwrap_or(Value::Null);
+    if let Some(end) = sample.rfind('}') {
+        sample.insert_str(end, &format!(",\"update\":{update}"));
+    }
+    Ok(sample)
 }
 
 pub fn current_admin() -> Result<String, String> {

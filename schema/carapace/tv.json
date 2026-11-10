@@ -74,8 +74,10 @@
     "update_check": {
       "bin": "/usr/local/bin/harmonia",
       "args": [
-        "update"
-      ]
+        "update",
+        "--check"
+      ],
+      "raw_json": true
     }
   },
   "sclerites": [

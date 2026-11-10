@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.appliance.stats.sample.v1",
-  "schema_version": "1.4.0",
+  "schema_version": "1.5.0",
   "role": "One emitted Caduceus appliance statistics sample",
   "authority": {
     "owner": "caduceus",
@@ -143,6 +143,7 @@
     "processes": {"type": ["array", "object", "null"]},
     "self": {"type": "object"},
     "model_lanes": {"type": "array"},
+    "update": {"type": ["object", "null"], "properties": {"checked_at": {"type": "integer"}, "answer": {}}, "required": ["checked_at", "answer"], "additionalProperties": true},
     "tcpTs": {"type": "integer"},
     "temperatureTs": {"type": "integer"},
     "storageTemperatureTs": {"type": "integer"},
@@ -177,6 +178,7 @@
     "processes": "array|object|null",
     "self": "object",
     "model_lanes": "array",
+    "update": "object|null",
     "tcpTs": "integer",
     "temperatureTs": "integer",
     "storageTemperatureTs": "integer",
@@ -211,6 +213,7 @@
     "processes",
     "self",
     "model_lanes",
+    "update",
     "tcpTs",
     "temperatureTs",
     "storageTemperatureTs",

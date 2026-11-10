@@ -72,6 +72,9 @@ pub fn invoke_now_json(rest: &[String]) -> Value {
 
 pub fn invoke_check_json(rest: &[String]) -> Value {
     let dry_run = rest.iter().any(|arg| arg == "--dry-run");
+    if !dry_run {
+        return crate::stats::run_update_check();
+    }
     let flags: Vec<String> = rest
         .iter()
         .filter(|arg| *arg != "--dry-run")
