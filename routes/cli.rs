@@ -386,31 +386,43 @@ where
             if domain == "cert" && verb == "portal-admit" =>
         {
             cert_command("cert portal-admit", "portal_admit", &[], || {
+                let (mut aliases_arg, mut owner_mac, mut origin, mut claim_arg) = (None, None, None, None);
+                let (mut tailnet_port, mut locations, mut dry_run) = (None, None, false);
                 let mut i = 0;
                 while i < rest.len() {
-                    match rest[i].as_str() {
-                        "--dry-run" => i += 1,
-                        "--aliases" | "--owner-mac" | "--origin" | "--claim-tiles"
-                        | "--tailnet-port" | "--locations" => {
-                            if rest.get(i + 1).is_none_or(|value| value.starts_with("--")) {
-                                println!("{}", serde_json::json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}));
-                                return 1;
-                            }
-                            i += 2;
-                        }
+                    let name = rest[i].as_str();
+                    if name == "--dry-run" {
+                        dry_run = true;
+                        i += 1;
+                        continue;
+                    }
+                    let slot = match name {
+                        "--aliases" => &mut aliases_arg,
+                        "--owner-mac" => &mut owner_mac,
+                        "--origin" => &mut origin,
+                        "--claim-tiles" => &mut claim_arg,
+                        "--tailnet-port" => &mut tailnet_port,
+                        "--locations" => &mut locations,
                         _ => {
                             println!("{}", serde_json::json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}));
                             return 1;
                         }
-                    }
+                    };
+                    let Some(value) = rest.get(i + 1) else {
+                        println!("{}", serde_json::json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}));
+                        return 1;
+                    };
+                    slot.get_or_insert(value.as_str());
+                    i += 2;
                 }
-                let aliases = option_list(rest, "--aliases");
-                let claim_tiles = option_list(rest, "--claim-tiles");
-                let owner = option_value(rest, "--owner-mac").zip(option_value(rest, "--origin"));
+                let list = |arg: Option<&str>| -> Vec<String> {
+                    arg.unwrap_or("").split(',').filter(|item| !item.is_empty()).map(str::to_string).collect()
+                };
+                let aliases = list(aliases_arg);
+                let claim_tiles = list(claim_arg);
+                let owner = owner_mac.zip(origin);
                 let result = crate::routes::issue_certificate::portal_admit_cli_receipt(
-                    portal, ip, upstream, &aliases, owner, &claim_tiles,
-                    rest.iter().any(|arg| arg == "--dry-run"),
-                    option_value(rest, "--tailnet-port"), option_value(rest, "--locations"),
+                    portal, ip, upstream, &aliases, owner, &claim_tiles, dry_run, tailnet_port, locations,
                 );
                 match result {
                     Ok(value) => { println!("{value}"); 0 }
