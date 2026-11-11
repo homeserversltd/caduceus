@@ -360,6 +360,7 @@ pub fn read_json(family: &str) -> Result<Value, String> {
 }
 
 pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
+    let dry_run = body.get("dry-run").cloned();
     let validate = || -> Result<BTreeMap<String, Value>, String> {
     let values = validated_fields(family, body.clone())?;
     validate_display_config_fields(family, &values)?;
@@ -421,7 +422,14 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
         }
     }
     let (path, payload) = if family == "sound" && values.contains_key("test_tone") {
-        ("settings/sound/test-tone/play".to_string(), json!({}))
+        let payload = match dry_run {
+            Some(value) if !bounded_value(&value) => {
+                return Ok(mutation_refusal(family, &body, "validate", "caduceus-settings-value-invalid:dry-run".to_string()));
+            }
+            Some(value) => json!({"dry-run": value}),
+            None => json!({}),
+        };
+        ("settings/sound/test-tone/play".to_string(), payload)
     } else if family == "display" && values.contains_key("hdr") {
         ("settings/display/hdr/set".to_string(), json!(values))
     } else if family == "display" && values.contains_key("adaptive_sync") {
