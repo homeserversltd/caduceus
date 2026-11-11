@@ -66,6 +66,7 @@ pub async fn execute(
         Err(e) => return refuse(e),
     };
     let mutation = matches!(&plan, Plan::Mutation(_, _));
+    let mut stop_refusal = None;
     let (success, result, failure) = match plan {
         Plan::Read(args) => {
             let result = crate::gate::blocking_task(command, move || run_readonly_nmcli(&args))
@@ -78,7 +79,7 @@ pub async fn execute(
         }
         Plan::Mutation(stop_path, payload) => {
             let result = crate::gate::blocking_task(command, move || {
-                crate::gate::snake::crossing_path(stop_path, &payload)
+                crate::gate::snake::crossing_path_receipt(stop_path, &payload)
             })
             .await
             .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
@@ -100,13 +101,38 @@ pub async fn execute(
                         )
                     };
                     let result = success.then(|| json!({"action":action,"completed":true}));
+                    if !success {
+                        stop_refusal = Some(receipt_payload);
+                    }
                     (success, result, failure)
                 }
                 Err(error) => (false, None, Some(error)),
             }
         }
     };
-    if let Some(map) = receipt.as_object_mut() {
+    if let Some(stop) = stop_refusal {
+        let mut answer = match stop {
+            Value::Object(map) => map,
+            other => {
+                let mut map = serde_json::Map::new();
+                map.insert("stopReceipt".into(), other);
+                map
+            }
+        };
+        answer.entry("doorReceipt").or_insert(receipt);
+        answer.entry("route").or_insert_with(|| Value::String(route.into()));
+        answer.entry("action").or_insert_with(|| Value::String(action.into()));
+        answer.entry("ok").or_insert(Value::Bool(success));
+        answer.entry("mutationPerformed").or_insert(Value::Bool(mutation && success));
+        answer.entry("planned").or_insert(Value::Bool(false));
+        if let Some(v) = result {
+            answer.entry("result").or_insert(v);
+        }
+        answer.entry("first_missing_signal").or_insert_with(|| {
+            Value::String(failure.unwrap_or_else(|| "wifi-nmcli-failed".into()))
+        });
+        receipt = Value::Object(answer);
+    } else if let Some(map) = receipt.as_object_mut() {
         map.insert("route".into(), Value::String(route.into()));
         map.insert("action".into(), Value::String(action.into()));
         map.insert("ok".into(), Value::Bool(success));

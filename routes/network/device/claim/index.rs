@@ -62,14 +62,14 @@ pub fn invoke(args: &[String]) -> Result<Value, String> {
             }
         }
     }
-    let wrapper = crate::gate::snake::crossing_path_with_timeout(
+    let receipt = crate::gate::snake::crossing_path_receipt(
         "network/identity/claim",
         &Value::Object(payload),
-        std::time::Duration::from_secs(30),
     )?;
-    match wrapper.get("receiptPayload") {
-        Some(receipt) if receipt.is_object() => Ok(receipt.clone()),
-        _ => Err("caduceus-network-identity-claim-receipt-invalid".into()),
+    if receipt.is_object() {
+        Ok(receipt)
+    } else {
+        Err("caduceus-network-identity-claim-receipt-invalid".into())
     }
 }
 

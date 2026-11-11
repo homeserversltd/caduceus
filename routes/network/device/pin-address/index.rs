@@ -4,11 +4,15 @@ use serde_json::{json, Map, Value};
 const ROUTE_INVALID: &str = "caduceus-dhcp-route-invalid";
 const REQUEST_INVALID: &str = "caduceus-dhcp-request-invalid";
 
-fn cross(stop: &str, input: Map<String, Value>) -> Result<Value, String> {
-    crate::gate::snake::crossing_path(&format!("network/dhcp/{stop}"), &Value::Object(input))
+fn cross(stop: &str, input: Map<String, Value>) -> Result<Value, Value> {
+    match crate::gate::snake::crossing_path_receipt(&format!("network/dhcp/{stop}"), &Value::Object(input)) {
+        Ok(receipt) if receipt.get("ok").and_then(Value::as_bool) == Some(true) => Ok(receipt),
+        Ok(receipt) => Err(receipt),
+        Err(error) => Err(Value::String(error)),
+    }
 }
 
-pub fn invoke(args: &[String]) -> Result<Value, String> {
+pub fn invoke(args: &[String]) -> Result<Value, Value> {
     let Some(first) = args.first() else {
         return Err("caduceus-network-dhcp-command-missing".into());
     };
@@ -59,7 +63,11 @@ pub fn command(args: &[String]) -> i32 {
             0
         }
         Err(e) => {
-            eprintln!("{e}");
+            if let Some(error) = e.as_str() {
+                eprintln!("{error}");
+            } else {
+                eprintln!("{e}");
+            }
             1
         }
     }
@@ -102,7 +110,12 @@ pub fn intent_json(method: &str, route: &str, metadata: Value) -> Result<Value, 
         }
         _ => return Err(ROUTE_INVALID.into()),
     };
-    cross(stop, input)
+    cross(stop, input).map_err(|error| {
+        error.as_str()
+            .or_else(|| error.get("firstMissingSignal").and_then(Value::as_str))
+            .unwrap_or("caduceus-agathodaimon-refused")
+            .to_string()
+    })
 }
 
 /// Canonical registration seam for this leaf.

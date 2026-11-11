@@ -22,8 +22,11 @@ pub fn invoke(intent: Value) -> Result<Value, Value> {
             payload.insert(field.to_owned(), value.clone());
         }
     }
-    crate::gate::snake::crossing_path(path, &Value::Object(payload))
-        .map_err(|e| serde_json::json!({"error":e}))
+    match crate::gate::snake::crossing_path_receipt(path, &Value::Object(payload)) {
+        Ok(receipt) if receipt.get("ok").and_then(Value::as_bool) == Some(true) => Ok(receipt),
+        Ok(receipt) => Err(receipt),
+        Err(e) => Err(serde_json::json!({"error":e})),
+    }
 }
 pub fn command_json(intent: Value) -> Result<Value, Value> {
     match invoke(intent) {
