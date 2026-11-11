@@ -251,7 +251,17 @@ async fn handle_request(
             Err(failure) => {
                 if failure.no_change { deed.recorded = true; }
                 else { deed.record("refused", &failure.signal, failure.witness.as_ref()); }
-                error_response(failure.status, &task_command, &failure.signal)
+                if let Some(witness) = failure.witness {
+                    let mut response = (failure.status, Json(witness)).into_response();
+                    response.headers_mut().insert(
+                        axum::http::header::HeaderName::from_static("x-caduceus-refusal"),
+                        axum::http::HeaderValue::from_str(deed_signal(&failure.signal))
+                            .expect("deed signal is a valid header value"),
+                    );
+                    response
+                } else {
+                    error_response(failure.status, &task_command, &failure.signal)
+                }
             }
         };
         // Release this door's permit before waking a line it may have held.
