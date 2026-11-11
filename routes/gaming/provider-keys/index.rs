@@ -62,19 +62,28 @@ fn public_keys(value: &Value) -> Value {
     for (provider, env_key) in PROVIDERS {
         keys.insert((*provider).into(), json!({"configured": configured(source.and_then(|object| object.get(*env_key))), "envKey": env_key}));
     }
-    json!({"schema":"caduceus.games.provider-keys.v1","ok":true,"keys":keys})
+    Value::Object(keys)
 }
 
-pub(super) async fn status() -> Result<Json<Value>, (StatusCode, Json<crate::gate::ApiErrorBody>)> {
+pub(super) async fn status() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<crate::gate::ApiErrorBody>)> {
     match crate::shared::policy::allows_command("gaming provider-keys read") {
         Ok(true) => {
             let payload = json!({"verb":"status","args":["status"]});
             let result = crate::gate::blocking_task("gaming provider-keys read", move || {
-                crate::gate::snake::crossing_path("games/provider-keys", &payload)
+                crate::gate::snake::crossing_path_receipt("games/provider-keys", &payload)
             })
             .await?;
             result
-                .map(|value| Json(public_keys(&value)))
+                .map(|mut value| {
+                    let status = crate::gate::mutation_status(&value);
+                    if status == StatusCode::OK {
+                        let keys = public_keys(&value);
+                        if let Some(receipt) = value.as_object_mut() {
+                            receipt.insert("keys".into(), keys);
+                        }
+                    }
+                    (status, Json(value))
+                })
                 .map_err(|signal| staff_refusal("gaming provider-keys read", signal))
         }
         Ok(false) => Err(crate::gate::api_error("gaming provider-keys read")),
@@ -106,7 +115,7 @@ pub(super) async fn save(
     match crate::shared::policy::allows_command("gaming provider-keys save") {
         Ok(true) => {
             let result = crate::gate::blocking_task("gaming provider-keys save", move || {
-                crate::gate::snake::crossing_path("games/provider-keys", &payload)
+                crate::gate::snake::crossing_path_receipt("games/provider-keys", &payload)
             })
             .await?;
             result
