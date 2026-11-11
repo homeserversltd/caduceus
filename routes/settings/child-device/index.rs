@@ -34,7 +34,7 @@ pub fn command(args: &[String]) -> i32 {
     match invoke(args) {
         Ok(v) => {
             println!("{}", serde_json::to_string_pretty(&v).unwrap());
-            0
+            if crate::gate::mutation_status(&v) == StatusCode::OK { 0 } else { 1 }
         }
         Err(e) => {
             eprintln!("{e}");

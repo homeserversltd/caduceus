@@ -461,13 +461,15 @@ pub fn child_device_stop_json(metadata: Value) -> Result<Value, String> {
 
 pub fn stop_receipt(stop: &str, fields: Value) -> Result<Value, String> {
     let walked = crate::gate::snake::crossing_path_with_timeout(stop, &fields, Duration::from_secs(30))?;
-    let receipt = walked.get("receiptPayload").cloned().filter(Value::is_object)
+    let mut receipt = walked.get("receiptPayload").cloned().filter(Value::is_object)
         .ok_or_else(|| "caduceus-staff-invalid-receipt".to_string())?;
     if walked.get("ok").and_then(Value::as_bool) != Some(true)
-        || receipt.get("ok").and_then(Value::as_bool) == Some(false)
+        && receipt.get("ok").and_then(Value::as_bool) != Some(false)
+        && receipt.get("doorSignal").is_none()
     {
-        return Err(receipt.get("firstMissingSignal").and_then(Value::as_str)
-            .unwrap_or("caduceus-staff-refused").to_string());
+        let signal = receipt.get("firstMissingSignal").and_then(Value::as_str)
+            .unwrap_or("caduceus-staff-refused").to_string();
+        receipt["doorSignal"] = json!(signal);
     }
     Ok(receipt)
 }
@@ -554,7 +556,7 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         });
         crate::gate::snake::run(band, &envelope)?
     };
-    let receipt = walked
+    let mut receipt = walked
         .get("receiptPayload")
         .cloned()
         .filter(Value::is_object)
@@ -562,14 +564,20 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
     if let Some(expected) = projected {
         if receipt.get("schema").and_then(Value::as_str) != Some(expected.as_str())
             && !crate::routes::leaf_schema::bound(&receipt, &crossed_stop) {
-            return Err("caduceus-schema-desync".into());
+            if receipt.get("doorSignal").is_none() {
+                receipt["doorSignal"] = json!("caduceus-schema-desync");
+            }
+            return Ok(receipt);
         }
     }
     if actuator_id == "disk-doors"
         && receipt.get("schema").and_then(Value::as_str) != Some("caduceus.storage.disk.wipe.v1")
         && !crate::routes::leaf_schema::bound(&receipt, &crossed_stop)
     {
-        return Err("caduceus-staff-invalid-receipt".into());
+        if receipt.get("doorSignal").is_none() {
+            receipt["doorSignal"] = json!("caduceus-staff-invalid-receipt");
+        }
+        return Ok(receipt);
     }
     if actuator_id == "backblaze-bucket-items" {
         let expected = match band {
@@ -579,7 +587,10 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         };
         if receipt.get("schema").and_then(Value::as_str) != Some(expected)
             && !crate::routes::leaf_schema::bound(&receipt, &crossed_stop) {
-            return Err("caduceus-schema-desync".into());
+            if receipt.get("doorSignal").is_none() {
+                receipt["doorSignal"] = json!("caduceus-schema-desync");
+            }
+            return Ok(receipt);
         }
     }
     Ok(receipt)
