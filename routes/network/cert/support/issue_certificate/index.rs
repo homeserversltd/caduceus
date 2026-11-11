@@ -40,12 +40,15 @@ fn house_ca_crossing_with_timeout(verb: &str, payload: Value, timeout: Duration)
     if receipt.get("ok").and_then(Value::as_bool) == Some(true) { Ok(receipt) } else { Err(receipt) }
 }
 
-fn invoke_stop_json(verb: &str, payload: Value, seconds: u64) -> Result<Value, String> {
+fn invoke_stop_json(verb: &str, payload: Value, seconds: u64) -> Result<Value, Value> {
     invoke_stop_json_with_timeout(verb, payload, Duration::from_secs(seconds))
 }
 
-fn invoke_stop_json_with_timeout(verb: &str, payload: Value, timeout: Duration) -> Result<Value, String> {
-    house_ca_crossing_with_timeout(verb, payload, timeout).map_err(|value| {
+fn invoke_stop_json_with_timeout(verb: &str, payload: Value, timeout: Duration) -> Result<Value, Value> {
+    house_ca_crossing_with_timeout(verb, payload, timeout)
+}
+
+fn stop_signal(value: Value) -> String {
         if value.get("firstMissingSignal").and_then(Value::as_str)
             == Some("caduceus-pin-not-yet-provisioned")
         {
@@ -57,7 +60,6 @@ fn invoke_stop_json_with_timeout(verb: &str, payload: Value, timeout: Duration) 
                 .unwrap_or("caduceus-house-ca-refused")
                 .to_string()
         }
-    })
 }
 
 pub fn invoke_json(args: &[String]) -> Result<Value, String> {
@@ -99,7 +101,7 @@ pub fn invoke_json(args: &[String]) -> Result<Value, String> {
         else if let Some(value) = args.get(i + 1) { payload[key] = json!(value); i += 2; }
         else { return Err("agathodaimon-house-ca-refused".into()); }
     }
-    invoke_stop_json(verb, payload, seconds)
+    invoke_stop_json(verb, payload, seconds).map_err(stop_signal)
 }
 
 fn invoke_json_with_stdin(verb: &str, input: Value) -> Result<Value, String> {
@@ -156,10 +158,22 @@ pub fn status_json() -> Result<Value, String> {
     status_json_with_timeout(Duration::from_secs(60))
 }
 pub(crate) fn status_json_with_timeout(timeout: Duration) -> Result<Value, String> {
+    status_receipt(timeout).map_err(stop_signal)
+}
+pub(crate) fn status_receipt(timeout: Duration) -> Result<Value, Value> {
     invoke_stop_json_with_timeout("status", json!({}), timeout)
 }
 pub fn status() -> i32 {
-    print(status_json())
+    match status_receipt(Duration::from_secs(60)) {
+        Ok(value) => {
+            println!("{}", serde_json::to_string(&value).unwrap());
+            0
+        }
+        Err(receipt) => {
+            println!("{}", serde_json::to_string(&receipt).unwrap());
+            1
+        }
+    }
 }
 
 pub fn ensure_root_json(dry_run: bool, renewal_authority: Option<&str>) -> Result<Value, String> {
@@ -168,7 +182,7 @@ pub fn ensure_root_json(dry_run: bool, renewal_authority: Option<&str>) -> Resul
     if let Some(authority) = renewal_authority.filter(|value| !value.is_empty()) {
         payload["renewal-authority"] = json!(authority);
     }
-    invoke_stop_json("ensure-root", payload, 300).and_then(|receipt| {
+    invoke_stop_json("ensure-root", payload, 300).map_err(stop_signal).and_then(|receipt| {
         let changed = receipt
             .get("changed")
             .and_then(Value::as_bool)
@@ -190,7 +204,7 @@ pub fn issue_leaf_json(
     if !sans.is_empty() { payload["sans"] = json!(sans.join(",")); }
     if !ips.is_empty() { payload["ips"] = json!(ips.join(",")); }
     if dry_run { payload["dry-run"] = json!(true); }
-    invoke_stop_json("issue-leaf", payload, 300).and_then(|receipt| {
+    invoke_stop_json("issue-leaf", payload, 300).map_err(stop_signal).and_then(|receipt| {
         let changed = receipt
             .get("changed")
             .and_then(Value::as_bool)
@@ -211,7 +225,7 @@ pub fn bundle_create_json(platform: &str, dry_run: bool) -> Result<Value, String
     }
     let mut payload = json!({"platform": platform});
     if dry_run { payload["dry-run"] = json!(true); }
-    invoke_stop_json("bundle-export", payload, 120)
+    invoke_stop_json("bundle-export", payload, 120).map_err(stop_signal)
 }
 pub fn bundle_create(platform: &str, dry_run: bool) -> i32 {
     print(bundle_create_json(platform, dry_run))
@@ -311,7 +325,7 @@ fn bundle_metadata(platform: &str) -> Result<(String, &'static str), String> {
 
 pub fn bundle_download_json(platform: &str) -> Result<BundleDownload, String> {
     let (expected_filename, expected_mime) = bundle_metadata(platform)?;
-    let value = invoke_stop_json("bundle-read", json!({"platform":platform}), 60)?;
+    let value = invoke_stop_json("bundle-read", json!({"platform":platform}), 60).map_err(stop_signal)?;
     let bound = crate::routes::leaf_schema::bound(&value, "network/cert/house-ca/bundle-read");
     let receipt: BundleReadReceipt = serde_json::from_value(value)
         .map_err(|_| "caduceus-cert-bundle-read-invalid-receipt".to_string())?;
@@ -392,7 +406,7 @@ pub fn apply_json(
 ) -> Result<Value, String> {
     let mut payload = json!({"portal":portal,"upstream":upstream,"certificate":certificate,"key-path":key});
     if dry_run { payload["dry-run"] = json!(true); }
-    invoke_stop_json("apply-nginx", payload, 300).and_then(|receipt| {
+    invoke_stop_json("apply-nginx", payload, 300).map_err(stop_signal).and_then(|receipt| {
         let changed = receipt
             .get("changed")
             .and_then(Value::as_bool)
@@ -406,12 +420,12 @@ pub fn apply_json(
 pub fn constituent_lock_json(portal: &str, lan_ip: &str, dry_run: bool) -> Result<Value, String> {
     let mut payload = json!({"portal":portal,"lan-ip":lan_ip});
     if dry_run { payload["dry-run"] = json!(true); }
-    invoke_stop_json("constituent-lock", payload, 120)
+    invoke_stop_json("constituent-lock", payload, 120).map_err(stop_signal)
 }
 pub fn trust_install_json(bundle: &str, platform: &str, dry_run: bool) -> Result<Value, String> {
     let mut payload = json!({"bundle":bundle,"platform":platform});
     if dry_run { payload["dry-run"] = json!(true); }
-    invoke_stop_json("trust-install", payload, 300)
+    invoke_stop_json("trust-install", payload, 300).map_err(stop_signal)
 }
 
 fn trust_install_with_renew_receipt(
@@ -640,9 +654,12 @@ pub(crate) fn portal_admit_cli_receipt(
     if former || bound {
         result
     } else {
-        Err(json!({"ok":false,"firstMissingSignal":"caduceus-schema-desync",
-            "expected_stop":{"noun":"network/cert/house-ca","verb":"portal-admit"},
-            "received_schema":receipt.get("schema"),"received_stop":receipt.get("stop")}))
+        let mut answer = receipt.clone();
+        answer.as_object_mut().expect("receipt is an object")
+            .entry("caduceus_door_verdict").or_insert_with(|| json!({"signal":"caduceus-schema-desync",
+                "expected_stop":{"noun":"network/cert/house-ca","verb":"portal-admit"},
+                "received_schema":receipt.get("schema"),"received_stop":receipt.get("stop")}));
+        Err(answer)
     }
 }
 
