@@ -382,13 +382,18 @@ where
             })
         }
         #[cfg(leaf_portals_admit)]
-        [domain, verb, portal, ip, upstream, rest @ ..]
+        [domain, verb, portal, ip, args @ ..]
             if domain == "cert" && verb == "portal-admit" =>
         {
             cert_command("cert portal-admit", "portal_admit", &[], || {
+                let (upstream, rest) = match args.split_first() {
+                    Some((word, rest)) if !word.starts_with("--") => (Some(word.as_str()), rest),
+                    _ => (None, args),
+                };
                 let (mut aliases_arg, mut owner_mac, mut origin, mut claim_arg) = (None, None, None, None);
                 let (mut tailnet_port, mut locations, mut dry_run) = (None, None, false);
                 let (mut max_body_size, mut read_timeout) = (None, None);
+                let mut forwarded = serde_json::Map::new();
                 let mut i = 0;
                 while i < rest.len() {
                     let name = rest[i].as_str();
@@ -407,8 +412,34 @@ where
                         "--max-body-size" => &mut max_body_size,
                         "--read-timeout" => &mut read_timeout,
                         _ => {
-                            println!("{}", serde_json::json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}));
-                            return 1;
+                            let Some(key) = name.strip_prefix("--").filter(|key| !key.is_empty()) else {
+                                println!("{}", serde_json::json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}));
+                                return 1;
+                            };
+                            if matches!(key, "portal" | "lan-ip" | "upstream") {
+                                println!("{}", serde_json::json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}));
+                                return 1;
+                            }
+                            let value = match rest.get(i + 1) {
+                                Some(next) if !next.starts_with("--") => {
+                                    i += 1;
+                                    serde_json::Value::String(next.clone())
+                                }
+                                _ => serde_json::Value::Bool(true),
+                            };
+                            match forwarded.entry(key.to_owned()) {
+                                serde_json::map::Entry::Vacant(entry) => { entry.insert(value); }
+                                serde_json::map::Entry::Occupied(mut entry) => {
+                                    if let serde_json::Value::Array(values) = entry.get_mut() {
+                                        values.push(value);
+                                    } else {
+                                        let first = entry.get().clone();
+                                        entry.insert(serde_json::Value::Array(vec![first, value]));
+                                    }
+                                }
+                            }
+                            i += 1;
+                            continue;
                         }
                     };
                     let Some(value) = rest.get(i + 1) else {
@@ -426,7 +457,7 @@ where
                 let owner = owner_mac.zip(origin);
                 let result = crate::routes::issue_certificate::portal_admit_cli_receipt(
                     portal, ip, upstream, &aliases, owner, &claim_tiles, dry_run, tailnet_port, locations,
-                    max_body_size, read_timeout,
+                    max_body_size, read_timeout, forwarded,
                 );
                 match result {
                     Ok(value) => { println!("{value}"); 0 }
@@ -1039,7 +1070,7 @@ fn print_usage(args: Option<&[String]>) {
     println!("  caduceus cert trust-install <bundle> [--platform linux] [--dry-run]");
     println!("  caduceus cert trust-fetch <server-ip-or-host> [--renew]");
     println!(
-        "  caduceus cert portal-admit <portal> <lan-ip> <upstream> [--aliases a,b] [--dry-run]"
+        "  caduceus cert portal-admit <portal> <lan-ip> [<upstream>] [options] (templates and notes: GET /api/v1/schema/hestia.portal.v1)"
     );
     println!("  caduceus cert portal-retire [--dry-run] <portal> <owner-mac>");
     println!("  caduceus legacy-sbin list");

@@ -10,11 +10,12 @@ use std::sync::OnceLock;
 include!(concat!(env!("OUT_DIR"), "/public_schema_seats.rs"));
 
 const SEAT_FOLDER: &str = "/opt/caduceus/source/schema";
-const SHARED_SEATS: [&str; 4] = [
+const SHARED_SEATS: [&str; 5] = [
     crate::protocol::SCHEMA_ID,
     "caduceus.staff.receipt.v1",
     "caduceus.chord.v1",
     "caduceus.chord.receipt.v1",
+    "hestia.portal.v1",
 ];
 
 struct Seat {

@@ -1,0 +1,41 @@
+{
+  "schema": "hestia.portal.v1",
+  "schema_version": "1.0.0",
+  "role": "Hestia portal row grammar: templates, notes and row fields",
+  "authority": {"owner": "caduceus", "path": "schema/hestia.portal.v1.json", "law": "pali:sphragis-hestia-anchor-portal-constituent-tablet"},
+  "evolution": {"law": "additive-only", "unknown_fields_preserved": true},
+  "required": ["fqdn", "lan_ip"],
+  "files_root": "/etc/nginx/hestia",
+  "templates": {
+    "proxy": {"primitive": true, "requires": ["upstream"]},
+    "static": {"file": "templates/static.conf", "requires": ["root"], "holes": ["root"]},
+    "php": {"file": "templates/php.conf", "requires": ["root", "fpm"], "holes": ["root", "fpm", "read_timeout"]}
+  },
+  "notes": {
+    "cors": {"kind": "include", "choices": {"open": "notes/cors-open.conf", "echo": "notes/cors-echo.conf"}},
+    "cache-static": {"kind": "include", "file": "notes/cache-static.conf", "templates": ["static", "php"]},
+    "root": {"kind": "hole", "templates": ["static", "php"]},
+    "fpm": {"kind": "hole", "templates": ["php"]},
+    "path": {"kind": "location", "repeatable": true, "form": "<location>=<upstream>", "row_field": "locations"},
+    "alias": {"kind": "location", "repeatable": true, "form": "<location>=<file>", "row_field": "alias", "templates": ["static", "php"]}
+  },
+  "fields": {
+    "fqdn": {"type": "string"},
+    "aliases": {"type": "array", "items": "string"},
+    "lan_ip": {"type": "string"},
+    "upstream": {"type": "string", "description": "proxy rows only; http:// or https://, the unix form http://unix:<socket>: included"},
+    "template": {"type": "string", "default": "proxy"},
+    "root": {"type": "string"},
+    "fpm": {"type": "string", "description": "host:port or unix:<socket>"},
+    "cors": {"type": "string"},
+    "cache_static": {"type": "boolean"},
+    "alias": {"type": "array", "items": {"path": "string", "file": "string"}},
+    "locations": {"type": "array", "items": {"path": "string", "upstream": "string", "strip_authorization": "boolean"}, "description": "path may be led by = or ^~"},
+    "tailnet_port": {"type": "integer"},
+    "max_body_size": {"type": "string", "default": "1m"},
+    "read_timeout": {"type": "integer", "default": 60},
+    "owner_mac": {"type": "string"},
+    "origin": {"type": "string"}
+  },
+  "optional": ["aliases", "upstream", "template", "root", "fpm", "cors", "cache_static", "alias", "locations", "tailnet_port", "max_body_size", "read_timeout", "owner_mac", "origin"]
+}

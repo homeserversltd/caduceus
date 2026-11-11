@@ -606,12 +606,14 @@ pub(crate) fn portal_owned_admit_receipt(portal: &str, ip: &str, upstream: &str,
 
 /// The CLI door preserves the staff receipt and binds it to this stop.
 pub(crate) fn portal_admit_cli_receipt(
-    portal: &str, ip: &str, upstream: &str, aliases: &[String],
+    portal: &str, ip: &str, upstream: Option<&str>, aliases: &[String],
     owner: Option<(&str, &str)>, claim_tiles: &[String], dry_run: bool,
     tailnet_port: Option<&str>, locations: Option<&str>,
     max_body_size: Option<&str>, read_timeout: Option<&str>,
+    forwarded: serde_json::Map<String, Value>,
 ) -> Result<Value, Value> {
-    let mut payload = json!({"portal":portal,"lan-ip":ip,"upstream":upstream});
+    let mut payload = json!({"portal":portal,"lan-ip":ip});
+    if let Some(value) = upstream { payload["upstream"] = json!(value); }
     if !aliases.is_empty() { payload["aliases"] = json!(aliases.join(",")); }
     if let Some((mac, origin)) = owner {
         payload["owner-mac"] = json!(mac);
@@ -623,6 +625,7 @@ pub(crate) fn portal_admit_cli_receipt(
     if let Some(value) = locations { payload["locations"] = json!(value); }
     if let Some(value) = max_body_size { payload["max-body-size"] = json!(value); }
     if let Some(value) = read_timeout { payload["read-timeout"] = json!(value); }
+    payload.as_object_mut().expect("payload is an object").extend(forwarded);
 
     let result = house_ca_crossing_with_timeout("portal-admit", payload, Duration::from_secs(600));
     let receipt = match &result { Ok(value) | Err(value) => value };
