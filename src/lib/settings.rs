@@ -440,10 +440,15 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
     let stop_ok = receipt.get("ok").and_then(Value::as_bool) == Some(true);
     let binding_failed = receipt.get("schema").and_then(Value::as_str) == Some("caduceus.staff.receipt.v1")
         && !crate::routes::leaf_schema::bound(&receipt, &path);
+    let receipt_path_valid = receipt.get("receiptPath").and_then(Value::as_str)
+        .and_then(|path| path.strip_prefix(RECEIPT_ROOT).map(|relative| (path, relative)))
+        .is_some_and(|(path, relative)| path.ends_with("/run.json")
+            && !Path::new(relative).components().any(|component| matches!(component, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_))));
+    let receipt_path_invalid = (receipt.get("receiptPath").is_some() || stop_ok) && !receipt_path_valid;
     let object = receipt.as_object_mut().expect("cross_mutation returns an object");
     object.entry("family").or_insert_with(|| json!(family));
     object.entry("fields").or_insert_with(|| json!(values.keys().collect::<Vec<_>>()));
-    if !crossing_ok || !stop_ok || binding_failed {
+    if !crossing_ok || !stop_ok || binding_failed || receipt_path_invalid {
         let rollback_failed = writes_display_config && restore_display_config(rollbacks).is_err();
         let signal = if rollback_failed {
             Some("caduceus-settings-display-rollback-failed")
@@ -451,25 +456,14 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
             Some("caduceus-agathodaimon-refused")
         } else if binding_failed {
             Some("caduceus-schema-desync")
+        } else if receipt_path_invalid {
+            Some("caduceus-settings-receipt-path-invalid")
         } else {
             None
         };
         if let Some(signal) = signal {
             object.entry("doorSignal").or_insert_with(|| json!(signal));
         }
-        return Ok(receipt);
-    }
-    let receipt_path_valid = receipt.get("receiptPath").and_then(Value::as_str)
-        .and_then(|path| path.strip_prefix(RECEIPT_ROOT).map(|relative| (path, relative)))
-        .is_some_and(|(path, relative)| path.ends_with("/run.json")
-            && !Path::new(relative).components().any(|component| matches!(component, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_))));
-    if !receipt_path_valid {
-        let signal = if writes_display_config && restore_display_config(rollbacks).is_err() {
-            "caduceus-settings-display-rollback-failed"
-        } else {
-            "caduceus-settings-receipt-path-invalid"
-        };
-        receipt.as_object_mut().unwrap().entry("doorSignal").or_insert_with(|| json!(signal));
         return Ok(receipt);
     }
     if writes_display_config {
@@ -483,7 +477,14 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
             Err(error) => {
                 let signal = if restore_display_config(rollbacks).is_err() {
                     "caduceus-settings-display-rollback-failed".to_string()
-                } else { error };
+                } else {
+                    let candidate = error.split(':').next().unwrap_or("");
+                    if !candidate.is_empty() && candidate.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-') {
+                        candidate.to_string()
+                    } else {
+                        "caduceus-settings-display-config-unobserved".to_string()
+                    }
+                };
                 receipt.as_object_mut().unwrap().entry("doorSignal").or_insert_with(|| json!(signal));
                 return Ok(receipt);
             }
