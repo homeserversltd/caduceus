@@ -15,7 +15,7 @@
   "fields": {
     "schema": {
       "type": "string",
-      "const": "caduceus.network.wifi.radio.v1"
+      "description": "The answering stop's schema id."
     },
     "present": {
       "type": "boolean"

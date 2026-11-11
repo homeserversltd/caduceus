@@ -1,61 +1,84 @@
 use axum::{extract::Json, http::StatusCode, response::{IntoResponse, Response}, Router};
 use serde_json::{json, Value};
-use std::{io::Read, process::{Command, Stdio}, time::{Duration, Instant}};
+use std::time::Duration;
 #[path = "../support.rs"]
 mod support;
 const DECLARATION: &str = include_str!("index.json");
+const BAND: &str = "network/wifi/radio/get";
+const ROUTE: &str = "network/device/wifi/radio";
+
 async fn route(
     Json(body): Json<Value>,
 ) -> Result<(axum::http::StatusCode, Json<Value>), (axum::http::StatusCode, Json<Value>)> {
     support::execute("network device wifi radio", "radio", body, DECLARATION).await
 }
+
+fn failure(signal: &str, raw: Value, crossed: Option<bool>, actual_stop: Value) -> Value {
+    json!({
+        "schema": "caduceus.staff.receipt.v1",
+        "stop": {"noun": ROUTE, "verb": "get"},
+        "ok": false,
+        "observed": {
+            "route": ROUTE,
+            "band": BAND,
+            "band_crossed": crossed,
+            "membrane_error": raw,
+            "expected_stop": {"noun": "network/wifi/radio", "verb": "get"},
+            "actual_stop": actual_stop
+        },
+        "could_change_to": null,
+        "attempt": {"attempted": crossed == Some(true)},
+        "final_receipt": {"ok": false, "firstMissingSignal": signal},
+        "firstMissingSignal": signal
+    })
+}
+
 fn read_radio() -> Result<Value, &'static str> {
-    const LIMIT: usize = 64 * 1024;
-    let cli = crate::gate::snake::cli_path();
-    let mut command = if std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some() {
-        Command::new(&cli)
-    } else {
-        let mut command = Command::new("/usr/bin/sudo");
-        command.arg("-n").arg(&cli);
-        command
+    let crossing = match crate::gate::snake::crossing_path_with_timeout(
+        BAND, &json!({}), Duration::from_secs(60),
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            let signal = if error == "caduceus-agathodaimon-timeout" {
+                "wifi-radio-staff-timeout"
+            } else if error.starts_with("caduceus-agathodaimon-output-too-large") {
+                "wifi-radio-staff-output-too-large"
+            } else {
+                "wifi-radio-staff-unavailable"
+            };
+            // An Err does not establish whether the socket or child crossed the band.
+            let crossed = if error == "caduceus-agathodaimon-cli-missing" { Some(false) } else { None };
+            return Ok(failure(signal, json!(error), crossed, Value::Null));
+        }
     };
-    let mut child = command.args(["network/wifi/radio/get"])
-        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
-        .spawn().map_err(|_| "wifi-radio-staff-unavailable")?;
-    let stdout = child.stdout.take().ok_or("wifi-radio-staff-output-unavailable")?;
-    let reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stdout.take((LIMIT + 1) as u64).read_to_end(&mut bytes).map(|_| bytes)
-    });
-    let status = match crate::shared::child_wait::until(&mut child, Instant::now() + Duration::from_secs(60)) {
-        Ok(Some(status)) => Some(status),
-        _ => { let _ = child.kill(); let _ = child.wait(); None }
-    };
-    let bytes = reader.join().map_err(|_| "wifi-radio-staff-output-invalid")?
-        .map_err(|_| "wifi-radio-staff-output-invalid")?;
-    let status = status.ok_or("wifi-radio-staff-timeout")?;
-    if !status.success() { return Err("wifi-radio-staff-refused"); }
-    if bytes.len() > LIMIT { return Err("wifi-radio-staff-output-too-large"); }
-    let value: Value = serde_json::from_slice(&bytes).map_err(|_| "wifi-radio-staff-receipt-invalid")?;
-    if value.get("ok").and_then(Value::as_bool) != Some(true) {
-        return Err("wifi-radio-staff-refused");
+    let payload = crossing.get("receiptPayload").cloned().unwrap_or(Value::Null);
+    if !payload.is_object() {
+        return Ok(failure("wifi-radio-staff-receipt-invalid", payload, Some(true), Value::Null));
     }
-    let present = value.get("present").and_then(Value::as_bool)
-        .ok_or("wifi-radio-staff-receipt-invalid")?;
-    let enabled = value.get("enabled").and_then(Value::as_bool)
-        .ok_or("wifi-radio-staff-receipt-invalid")?;
-    Ok(json!({"present": present, "enabled": enabled}))
+    if let Some(stop) = payload.get("stop") {
+        if stop.get("noun").and_then(Value::as_str) != Some("network/wifi/radio")
+            || stop.get("verb").and_then(Value::as_str) != Some("get")
+        {
+            return Ok(failure("caduceus-schema-desync", Value::Null, Some(true), stop.clone()));
+        }
+    }
+    Ok(payload)
 }
 
 async fn posture() -> Response {
     if !crate::gate::roster_allows("GET", "network/device/wifi/radio").unwrap_or(false) {
         return crate::gate::api_error("network/device/wifi/radio").into_response();
     }
-    match tokio::task::spawn_blocking(read_radio).await {
-        Ok(Ok(value)) => (StatusCode::OK, Json(value)).into_response(),
-        Ok(Err(signal)) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "firstMissingSignal": signal}))).into_response(),
-        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "firstMissingSignal": "wifi-radio-staff-task-failed"}))).into_response(),
-    }
+    let value = match tokio::task::spawn_blocking(read_radio).await {
+        Ok(Ok(value)) => value,
+        Ok(Err(signal)) => failure(signal, Value::Null, None, Value::Null),
+        Err(error) => failure("wifi-radio-staff-task-failed", json!(error.to_string()), None, Value::Null),
+    };
+    let success = value.get("ok").and_then(Value::as_bool) == Some(true)
+        && value.get("present").and_then(Value::as_bool).is_some()
+        && value.get("enabled").and_then(Value::as_bool).is_some();
+    let status = if success { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+    (status, Json(value)).into_response()
 }
 
 pub fn register(router: Router) -> Router {
