@@ -215,8 +215,8 @@ pub fn set_sudo_mode_json(body: &Value) -> Result<Value, String> {
     }))
 }
 
-const PIN_NOT_PROVISIONED: &str = "caduceus-pin-not-yet-provisioned";
-const PIN_DEFAULT_RESET_FAILED: &str = "caduceus-pin-default-reset-failed";
+const PIN_NOT_PROVISIONED: &str = "exousia-pin-not-yet-provisioned";
+const PIN_DEFAULT_RESET_FAILED: &str = "exousia-pin-default-reset-failed";
 
 /// Read the live PIN seat for each operation; never cache or delegate verification.
 fn configured_pin() -> Result<String, String> {
@@ -253,12 +253,12 @@ pub fn bind() {
 
 pub(crate) fn verify_administrative_pin(pin: &str) -> Result<(), String> {
     if pin.is_empty() || pin.len() > 512 {
-        return Err("caduceus-administrative-pin-required".to_string());
+        return Err("exousia-pin-required".to_string());
     }
     if pin_matches(pin)? {
         Ok(())
     } else {
-        Err("caduceus-administrative-pin-wrong".to_string())
+        Err("exousia-pin-wrong".to_string())
     }
 }
 
@@ -267,7 +267,7 @@ fn open_verified_json(body: &Value, origin: AttendanceOrigin) -> Result<Value, S
     let document_incarnation = text(body, "documentIncarnation")?;
     let pin = text(body, "pin")?;
     if !pin_matches(&pin)? {
-        return Ok(envelope(false, "caduceus-attendance-pin-wrong"));
+        return Ok(envelope(false, "exousia-pin-wrong"));
     }
     let now = Instant::now();
     let mut guard = state()
@@ -330,7 +330,7 @@ fn agent_target(body: &Value) -> Result<(String, String, String, String), String
         .pointer("/flags/exousia/pin")
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty() && value.len() <= 512)
-        .ok_or_else(|| "caduceus-attendance-pin-missing".to_string())?;
+        .ok_or_else(|| "exousia-pin-required".to_string())?;
     Ok((
         document.to_string(),
         service.to_string(),
@@ -343,7 +343,7 @@ pub fn open_request_json(body: &Value) -> Result<Value, String> {
     if body.get("schema").and_then(Value::as_str) == Some("caduceus.staff.v1") {
         let (document, service, action, pin) = agent_target(body)?;
         if !pin_matches(&pin)? {
-            return Ok(envelope(false, "caduceus-attendance-pin-wrong"));
+            return Ok(envelope(false, "exousia-pin-wrong"));
         }
         let now = Instant::now();
         let mut guard = state()
@@ -437,7 +437,7 @@ pub fn change_pin_json(body: &Value) -> Result<Value, String> {
         ));
     }
     if !pin_matches(&current_pin)? {
-        return Ok(envelope(false, "caduceus-attendance-pin-wrong"));
+        return Ok(envelope(false, "exousia-pin-wrong"));
     }
     if crate::shared::config::set_json("global.admin.pin", Value::String(new_pin)).is_err() {
         return Ok(envelope(false, "caduceus-attendance-change-failed"));

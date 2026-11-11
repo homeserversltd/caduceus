@@ -704,7 +704,7 @@ fn administrative_credentials_admit(headers: &HeaderMap, body: &Value) -> Result
         .pointer("/flags/exousia/pin")
         .and_then(Value::as_str)
         .filter(|pin| !pin.is_empty() && pin.len() <= 512)
-        .ok_or_else(|| "caduceus-administrative-pin-required".to_string())?;
+        .ok_or_else(|| "exousia-pin-required".to_string())?;
     attendance::verify_administrative_pin(pin)
 }
 
