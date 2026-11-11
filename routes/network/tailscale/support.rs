@@ -220,9 +220,13 @@ fn safe_receipt(crossing: &Value, action: &str, secret: Option<&str>) -> Option<
     let staff_ok = receipt.get("ok").and_then(Value::as_bool);
     let receipt_action = receipt.get("action").and_then(Value::as_str);
     let unknown_action_refusal = receipt_action == Some("unknown") && staff_ok == Some(false);
+    let front_refusal = matches!(action, "up" | "down")
+        && receipt.get("action").is_none()
+        && staff_ok == Some(false)
+        && crate::routes::leaf_schema::bound(receipt, stop(action));
     if (receipt.get("schema").and_then(Value::as_str) != Some(stop_seat(action).as_str())
         && !crate::routes::leaf_schema::bound(receipt, stop(action)))
-        || (receipt_action != Some(action) && !unknown_action_refusal)
+        || (receipt_action != Some(action) && !unknown_action_refusal && !front_refusal)
     {
         return None;
     }
@@ -277,7 +281,10 @@ fn safe_receipt(crossing: &Value, action: &str, secret: Option<&str>) -> Option<
             }
         }
     }
-    let projected = scrub_marked(projected)?;
+    let mut projected = scrub_marked(projected)?;
+    if matches!(action, "up" | "down") && !ok {
+        projected.as_object_mut()?.insert("receipt".to_string(), receipt.clone());
+    }
     crate::routes::leaf_schema::accepts(SCHEMA, &projected).then_some(projected)
 }
 
@@ -317,10 +324,18 @@ async fn execute(action: &'static str, body: Result<Bytes, BytesRejection>) -> H
     let mut secret = None;
     let payload = match action {
         "up" | "down" => {
-            // The gate strips flags.exousia.pin and forwards what remains (often `{}`);
-            // these acts take no input, so the body is ignored and never forwarded.
-            let _ = &body;
-            json!({})
+            // Forward the caller's object after the gate strips flags.exousia.pin.
+            if body.is_empty() {
+                json!({})
+            } else {
+                let value = serde_json::from_slice::<Value>(body.as_ref()).map_err(|_| {
+                    bad_request(&command, "caduceus-network-tailscale-request-invalid")
+                })?;
+                if !value.is_object() {
+                    return Err(bad_request(&command, "caduceus-network-tailscale-request-invalid"));
+                }
+                value
+            }
         }
         "authkey" => {
             let value = serde_json::from_slice::<Value>(body.as_ref()).map_err(|_| {
@@ -380,20 +395,27 @@ async fn execute(action: &'static str, body: Result<Bytes, BytesRejection>) -> H
     };
 
     let timeout = timeout(action);
-    let crossed = match crate::gate::blocking_task(&command, move || {
-        crate::gate::snake::crossing_path_with_timeout(stop(action), &payload, timeout)
-    })
-    .await
-    {
-        Ok(result) => result,
-        Err(_) => {
-            return Ok((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(unknown_receipt(
-                    action,
-                    "caduceus-network-tailscale-crossing-outcome-unknown",
-                )),
-            ));
+    let crossed = if matches!(action, "up" | "down") {
+        let envelope = crate::gate::snake::route_envelope(stop(action), &payload);
+        crate::gate::snake::execute_ordered_serve_with_timeout(
+            &[json!({"snake": stop(action)})], &envelope, Some(timeout),
+        ).await
+    } else {
+        match crate::gate::blocking_task(&command, move || {
+            crate::gate::snake::crossing_path_with_timeout(stop(action), &payload, timeout)
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => {
+                return Ok((
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(unknown_receipt(
+                        action,
+                        "caduceus-network-tailscale-crossing-outcome-unknown",
+                    )),
+                ));
+            }
         }
     };
     let crossing = match crossed {
