@@ -206,7 +206,7 @@ fn decode_mountinfo(s: &str) -> String {
 }
 fn read_policy(cfg: &VaultConfig) -> Result<Value, String> {
     let payload = json!({"mapper": &cfg.mapper});
-    let receipt = crate::gate::snake::crossing_path("storage/vault/policy/read", &payload)
+    let receipt = crate::gate::snake::crossing_path_receipt("storage/vault/policy/read", &payload)
         .map_err(|_| "vault-policy-missing".to_string())?;
     if (receipt.get("schema").and_then(Value::as_str) != Some(POLICY_READ_RECEIPT_SCHEMA)
         && !crate::routes::leaf_schema::bound(&receipt, "storage/vault/policy/read"))
@@ -513,7 +513,7 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
             "unlock": "manual_passphrase",
         })
     };
-    let receipt = match crate::gate::snake::crossing_path("storage/vault/policy/write", &payload) {
+    let receipt = match crate::gate::snake::crossing_path_receipt("storage/vault/policy/write", &payload) {
         Ok(receipt) => receipt,
         Err(error) => {
             log_internal("auto-decrypt", &error);
@@ -531,7 +531,9 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
             .and_then(Value::as_str)
             .unwrap_or("vault-policy-write-refused");
         log_internal("auto-decrypt", signal);
-        return auto_decrypt_failure(config_rollback);
+        let mut failure = auto_decrypt_failure(config_rollback);
+        failure["stopReceipt"] = receipt;
+        return failure;
     }
     json!({
         "success": true,

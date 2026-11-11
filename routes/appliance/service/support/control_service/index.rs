@@ -48,18 +48,7 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         "status" => "appliance/service/status",
         _ => return Err("caduceus-portal-service-intent-invalid".to_string()),
     };
-    let receipt = match crate::gate::snake::crossing_path(band, &payload) {
-        Ok(receipt) => receipt,
-        // crossing_path preserves the refusal token but discards the band's
-        // receiptPayload on a nonzero band exit, so output and active are unknown.
-        Err(signal) if is_service_band_refusal(&signal) => json!({
-            "ok": false,
-            "active": null,
-            "output": "",
-            "firstMissingSignal": signal,
-        }),
-        Err(signal) => return Err(signal),
-    };
+    let receipt = crate::gate::snake::crossing_path_receipt(band, &payload)?;
     let ok = receipt
         .get("ok")
         .and_then(Value::as_bool)
@@ -81,7 +70,7 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         .and_then(Value::as_str)
         .ok_or_else(|| "caduceus-portal-service-receipt-invalid".to_string())?;
 
-    Ok(json!({
+    let mut projection = json!({
         "schema": "caduceus.staff.portal_service.v1",
         "ok": ok,
         "accepted": true,
@@ -98,18 +87,11 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         "execution": "systemctl",
         "firstMissingSignal": first_missing_signal,
         "metadata": metadata
-    }))
-}
-
-fn is_service_band_refusal(signal: &str) -> bool {
-    matches!(
-        signal,
-        "portal-service-action-invalid"
-            | "portal-service-name-invalid"
-            | "portal-service-not-allowed"
-            | "portal-service-registry-unreadable"
-            | "portal-service-systemctl-failed"
-    )
+    });
+    if !ok {
+        projection["stopReceipt"] = receipt;
+    }
+    Ok(projection)
 }
 
 pub fn normalize_systemd_service(service: &str) -> String {
