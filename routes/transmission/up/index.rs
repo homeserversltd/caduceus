@@ -32,14 +32,13 @@ async fn up_route(
         crate::gate::service_unavailable(COMMAND, "caduceus-transmission-up-receipt-missing")
     })?;
     if crate::routes::leaf_schema::accepts("caduceus.chord.receipt.v1", &receipt) {
-        // Preserve the complete aggregate and its extensions while exposing
-        // the legacy face fields from the named stops, not stage order.
+        // Keep the aggregate whole at the top level; derived legacy fields
+        // ride beside it, selected from named stops rather than stage order.
         let chord = receipt.clone();
         let rows = chord.get("stages").and_then(Value::as_array);
         let row = |id: &str| rows.and_then(|rows| rows.iter().find(|row| row.get("stage_id").and_then(Value::as_str) == Some(id)));
         let stage = |id: &str| row(id).and_then(|row| row.get("receipt"));
         if let Some(out) = receipt.as_object_mut() {
-            out.insert("schema".into(), Value::String("caduceus.transmission.up.v1".into()));
             if let Some(resolve) = stage("resolve") {
                 for key in ["provider", "rpcPort", "holdUnit", "nativeUnit"] {
                     if let Some(value) = resolve.get(key) { out.insert(key.into(), value.clone()); }
@@ -78,14 +77,13 @@ async fn up_route(
                 _ => (None, None),
             };
             if let Some(rung) = rung { out.insert("failedRung".into(), Value::String(rung.into())); }
-            if let Some(signal) = signal { out.insert("firstMissingSignal".into(), Value::String(signal.into())); }
+            if let Some(signal) = signal { out.insert("failedSignal".into(), Value::String(signal.into())); }
             if failed == Some("rollback-stop") {
                 if let Some(rollback) = stage("rollback-stop") { out.insert("rollback".into(), rollback.clone()); }
             }
             if let Some(rows) = rows { out.insert("steps".into(), Value::Array(rows.clone())); }
-            out.insert("chord".into(), chord);
         }
-    } else if !crate::routes::leaf_schema::accepts_bound("caduceus.transmission.up.v1", "transmission/up", &receipt) {
+    } else if !crate::routes::leaf_schema::bound(&receipt, "transmission/up") {
         return Err(crate::gate::service_unavailable(
             COMMAND,
             "caduceus-schema-desync",

@@ -34,13 +34,11 @@ async fn down_route(
     if crate::routes::leaf_schema::accepts("caduceus.chord.receipt.v1", &receipt) {
         let chord = receipt.clone();
         if let Some(out) = receipt.as_object_mut() {
-            out.insert("schema".into(), Value::String("caduceus.transmission.down.v1".into()));
             if let Some(rows) = chord.get("stages").and_then(Value::as_array) {
                 out.insert("steps".into(), Value::Array(rows.clone()));
             }
-            out.insert("chord".into(), chord);
         }
-    } else if !crate::routes::leaf_schema::accepts_bound("caduceus.transmission.down.v1", "transmission/down", &receipt) {
+    } else if !crate::routes::leaf_schema::bound(&receipt, "transmission/down") {
         return Err(crate::gate::service_unavailable(
             COMMAND,
             "caduceus-schema-desync",
