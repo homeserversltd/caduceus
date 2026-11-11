@@ -745,7 +745,6 @@ fn rust_step_stamp(
         .and_then(Value::as_str)
         .unwrap_or(if ok { "none" } else { "caduceus-rust-primitive-refused" });
     let stamp = json!({
-        "schema":"caduceus.staff.v1",
         "stepReceipt":payload,
         "ok":ok,
         "primitive":primitive,
@@ -1070,6 +1069,15 @@ pub fn crossing_path(path: &str, input: &Value) -> Result<Value, String> {
             .unwrap_or("caduceus-agathodaimon-refused")
             .into())
     }
+}
+
+/// Pass the stop's receipt whole, including refusals, under ReceiptPassage.
+pub fn crossing_path_receipt(path: &str, input: &Value) -> Result<Value, String> {
+    let env = crossing_envelope(path, input);
+    let v = execute(path, &env)?;
+    v.get("receiptPayload")
+        .cloned()
+        .ok_or_else(|| "caduceus-snake-receipt-missing".to_string())
 }
 
 struct NativeChordState {
