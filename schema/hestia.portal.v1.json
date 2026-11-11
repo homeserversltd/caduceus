@@ -1,6 +1,6 @@
 {
   "schema": "hestia.portal.v1",
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "role": "Hestia portal row grammar: templates, notes and row fields",
   "authority": {"owner": "caduceus", "path": "schema/hestia.portal.v1.json", "law": "pali:sphragis-hestia-anchor-portal-constituent-tablet"},
   "evolution": {"law": "additive-only", "unknown_fields_preserved": true},
@@ -14,6 +14,7 @@
   "notes": {
     "cors": {"kind": "include", "choices": {"open": "notes/cors-open.conf", "echo": "notes/cors-echo.conf"}},
     "cache-static": {"kind": "include", "file": "notes/cache-static.conf", "templates": ["static", "php"]},
+    "upload-stream": {"kind": "include", "file": "notes/upload-stream.conf"},
     "root": {"kind": "hole", "templates": ["static", "php"]},
     "fpm": {"kind": "hole", "templates": ["php"]},
     "path": {"kind": "location", "repeatable": true, "form": "<location>=<upstream>", "row_field": "locations"},
@@ -30,6 +31,7 @@
     "fpm": {"type": "string", "description": "host:port or unix:<socket>"},
     "cors": {"type": "string"},
     "cache_static": {"type": "boolean"},
+    "upload_stream": {"type": "boolean"},
     "alias": {"type": "array", "items": {"path": "string", "file": "string"}},
     "locations": {"type": "array", "items": {"path": "string", "upstream": "string", "strip_authorization": "boolean"}, "description": "path may be led by = or ^~"},
     "tailnet_port": {"type": "integer"},
@@ -39,5 +41,5 @@
     "origin": {"type": "string"},
     "fallback": {"type": "string", "description": "page path under root, shown when the application is down"}
   },
-  "optional": ["aliases", "upstream", "template", "root", "fpm", "cors", "cache_static", "alias", "locations", "tailnet_port", "max_body_size", "read_timeout", "owner_mac", "origin", "fallback"]
+  "optional": ["aliases", "upstream", "template", "root", "fpm", "cors", "cache_static", "upload_stream", "alias", "locations", "tailnet_port", "max_body_size", "read_timeout", "owner_mac", "origin", "fallback"]
 }
