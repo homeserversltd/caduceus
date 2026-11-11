@@ -97,32 +97,27 @@ fn update_timer_name() -> Result<String, String> {
 
 const UPDATE_SERVICE_BAND: &str = "update/service";
 
-fn update_service_receipt(action: &str) -> Result<Value, String> {
-    let receipt =
-        crate::gate::snake::crossing_path(UPDATE_SERVICE_BAND, &json!({"action": action}))?;
-    if receipt.get("ok").and_then(Value::as_bool) == Some(true) {
-        Ok(receipt)
-    } else {
-        Err(receipt
-            .get("firstMissingSignal")
-            .and_then(Value::as_str)
-            .unwrap_or("caduceus-update-service-refused")
-            .to_string())
-    }
+pub(crate) fn service_native(action: &str, signal: &str, attempted: bool, step: &str) -> Value {
+    json!({
+        "schema": "caduceus.staff.receipt.v1", "stop": {"noun": "update", "verb": "service"},
+        "observed": {"words": ["update", "service", action], "path": "update/service"},
+        "could_change_to": if action == "status" { Value::Null } else { json!({"state": action}) },
+        "attempt": {"attempted": attempted, "step": step},
+        "final_receipt": {"ok": false, "firstMissingSignal": signal},
+        "ok": false, "firstMissingSignal": signal
+    })
 }
 
-fn update_service_response(receipt: Value, schema: &str, timer: &str) -> Value {
-    let mut response = receipt.as_object().cloned().unwrap_or_default();
-    response.insert("schema".to_string(), json!(schema));
-    response.insert("timer".to_string(), json!(timer));
-    response.entry("enabled".to_string()).or_insert(Value::Null);
-    response.entry("active".to_string()).or_insert(Value::Null);
-    response.entry("output".to_string()).or_insert(Value::Null);
-    response
-        .entry("firstMissingSignal".to_string())
-        .or_insert(json!("none"));
-    response.entry("ok".to_string()).or_insert(json!(true));
-    Value::Object(response)
+fn update_service_receipt(action: &str) -> (Value, bool) {
+    match crate::gate::snake::crossing_path_with_timeout(
+        UPDATE_SERVICE_BAND, &json!({"action": action}), std::time::Duration::from_secs(30),
+    ) {
+        Ok(walked) => match walked.get("receiptPayload") {
+            Some(receipt) if receipt.is_object() => (receipt.clone(), true),
+            _ => (service_native(action, "caduceus-snake-receipt-missing", true, "receipt"), false),
+        },
+        Err(signal) => (service_native(action, &signal, true, "crossing"), false),
+    }
 }
 
 fn enabled_state(receipt: &Value) -> Option<bool> {
@@ -174,61 +169,77 @@ fn timer_state(receipt: &Value) -> Option<String> {
 }
 
 pub fn service_status_json() -> Result<Value, String> {
-    let timer = update_timer_name()?;
-    let receipt = update_service_receipt("status")?;
-    let mut response =
-        update_service_response(receipt.clone(), "caduceus.update.service.status.v1", &timer);
+    if let Err(signal) = update_timer_name() {
+        return Ok(service_native("status", &signal, false, "timer"));
+    }
+    let (receipt, crossed) = update_service_receipt("status");
+    if !crossed { return Ok(receipt); }
+    let mut response = receipt.clone();
     let enabled = enabled_state(&receipt);
     let timer_state = timer_state(&receipt);
-    response["enabled"] = json!(enabled);
-    response["timerState"] = json!(timer_state);
-    let first_missing_signal = if enabled.is_none() {
+    let first_missing_signal = if receipt.pointer("/stop/noun").and_then(Value::as_str) != Some("update")
+        || receipt.pointer("/stop/verb").and_then(Value::as_str) != Some("service")
+        || receipt.get("schema").and_then(Value::as_str) != Some("caduceus.staff.receipt.v1") {
+        "caduceus-schema-desync"
+    } else if enabled.is_none() {
         "caduceus-update-service-enabled-state-unobserved"
     } else if timer_state.is_none() {
         "caduceus-update-service-timer-state-unobserved"
     } else {
         "none"
     };
-    response["firstMissingSignal"] = json!(first_missing_signal);
-    response["ok"] = json!(first_missing_signal == "none");
+    if let Some(object) = response.as_object_mut() {
+        object.entry("enabledBool").or_insert(json!(enabled));
+        object.entry("timerState").or_insert(json!(timer_state));
+        object.entry("doorSignal").or_insert(json!(first_missing_signal));
+    }
     Ok(response)
 }
 
 pub fn service_toggle_json(state: &str, rest: &[String]) -> Result<Value, String> {
     if !matches!(state, "on" | "off") {
-        return Err("caduceus-public-action-not-allowed".to_string());
+        return Ok(service_native("toggle", "caduceus-public-action-not-allowed", false, "policy"));
     }
-    let timer = update_timer_name()?;
+    if let Err(signal) = update_timer_name() {
+        return Ok(service_native(state, &signal, false, "timer"));
+    }
     let dry_run = rest.iter().any(|arg| arg == "--dry-run");
     if dry_run {
         return Ok(json!({
-            "schema": "caduceus.update.service.toggle.v1",
+            "schema": "caduceus.staff.receipt.v1",
+            "stop": {"noun": "update", "verb": "service"},
             "ok": true,
-            "timer": timer,
             "mutation": false,
             "requestedState": state,
-            "enabled": null,
-            "active": null,
-            "output": null,
             "firstMissingSignal": "none",
-            "plan": {
+            "observed": {"words": ["update", "service", "toggle"], "path": "update/service"},
+            "attempt": {"attempted": false, "step": "dry-run"},
+            "final_receipt": {"ok": true, "firstMissingSignal": "none"},
+            "could_change_to": {
                 "band": UPDATE_SERVICE_BAND,
                 "stdinPayload": {"action": state}
             }
         }));
     }
 
-    let started = Instant::now();
-    let receipt = update_service_receipt(state)?;
-    let mut response =
-        update_service_response(receipt, "caduceus.update.service.toggle.v1", &timer);
-    response["mutation"] = json!(true);
-    response["requestedState"] = json!(state);
-    let receipt_body = response.to_string();
-    let _ = receipts::write_latest_with_duration(
-        &receipt_body,
-        u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-    );
+    let (mut response, crossed) = update_service_receipt(state);
+    if !crossed { return Ok(response); }
+    let enabled = enabled_state(&response);
+    let timer = timer_state(&response);
+    let signal = if response.pointer("/stop/noun").and_then(Value::as_str) != Some("update")
+        || response.pointer("/stop/verb").and_then(Value::as_str) != Some("service")
+        || response.get("schema").and_then(Value::as_str) != Some("caduceus.staff.receipt.v1") {
+        "caduceus-schema-desync"
+    } else if enabled.is_none() { "caduceus-update-service-enabled-state-unobserved" }
+      else if timer.is_none() { "caduceus-update-service-timer-state-unobserved" }
+      else { "none" };
+    if let Some(object) = response.as_object_mut() {
+        object.entry("enabledBool").or_insert(json!(enabled));
+        object.entry("timerState").or_insert(json!(timer));
+        object.entry("doorSignal").or_insert(json!(signal));
+        object.entry("mutation").or_insert(json!(true));
+        object.entry("requestedState").or_insert(json!(state));
+    }
     Ok(response)
 }
 
@@ -266,59 +277,24 @@ pub fn check(rest: &[String]) -> i32 {
 }
 
 pub fn service_status() -> i32 {
-    match service_status_json() {
-        Ok(value) => {
-            println!("schema=caduceus.update.service.status.v1");
-            println!("timer={}", value["timer"]);
-            println!("timer_state={}", value["timerState"]);
-            println!("enabled={}", value["enabled"]);
-            println!("active={}", value["active"]);
-            println!("ok={}", value["ok"]);
-            println!("first_missing_signal={}", value["firstMissingSignal"]);
-            if value["ok"].as_bool() == Some(true) {
-                0
-            } else {
-                1
-            }
-        }
-        Err(err) => {
-            println!("schema=caduceus.update.service.status.v1");
-            println!("timer_state=unknown");
-            println!("enabled=unknown");
-            println!("active=unknown");
-            println!("ok=false");
-            println!("first_missing_signal={err}");
-            1
-        }
-    }
+    let value = service_status_json().unwrap_or_else(|signal| service_native("status", &signal, false, "status"));
+    println!("schema={}", value.get("schema").and_then(Value::as_str).unwrap_or(""));
+    println!("receipt={value}");
+    if value["ok"].as_bool() == Some(true) && value["doorSignal"].as_str() == Some("none") { 0 } else { 1 }
 }
 
 pub fn service_toggle(state: &str, rest: &[String]) -> i32 {
-    match service_toggle_json(state, rest) {
-        Ok(value) => {
-            println!("schema=caduceus.update.service.toggle.v1");
-            println!("ok={}", value["ok"]);
-            println!("mutation={}", value["mutation"]);
-            println!("requested_state={}", value["requestedState"]);
-            if let Some(timer) = value.get("timer").and_then(Value::as_str) {
-                println!("timer={timer}");
-            }
-            if let Some(plan) = value.get("plan") {
-                println!("band={}", plan["band"]);
-                println!("stdin_payload={}", plan["stdinPayload"]);
-            }
-            println!("enabled={}", value["enabled"]);
-            println!("active={}", value["active"]);
-            println!("output={}", value["output"]);
-            println!("first_missing_signal={}", value["firstMissingSignal"]);
-            0
-        }
-        Err(signal) => {
-            eprintln!("schema=caduceus.update.service.toggle.v1");
-            eprintln!("ok=false");
-            eprintln!("first_missing_signal={signal}");
-            1
-        }
+    let value = service_toggle_json(state, rest).unwrap_or_else(|signal| service_native(state, &signal, false, "toggle"));
+    let success = value["ok"].as_bool() == Some(true);
+    if success {
+        println!("schema={}", value["schema"].as_str().unwrap_or(""));
+        println!("mutation={}", value["mutation"]);
+        println!("receipt={value}");
+        0
+    } else {
+        eprintln!("schema={}", value["schema"].as_str().unwrap_or(""));
+        eprintln!("receipt={value}");
+        1
     }
 }
 

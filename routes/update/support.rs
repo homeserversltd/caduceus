@@ -99,68 +99,46 @@ pub(crate) async fn receipts_ledger_route(
     }
 }
 
-pub(crate) async fn update_service_status_route(
-) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+pub(crate) async fn update_service_status_route() -> (StatusCode, Json<Value>) {
     match policy::allows_command("update service status") {
         Ok(true) => {
-            let result =
-                blocking_task("update service status", update::service_status_json).await?;
-            result
-                .map(Json)
-                .map_err(|signal| service_unavailable("update service status", &signal))
+            let value = match tokio::task::spawn_blocking(update::service_status_json).await {
+                Ok(Ok(value)) => value,
+                Ok(Err(signal)) => update::service_native("status", &signal, false, "status"),
+                Err(_) => update::service_native("status", "caduceus-blocking-task-failed", false, "join"),
+            };
+            let status = if value["ok"].as_bool() == Some(true) { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+            (status, Json(value))
         }
-        Ok(false) => Err(api_error("update service status")),
-        Err(_) => Err(api_error_signal(
-            "update service status",
-            "caduceus-carapace-desync",
-        )),
+        Ok(false) => (StatusCode::FORBIDDEN, Json(update::service_native("status", "caduceus-public-action-not-allowed", false, "policy"))),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(update::service_native("status", "caduceus-carapace-desync", false, "policy"))),
     }
 }
 
 pub(crate) async fn update_service_toggle_route(
-    headers: HeaderMap,
+    _headers: HeaderMap,
     body: Result<Json<Value>, JsonRejection>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    let Json(body) = match body {
-        Ok(body) => body,
-        Err(_) => return Err(api_error("update service toggle")),
-    };
-    let Some(body) = body.as_object() else {
-        return Err(api_error("update service toggle"));
-    };
-    let state = body
-        .get("state")
-        .or_else(|| {
-            body.get("payload")
-                .and_then(Value::as_object)
-                .and_then(|payload| payload.get("state"))
-        })
-        .and_then(Value::as_str)
-        .filter(|state| matches!(*state, "on" | "off"))
-        .map(str::to_owned);
+) -> (StatusCode, Json<Value>) {
+    let state = body.ok().and_then(|Json(body)| {
+        body.get("state").or_else(|| body.pointer("/payload/state"))
+            .and_then(Value::as_str).filter(|state| matches!(*state, "on" | "off"))
+            .map(str::to_owned)
+    });
     let Some(state) = state else {
-        return Err(api_error("update service toggle"));
+        return (StatusCode::FORBIDDEN, Json(update::service_native("toggle", "caduceus-public-action-not-allowed", false, "input")));
     };
     match policy::allows_command("update service toggle") {
         Ok(true) => {
-            let result = blocking_task("update service toggle", move || {
-                update::service_toggle_json(&state, &[])
-            })
-            .await?;
-            match result {
-                Ok(value) => Ok((StatusCode::OK, Json(value))),
-                Err(signal) => Err(service_unavailable("update service toggle", &signal)),
-            }
+            let request = state.clone();
+            let value = match tokio::task::spawn_blocking(move || update::service_toggle_json(&request, &[])).await {
+                Ok(Ok(value)) => value,
+                Ok(Err(signal)) => update::service_native(&state, &signal, false, "toggle"),
+                Err(_) => update::service_native(&state, "caduceus-blocking-task-failed", false, "join"),
+            };
+            let status = if value["ok"].as_bool() == Some(true) { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+            (status, Json(value))
         }
-        Ok(false) => Err(api_error("update service toggle")),
-        Err(_) => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiErrorBody {
-                schema: "caduceus.api.error.v1",
-                ok: false,
-                command: "update service toggle".to_string(),
-                first_missing_signal: "caduceus-carapace-desync".to_string(),
-            }),
-        )),
+        Ok(false) => (StatusCode::FORBIDDEN, Json(update::service_native(&state, "caduceus-public-action-not-allowed", false, "policy"))),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(update::service_native(&state, "caduceus-carapace-desync", false, "policy"))),
     }
 }
