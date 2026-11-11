@@ -83,6 +83,18 @@ use crate::routes::{dns_control, dns};
 #[serde(rename_all = "camelCase")]
 struct DnsDeviceNameBody {
     hostname: String,
+    ip: Option<String>,
+    r#move: Option<bool>,
+    adopt: Option<bool>,
+    #[serde(default)]
+    flags: Option<Value>,
+}
+
+#[cfg(carapace_feature_unbound)]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DnsDeviceNameRemoveBody {
+    hostname: String,
     ip: String,
     #[serde(default)]
     flags: Option<Value>,
@@ -236,14 +248,16 @@ async fn dns_device_name_create_route(
     )?;
     let hostname = body.hostname;
     let ip = body.ip;
-    dns_mutation_response(COMMAND, move || dns::device_name_json("create", &hostname, &ip))
-        .await
+    dns_mutation_response(COMMAND, move || {
+        dns::device_name_create_json(&hostname, ip.as_deref(), body.r#move, body.adopt)
+    })
+    .await
 }
 
 #[cfg(carapace_feature_unbound)]
 async fn dns_device_name_remove_route(
     headers: HeaderMap,
-    Json(body): Json<DnsDeviceNameBody>,
+    Json(body): Json<DnsDeviceNameRemoveBody>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     const COMMAND: &str = "network dns device-name remove";
     dns_mutation_admits(

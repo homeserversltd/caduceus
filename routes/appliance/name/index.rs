@@ -72,6 +72,29 @@ pub fn device_name_json(action: &str, hostname: &str, ip: &str) -> Result<Value,
     invoke(&format!("network/dns/device-name/{action}"), json!({"hostname": hostname, "ip": ip}))
 }
 
+pub fn device_name_create_json(
+    hostname: &str,
+    ip: Option<&str>,
+    move_name: Option<bool>,
+    adopt: Option<bool>,
+) -> Result<Value, String> {
+    if hostname.is_empty() || (ip.is_none_or(str::is_empty) && adopt != Some(true)) {
+        return Err("caduceus-network-dns-device-name-invalid".into());
+    }
+    let mut payload = serde_json::Map::new();
+    payload.insert("hostname".into(), json!(hostname));
+    if let Some(ip) = ip {
+        payload.insert("ip".into(), json!(ip));
+    }
+    if let Some(move_name) = move_name {
+        payload.insert("move".into(), json!(move_name));
+    }
+    if let Some(adopt) = adopt {
+        payload.insert("adopt".into(), json!(adopt));
+    }
+    invoke("network/dns/device-name/create", Value::Object(payload))
+}
+
 pub fn alias_json(action: &str, label: &str, hostname: &str) -> Result<Value, String> {
     if !["create", "remove"].contains(&action) {
         return Err("dns-verb-unknown".into());
