@@ -265,7 +265,7 @@ pub(crate) fn verify_administrative_pin(pin: &str) -> Result<(), String> {
 fn open_verified_json(body: &Value, origin: AttendanceOrigin) -> Result<Value, String> {
     let document_id = text(body, "documentId")?;
     let document_incarnation = text(body, "documentIncarnation")?;
-    let pin = text(body, "pin")?;
+    let pin = text(body, "pin").map_err(|_| "exousia-pin-required".to_string())?;
     if !pin_matches(&pin)? {
         return Ok(envelope(false, "exousia-pin-wrong"));
     }
@@ -420,8 +420,8 @@ pub fn change_pin_json(body: &Value) -> Result<Value, String> {
     let document_id = text(body, "documentId")?;
     let document_incarnation = text(body, "documentIncarnation")?;
     let attendance = text(body, "attendance")?;
-    let current_pin = text(body, "currentPin")?;
-    let new_pin = text(body, "newPin")?;
+    let current_pin = text(body, "currentPin").map_err(|_| "exousia-pin-required".to_string())?;
+    let new_pin = text(body, "newPin").map_err(|_| "exousia-pin-new-required".to_string())?;
     let now = Instant::now();
     let mut guard = state()
         .lock()
