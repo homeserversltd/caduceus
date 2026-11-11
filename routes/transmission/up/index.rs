@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::time::Duration;
 
 const COMMAND: &str = "transmission up";
+const CROSSING: &str = "transmission/up";
 const TIMEOUT: Duration = Duration::from_secs(600);
 
 async fn up_route(
@@ -24,14 +25,21 @@ async fn up_route(
 
     let payload = body.map(|Json(value)| value).unwrap_or(Value::Null);
     let crossed = crate::gate::blocking_task(COMMAND, move || {
-        crate::gate::snake::crossing_path_with_timeout("transmission/up", &payload, TIMEOUT)
+        crate::gate::snake::crossing_path_with_timeout(CROSSING, &payload, TIMEOUT)
     })
     .await?;
     let crossing = crossed.map_err(|signal| crate::gate::service_unavailable(COMMAND, &signal))?;
     let mut receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
         crate::gate::service_unavailable(COMMAND, "caduceus-transmission-up-receipt-missing")
     })?;
-    if crate::routes::leaf_schema::accepts("caduceus.chord.receipt.v1", &receipt) {
+    if receipt.get("schema").and_then(Value::as_str) == Some("caduceus.chord.receipt.v1")
+        && (!crate::routes::leaf_schema::accepts("caduceus.chord.receipt.v1", &receipt)
+            || receipt.get("routine_id").and_then(Value::as_str) != Some(CROSSING))
+    {
+        if let Some(out) = receipt.as_object_mut() {
+            out.insert("doorSignal".into(), Value::String("caduceus-schema-desync".into()));
+        }
+    } else if receipt.get("schema").and_then(Value::as_str) == Some("caduceus.chord.receipt.v1") {
         // Keep the aggregate whole at the top level; derived legacy fields
         // ride beside it, selected from named stops rather than stage order.
         let chord = receipt.clone();
