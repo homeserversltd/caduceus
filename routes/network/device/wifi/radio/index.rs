@@ -27,7 +27,7 @@ fn failure(signal: &str, raw: Value, crossed: Option<bool>, actual_stop: Value) 
             "actual_stop": actual_stop
         },
         "could_change_to": null,
-        "attempt": {"attempted": crossed == Some(true)},
+        "attempt": {"attempted": crossed},
         "final_receipt": {"ok": false, "firstMissingSignal": signal},
         "firstMissingSignal": signal
     })
@@ -41,13 +41,23 @@ fn read_radio() -> Result<Value, &'static str> {
         Err(error) => {
             let signal = if error == "caduceus-agathodaimon-timeout" {
                 "wifi-radio-staff-timeout"
-            } else if error.starts_with("caduceus-agathodaimon-output-too-large") {
+            } else if error.starts_with("caduceus-agathodaimon-output-too-large")
+                || error == "caduceus-staff-socket-reply-too-large"
+                || error == "caduceus-staff-socket-output-too-large"
+            {
                 "wifi-radio-staff-output-too-large"
             } else {
                 "wifi-radio-staff-unavailable"
             };
-            // An Err does not establish whether the socket or child crossed the band.
-            let crossed = if error == "caduceus-agathodaimon-cli-missing" { Some(false) } else { None };
+            // A completed oversized output or socket reply follows dispatch;
+            // other errors may happen before or after crossing.
+            let crossed = if signal == "wifi-radio-staff-output-too-large" {
+                Some(true)
+            } else if error == "caduceus-agathodaimon-cli-missing" {
+                Some(false)
+            } else {
+                None
+            };
             return Ok(failure(signal, json!(error), crossed, Value::Null));
         }
     };
