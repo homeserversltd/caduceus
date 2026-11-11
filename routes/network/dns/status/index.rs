@@ -35,14 +35,34 @@ pub fn read_json() -> Result<Value, String> {
 #[cfg(carapace_feature_unbound)]
 pub fn resolver_json(action: &str, metadata: Option<Value>) -> Result<Value, String> {
     let metadata = metadata.unwrap_or(Value::Null);
+    let mut extra = metadata.as_object().cloned().unwrap_or_default();
+    for key in ["flags", "exousia", "pin", "oldPin", "newPin"] {
+        extra.remove(key);
+    }
+    // Presence itself refuses at the snake; preserve any active spelling.
+    let mut dry_run = None;
+    for key in ["dry-run", "dryRun", "dry_run"] {
+        if let Some(value) = extra.remove(key) {
+            if dry_run.is_none() && !value.is_null() && value != Value::Bool(false) {
+                dry_run = Some(value);
+            }
+        }
+    }
+    if let Some(value) = dry_run {
+        extra.insert("dry-run".into(), value);
+    }
     let payload = match action {
-        "adblock" => json!({"enabled": metadata.get("enabled").cloned().unwrap_or(Value::Null)}),
+        "adblock" => {
+            extra.insert("enabled".into(), metadata.get("enabled").cloned().unwrap_or(Value::Null));
+            Value::Object(extra)
+        }
         "blocklist-update" => json!({}),
-        "upstream" => json!({
-            "preset": metadata.get("preset").cloned().unwrap_or(Value::Null),
-            "custom": metadata.get("custom").cloned().unwrap_or(Value::Null),
-            "dot": metadata.get("dot").cloned().unwrap_or(Value::Null),
-        }),
+        "upstream" => {
+            for key in ["preset", "custom", "dot"] {
+                extra.insert(key.into(), metadata.get(key).cloned().unwrap_or(Value::Null));
+            }
+            Value::Object(extra)
+        }
         _ => return Err("dns-verb-unknown".into()),
     };
     invoke(&format!("network/dns/resolver/{action}"), payload)
@@ -117,6 +137,8 @@ struct DnsAdblockBody {
     pub(crate) enabled: bool,
     #[serde(default)]
     flags: Option<Value>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, Value>,
 }
 
 #[cfg(carapace_feature_unbound)]
@@ -128,6 +150,8 @@ struct DnsUpstreamBody {
     dot: bool,
     #[serde(default)]
     flags: Option<Value>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, Value>,
 }
 
 #[cfg(carapace_feature_unbound)]
@@ -191,7 +215,9 @@ async fn dns_resolver_adblock_route(
         &json!({"flags": body.flags.as_ref()}),
     )?;
     dns_mutation_response(COMMAND, move || {
-        dns_control::resolver_json("adblock", Some(json!({"enabled": body.enabled})))
+        let mut metadata = body.extra;
+        metadata.insert("enabled".into(), json!(body.enabled));
+        dns_control::resolver_json("adblock", Some(Value::Object(metadata)))
     })
     .await
 }
@@ -226,9 +252,13 @@ async fn dns_resolver_upstream_route(
         &json!({"flags": body.flags.as_ref()}),
     )?;
     dns_mutation_response(COMMAND, move || {
+        let mut metadata = body.extra;
+        metadata.insert("preset".into(), json!(body.preset));
+        metadata.insert("custom".into(), json!(body.custom));
+        metadata.insert("dot".into(), json!(body.dot));
         dns_control::resolver_json(
             "upstream",
-            Some(json!({"preset": body.preset, "custom": body.custom, "dot": body.dot})),
+            Some(Value::Object(metadata)),
         )
     })
     .await
