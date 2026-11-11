@@ -1,6 +1,6 @@
 {
   "schema": "hestia.portal.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "role": "Hestia portal row grammar: templates, notes and row fields",
   "authority": {"owner": "caduceus", "path": "schema/hestia.portal.v1.json", "law": "pali:sphragis-hestia-anchor-portal-constituent-tablet"},
   "evolution": {"law": "additive-only", "unknown_fields_preserved": true},
@@ -17,7 +17,8 @@
     "root": {"kind": "hole", "templates": ["static", "php"]},
     "fpm": {"kind": "hole", "templates": ["php"]},
     "path": {"kind": "location", "repeatable": true, "form": "<location>=<upstream>", "row_field": "locations"},
-    "alias": {"kind": "location", "repeatable": true, "form": "<location>=<file>", "row_field": "alias", "templates": ["static", "php"]}
+    "alias": {"kind": "location", "repeatable": true, "form": "<location>=<file>", "row_field": "alias", "templates": ["static", "php"]},
+    "fallback": {"kind": "error-page", "form": "<page>", "templates": ["static"]}
   },
   "fields": {
     "fqdn": {"type": "string"},
@@ -35,7 +36,8 @@
     "max_body_size": {"type": "string", "default": "1m"},
     "read_timeout": {"type": "integer", "default": 60},
     "owner_mac": {"type": "string"},
-    "origin": {"type": "string"}
+    "origin": {"type": "string"},
+    "fallback": {"type": "string", "description": "page path under root, shown when the application is down"}
   },
-  "optional": ["aliases", "upstream", "template", "root", "fpm", "cors", "cache_static", "alias", "locations", "tailnet_port", "max_body_size", "read_timeout", "owner_mac", "origin"]
+  "optional": ["aliases", "upstream", "template", "root", "fpm", "cors", "cache_static", "alias", "locations", "tailnet_port", "max_body_size", "read_timeout", "owner_mac", "origin", "fallback"]
 }
