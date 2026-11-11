@@ -318,7 +318,7 @@ pub fn execute(id:&str) -> Result<bool,String> {
         Err(signal)=>("Failed",Some(signal),None,None),
         Ok(result)=>{
             let r=result.get("receiptPayload").unwrap_or(&Value::Null);
-            let seat_ok=!nas_sync || ((r.get("schema").and_then(Value::as_str)==Some("caduceus.nas.sync.v1") || crate::routes::leaf_schema::bound(r,crossing_band)) && r.get("action").and_then(Value::as_str)==Some("sync"));
+            let seat_ok=!nas_sync || (crate::routes::leaf_schema::bound(r,crossing_band) && r.get("action").and_then(Value::as_str)==Some("sync"));
             let outcome_ok=!nas_sync || r.get("outcome").and_then(Value::as_str)==Some("ok");
             let ok=seat_ok && outcome_ok && result.get("ok").and_then(Value::as_bool)==Some(true) && r.get("ok").and_then(Value::as_bool)==Some(true) && r.get("converged").and_then(Value::as_bool)!=Some(false);
             let state=if ok {"Done"} else if r.get("outcome").and_then(Value::as_str)==Some("refused") {"Refused"} else {"Failed"};
@@ -436,15 +436,30 @@ pub fn cli(args:&[String]) -> i32 {
     match result {Ok(value)=>{println!("{value}");0},Err(signal)=>{eprintln!("{signal}");1}}
 }
 
+fn face_receipt(mut answer:Value,observed:Value,could_change_to:Value,attempt:Value) -> Value {
+    let ok=answer["ok"].clone();
+    let signal=answer["firstMissingSignal"].clone();
+    if let Some(object)=answer.as_object_mut() {
+        object.insert("schema".into(),json!("caduceus.staff.receipt.v1"));
+        object.insert("stop".into(),json!({"noun":"pid2/schedule","verb":"actuator"}));
+        object.insert("observed".into(),observed);
+        object.insert("could_change_to".into(),could_change_to);
+        object.insert("attempt".into(),attempt);
+        object.insert("final_receipt".into(),json!({"ok":ok,"firstMissingSignal":signal}));
+    }
+    answer
+}
+
 pub fn face(metadata:&Value) -> Result<Value,String> {
     let action=metadata.get("action").and_then(Value::as_str).unwrap_or("");let id="nas-sync";
     match action {
-        "sync-now"=>{let fired=queue(id,"owner",None)?;Ok(json!({"schema":"caduceus.nas.sync.v1","ok":true,"action":action,"jobHandle":fired["fire_id"],"status":"queued","progress":0,"firstMissingSignal":null}))},
+        "sync-now"=>{let fired=queue(id,"owner",None)?;Ok(face_receipt(json!({"schema":"caduceus.staff.receipt.v1","ok":true,"action":action,"jobHandle":fired["fire_id"],"status":"queued","progress":0,"firstMissingSignal":null}),json!({"schedule_id":id,"rows":["pid2_schedules","pid2_fires"]}),json!({"action":action,"pid2_fires":"one queued fire"}),json!({"attempted":true,"steps":[{"step":"queue","ok":true}]})))},
         "sync-job-status"=>{let handle=metadata.get("jobHandle").or_else(||metadata.get("handle")).and_then(Value::as_str).unwrap_or("");let view=status(id)?;let fire=&view["last_fire"];if fire.get("fire_id").and_then(Value::as_str)!=Some(handle) {return Err("agathodaimon-nas-job-not-found".into());}
             let state=fire["state"].as_str().unwrap_or("Failed");let s=match state {"Queued"=>"queued","Running"=>"running","Done"=>"completed","Refused"=>"refused",_=>"failed"};
-            Ok(json!({"schema":"caduceus.nas.sync.v1","ok":true,"action":action,"jobHandle":handle,"status":s,"progress":if ["completed","failed","refused"].contains(&s){100}else{0},"exitCode":fire["rsync_exit_code"],"runOutcome":state,"reason":fire["first_missing_signal"],"runReceipt":null,"firstMissingSignal":null}))},
+            Ok(face_receipt(json!({"schema":"caduceus.staff.receipt.v1","ok":true,"action":action,"jobHandle":handle,"status":s,"progress":if ["completed","failed","refused"].contains(&s){100}else{0},"exitCode":fire["rsync_exit_code"],"runOutcome":state,"reason":fire["first_missing_signal"],"runReceipt":null,"firstMissingSignal":null}),json!({"schedule_id":id,"rows":["pid2_schedules","pid2_fires","pid2_sync_baselines"],"fire_id":handle,"state":state}),Value::Null,json!({"attempted":false})))},
         "sync-schedule"|"sync-schedule-update"=>{if action=="sync-schedule-update" {update(id,metadata.get("schedule").unwrap_or(&Value::Null))?;}let view=status(id)?;let schedule=&view["schedule"];if schedule.is_null(){return Err("pid2-schedule-not-found".into());}
-            Ok(json!({"schema":"caduceus.nas.sync.v1","ok":true,"action":action,"schedule":{"frequency":schedule["frequency"],"time":schedule["time"],"weekday":schedule["weekday"],"enabled":schedule["enabled"]},"timerState":{"enabled":schedule["enabled"],"active":schedule["enabled"],"nextFire":view["next_fire"]},"unitPaths":null,"unitContents":null,"firstMissingSignal":null}))},
+            let updating=action=="sync-schedule-update";
+            Ok(face_receipt(json!({"schema":"caduceus.staff.receipt.v1","ok":true,"action":action,"schedule":{"frequency":schedule["frequency"],"time":schedule["time"],"weekday":schedule["weekday"],"enabled":schedule["enabled"]},"timerState":{"enabled":schedule["enabled"],"active":schedule["enabled"],"nextFire":view["next_fire"]},"unitPaths":null,"unitContents":null,"firstMissingSignal":null}),json!({"schedule_id":id,"rows":["pid2_schedules","pid2_fires","pid2_sync_baselines"]}),if updating {json!({"pid2_schedules":metadata.get("schedule")})} else {Value::Null},if updating {json!({"attempted":true,"steps":[{"step":"update","ok":true}]})} else {json!({"attempted":false})}))},
         _=>Err("pid2-schedule-action-unknown".into())
     }
 }
