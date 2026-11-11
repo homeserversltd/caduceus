@@ -127,7 +127,16 @@ fn update_service_receipt(action: &str) -> (Value, bool) {
             Some(receipt) if receipt.is_object() => (receipt.clone(), true),
             _ => (service_native(action, "caduceus-snake-receipt-missing", true, "receipt"), false),
         },
-        Err(signal) => (service_native(action, &signal, true, "crossing"), false),
+        Err(signal) => {
+            // The executor's error is only a string: it cannot distinguish a
+            // pre-spawn refusal from a failure after the crossing started.
+            let mut receipt = service_native(action, &signal, false, "crossing");
+            receipt["attempt"]["attempted"] = Value::Null;
+            if action != "status" {
+                receipt["mutation"] = Value::Null;
+            }
+            (receipt, false)
+        }
     }
 }
 
