@@ -210,7 +210,9 @@ pub(crate) async fn gated_body(
     }
 }
 pub(crate) fn mutation_status(value: &Value) -> StatusCode {
-    if value.get("ok").and_then(Value::as_bool) == Some(true) {
+    if value.get("ok").and_then(Value::as_bool) == Some(true)
+        && value.get("doorSignal").is_none()
+    {
         StatusCode::OK
     } else {
         StatusCode::SERVICE_UNAVAILABLE

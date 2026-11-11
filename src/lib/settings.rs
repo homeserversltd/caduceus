@@ -24,41 +24,42 @@ pub const FAMILIES: &[&str] = &[
 ];
 const RECEIPT_ROOT: &str = "/var/lib/caduceus/receipts/";
 
-fn discard_transient_receipt(value: &Value) {
+fn discard_transient_receipt(value: &Value) -> bool {
     let Some(path) = value.get("receiptPath").and_then(Value::as_str) else {
-        return;
+        return false;
     };
     let Some(relative) = path.strip_prefix(RECEIPT_ROOT) else {
-        return;
+        return false;
     };
     let mut components = Path::new(relative).components();
     let Some(std::path::Component::Normal(run_id)) = components.next() else {
-        return;
+        return false;
     };
     if !matches!(components.next(), Some(std::path::Component::Normal(name)) if name.to_str() == Some("run.json"))
         || components.next().is_some()
     {
-        return;
+        return false;
     }
     let Some(run_id) = run_id.to_str() else {
-        return;
+        return false;
     };
     if run_id.is_empty() || run_id == "latest" || path != format!("{RECEIPT_ROOT}{run_id}/run.json") {
-        return;
+        return false;
     }
     let run_directory = crate::shared::config::path(&format!("{RECEIPT_ROOT}{run_id}"));
     if !std::fs::symlink_metadata(&run_directory)
         .is_ok_and(|metadata| metadata.file_type().is_dir())
     {
-        return;
+        return false;
     }
     let receipt_file = crate::shared::config::path(path);
     let is_regular_receipt = std::fs::symlink_metadata(&receipt_file)
         .is_ok_and(|metadata| metadata.file_type().is_file());
     if !is_regular_receipt || std::fs::remove_file(&receipt_file).is_err() {
-        return;
+        return false;
     }
     let _ = std::fs::remove_dir(run_directory);
+    true
 }
 
 fn fields(family: &str) -> Option<&'static [&'static str]> {
@@ -168,6 +169,32 @@ fn cross_settings(path: &str, input: &Value) -> Result<Value, String> {
             .unwrap_or("caduceus-agathodaimon-refused")
             .into())
     }
+}
+
+fn mutation_refusal(family: &str, body: &Value, signal: String) -> Value {
+    let room = body.get("payload").unwrap_or(body);
+    let names: Vec<&str> = room.as_object()
+        .map(|object| object.keys().map(String::as_str).collect())
+        .unwrap_or_default();
+    json!({
+        "schema": "caduceus.staff.receipt.v1", "ok": false,
+        "stop": {"noun": format!("settings/{family}"), "verb": "mutate"},
+        "observed": {"family": family, "fields": names},
+        "could_change_to": {"fields": fields(family).unwrap_or(&[])},
+        "attempt": {"attempted": false, "steps": [{"signal": signal}]},
+        "final_receipt": {"ok": false, "firstMissingSignal": signal},
+        "firstMissingSignal": signal
+    })
+}
+
+fn cross_mutation(path: &str, input: &Value) -> Result<(Value, bool), String> {
+    let crossing = crate::gate::snake::crossing_path_with_timeout(path, input, Duration::from_secs(180))?;
+    let ok = crossing.get("ok").and_then(Value::as_bool) == Some(true);
+    if let Some(receipt) = crossing.get("receiptPayload").filter(|value| value.is_object()) {
+        return Ok((receipt.clone(), ok));
+    }
+    Err(crossing.get("firstMissingSignal").and_then(Value::as_str)
+        .unwrap_or("caduceus-agathodaimon-refused").to_string())
 }
 
 fn bounded_value(value: &Value) -> bool {
@@ -333,7 +360,8 @@ pub fn read_json(family: &str) -> Result<Value, String> {
 }
 
 pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
-    let values = validated_fields(family, body)?;
+    let validate = || -> Result<BTreeMap<String, Value>, String> {
+    let values = validated_fields(family, body.clone())?;
     validate_display_config_fields(family, &values)?;
     if family == "display" {
         for field in values.keys() {
@@ -362,6 +390,12 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
         && (values.len() != 1 || values.get("test_tone") != Some(&Value::Bool(true))) {
         return Err("caduceus-settings-value-invalid:test_tone".to_string());
     }
+    Ok(values)
+    };
+    let values = match validate() {
+        Ok(values) => values,
+        Err(signal) => return Ok(mutation_refusal(family, &body, signal)),
+    };
     let writes_display_config = family == "display"
         && ["resolution", "refresh_rate"]
             .iter()
@@ -382,7 +416,7 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
                 rollbacks.push(rollback);
             }
             if let Err(error) = write {
-                return Err(display_mutation_error(error, rollbacks));
+                return Ok(mutation_refusal(family, &body, display_mutation_error(error, rollbacks)));
             }
         }
     }
@@ -395,69 +429,85 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
     } else {
         (format!("settings/{family}/set"), json!(values))
     };
-    let crossed = cross_settings(&path, &payload);
-    let receipt = match crossed {
+    let crossed = cross_mutation(&path, &payload);
+    let (mut receipt, crossing_ok) = match crossed {
         Ok(receipt) => receipt,
         Err(error) if writes_display_config => {
             return Err(display_mutation_error(error, rollbacks));
         }
         Err(error) => return Err(error),
     };
-    let receipt_path = receipt
-        .get("receiptPath")
-        .and_then(Value::as_str)
-        .filter(|path| path.starts_with(RECEIPT_ROOT) && path.ends_with("/run.json"))
-        .map(str::to_string);
-    let Some(receipt_path) = receipt_path else {
-        let signal = "caduceus-settings-receipt-path-invalid".to_string();
-        return if writes_display_config {
-            Err(display_mutation_error(signal, rollbacks))
+    let stop_ok = receipt.get("ok").and_then(Value::as_bool) == Some(true);
+    let binding_failed = receipt.get("schema").and_then(Value::as_str) == Some("caduceus.staff.receipt.v1")
+        && !crate::routes::leaf_schema::bound(&receipt, &path);
+    let object = receipt.as_object_mut().expect("cross_mutation returns an object");
+    object.entry("family").or_insert_with(|| json!(family));
+    object.entry("fields").or_insert_with(|| json!(values.keys().collect::<Vec<_>>()));
+    if !crossing_ok || !stop_ok || binding_failed {
+        let rollback_failed = writes_display_config && restore_display_config(rollbacks).is_err();
+        let signal = if rollback_failed {
+            Some("caduceus-settings-display-rollback-failed")
+        } else if binding_failed {
+            Some("caduceus-schema-desync")
+        } else if !crossing_ok && stop_ok {
+            Some("caduceus-agathodaimon-refused")
         } else {
-            Err(signal)
+            None
         };
-    };
-    let display = if writes_display_config {
-        let shown = match crate::shared::config::show_json() {
-            Ok(shown) => shown,
-            Err(error) => return Err(display_mutation_error(error, rollbacks)),
+        if let Some(signal) = signal {
+            object.entry("doorSignal").or_insert_with(|| json!(signal));
+        }
+        return Ok(receipt);
+    }
+    let receipt_path_valid = receipt.get("receiptPath").and_then(Value::as_str)
+        .is_some_and(|path| path.starts_with(RECEIPT_ROOT) && path.ends_with("/run.json"));
+    if !receipt_path_valid {
+        let signal = if writes_display_config && restore_display_config(rollbacks).is_err() {
+            "caduceus-settings-display-rollback-failed"
+        } else {
+            "caduceus-settings-receipt-path-invalid"
         };
-        match shown
-            .get("document")
-            .and_then(|document| document.get("display"))
-            .filter(|display| display.is_object())
-            .cloned()
-        {
-            Some(display) => Some(display),
-            None => {
-                return Err(display_mutation_error(
-                    "caduceus-settings-display-config-unobserved".to_string(),
-                    rollbacks,
-                ));
+        receipt.as_object_mut().unwrap().entry("doorSignal").or_insert_with(|| json!(signal));
+        return Ok(receipt);
+    }
+    if writes_display_config {
+        let display = crate::shared::config::show_json().and_then(|shown| {
+            shown.get("document").and_then(|document| document.get("display"))
+                .filter(|display| display.is_object()).cloned()
+                .ok_or_else(|| "caduceus-settings-display-config-unobserved".to_string())
+        });
+        match display {
+            Ok(display) => { receipt.as_object_mut().unwrap().entry("display").or_insert(display); }
+            Err(error) => {
+                let signal = if restore_display_config(rollbacks).is_err() {
+                    "caduceus-settings-display-rollback-failed".to_string()
+                } else { error };
+                receipt.as_object_mut().unwrap().entry("doorSignal").or_insert_with(|| json!(signal));
+                return Ok(receipt);
             }
         }
-    } else {
-        None
-    };
-    let mut result = json!({"schema":"caduceus.settings.mutation.v1","ok":true,"family":family,"changed":receipt.get("changed").and_then(Value::as_bool).unwrap_or(true),"fields":values.keys().collect::<Vec<_>>(),"receiptPath":receipt_path,"receipt":receipt,"firstMissingSignal":"none"});
-    if let Some(display) = display {
-        result["display"] = display;
     }
-    discard_transient_receipt(&result);
-    Ok(result)
+    if discard_transient_receipt(&receipt) {
+        receipt.as_object_mut().unwrap().entry("receiptDiscarded").or_insert(json!(true));
+    }
+    Ok(receipt)
 }
 
 pub fn command(family: &str, args: &[String]) -> i32 {
     let result = match args {
         [verb] if verb == "read" => read_json(family),
-        [verb, json] if verb == "mutate" => serde_json::from_str(json)
-            .map_err(|_| "caduceus-settings-json-invalid".to_string())
-            .and_then(|body| mutate_json(family, body)),
+        [verb, json] if verb == "mutate" => match serde_json::from_str(json) {
+            Ok(body) => mutate_json(family, body),
+            Err(_) => Ok(mutation_refusal(family, &Value::Null, "caduceus-settings-json-invalid".to_string())),
+        },
         _ => Err("caduceus-settings-command-invalid".to_string()),
     };
     match result {
         Ok(value) => {
+            let ok = value.get("ok").and_then(Value::as_bool) == Some(true)
+                && value.get("doorSignal").is_none();
             println!("{value}");
-            0
+            if ok { 0 } else { 1 }
         }
         Err(error) => {
             eprintln!("{error}");
