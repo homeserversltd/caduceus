@@ -3,7 +3,6 @@ use serde_json::{json, Value};
 
 const READ_COMMAND: &str = "settings input read";
 const SET_COMMAND: &str = "settings input set";
-const SCHEMA: &str = "caduceus.staff.v1";
 const INPUT_FIELDS: &[&str] = &[
     "pointer_sensitivity", "scroll_factor", "natural_scroll", "tap_to_click",
     "middle_button_emulation", "keyboard_layout", "keyboard_variant", "key_repeat",
@@ -19,22 +18,46 @@ fn admitted(command: &str) -> Result<(), (StatusCode, Json<Value>)> {
     }
 }
 
-fn actuator_receipt(transition: &str, payload: Option<Value>) -> Result<Value, String> {
+fn actuator_receipt(transition: &str, payload: Option<Value>) -> (StatusCode, Value) {
     let input = payload.unwrap_or_else(|| json!({}));
     let walked = crate::gate::snake::crossing_path_with_timeout(
         &format!("settings/input/{transition}"),
         &input,
         std::time::Duration::from_secs(180),
-    )?;
-    if walked.get("ok").and_then(Value::as_bool) == Some(true) {
-        Ok(walked.get("receiptPayload").cloned().unwrap_or(walked))
-    } else {
-        Err(walked.get("receiptPayload")
-            .and_then(|receipt| receipt.get("error").or_else(|| receipt.get("firstMissingSignal")))
-            .and_then(Value::as_str)
-            .or_else(|| walked.get("firstMissingSignal").and_then(Value::as_str))
-            .unwrap_or("caduceus-agathodaimon-refused").to_string())
-    }
+    );
+    let signal = match walked {
+        Ok(walked) => {
+            let crossing_ok = walked.get("ok").and_then(Value::as_bool) == Some(true);
+            let receipt = walked.get("receiptPayload");
+            let receipt_ok = receipt.and_then(|value| value.get("ok")).and_then(Value::as_bool);
+            if let Some(receipt) = receipt.filter(|value| value.is_object()) {
+                if crossing_ok || receipt_ok == Some(false) {
+                    let status = if crossing_ok && receipt_ok == Some(true) {
+                        StatusCode::OK
+                    } else {
+                        StatusCode::SERVICE_UNAVAILABLE
+                    };
+                    return (status, receipt.clone());
+                }
+            }
+            receipt.and_then(|value| value.get("error").and_then(Value::as_str)
+                .or_else(|| value.get("firstMissingSignal").and_then(Value::as_str)))
+                .or_else(|| if !crossing_ok { walked.get("firstMissingSignal").and_then(Value::as_str) } else { None })
+                .unwrap_or("caduceus-agathodaimon-refused").to_string()
+        }
+        Err(signal) => signal,
+    };
+    let could_change_to = if transition == "read" { Value::Null } else { input };
+    (StatusCode::SERVICE_UNAVAILABLE, json!({
+        "schema": "caduceus.staff.receipt.v1",
+        "ok": false,
+        "firstMissingSignal": signal,
+        "stop": {"noun": "settings/input", "verb": transition},
+        "observed": null,
+        "could_change_to": could_change_to,
+        "attempt": {"attempted": null, "step": format!("settings/input/{transition}"), "outcome": signal},
+        "final_receipt": {"ok": false, "firstMissingSignal": signal}
+    }))
 }
 
 fn input_payload(body: &Value) -> Value {
@@ -57,7 +80,7 @@ async fn read_http() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Valu
     let result = crate::gate::blocking_task(READ_COMMAND, || actuator_receipt("read", None))
         .await
         .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
-    result.map(|receipt| (crate::gate::mutation_status(&receipt), Json(receipt))).map_err(|signal| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"schema":SCHEMA,"ok":false,"command":READ_COMMAND,"firstMissingSignal":signal}))))
+    Ok((result.0, Json(result.1)))
 }
 
 async fn set_http(Json(body): Json<Value>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
@@ -65,7 +88,7 @@ async fn set_http(Json(body): Json<Value>) -> Result<(StatusCode, Json<Value>), 
     let result = crate::gate::blocking_task(SET_COMMAND, move || actuator_receipt("set", Some(input_payload(&body))))
         .await
         .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
-    result.map(|receipt| (crate::gate::mutation_status(&receipt), Json(receipt))).map_err(|signal| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"schema":SCHEMA,"ok":false,"command":SET_COMMAND,"firstMissingSignal":signal}))))
+    Ok((result.0, Json(result.1)))
 }
 
 /// Canonical registration seam for this leaf.
