@@ -68,6 +68,8 @@ pub(crate) async fn face_post_with_timeout(
             } else {
                 None
             };
+            let mut attempted = false;
+            let mut held_receipt = None;
             let result: Result<serde_json::Value, String> = async {
                 let receive = crate::gate::receive(
                     envelope.clone(),
@@ -75,6 +77,7 @@ pub(crate) async fn face_post_with_timeout(
                     &declaration,
                     false,
                 )?;
+                attempted = true;
                 let aggregate = crate::gate::snake::execute_ordered_serve_with_timeout(
                     &route_set,
                     &envelope,
@@ -109,6 +112,7 @@ pub(crate) async fn face_post_with_timeout(
                 if child_failed
                     || payload.get("ok").and_then(serde_json::Value::as_bool) != Some(true)
                 {
+                    held_receipt = Some(payload.clone());
                     face_reflect_failure_async(
                         &verb,
                         Some(payload.clone()),
@@ -118,6 +122,7 @@ pub(crate) async fn face_post_with_timeout(
                     )
                     .await?;
                 } else if verb == "dictate" {
+                    held_receipt = Some(payload.clone());
                     face_reflect_dictate_success_async(
                         &payload,
                         started.map(|started| started.elapsed().as_millis()).unwrap_or_default(),
@@ -127,20 +132,40 @@ pub(crate) async fn face_post_with_timeout(
                 Ok(payload)
             }
             .await;
-            if let Err(signal) = &result {
-                face_reflect_failure_async(
-                    &verb,
-                    None,
-                    signal,
-                    started.map(|started| started.elapsed().as_millis()).unwrap_or_default(),
-                    record_failure,
-                )
-                .await
-                .map_err(|signal| crate::gate::api_error_signal("staff intent", &signal))?;
-            }
             match result {
                 Ok(receipt) => Ok((crate::gate::mutation_status(&receipt), axum::Json(receipt))),
-                Err(signal) => Err(crate::gate::api_error_signal("staff intent", &signal)),
+                Err(signal) => {
+                    let signal = face_reflect_failure_async(
+                        &verb,
+                        None,
+                        &signal,
+                        started.map(|started| started.elapsed().as_millis()).unwrap_or_default(),
+                        record_failure,
+                    )
+                    .await
+                    .err()
+                    .unwrap_or(signal);
+                    if let Some(mut receipt) = held_receipt {
+                        receipt["doorSignal"] = serde_json::json!(signal);
+                        return Ok((crate::gate::mutation_status(&receipt), axum::Json(receipt)));
+                    }
+                    let serve: Vec<&str> = route_set.iter().filter_map(|step| {
+                        step.get("snake").or_else(|| step.get("rust"))
+                            .and_then(serde_json::Value::as_str)
+                    }).collect();
+                    let receipt = serde_json::json!({
+                        "schema": "caduceus.staff.receipt.v1",
+                        "ok": false,
+                        "command": "staff intent",
+                        "firstMissingSignal": signal,
+                        "stop": {"noun": "face", "verb": verb},
+                        "observed": {"namespace": namespace},
+                        "could_change_to": {"serve": serve},
+                        "attempt": {"attempted": attempted, "steps": null},
+                        "final_receipt": {"ok": false, "firstMissingSignal": signal}
+                    });
+                    Ok((axum::http::StatusCode::FORBIDDEN, axum::Json(receipt)))
+                }
             }
         }
         Ok(false) => Err(crate::gate::api_error("staff intent")),
