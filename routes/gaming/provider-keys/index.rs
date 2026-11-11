@@ -79,7 +79,7 @@ pub(super) async fn status() -> Result<(StatusCode, Json<Value>), (StatusCode, J
                     if status == StatusCode::OK {
                         let keys = public_keys(&value);
                         if let Some(receipt) = value.as_object_mut() {
-                            receipt.insert("keys".into(), keys);
+                            receipt.entry("keys").or_insert(keys);
                         }
                     }
                     (status, Json(value))
