@@ -171,7 +171,7 @@ fn cross_settings(path: &str, input: &Value) -> Result<Value, String> {
     }
 }
 
-fn mutation_refusal(family: &str, body: &Value, signal: String) -> Value {
+fn mutation_refusal(family: &str, body: &Value, step: &str, signal: String) -> Value {
     let room = body.get("payload").unwrap_or(body);
     let names: Vec<&str> = room.as_object()
         .map(|object| object.keys().map(String::as_str).collect())
@@ -181,7 +181,7 @@ fn mutation_refusal(family: &str, body: &Value, signal: String) -> Value {
         "stop": {"noun": format!("settings/{family}"), "verb": "mutate"},
         "observed": {"family": family, "fields": names},
         "could_change_to": {"fields": fields(family).unwrap_or(&[])},
-        "attempt": {"attempted": false, "steps": [{"signal": signal}]},
+        "attempt": {"attempted": false, "steps": [{"step": step, "signal": signal}]},
         "final_receipt": {"ok": false, "firstMissingSignal": signal},
         "firstMissingSignal": signal
     })
@@ -394,7 +394,7 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
     };
     let values = match validate() {
         Ok(values) => values,
-        Err(signal) => return Ok(mutation_refusal(family, &body, signal)),
+        Err(signal) => return Ok(mutation_refusal(family, &body, "validate", signal)),
     };
     let writes_display_config = family == "display"
         && ["resolution", "refresh_rate"]
@@ -416,7 +416,7 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
                 rollbacks.push(rollback);
             }
             if let Err(error) = write {
-                return Ok(mutation_refusal(family, &body, display_mutation_error(error, rollbacks)));
+                return Ok(mutation_refusal(family, &body, "write-display-config", display_mutation_error(error, rollbacks)));
             }
         }
     }
@@ -447,10 +447,10 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
         let rollback_failed = writes_display_config && restore_display_config(rollbacks).is_err();
         let signal = if rollback_failed {
             Some("caduceus-settings-display-rollback-failed")
-        } else if binding_failed {
-            Some("caduceus-schema-desync")
         } else if !crossing_ok && stop_ok {
             Some("caduceus-agathodaimon-refused")
+        } else if binding_failed {
+            Some("caduceus-schema-desync")
         } else {
             None
         };
@@ -460,7 +460,9 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
         return Ok(receipt);
     }
     let receipt_path_valid = receipt.get("receiptPath").and_then(Value::as_str)
-        .is_some_and(|path| path.starts_with(RECEIPT_ROOT) && path.ends_with("/run.json"));
+        .and_then(|path| path.strip_prefix(RECEIPT_ROOT).map(|relative| (path, relative)))
+        .is_some_and(|(path, relative)| path.ends_with("/run.json")
+            && !Path::new(relative).components().any(|component| matches!(component, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_))));
     if !receipt_path_valid {
         let signal = if writes_display_config && restore_display_config(rollbacks).is_err() {
             "caduceus-settings-display-rollback-failed"
@@ -498,7 +500,7 @@ pub fn command(family: &str, args: &[String]) -> i32 {
         [verb] if verb == "read" => read_json(family),
         [verb, json] if verb == "mutate" => match serde_json::from_str(json) {
             Ok(body) => mutate_json(family, body),
-            Err(_) => Ok(mutation_refusal(family, &Value::Null, "caduceus-settings-json-invalid".to_string())),
+            Err(_) => Ok(mutation_refusal(family, &Value::Null, "parse-json", "caduceus-settings-json-invalid".to_string())),
         },
         _ => Err("caduceus-settings-command-invalid".to_string()),
     };
