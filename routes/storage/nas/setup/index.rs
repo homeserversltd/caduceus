@@ -7,6 +7,15 @@ const COMMAND: &str = "storage nas setup";
 const NAS_SETUP_TIMEOUT: Duration = Duration::from_secs(600);
 const NAS_SETUP_RESCUE_GRACE: Duration = Duration::from_secs(180);
 
+fn desync(mut receipt: Value) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<crate::gate::ApiErrorBody>)> {
+    let Some(object) = receipt.as_object_mut() else {
+        return Err(crate::gate::service_unavailable(COMMAND, "caduceus-schema-desync"));
+    };
+    object.entry("doorSignal").or_insert_with(|| json!("caduceus-schema-desync"));
+    object.entry("crossedStop").or_insert_with(|| json!("storage/nas/setup"));
+    Ok((StatusCode::SERVICE_UNAVAILABLE, Json(receipt)))
+}
+
 fn project_chord(aggregate: &Value, request: &Value) -> Value {
     let stages = aggregate.get("stages").and_then(Value::as_array);
     let stage = |id: &str| stages.and_then(|rows| rows.iter().find(|row| {
@@ -115,20 +124,20 @@ async fn setup_route(
                 .get("receiptPayload")
                 .cloned()
                 .ok_or_else(|| crate::gate::service_unavailable(COMMAND, "caduceus-nas-setup-receipt-missing"))?;
-            if crate::routes::leaf_schema::accepts("caduceus.chord.receipt.v1", &receipt) {
-                receipt = project_chord(&receipt, &projection_request);
-            }
-            if !crate::routes::leaf_schema::accepts_bound("caduceus.nas.setup.v1", "storage/nas/setup", &receipt) {
-                return Err(crate::gate::service_unavailable(
-                    COMMAND,
-                    "caduceus-schema-desync",
-                ));
-            }
-
-            let status = crate::gate::mutation_status(&receipt);
-            if status == StatusCode::OK {
+            if receipt.get("ok").and_then(Value::as_bool) == Some(true) {
                 crate::stats::disk_census::request_refresh();
             }
+            if crate::routes::leaf_schema::accepts("caduceus.chord.receipt.v1", &receipt)
+                && receipt.get("routine_id").and_then(Value::as_str) == Some("storage/nas/setup")
+            {
+                let face = project_chord(&receipt, &projection_request);
+                if let Some(object) = receipt.as_object_mut() {
+                    object.entry("face").or_insert(face);
+                }
+            } else if !crate::routes::leaf_schema::bound(&receipt, "storage/nas/setup") {
+                return desync(receipt);
+            }
+            let status = crate::gate::mutation_status(&receipt);
             Ok((status, Json(receipt)))
         }.await;
         response

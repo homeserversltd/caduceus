@@ -6,6 +6,15 @@ use std::time::Duration;
 const COMMAND: &str = "storage nas detach";
 const NAS_DETACH_TIMEOUT: Duration = Duration::from_secs(180);
 
+fn desync(mut receipt: Value) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<crate::gate::ApiErrorBody>)> {
+    let Some(object) = receipt.as_object_mut() else {
+        return Err(crate::gate::service_unavailable(COMMAND, "caduceus-schema-desync"));
+    };
+    object.entry("doorSignal").or_insert_with(|| json!("caduceus-schema-desync"));
+    object.entry("crossedStop").or_insert_with(|| json!("storage/nas/detach"));
+    Ok((StatusCode::SERVICE_UNAVAILABLE, Json(receipt)))
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum NasRole {
@@ -73,17 +82,13 @@ async fn detach_route(
             let receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
                 crate::gate::service_unavailable(COMMAND, "caduceus-nas-detach-receipt-missing")
             })?;
-            if !crate::routes::leaf_schema::accepts_bound("caduceus.nas.detach.v1", "storage/nas/detach", &receipt) {
-                return Err(crate::gate::service_unavailable(
-                    COMMAND,
-                    "caduceus-schema-desync",
-                ));
-            }
-
-            let status = crate::gate::mutation_status(&receipt);
-            if status == StatusCode::OK {
+            if receipt.get("ok").and_then(Value::as_bool) == Some(true) {
                 crate::stats::disk_census::request_refresh();
             }
+            if !crate::routes::leaf_schema::bound(&receipt, "storage/nas/detach") {
+                return desync(receipt);
+            }
+            let status = crate::gate::mutation_status(&receipt);
             Ok((status, Json(receipt)))
         }.await;
         response
