@@ -413,11 +413,11 @@ where
                         "--read-timeout" => &mut read_timeout,
                         _ => {
                             let Some(key) = name.strip_prefix("--").filter(|key| !key.is_empty()) else {
-                                println!("{}", serde_json::json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}));
+                                println!("{}", portal_admit_refusal(portal, ip, args, usize::from(upstream.is_some()) + i, if name == "--" { "empty-flag" } else { "unplaced-word" }));
                                 return 1;
                             };
                             if matches!(key, "portal" | "lan-ip" | "upstream") {
-                                println!("{}", serde_json::json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}));
+                                println!("{}", portal_admit_refusal(portal, ip, args, usize::from(upstream.is_some()) + i, "reserved-flag"));
                                 return 1;
                             }
                             let value = match rest.get(i + 1) {
@@ -443,7 +443,7 @@ where
                         }
                     };
                     let Some(value) = rest.get(i + 1) else {
-                        println!("{}", serde_json::json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}));
+                        println!("{}", portal_admit_refusal(portal, ip, args, usize::from(upstream.is_some()) + i, "flag-without-value"));
                         return 1;
                     };
                     slot.get_or_insert(value.as_str());
@@ -899,6 +899,62 @@ fn cert_allowed_command(command: &str, aliases: &[&str]) -> Result<Option<String
         }
     }
     Ok(None)
+}
+
+#[cfg(leaf_portals_admit)]
+fn portal_admit_refusal(portal: &str, ip: &str, args: &[String], stop_in_args: usize, reason: &str) -> serde_json::Value {
+    let children = ["--aliases", "--owner-mac", "--origin", "--claim-tiles", "--tailnet-port", "--locations", "--max-body-size", "--read-timeout", "--dry-run"];
+    let full_args: Vec<&str> = ["cert", "portal-admit", portal, ip].into_iter().chain(args.iter().map(String::as_str)).collect();
+    let stop_at = 4 + stop_in_args;
+    let words: Vec<&str> = full_args.iter().enumerate().map(|(index, word)| {
+        if index == 0 { "cert" }
+        else if index == 1 { "portal-admit" }
+        else if word.starts_with("--") { "<not-a-option>" }
+        else if index == stop_at && reason == "unplaced-word" { "<not-a-noun>" }
+        else { "<not-a-value>" }
+    }).collect();
+
+    // Normalized Levenshtein similarity; only a declared child can be returned.
+    let word: Vec<char> = full_args[stop_at].chars().collect();
+    let mut nearest = None;
+    let mut best = 0.6_f64;
+    for child in children {
+        let chars: Vec<char> = child.chars().collect();
+        let longest = word.len().max(chars.len());
+        if longest == 0 || (word.len().abs_diff(chars.len()) as f64 / longest as f64) > 0.4 { continue; }
+        let mut row: Vec<usize> = (0..=chars.len()).collect();
+        for (i, a) in word.iter().enumerate() {
+            let mut diagonal = row[0];
+            row[0] = i + 1;
+            for (j, b) in chars.iter().enumerate() {
+                let above = row[j + 1];
+                row[j + 1] = (above + 1).min(row[j] + 1).min(diagonal + usize::from(a != b));
+                diagonal = above;
+            }
+        }
+        let score = 1.0 - row[chars.len()] as f64 / longest as f64;
+        if score >= 0.6 && (nearest.is_none() || score > best) { nearest = Some(child); best = score; }
+    }
+    let signal = "agathodaimon-house-ca-refused";
+    serde_json::json!({
+        "schema": "caduceus.staff.receipt.v1", "ok": false,
+        "firstMissingSignal": signal, "mutationPerformed": false,
+        "stop": {"noun": "cert", "verb": "portal-admit"},
+        "observed": {"words": words, "walked": ["cert", "portal-admit"], "stopped_at": reason},
+        "could_change_to": {"children": children, "nearest": nearest, "payload_fields": {
+            "--aliases": "Comma-separated aliases",
+            "--owner-mac": "Owner MAC, sent only with --origin",
+            "--origin": "Origin, sent only with --owner-mac",
+            "--claim-tiles": "Comma-separated tiles, sent only with owner MAC and origin",
+            "--tailnet-port": "Tailnet port value",
+            "--locations": "Locations value",
+            "--max-body-size": "Maximum body size value",
+            "--read-timeout": "Read timeout value",
+            "--dry-run": "Boolean: make the act a dry run"
+        }},
+        "attempt": {"attempted": false, "step": "flag-walk"},
+        "final_receipt": {"ok": false, "firstMissingSignal": signal}
+    })
 }
 
 fn cert_profile_refused(command: &str, primitive: &str) -> serde_json::Value {
