@@ -388,6 +388,7 @@ where
             cert_command("cert portal-admit", "portal_admit", &[], || {
                 let (mut aliases_arg, mut owner_mac, mut origin, mut claim_arg) = (None, None, None, None);
                 let (mut tailnet_port, mut locations, mut dry_run) = (None, None, false);
+                let (mut max_body_size, mut read_timeout) = (None, None);
                 let mut i = 0;
                 while i < rest.len() {
                     let name = rest[i].as_str();
@@ -403,6 +404,8 @@ where
                         "--claim-tiles" => &mut claim_arg,
                         "--tailnet-port" => &mut tailnet_port,
                         "--locations" => &mut locations,
+                        "--max-body-size" => &mut max_body_size,
+                        "--read-timeout" => &mut read_timeout,
                         _ => {
                             println!("{}", serde_json::json!({"ok":false,"firstMissingSignal":"agathodaimon-house-ca-refused"}));
                             return 1;
@@ -423,6 +426,7 @@ where
                 let owner = owner_mac.zip(origin);
                 let result = crate::routes::issue_certificate::portal_admit_cli_receipt(
                     portal, ip, upstream, &aliases, owner, &claim_tiles, dry_run, tailnet_port, locations,
+                    max_body_size, read_timeout,
                 );
                 match result {
                     Ok(value) => { println!("{value}"); 0 }

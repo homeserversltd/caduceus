@@ -609,6 +609,7 @@ pub(crate) fn portal_admit_cli_receipt(
     portal: &str, ip: &str, upstream: &str, aliases: &[String],
     owner: Option<(&str, &str)>, claim_tiles: &[String], dry_run: bool,
     tailnet_port: Option<&str>, locations: Option<&str>,
+    max_body_size: Option<&str>, read_timeout: Option<&str>,
 ) -> Result<Value, Value> {
     let mut payload = json!({"portal":portal,"lan-ip":ip,"upstream":upstream});
     if !aliases.is_empty() { payload["aliases"] = json!(aliases.join(",")); }
@@ -620,6 +621,8 @@ pub(crate) fn portal_admit_cli_receipt(
     if dry_run { payload["dry-run"] = json!(true); }
     if let Some(value) = tailnet_port { payload["tailnet-port"] = json!(value); }
     if let Some(value) = locations { payload["locations"] = json!(value); }
+    if let Some(value) = max_body_size { payload["max-body-size"] = json!(value); }
+    if let Some(value) = read_timeout { payload["read-timeout"] = json!(value); }
 
     let result = house_ca_crossing_with_timeout("portal-admit", payload, Duration::from_secs(600));
     let receipt = match &result { Ok(value) | Err(value) => value };
