@@ -870,13 +870,9 @@ pub async fn execute_ordered_serve_with_timeout(
 pub(crate) fn crossing_envelope(path: &str, input: &Value) -> Value {
     let context = crate::shared::load_trace::current();
     let mut payload = input.clone();
-    let flags = if context.is_some() {
-        payload
-            .as_object_mut()
-            .and_then(|object| object.remove("flags"))
-    } else {
-        None
-    };
+    let flags = payload
+        .as_object_mut()
+        .and_then(|object| object.remove("flags"));
     let mut envelope = json!({"schema":crate::protocol::SCHEMA_ID,"intent_id":format!("caduceus-{path}"),"transition":path,"origin_of_intent":"near","payload":payload});
     if let Some(flags) = flags {
         envelope["flags"] = flags;
