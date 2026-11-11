@@ -249,11 +249,16 @@ pub fn service_toggle_json(state: &str, rest: &[String]) -> Result<Value, String
     } else if enabled.is_none() { "caduceus-update-service-enabled-state-unobserved" }
       else if timer.is_none() { "caduceus-update-service-timer-state-unobserved" }
       else { "none" };
+    let mutation = if service_bound(&response) && response.get("ok").and_then(Value::as_bool) == Some(true) {
+        Some(true)
+    } else {
+        None
+    };
     if let Some(object) = response.as_object_mut() {
         object.entry("enabledBool").or_insert(json!(enabled));
         object.entry("timerState").or_insert(json!(timer));
         object.entry("doorSignal").or_insert(json!(signal));
-        object.entry("mutation").or_insert(json!(true));
+        object.entry("mutation").or_insert(json!(mutation));
         object.entry("requestedState").or_insert(json!(state));
     }
     Ok(response)
