@@ -4,6 +4,8 @@ use serde_json::{json, Value};
 type Response = Result<Json<Value>, (StatusCode, Json<Value>)>;
 const RECEIPT_SCHEMA: &str = "caduceus.staff.receipt.v1";
 fn refusal(signal: String, noun: &str, verb: &str, route: &str, attempted: Option<bool>) -> (StatusCode, Json<Value>) {
+    // The semaphore refuses before the worker can run; other worker failures may be post-act.
+    let attempted = if signal == "pid2-door-busy" { Some(false) } else { attempted };
     (StatusCode::SERVICE_UNAVAILABLE, Json(json!({
         "schema": RECEIPT_SCHEMA, "ok": false,
         "firstMissingSignal": signal, "first_missing_signal": signal,
