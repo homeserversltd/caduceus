@@ -648,7 +648,23 @@ pub fn file_ingress_target(path: &str) -> Result<PathBuf, String> {
     Ok(root.join(relative))
 }
 
-fn staff_band_receipt(band: &str, metadata: Value) -> Result<Value, String> {
+fn native_staff_band_receipt(band: &str, signal: &str) -> Value {
+    let (noun, verb) = band.rsplit_once('/').unwrap_or((band, ""));
+    json!({
+        "schema": "caduceus.staff.receipt.v1",
+        "ok": false,
+        "stop": {"noun": noun, "verb": verb},
+        "observed": {"bandPath": band},
+        "could_change_to": null,
+        "attempt": null,
+        "final_receipt": {"ok": false, "firstMissingSignal": signal},
+        "mutationPerformed": false,
+        "firstMissingSignal": signal,
+        "bandPath": band,
+    })
+}
+
+fn staff_band_receipt(band: &str, metadata: Value) -> Value {
     let envelope = json!({
         "schema": crate::protocol::SCHEMA_ID,
         "intent_id": format!("caduceus-{band}"),
@@ -658,37 +674,30 @@ fn staff_band_receipt(band: &str, metadata: Value) -> Result<Value, String> {
     });
     let walked = match crate::gate::snake::run(band, &envelope) {
         Ok(walked) => walked,
-        Err(signal) => {
-            return Ok(json!({
-                "schema": "caduceus.staff.v1",
-                "ok": false,
-                "mutationPerformed": false,
-                "bandPath": band,
-                "firstMissingSignal": signal,
-            }));
-        }
+        Err(signal) => return native_staff_band_receipt(band, &signal),
     };
-    let caduceus = walked
+    let Some(caduceus) = walked
         .get("envelope")
         .and_then(|value| value.get("caduceusReceipt"))
-        .ok_or_else(|| "caduceus-snake-receipt-missing".to_string())?;
-    let receipt = caduceus
-        .get("stepReceipt")
-        .cloned()
-        .ok_or_else(|| "caduceus-snake-staff-receipt-missing".to_string())?;
-    if walked.get("ok").and_then(Value::as_bool) != Some(true) {
-        return Ok(json!({
-            "schema": "caduceus.staff.v1",
-            "ok": false,
-            "bandPath": band,
-            "staffReceipt": receipt,
-            "firstMissingSignal": walked
-                .get("firstMissingSignal")
-                .and_then(Value::as_str)
-                .unwrap_or("caduceus-agathodaimon-refused")
-        }));
+    else {
+        return native_staff_band_receipt(band, "caduceus-snake-receipt-missing");
+    };
+    let Some(mut receipt) = caduceus.get("stepReceipt").cloned() else {
+        return native_staff_band_receipt(band, "caduceus-snake-staff-receipt-missing");
+    };
+    let signal = if !crate::routes::leaf_schema::bound(&receipt, band) {
+        Some("caduceus-schema-desync")
+    } else if walked.get("ok").and_then(Value::as_bool) != Some(true)
+        && receipt.get("ok").and_then(Value::as_bool) != Some(false)
+    {
+        Some("caduceus-agathodaimon-refused")
+    } else {
+        None
+    };
+    if let (Some(signal), Some(object)) = (signal, receipt.as_object_mut()) {
+        object.entry("doorSignal").or_insert_with(|| json!(signal));
     }
-    Ok(receipt)
+    receipt
 }
 
 fn staff_mutation_performed(receipt: &Value) -> bool {
@@ -811,9 +820,10 @@ fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
     if let Some(gid) = supplied_gid {
         object.insert("gid".into(), json!(gid));
     }
-    let staff = staff_band_receipt("storage/upload/ingress", request)?;
+    let staff = staff_band_receipt("storage/upload/ingress", request);
     let _ = std::fs::remove_file(&spool_path);
-    let ok = staff.get("ok").and_then(Value::as_bool) == Some(true);
+    let ok = staff.get("ok").and_then(Value::as_bool) == Some(true)
+        && staff.get("doorSignal").is_none();
     let mutation_performed = ok && staff_mutation_performed(&staff);
     let signal = staff.get("firstMissingSignal").cloned().unwrap_or_else(|| {
         json!(if ok {
@@ -860,8 +870,9 @@ pub fn execute_spooled_file_ingress(
     }
     let staff_result = staff_band_receipt("storage/upload/ingress", metadata);
     let _ = std::fs::remove_file(spool_path);
-    let staff = staff_result?;
-    let ok = staff.get("ok").and_then(Value::as_bool) == Some(true);
+    let staff = staff_result;
+    let ok = staff.get("ok").and_then(Value::as_bool) == Some(true)
+        && staff.get("doorSignal").is_none();
     let mutation_performed = ok && staff_mutation_performed(&staff);
     let signal = staff.get("firstMissingSignal").cloned().unwrap_or_else(|| {
         json!(if ok {
@@ -899,8 +910,9 @@ fn execute_force_permissions(metadata: Value) -> Result<Value, String> {
     object.insert("directory".into(), json!(destination));
     object.insert("path".into(), json!(destination));
     object.insert("mode".into(), json!(mode));
-    let staff = staff_band_receipt("storage/upload/force-permissions", request)?;
-    let ok = staff.get("ok").and_then(Value::as_bool) == Some(true);
+    let staff = staff_band_receipt("storage/upload/force-permissions", request);
+    let ok = staff.get("ok").and_then(Value::as_bool) == Some(true)
+        && staff.get("doorSignal").is_none();
     let mutation_performed = ok && staff_mutation_performed(&staff);
     let signal = staff.get("firstMissingSignal").cloned().unwrap_or_else(|| {
         json!(if ok {
