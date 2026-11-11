@@ -4,6 +4,7 @@ use std::{collections::HashSet, io::{Read, Write}, os::unix::process::CommandExt
 const LIMIT: usize = 1024 * 1024;
 const INPUT_LIMIT: usize = 64 * 1024;
 const REDACTED: &str = "[REDACTED]";
+const RECEIPT_SCHEMA: &str = "caduceus.staff.receipt.v1";
 
 fn secret_name(name: &str) -> bool {
     let n: String = name.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect();
@@ -42,7 +43,7 @@ fn scrub(value: &Value, secrets: &[String]) -> Value {
     }
 }
 fn failure(verb: &str, signal: &str, planned: bool, attempt: Value, changed: Value, dispatched: bool) -> Value {
-    let mut value = json!({"schema":"caduceus.staff.v1", "ok":false, "firstMissingSignal":signal,
+    let mut value = json!({"schema":RECEIPT_SCHEMA, "ok":false, "firstMissingSignal":signal,
         "mutationPerformed":changed, "backend":"keyman-rust-crown", "operation":verb,
         "planned":planned, "changed":changed, "details":null, "observed":null,
         "could-change":[verb], "attempt":attempt,
@@ -80,6 +81,9 @@ fn plan(verb: &str, payload: &Value) -> Result<(Vec<String>, Option<Value>, bool
     }
 }
 fn finish(verb: &str, mut result: Value, payload: &Value, backend: Option<&Value>) -> Value {
+    result["stop"] = json!({"noun":"keyman", "verb":verb});
+    result["could_change_to"] = json!({"operation":verb, "planned":result["planned"]});
+    result["final_receipt"] = json!({"ok":result["ok"], "firstMissingSignal":result["firstMissingSignal"]});
     let mut secret_set = HashSet::new(); collect_secrets(payload, &mut secret_set);
     if let Some(backend) = backend { collect_secrets(backend, &mut secret_set); }
     let mut secrets: Vec<_> = secret_set.into_iter().collect(); secrets.sort_by_key(|s| std::cmp::Reverse(s.len()));
@@ -122,19 +126,19 @@ pub fn execute(verb: &str, payload: &Value, timeout: Duration) -> Result<Value, 
     command.arg(verb).args(&args).process_group(0).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
     let mut child = match command.spawn() { Ok(c) => c, Err(_) => return Ok(finish(verb,failure(verb,"keyman-crown-timeout-or-unavailable",planned,json!({"command":"not-started"}),json!(false),false),payload,None)) };
     let pid = child.id();
-    let mut stdin = child.stdin.take().ok_or("caduceus-keyman-stdin-unavailable")?;
+    let mut stdin = match child.stdin.take() { Some(stdin) => stdin, None => return Ok(finish(verb,failure(verb,"keyman-crown-command-failed",planned,json!({"returnCode":null}),Value::Null,true),payload,None)) };
     let writer = std::thread::spawn(move || { let r = stdin.write_all(&input); drop(stdin); r });
-    let mut stdout = child.stdout.take().ok_or("caduceus-keyman-stdout-unavailable")?;
+    let mut stdout = match child.stdout.take() { Some(stdout) => stdout, None => return Ok(finish(verb,failure(verb,"keyman-crown-command-failed",planned,json!({"returnCode":null}),Value::Null,true),payload,None)) };
     let reader = std::thread::spawn(move || { let mut out = Vec::new(); let r = stdout.by_ref().take((LIMIT+1) as u64).read_to_end(&mut out); (r,out) });
     let deadline = Instant::now() + timeout;
     let mut status = None;
     loop {
-        if status.is_none() { status = child.try_wait().map_err(|_| "caduceus-keyman-wait-failed")?; }
+        if status.is_none() { status = match child.try_wait() { Ok(status) => status, Err(_) => return Ok(finish(verb,failure(verb,"keyman-crown-command-failed",planned,json!({"returnCode":null}),Value::Null,true),payload,None)) }; }
         if status.is_some() && writer.is_finished() && reader.is_finished() { break; }
-        if Instant::now() >= deadline { unsafe { libc::kill(-(pid as i32), libc::SIGKILL); } let _ = child.wait(); let _ = writer.join(); let _ = reader.join(); return Err("caduceus-agathodaimon-timeout".into()); }
+        if Instant::now() >= deadline { unsafe { libc::kill(-(pid as i32), libc::SIGKILL); } let _ = child.wait(); let _ = writer.join(); let _ = reader.join(); return Ok(finish(verb,failure(verb,"keyman-crown-timeout-or-unavailable",planned,json!({"returnCode":null,"command":"timed-out"}),Value::Null,true),payload,None)); }
         std::thread::sleep(Duration::from_millis(10));
     }
-    let _ = writer.join(); let output = reader.join().map_err(|_| "caduceus-keyman-stdout-read-failed")?;
+    let _ = writer.join(); let output = match reader.join() { Ok(output) => output, Err(_) => return Ok(finish(verb,failure(verb,"keyman-crown-command-failed",planned,json!({"returnCode":null}),Value::Null,true),payload,None)) };
     let stdout = output.1; let code = status.and_then(|s| s.code()).map(Value::from).unwrap_or(Value::Null);
     if stdout.len() > LIMIT { return Ok(finish(verb,failure(verb,"keyman-crown-output-too-large",planned,json!({"returnCode":code}),Value::Null,true),payload,None)); }
     let backend: Value = match serde_json::from_slice::<Value>(&stdout) { Ok(v) if v.is_object() => v, _ => return Ok(finish(verb,failure(verb,"keyman-crown-receipt-invalid",planned,json!({"returnCode":code}),Value::Null,true),payload,None)) };
@@ -150,6 +154,6 @@ pub fn execute(verb: &str, payload: &Value, timeout: Duration) -> Result<Value, 
     if code != json!(0) && signal == "none" { signal = "keyman-crown-command-failed".into(); }
     if planned && changed { ok = false; signal = "keyman-planned-mutation-reported".into(); }
     if ok { signal = "none".into(); }
-    let receipt = json!({"schema":"caduceus.staff.v1","ok":ok,"firstMissingSignal":signal,"mutationPerformed":changed,"backend":"keyman-rust-crown","operation":verb,"planned":planned,"changed":changed,"details":backend.get("details"),"observed":backend.get("observed"),"could-change":backend.get("could-change").cloned().unwrap_or(json!([verb])),"attempt":backend.get("attempt").cloned().unwrap_or(json!({"returnCode":code})),"final":backend.get("final").cloned().unwrap_or(json!({"ok":ok,"changed":changed})),"attempted-operation":verb});
+    let receipt = json!({"schema":RECEIPT_SCHEMA,"ok":ok,"firstMissingSignal":signal,"mutationPerformed":changed,"backend":"keyman-rust-crown","operation":verb,"planned":planned,"changed":changed,"details":backend.get("details"),"observed":backend.get("observed"),"could-change":backend.get("could-change").cloned().unwrap_or(json!([verb])),"attempt":backend.get("attempt").cloned().unwrap_or(json!({"returnCode":code})),"final":backend.get("final").cloned().unwrap_or(json!({"ok":ok,"changed":changed})),"attempted-operation":verb});
     Ok(finish(verb,receipt,payload,Some(&backend)))
 }
