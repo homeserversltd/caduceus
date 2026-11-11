@@ -113,7 +113,7 @@ fn safe_signal(value: Option<&Value>, ok: bool) -> String {
 
 fn safe_receipt(crossing: &Value) -> Option<Value> {
     let receipt = crossing.get("receiptPayload")?;
-    if !crate::routes::leaf_schema::accepts_bound(SCHEMA, "transmission/keys", receipt) {
+    if !crate::routes::leaf_schema::bound(receipt, "transmission/keys") {
         return None;
     }
     let crossing_ok = crossing.get("ok").and_then(Value::as_bool) == Some(true);
