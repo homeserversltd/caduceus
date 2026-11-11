@@ -1,0 +1,16 @@
+{
+  "namespace": "network/identity/device/add",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {"stage_id":"add", "snake":"network/identity/device/add", "verb":["device", "add"], "receipt":"caduceus.chord.receipt.v1", "required":true, "deadline_seconds":90}
+  ],
+  "commands": ["network identity device add"],
+  "needs": ["kea", "unbound"],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/identity/device/add",
+  "body": "required",
+  "receipt": "caduceus.chord.receipt.v1",
+  "administrative": true,
+  "deadline_seconds": 90
+}
