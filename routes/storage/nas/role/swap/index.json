@@ -17,7 +17,7 @@
   "http_method": "POST",
   "http_path": "/api/v1/storage/nas/role/swap",
   "body": "optional",
-  "receipt": "caduceus.nas.role.swap.v1",
+  "receipt": "caduceus.chord.receipt.v1",
   "administrative": true,
   "deadline_seconds": 1800
 }

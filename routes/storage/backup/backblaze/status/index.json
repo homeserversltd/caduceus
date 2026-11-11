@@ -22,5 +22,5 @@
   "http_method": "GET",
   "http_path": "/api/v1/storage/backup/backblaze/status",
   "body": "none",
-  "receipt": "caduceus.backblaze.status.v1"
+  "receipt": "caduceus.staff.receipt.v1"
 }

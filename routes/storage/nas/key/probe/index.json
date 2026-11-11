@@ -20,7 +20,7 @@
   "http_method": "POST",
   "http_path": "/api/v1/storage/nas/key/probe",
   "body": "optional",
-  "receipt": "caduceus.nas.key.probe.v1",
+  "receipt": "caduceus.staff.receipt.v1",
   "administrative": true,
   "mutation_allowed": false
 }

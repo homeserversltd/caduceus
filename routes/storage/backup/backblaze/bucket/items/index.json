@@ -28,6 +28,6 @@
   "http_method": "POST",
   "http_path": "/api/v1/storage/backup/backblaze/bucket/items",
   "body": "required",
-  "receipt": "caduceus.backblaze.bucket-items.v1",
+  "receipt": "caduceus.chord.receipt.v1",
   "administrative": true
 }

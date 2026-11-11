@@ -8,6 +8,6 @@
   "http_method": "POST",
   "http_path": "/api/v1/storage/backup/forgejo/backup-b2",
   "body": "required",
-  "receipt": "caduceus.forgejo.backup-b2.v1",
+  "receipt": "caduceus.chord.receipt.v1",
   "administrative": true
 }

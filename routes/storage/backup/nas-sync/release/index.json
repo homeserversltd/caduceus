@@ -20,6 +20,6 @@
   "http_method": "POST",
   "http_path": "/api/v1/storage/backup/nas-sync/release",
   "body": "optional",
-  "receipt": "caduceus.nas-sync.release.v1",
+  "receipt": "caduceus.staff.receipt.v1",
   "administrative": true
 }

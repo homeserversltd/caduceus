@@ -9,6 +9,6 @@
   "http_method": "POST",
   "http_path": "/api/v1/storage/disk/wipe",
   "body": "required",
-  "receipt": "caduceus.storage.disk.wipe.v1",
+  "receipt": "caduceus.staff.receipt.v1",
   "administrative": true
 }

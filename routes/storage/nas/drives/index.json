@@ -8,6 +8,6 @@
   "http_method": "POST",
   "http_path": "/api/v1/storage/nas/drives",
   "body": "optional",
-  "receipt": "caduceus.nas.drives.v1",
+  "receipt": "caduceus.staff.receipt.v1",
   "mutation_allowed": false
 }
