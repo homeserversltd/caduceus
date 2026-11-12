@@ -6,6 +6,7 @@ use axum::Json;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
+use crate::gate::door::ARPEGGIO_PARTS;
 
 include!(concat!(env!("OUT_DIR"), "/public_schema_seats.rs"));
 
@@ -26,6 +27,20 @@ struct Seat {
 struct Registry {
     seats: BTreeMap<&'static str, Seat>,
     census: Value,
+}
+
+fn arpeggio_drift(chord: Option<&Seat>) -> Value {
+    let Some(chord) = chord else {
+        return json!({"walker_only": [], "seat_only": []});
+    };
+    let names: Vec<&str> = ["required", "optional"].iter()
+        .filter_map(|key| chord.declaration.get(*key).and_then(Value::as_array))
+        .flatten().filter_map(Value::as_str).collect();
+    let walker_only: Vec<&str> = ARPEGGIO_PARTS.iter().copied()
+        .filter(|name| !names.contains(name)).collect();
+    let seat_only: Vec<&str> = names.into_iter()
+        .filter(|name| !ARPEGGIO_PARTS.contains(name)).collect();
+    json!({"walker_only": walker_only, "seat_only": seat_only})
 }
 
 fn registry() -> Result<&'static Registry, &'static str> {
@@ -68,7 +83,8 @@ fn registry() -> Result<&'static Registry, &'static str> {
             loaded.push(json!({"id": id, "schema_version": declaration.get("schema_version")}));
             seats.insert(id, Seat { bytes, declaration });
         }
-        Ok(Registry { seats, census: json!({"folder": SEAT_FOLDER, "loaded": loaded, "absent": absent}) })
+        let arpeggio_drift = arpeggio_drift(seats.get("caduceus.chord.v1"));
+        Ok(Registry { seats, census: json!({"folder": SEAT_FOLDER, "loaded": loaded, "absent": absent, "arpeggio_drift": arpeggio_drift}) })
     }).as_ref().map_err(String::as_str)
 }
 

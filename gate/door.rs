@@ -16,6 +16,10 @@ use std::{
 };
 
 const DEFAULT_GATE_DEADLINE: Duration = Duration::from_secs(30);
+pub(crate) const ARPEGGIO_SERVE: &str = "serve";
+pub(crate) const ARPEGGIO_RESCUE: &str = "rescue";
+pub(crate) const ARPEGGIO_FINALLY: &str = "finally";
+pub(crate) const ARPEGGIO_PARTS: [&str; 3] = [ARPEGGIO_SERVE, ARPEGGIO_RESCUE, ARPEGGIO_FINALLY];
 const MAX_CROSSING_DEADLINE: Duration = Duration::from_secs(600);
 const MAX_REQUEST_BODY_BYTES: usize = 2 * 1024 * 1024;
 // No queued mutations: each selected leaf's permit belongs to its detached
@@ -335,8 +339,8 @@ async fn dispatch(
     receipt_schema: Option<&str>,
     deed: &mut DeedGuard,
 ) -> Result<DoorReply, DoorFailure> {
-    let serve = declaration.get("serve").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
-    let finally = declaration.get("finally").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let serve = declaration.get(ARPEGGIO_SERVE).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let finally = declaration.get(ARPEGGIO_FINALLY).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
     if serve.is_empty() && finally.is_empty() {
         return Err(DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-generic-serve-empty"));
     }

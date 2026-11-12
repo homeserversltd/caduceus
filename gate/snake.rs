@@ -1659,7 +1659,7 @@ async fn execute_owned_chord(
     // declaration so adding rescue does not alter its existing call boundary.
     let declaration = crate::routes::selected_declaration(namespace)
         .and_then(|source| serde_json::from_str::<Value>(source).ok());
-    let rescue = declaration.as_ref().and_then(|d| d.get("rescue"))
+    let rescue = declaration.as_ref().and_then(|d| d.get(crate::gate::door::ARPEGGIO_RESCUE))
         .and_then(Value::as_array).cloned().unwrap_or_default();
     let empty_payload = Value::Object(serde_json::Map::new());
     let request_payload = base_envelope.get("payload").unwrap_or(&empty_payload);
