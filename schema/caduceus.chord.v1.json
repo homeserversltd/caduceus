@@ -11,14 +11,14 @@
     "finally": {"type": "array", "items": {"$ref": "#/$defs/stage"}},
     "ouroboros": {
       "type": "object",
-      "required": ["observe"],
+      "required": ["observe", "deadline_seconds", "reobserve_deadline_seconds"],
       "fields": {
         "observe": {"type": "string", "description": "Path of a snake read stop whose mutation_allowed is false."},
         "arguments": {"type": "object", "default": {}, "description": "Stage arguments laid over the request payload; settle is false for observe and true for reobserve."},
-        "deadline_seconds": {"type": "integer", "minimum": 1, "description": "Deadline for observe."},
-        "reobserve_deadline_seconds": {"type": "integer", "minimum": 1, "description": "Deadline for reobserve."}
+        "deadline_seconds": {"type": "integer", "minimum": 1, "maximum": 600, "description": "Deadline for observe."},
+        "reobserve_deadline_seconds": {"type": "integer", "minimum": 1, "maximum": 600, "description": "Deadline for reobserve."}
       },
-      "optional": ["arguments", "deadline_seconds", "reobserve_deadline_seconds"],
+      "optional": ["arguments"],
       "reserved_stage_ids": ["observe", "reobserve"],
       "description": "When declared, observe and reobserve are reserved stage ids; the read stop answers #/$defs/observe_answer.",
       "additionalProperties": true

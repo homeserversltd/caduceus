@@ -63,7 +63,7 @@
     "coronatio.exousia.agent.posture.v1": {"file": "schema/coronatio.exousia.agent.posture.v1.json", "schema_version": "1.0.0"},
     "caduceus.nas.setup.v1": {"file": "schema/caduceus.nas.setup.v1.json", "schema_version": "1.0.0"},
     "hestia.portal.v1": {"file": "schema/hestia.portal.v1.json", "schema_version": "1.1.0"},
-    "caduceus.chord.v1": {"file": "schema/caduceus.chord.v1.json", "schema_version": "1.0.0"},
+    "caduceus.chord.v1": {"file": "schema/caduceus.chord.v1.json", "schema_version": "1.1.0"},
     "caduceus.chord.receipt.v1": {"file": "schema/caduceus.chord.receipt.v1.json", "schema_version": "1.0.0"},
     "caduceus.network.tailscale.v1": {"file": "schema/caduceus.network.tailscale.v1.json", "schema_version": "1.0.0"},
     "caduceus.transmission.status.v1": {"file": "schema/caduceus.transmission.status.v1.json", "schema_version": "1.0.0"},
