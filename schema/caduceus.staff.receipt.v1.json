@@ -5,7 +5,7 @@
   "authority": {"owner": "caduceus", "path": "schema/caduceus.staff.receipt.v1.json"},
   "evolution": {"law": "additive-only", "missing_field_semantics": "Absent optional fields mean null", "unknown_fields_preserved": true},
   "required": ["schema", "ok"],
-  "optional": ["stop", "observed", "could_change_to", "attempt", "final_receipt", "changed", "firstMissingSignal", "mutationPerformed", "values", "readback", "commands", "receipt", "error", "envelope", "seat_was", "seat"],
+  "optional": ["stop", "observed", "could_change_to", "attempt", "final_receipt", "changed", "firstMissingSignal", "mutationPerformed", "values", "readback", "commands", "receipt", "error", "envelope", "seat"],
   "fields": {
     "schema": {"type": "string", "const": "caduceus.staff.receipt.v1"},
     "ok": {"type": "boolean"},
@@ -23,7 +23,6 @@
     "receipt": {"type": "object"},
     "error": {"type": "string"},
     "envelope": {"type": "object"},
-    "seat_was": {"type": "string", "description": "The stop's former per-stop id while a reader still compares it."},
     "seat": {"type": ["object", "null"], "description": "The folder and state read by the reader that stamped the receipt, including the degraded case."}
   },
   "additionalProperties": true
