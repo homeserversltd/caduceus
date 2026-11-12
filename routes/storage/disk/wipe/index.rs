@@ -27,7 +27,7 @@ async fn route(Json(payload): Json<Value>) -> Result<(StatusCode, Json<Value>), 
         Ok(true) => {
             let fields = crate::routes::staff::disk_wipe_payload(&payload, false)
                 .map_err(|signal| native_refusal(&signal))?;
-            let receipt = blocking_task(COMMAND, move || {
+            let receipt = blocking_task(COMMAND, move || -> Result<Value, String> {
                 let walked = crate::gate::snake::crossing_path_with_timeout(NAMESPACE, &fields, Duration::from_secs(30))?;
                 let mut receipt = walked.get("receiptPayload").cloned().filter(Value::is_object)
                     .ok_or_else(|| "caduceus-staff-invalid-receipt".to_string())?;
