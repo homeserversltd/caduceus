@@ -291,6 +291,10 @@ fn safe_receipt(crossing: &Value, action: &str, secret: Option<&str>) -> Option<
             }
         }
     }
+    if action == "authkey" {
+        let projected = scrub_marked(projected, secret)?;
+        return crate::routes::leaf_schema::accepts(SCHEMA, &projected).then_some(projected);
+    }
     let mut answer = receipt.clone();
     let fields = answer.as_object_mut()?;
     if crate::routes::leaf_schema::accepts(SCHEMA, &projected) {
