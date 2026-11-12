@@ -1745,6 +1745,12 @@ async fn execute_owned_chord(
             .ok_or("ouroboros-deadline-invalid");
         let observe_deadline = deadline("deadline_seconds")?;
         let reobserve_deadline = deadline("reobserve_deadline_seconds")?;
+        let finalizer_seconds = finally.iter().fold(0u64, |sum, step| {
+            sum.saturating_add(step.get("deadline_seconds").and_then(Value::as_u64).unwrap_or(30).clamp(1, 600))
+        });
+        if observe_deadline.saturating_add(reobserve_deadline).saturating_add(finalizer_seconds) > total_deadline.as_secs() {
+            return Err("ouroboros-deadline-budget-invalid".into());
+        }
         let mut observe_args = arguments.clone();
         observe_args.insert("settle".into(), json!(false));
         let mut reobserve_args = arguments.clone();

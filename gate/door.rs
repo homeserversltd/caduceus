@@ -20,7 +20,7 @@ pub(crate) const ARPEGGIO_SERVE: &str = "serve";
 pub(crate) const ARPEGGIO_RESCUE: &str = "rescue";
 pub(crate) const ARPEGGIO_OUROBOROS: &str = "ouroboros";
 pub(crate) const ARPEGGIO_FINALLY: &str = "finally";
-pub(crate) const ARPEGGIO_PARTS: [&str; 3] = [ARPEGGIO_SERVE, ARPEGGIO_RESCUE, ARPEGGIO_FINALLY];
+pub(crate) const ARPEGGIO_PARTS: [&str; 4] = [ARPEGGIO_SERVE, ARPEGGIO_RESCUE, ARPEGGIO_OUROBOROS, ARPEGGIO_FINALLY];
 const MAX_CROSSING_DEADLINE: Duration = Duration::from_secs(600);
 const MAX_REQUEST_BODY_BYTES: usize = 2 * 1024 * 1024;
 // No queued mutations: each selected leaf's permit belongs to its detached

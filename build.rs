@@ -655,6 +655,13 @@ fn main() {
             for name in ["deadline_seconds", "reobserve_deadline_seconds"] {
                 assert!(ring.get(name).and_then(serde_json::Value::as_u64).is_some_and(|n| n > 0 && n <= 600 && n <= route_deadline), "{namespace}: invalid ouroboros {name}");
             }
+            let finalizer_budget = finally.into_iter().flatten().fold(0u64, |sum, step| {
+                sum.saturating_add(step.get("deadline_seconds").and_then(serde_json::Value::as_u64).unwrap_or(30).clamp(1, 600))
+            });
+            let ring_budget = ring["deadline_seconds"].as_u64().unwrap()
+                .saturating_add(ring["reobserve_deadline_seconds"].as_u64().unwrap());
+            assert!(ring_budget.saturating_add(finalizer_budget) <= route_deadline,
+                "{namespace}: ouroboros and finalizer deadlines exceed route budget");
         }
         let is_generic = !Path::new(&format!("routes/{namespace}/index.rs")).is_file();
         let is_chord = serve.is_some_and(|steps| steps.len() != 1)
