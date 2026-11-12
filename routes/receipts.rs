@@ -774,10 +774,15 @@ fn staff_wrapper_receipt(band: &str, metadata: Value, target: Option<&Path>) -> 
     let before_spawn = matches!(signal,
         "caduceus-snake-band-path-invalid" | "caduceus-agathodaimon-cli-missing" |
         "caduceus-agathodaimon-cli-unavailable" | "caduceus-snake-band-not-profile-lit" |
+        "caduceus-staff-socket-create-failed" | "caduceus-staff-socket-request-invalid" |
+        "caduceus-staff-socket-request-too-large" | "caduceus-snake-envelope-invalid" |
+        "protocol-envelope-not-object" | "protocol-schema-mismatch" |
         "caduceus-agathodaimon-index-missing" | "caduceus-agathodaimon-index-invalid" |
         "caduceus-agathodaimon-index-children-invalid" | "caduceus-agathodaimon-index-children-missing" |
         "caduceus-index-child-invalid") || signal.starts_with("caduceus-index-child-missing:")
-        || signal.starts_with("caduceus-index-child-invalid:");
+        || signal.starts_with("caduceus-index-child-invalid:")
+        || signal.starts_with("protocol-kernel-definition-missing:")
+        || signal.starts_with("protocol-kernel-field-missing:");
     if before_spawn && receipt.get("bandPath").and_then(Value::as_str) == Some(band)
         && receipt.pointer("/observed/bandPath").and_then(Value::as_str) == Some(band)
         && receipt.get("attempt") == Some(&Value::Null)
