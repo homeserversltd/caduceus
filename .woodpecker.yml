@@ -226,7 +226,7 @@ steps:
         export GIT_CONFIG_COUNT=1
         export GIT_CONFIG_VALUE_0='!f() { if [ "$${1}" = get ]; then printf "username=x-token\npassword=%s\n" "$${FORGEJO_TOKEN}"; fi; }; f'
 
-        WUKONG_STAFF_SHA=a28d37815f335c7dc82f190864f5f0e70430ca73
+        WUKONG_STAFF_SHA=d8cff1efe7456c4bb137f9ed0959bcbc412572c1
         bootstrap_deadline=$(( $(date +%s) + $${WUKONG_BOOTSTRAP_BUDGET_SECONDS:-300} ))
         bootstrap_delay=$${WUKONG_BOOTSTRAP_INITIAL_DELAY_SECONDS:-5}
         bootstrap_error='git bootstrap timed out without a git diagnostic'
