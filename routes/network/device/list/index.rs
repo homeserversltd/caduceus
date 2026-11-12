@@ -304,6 +304,9 @@ pub fn invoke(command: &ReadCommand) -> Result<Value, String> {
         let band = band_request(command)?;
         if command.command == "network device list" {
             let receipt = crate::gate::snake::crossing_path_receipt(band, &json!({}))?;
+            if !receipt.is_object() {
+                return Err("caduceus-agathodaimon-refused".to_string());
+            }
             if !crate::gate::receipt_succeeded(&receipt) {
                 return Ok(receipt);
             }
