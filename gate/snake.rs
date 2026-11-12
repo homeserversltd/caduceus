@@ -1492,6 +1492,7 @@ async fn native_chord_run_steps(
             }
         };
 
+        let crossed_snake = snake.clone();
         let result = if let Some(stage_snake) = snake {
             let output_bound = if raw_step.get("receipt").and_then(Value::as_str)
                 == Some("caduceus.chord.receipt.v1") { MAX_CHORD_OUTPUT_BYTES } else { MAX_OUTPUT_BYTES };
@@ -1573,7 +1574,13 @@ async fn native_chord_run_steps(
                 let schema_ok = expected_schema.as_deref().is_none_or(|schema| {
                     (schema != "caduceus.chord.receipt.v1" && stage_stop.is_some_and(|stop| crate::routes::leaf_schema::bound(&receipt, stop)))
                         || (schema == "caduceus.chord.receipt.v1" && stage_stop.is_some_and(|path| crate::routes::leaf_schema::aggregate_bound(&receipt, path)))
-                });
+                }) && (expected_schema.is_some() || crossed_snake.as_deref().is_none_or(|path| {
+                    receipt.get("stop").is_none() || {
+                        let (noun, verb) = path.rsplit_once('/').unwrap_or((path, ""));
+                        receipt.pointer("/stop/noun").and_then(Value::as_str) == Some(noun)
+                            && receipt.pointer("/stop/verb").and_then(Value::as_str) == Some(verb)
+                    }
+                }));
                 if !schema_ok && result.get("firstMissingSignal").and_then(Value::as_str)
                     != Some("caduceus-agathodaimon-output-too-large") {
                     state.changed = None;
