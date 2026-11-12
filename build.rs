@@ -674,6 +674,8 @@ fn main() {
         let mut ordinal = 0usize;
         let mut settles_count = 0usize;
         for list in ["serve", "rescue", "finally"] {
+            // The synthetic tail has already run when finalizers resolve refs.
+            if list == "finally" && ring.is_some() { seen.insert("reobserve".to_owned()); }
             if let Some(steps) = entry.get(list).and_then(serde_json::Value::as_array) {
                 for step in steps {
                     if let Some(path) = step.get("settles_on") {
