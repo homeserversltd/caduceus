@@ -642,19 +642,46 @@ fn main() {
         }
         let rescue = entry.get("rescue").and_then(serde_json::Value::as_array);
         let finally = entry.get("finally").and_then(serde_json::Value::as_array);
+        let ring = entry.get("ouroboros");
+        if let Some(ring) = ring {
+            assert!(chord_seat["optional"].as_array().is_some_and(|fields| fields.iter().any(|v| v.as_str() == Some("ouroboros")))
+                && chord_seat["fields"].get("ouroboros").is_some(), "{namespace}: ouroboros absent from chord seat");
+            assert!(ring.is_object(), "{namespace}: ouroboros must be an object");
+            let path = ring.get("observe").and_then(serde_json::Value::as_str).unwrap_or("");
+            assert!(!path.is_empty() && path.split('/').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')),
+                "{namespace}: invalid ouroboros observe path");
+            assert!(ring.get("arguments").is_some_and(serde_json::Value::is_object), "{namespace}: invalid ouroboros arguments");
+            let route_deadline = entry.get("deadline_seconds").and_then(serde_json::Value::as_u64).unwrap_or(30);
+            for name in ["deadline_seconds", "reobserve_deadline_seconds"] {
+                assert!(ring.get(name).and_then(serde_json::Value::as_u64).is_some_and(|n| n > 0 && n <= 600 && n <= route_deadline), "{namespace}: invalid ouroboros {name}");
+            }
+        }
         let is_generic = !Path::new(&format!("routes/{namespace}/index.rs")).is_file();
         let is_chord = serve.is_some_and(|steps| steps.len() != 1)
+            || ring.is_some()
+            || serve.into_iter().flatten().any(|step| step.get("settles_on").is_some())
             || rescue.is_some_and(|steps| !steps.is_empty())
             || finally.is_some_and(|steps| !steps.is_empty())
             || serve.into_iter().chain(finally).flatten().any(|step| {
                 markers.iter().any(|field| field.as_str().is_some_and(|field| step.get(field).is_some()))
             });
         let mut seen = BTreeSet::new();
+        if let Some(ring) = ring {
+            check_chord_refs(&ring["arguments"], &seen, namespace);
+            seen.insert("observe".to_owned());
+        }
         let mut serve_ids = BTreeSet::new();
         let mut ordinal = 0usize;
+        let mut settles_count = 0usize;
         for list in ["serve", "rescue", "finally"] {
             if let Some(steps) = entry.get(list).and_then(serde_json::Value::as_array) {
                 for step in steps {
+                    if let Some(path) = step.get("settles_on") {
+                        settles_count += 1;
+                        assert!(list == "serve" && settles_count == 1, "{namespace}: settles_on must occur at most once on serve");
+                        let path = path.as_str().unwrap_or("");
+                        assert!(!path.is_empty() && path.split('.').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')), "{namespace}: invalid settles_on path");
+                    }
                     if is_generic && is_chord {
                         for field in stage_required {
                             let name = field.as_str().expect("caduceus.chord.v1 required field invalid");
@@ -678,7 +705,9 @@ fn main() {
                             assert!(serve_ids.contains(id), "{namespace}: rescue on_refusal_of names unknown serve stage {id}");
                         }
                     }
-                    let eligible = if list == "rescue" { &serve_ids } else { &seen };
+                    let mut rescue_eligible = serve_ids.clone();
+                    if ring.is_some() { rescue_eligible.insert("observe".to_owned()); }
+                    let eligible = if list == "rescue" { &rescue_eligible } else { &seen };
                     if let Some(args) = step.get(arguments_field) { check_chord_refs(args, eligible, namespace); }
                     if let Some(dependencies) = step.get(depends_field).and_then(serde_json::Value::as_array) {
                         for dependency in dependencies {
@@ -688,6 +717,7 @@ fn main() {
                     }
                     let fallback = format!("step-{ordinal}");
                     let id = step.get(stage_id_field).and_then(serde_json::Value::as_str).unwrap_or(&fallback);
+                    assert!(ring.is_none() || (id != "observe" && id != "reobserve"), "{namespace}: reserved ouroboros stage id {id}");
                     assert!(seen.insert(id.to_owned()), "{namespace}: duplicate stage {id}");
                     if list == "serve" { serve_ids.insert(id.to_owned()); }
                     ordinal += 1;

@@ -1115,6 +1115,7 @@ struct NativeChordState {
     failed_stage: Option<String>,
     first_missing_signal: Option<String>,
     skip_serve: bool,
+    settled_by: Option<String>,
     finally_skipped: bool,
     // None means at least one mutator did not report whether it changed.
     changed: Option<bool>,
@@ -1258,6 +1259,7 @@ async fn native_chord_run_steps(
     total_deadline: Duration,
     is_finally: bool,
     is_rescue: bool,
+    is_ring: bool,
     state: &mut NativeChordState,
 ) {
     for raw_step in route_steps {
@@ -1293,13 +1295,19 @@ async fn native_chord_run_steps(
                         && row.get("outcome").and_then(Value::as_str) == Some("stage-refused"))));
             let dependencies_met = raw_step.get("depends_on").and_then(Value::as_array)
                 .is_none_or(|ids| ids.iter().all(|id| id.as_str().is_some_and(|id| state.completed.contains_key(id))));
-            if !triggered || !dependencies_met {
+            if state.settled_by.is_some() || !triggered || !dependencies_met {
                 state.stages.push(native_chord_stage_row(&step_id, &transition, "stage-skipped", declared_arguments,
                     json!({"ok":false,"firstMissingSignal":"caduceus-chord-rescue-not-triggered"})));
                 continue;
             }
         }
 
+        if !is_finally && !is_rescue && state.settled_by.is_some() {
+            let mut row = native_chord_stage_row(&step_id, &transition, "stage-skipped", declared_arguments, Value::Null);
+            row["skipped_by"] = json!("settled");
+            state.stages.push(row);
+            continue;
+        }
         if !is_finally && !is_rescue && state.skip_serve {
             let signal = if state.failed_stage.is_none() && required {
                 "caduceus-chord-total-deadline-exceeded"
@@ -1568,10 +1576,10 @@ async fn native_chord_run_steps(
             }
         } else { Err("gate-route-step-must-name-one-band".into()) };
 
-        let (outcome, receipt, failure_signal) = match result {
+        let (mut outcome, receipt, mut failure_signal) = match result {
             Err(signal) => {
-                // A timed-out or broken crossing cannot prove it changed nothing.
-                state.changed = None;
+                // A timed-out or broken mutating crossing cannot prove it changed nothing.
+                if !is_ring { state.changed = None; }
                 (
                     "stage-refused",
                     json!({"ok":false,"firstMissingSignal":signal}),
@@ -1603,11 +1611,11 @@ async fn native_chord_run_steps(
                 }));
                 if !schema_ok && result.get("firstMissingSignal").and_then(Value::as_str)
                     != Some("caduceus-agathodaimon-output-too-large") {
-                    state.changed = None;
+                    if !is_ring { state.changed = None; }
                     ("stage-refused", receipt, Some("caduceus-schema-desync".to_owned()))
                 } else {
                     let is_read = stage_declaration.as_ref().and_then(|d| d.get("mutation_allowed")).and_then(Value::as_bool) == Some(false);
-                    if !is_read {
+                    if !is_read && !is_ring {
                         state.changed = match (state.changed, crate::gate::door::declared_receipt_change(expected_schema.as_deref(), stage_stop, stage_stop, &receipt)) {
                             (Some(previous), Some(current)) => Some(previous || current),
                             _ => None,
@@ -1631,6 +1639,22 @@ async fn native_chord_run_steps(
             }
         };
 
+        if is_ring && step_id == "observe" && outcome == "stage-completed" {
+            match receipt.pointer("/result/diff/empty").and_then(Value::as_bool) {
+                Some(true) => state.settled_by = Some(step_id.clone()),
+                Some(false) => {},
+                None => {
+                    state.completed.remove(&step_id);
+                    outcome = "stage-refused";
+                    failure_signal = Some("ouroboros-observe-shape-invalid".to_owned());
+                }
+            }
+        }
+        if !is_ring && !is_finally && !is_rescue && outcome == "stage-completed"
+            && raw_step.get("settles_on").and_then(Value::as_str)
+                .and_then(|path| native_chord_dotted_lookup(&receipt, path)).as_ref() == Some(&Value::Bool(true)) {
+            state.settled_by = Some(step_id.clone());
+        }
         if let Some(signal) = failure_signal.as_deref() {
             if is_finally || required { native_chord_mark_failed(state, &step_id, signal); }
             if !is_finally && step.required {
@@ -1700,6 +1724,35 @@ async fn execute_owned_chord(
         .and_then(|source| serde_json::from_str::<Value>(source).ok());
     let rescue = declaration.as_ref().and_then(|d| d.get(crate::gate::door::ARPEGGIO_RESCUE))
         .and_then(Value::as_array).cloned().unwrap_or_default();
+    let ring = declaration.as_ref().and_then(|d| d.get(crate::gate::door::ARPEGGIO_OUROBOROS));
+    let ring_steps = if let Some(ring) = ring {
+        let path = ring.get("observe").and_then(Value::as_str)
+            .ok_or("ouroboros-observe-path-invalid")?;
+        let safe = safe_band_path(path)?;
+        if safe != path { return Err("ouroboros-observe-path-invalid".into()); }
+        let read_shelf = if std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some() {
+            cli_path().parent().ok_or("ouroboros-shelf-invalid")?.to_path_buf()
+        } else { shelf_root() };
+        let is_read = index_entries(&read_shelf)?.iter().any(|entry| {
+            entry.get("bandPath").and_then(Value::as_str) == Some(path)
+                && entry.get("mutation_allowed").and_then(Value::as_bool) == Some(false)
+        });
+        if !is_read { return Err("ouroboros-observe-not-read".into()); }
+        let arguments = ring.get("arguments").and_then(Value::as_object)
+            .ok_or("ouroboros-arguments-invalid")?;
+        let deadline = |name: &str| ring.get(name).and_then(Value::as_u64)
+            .filter(|seconds| *seconds > 0 && *seconds <= 600 && *seconds <= total_deadline.as_secs())
+            .ok_or("ouroboros-deadline-invalid");
+        let observe_deadline = deadline("deadline_seconds")?;
+        let reobserve_deadline = deadline("reobserve_deadline_seconds")?;
+        let mut observe_args = arguments.clone();
+        observe_args.insert("settle".into(), json!(false));
+        let mut reobserve_args = arguments.clone();
+        reobserve_args.insert("settle".into(), json!(true));
+        Some((json!({"stage_id":"observe", "snake":path, "arguments":observe_args, "deadline_seconds":observe_deadline}),
+              json!({"stage_id":"reobserve", "snake":path, "arguments":reobserve_args, "deadline_seconds":reobserve_deadline}),
+              reobserve_deadline))
+    } else { None };
     let empty_payload = Value::Object(serde_json::Map::new());
     let request_payload = base_envelope.get("payload").unwrap_or(&empty_payload);
     let total_started = Instant::now();
@@ -1710,16 +1763,23 @@ async fn execute_owned_chord(
         failed_stage: None,
         first_missing_signal: None,
         skip_serve: false,
+        settled_by: None,
         finally_skipped: false,
         changed: Some(false),
         next_ordinal: 0,
     };
 
     // Reserve each finalizer's declared bound, capped at the whole budget.
-    let reserve_seconds = finally.iter().fold(0u64, |sum, step| {
+    let finalizer_seconds = finally.iter().fold(0u64, |sum, step| {
         sum.saturating_add(step.get("deadline_seconds").and_then(Value::as_u64).unwrap_or(30).clamp(1, 600))
     });
-    let reserve = Duration::from_secs(reserve_seconds).min(total_deadline);
+    let finalizer_reserve = Duration::from_secs(finalizer_seconds).min(total_deadline);
+    let ring_reserve = ring_steps.as_ref().map(|(_, _, seconds)| Duration::from_secs(*seconds)).unwrap_or_default();
+    let reserve = finalizer_reserve.saturating_add(ring_reserve).min(total_deadline);
+    if let Some((observe, _, _)) = &ring_steps {
+        native_chord_run_steps(routine_id, std::slice::from_ref(observe), base_envelope, request_payload,
+            total_started, total_deadline.saturating_sub(reserve), false, false, true, &mut state).await;
+    }
     native_chord_run_steps(
         routine_id,
         serve,
@@ -1729,13 +1789,18 @@ async fn execute_owned_chord(
         total_deadline.saturating_sub(reserve),
         false,
         false,
+        false,
         &mut state,
     )
     .await;
     native_chord_run_steps(
         routine_id, &rescue, base_envelope, request_payload, total_started,
-        total_deadline.saturating_sub(reserve), false, true, &mut state,
+        total_deadline.saturating_sub(reserve), false, true, false, &mut state,
     ).await;
+    if let Some((_, reobserve, _)) = &ring_steps {
+        native_chord_run_steps(routine_id, std::slice::from_ref(reobserve), base_envelope, request_payload,
+            total_started, total_deadline.saturating_sub(finalizer_reserve), true, false, true, &mut state).await;
+    }
     native_chord_run_steps(
         routine_id,
         finally,
@@ -1744,6 +1809,7 @@ async fn execute_owned_chord(
         total_started,
         total_deadline,
         true,
+        false,
         false,
         &mut state,
     )
@@ -1760,5 +1826,6 @@ async fn execute_owned_chord(
         "firstMissingSignal": state.first_missing_signal.unwrap_or_else(|| "none".into())
     });
     if let Some(changed) = state.changed { aggregate["changed"] = json!(changed); }
+    if let Some(stage) = state.settled_by { aggregate["settledBy"] = json!(stage); }
     Ok(aggregate)
 }

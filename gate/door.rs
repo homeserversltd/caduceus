@@ -18,6 +18,7 @@ use std::{
 const DEFAULT_GATE_DEADLINE: Duration = Duration::from_secs(30);
 pub(crate) const ARPEGGIO_SERVE: &str = "serve";
 pub(crate) const ARPEGGIO_RESCUE: &str = "rescue";
+pub(crate) const ARPEGGIO_OUROBOROS: &str = "ouroboros";
 pub(crate) const ARPEGGIO_FINALLY: &str = "finally";
 pub(crate) const ARPEGGIO_PARTS: [&str; 3] = [ARPEGGIO_SERVE, ARPEGGIO_RESCUE, ARPEGGIO_FINALLY];
 const MAX_CROSSING_DEADLINE: Duration = Duration::from_secs(600);
@@ -377,6 +378,8 @@ async fn dispatch(
     }
 
     let is_chord = serve.len() != 1 || !finally.is_empty()
+        || declaration.get(ARPEGGIO_OUROBOROS).is_some()
+        || serve.iter().any(|step| step.get("settles_on").is_some())
         || serve.iter().chain(finally.iter()).any(|step| {
             ["stage_id", "arguments", "required", "depends_on", "deadline_seconds"]
                 .iter().any(|field| step.get(*field).is_some())
