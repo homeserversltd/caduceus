@@ -84,6 +84,8 @@
     }
   },
   "flags": {
+    "presence_gated": true,
+    "version_compared": false,
     "families": {
       "benchmark": {
         "shape": "boolean",
