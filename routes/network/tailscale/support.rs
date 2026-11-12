@@ -379,25 +379,31 @@ async fn execute(action: &'static str, body: Result<Bytes, BytesRejection>) -> H
             json!({"key": key})
         }
         "tailnet" => {
-            let value = serde_json::from_slice::<Value>(body.as_ref()).map_err(|_| {
-                bad_request(
-                    &command,
-                    "caduceus-network-tailscale-request-invalid",
-                )
-            })?;
-            let Some(object) = value.as_object() else {
-                return Err(bad_request(
-                    &command,
-                    "caduceus-network-tailscale-request-invalid",
-                ));
-            };
-            let Some(name) = object.get("name").and_then(Value::as_str) else {
-                return Err(bad_request(
-                    &command,
-                    "caduceus-network-tailscale-request-invalid",
-                ));
-            };
-            json!({"name": name})
+            if body.is_empty() {
+                json!({})
+            } else {
+                let value = serde_json::from_slice::<Value>(body.as_ref()).map_err(|_| {
+                    bad_request(
+                        &command,
+                        "caduceus-network-tailscale-request-invalid",
+                    )
+                })?;
+                let Some(object) = value.as_object() else {
+                    return Err(bad_request(
+                        &command,
+                        "caduceus-network-tailscale-request-invalid",
+                    ));
+                };
+                match object.get("name") {
+                    None | Some(Value::Null) => json!({}),
+                    Some(Value::String(name)) if name.is_empty() => json!({}),
+                    Some(Value::String(name)) => json!({"name": name}),
+                    _ => return Err(bad_request(
+                        &command,
+                        "caduceus-network-tailscale-request-invalid",
+                    )),
+                }
+            }
         }
         _ => {
             return Err(forbidden(action, "tailscale-operation-required"));
