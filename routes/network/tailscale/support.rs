@@ -16,7 +16,7 @@ const MAX_AUTHKEY_BYTES: usize = 1024;
 
 type HttpResult = Result<
     (StatusCode, Json<Value>),
-    (StatusCode, Json<crate::gate::ApiErrorBody>),
+    (StatusCode, Json<Value>),
 >;
 
 fn command(action: &str) -> String {
@@ -47,19 +47,27 @@ fn timeout(action: &str) -> Duration {
     }
 }
 
-fn bad_request(
-    command: &str,
-    signal: &'static str,
-) -> (StatusCode, Json<crate::gate::ApiErrorBody>) {
-    (
-        StatusCode::BAD_REQUEST,
-        Json(crate::gate::ApiErrorBody {
-            schema: "caduceus.api.error.v1",
-            ok: false,
-            command: command.to_string(),
-            first_missing_signal: signal.to_string(),
-        }),
-    )
+fn native_refusal(action: &str, signal: &str) -> Value {
+    json!({
+        "schema": "caduceus.staff.receipt.v1",
+        "ok": false,
+        "stop": {"noun": "network/tailscale", "verb": action},
+        "observed": {"command": command(action)},
+        "could_change_to": null,
+        "attempt": null,
+        "final_receipt": {"ok": false, "firstMissingSignal": signal},
+        "command": command(action),
+        "firstMissingSignal": signal,
+    })
+}
+
+fn bad_request(command: &str, signal: &'static str) -> (StatusCode, Json<Value>) {
+    let action = command.rsplit(' ').next().unwrap_or("");
+    (StatusCode::BAD_REQUEST, Json(native_refusal(action, signal)))
+}
+
+fn forbidden(action: &str, signal: &str) -> (StatusCode, Json<Value>) {
+    (StatusCode::FORBIDDEN, Json(native_refusal(action, signal)))
 }
 
 fn safe_text(value: &Value, max_len: usize, secret: Option<&str>) -> Option<Value> {
@@ -98,10 +106,11 @@ fn safe_string_array(
     }
 }
 
-fn scrub_marked(value: Value) -> Option<Value> {
+fn scrub_marked(value: Value, secret: Option<&str>) -> Option<Value> {
     match value {
         Value::String(text) => {
-            if text.to_ascii_lowercase().contains("tskey-") {
+            if text.to_ascii_lowercase().contains("tskey-")
+                || secret.is_some_and(|secret| !secret.is_empty() && text.contains(secret)) {
                 None
             } else {
                 Some(Value::String(text))
@@ -110,16 +119,17 @@ fn scrub_marked(value: Value) -> Option<Value> {
         Value::Array(values) => Some(Value::Array(
             values
                 .into_iter()
-                .filter_map(scrub_marked)
+                .filter_map(|value| scrub_marked(value, secret))
                 .collect(),
         )),
         Value::Object(values) => {
             let mut scrubbed = Map::new();
             for (key, value) in values {
-                if key.to_ascii_lowercase().contains("tskey-") {
+                if key.to_ascii_lowercase().contains("tskey-")
+                    || secret.is_some_and(|secret| !secret.is_empty() && key.contains(secret)) {
                     continue;
                 }
-                if let Some(value) = scrub_marked(value) {
+                if let Some(value) = scrub_marked(value, secret) {
                     scrubbed.insert(key, value);
                 }
             }
@@ -281,37 +291,36 @@ fn safe_receipt(crossing: &Value, action: &str, secret: Option<&str>) -> Option<
             }
         }
     }
-    let mut projected = scrub_marked(projected)?;
-    if matches!(action, "up" | "down") && !ok {
-        projected.as_object_mut()?.insert("receipt".to_string(), receipt.clone());
+    let mut answer = receipt.clone();
+    let fields = answer.as_object_mut()?;
+    if crate::routes::leaf_schema::accepts(SCHEMA, &projected) {
+        fields.entry("face").or_insert(projected);
     }
-    crate::routes::leaf_schema::accepts(SCHEMA, &projected).then_some(projected)
+    if staff_ok == Some(true) && !crossing_ok {
+        fields.entry("doorSignal").or_insert_with(|| json!("caduceus-network-tailscale-crossing-refused"));
+    }
+    scrub_marked(answer, secret)
 }
 
 fn unknown_receipt(action: &str, signal: &'static str) -> Value {
-    json!({
-        "schema": SCHEMA,
-        "ok": false,
-        "action": action,
-        "firstMissingSignal": signal,
-        "mutationPerformed": null,
-        "final": null,
-    })
+    let mut receipt = native_refusal(action, signal);
+    let fields = receipt.as_object_mut().expect("native receipt is an object");
+    fields.insert("action".to_string(), json!(action));
+    fields.insert("mutationPerformed".to_string(), Value::Null);
+    fields.insert("final".to_string(), Value::Null);
+    receipt
 }
 
 async fn execute(action: &'static str, body: Result<Bytes, BytesRejection>) -> HttpResult {
     let command = command(action);
     if crate::routes::profile_routes::ACTIVE_PROFILE != "homeserver" {
-        return Err(crate::gate::api_error(&command));
+        return Err(forbidden(action, "caduceus-public-action-not-allowed"));
     }
     match crate::shared::policy::allows_command(&command) {
         Ok(true) => {}
-        Ok(false) => return Err(crate::gate::api_error(&command)),
+        Ok(false) => return Err(forbidden(action, "caduceus-public-action-not-allowed")),
         Err(_) => {
-            return Err(crate::gate::api_error_signal(
-                &command,
-                "caduceus-carapace-desync",
-            ));
+            return Err(forbidden(action, "caduceus-carapace-desync"));
         }
     }
 
@@ -387,10 +396,7 @@ async fn execute(action: &'static str, body: Result<Bytes, BytesRejection>) -> H
             json!({"name": name})
         }
         _ => {
-            return Err(crate::gate::api_error_signal(
-                &command,
-                "tailscale-operation-required",
-            ));
+            return Err(forbidden(action, "tailscale-operation-required"));
         }
     };
 
