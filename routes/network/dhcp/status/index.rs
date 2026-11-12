@@ -14,7 +14,7 @@ use serde_json::Value;
 
 pub(crate) async fn network_read_route(
     command: &'static str,
-) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let Some(read) = network_read::named(command) else {
         return Err(api_error(command));
     };
@@ -26,7 +26,7 @@ pub(crate) async fn network_read_route(
                 .as_ref()
                 .filter(|_| configured_native)
                 .map(crate::shared::load_trace::begin_invocation);
-            let result = crate::gate::blocking_task(command, move || network_read::invoke(read)).await?;
+            let result = crate::gate::blocking_task(command, move || network_read::invoke_with_origin(read)).await?;
             if let (Some(context), Some(invocation)) = (context, invocation) {
                 crate::shared::load_trace::record_native_completion(
                     &context,
@@ -36,9 +36,12 @@ pub(crate) async fn network_read_route(
                 );
             }
             match result {
-                Ok(mut value) => {
-                    crate::shared::load_trace::enrich_json(&mut value);
-                    Ok(Json(value))
+                Ok((mut value, crossed_refusal)) => {
+                    let status = if crossed_refusal { crate::gate::mutation_status(&value) } else { StatusCode::OK };
+                    if status == StatusCode::OK {
+                        crate::shared::load_trace::enrich_json(&mut value);
+                    }
+                    Ok((status, Json(value)))
                 }
                 Err(error) => Err((
                     StatusCode::SERVICE_UNAVAILABLE,
@@ -56,7 +59,7 @@ pub(crate) async fn network_read_route(
     }
 }
 
-async fn dhcp_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+async fn dhcp_status_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     network_read_route("network dhcp status").await
 }
 

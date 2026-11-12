@@ -194,11 +194,11 @@ where
         })
 }
 
-async fn dns_status_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+async fn dns_status_read_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     network_read_route("network dns status").await
 }
 
-async fn dns_resolver_status_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+async fn dns_resolver_status_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     network_read_route("network dns resolver status").await
 }
 

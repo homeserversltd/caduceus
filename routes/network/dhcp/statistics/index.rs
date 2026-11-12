@@ -6,7 +6,7 @@ use axum::{response::Json, Router};
 use serde_json::Value;
 use crate::gate::ApiErrorBody;
 
-async fn dhcp_statistics_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+async fn dhcp_statistics_read_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     network_read_route("network dhcp statistics").await
 }
 

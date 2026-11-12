@@ -229,15 +229,15 @@ pub fn named(command: &str) -> Option<&'static ReadCommand> {
 }
 
 fn band_request(command: &ReadCommand) -> Result<&'static str, String> {
-    match command.command {
-        "network dhcp status" => Ok("network/dhcp/status"),
-        "network dhcp statistics" => Ok("network/dhcp/statistics"),
-        "network dhcp health" => Ok("network/dhcp/health"),
-        "network dhcp boundary show" => Ok("network/dhcp/boundary/show"),
-        "network device list" => Ok("network/identity/device/list"),
-        "network dns status" => Ok("network/dns/status"),
-        "network dns read" => Ok("network/dns/read"),
-        "network dns resolver status" => Ok("network/dns/resolver/status"),
+    match command.actuator_id {
+        "network.dhcp.status" => Ok("network/dhcp/status"),
+        "network.dhcp.statistics" => Ok("network/dhcp/statistics"),
+        "network.dhcp.health" => Ok("network/dhcp/health"),
+        "network.dhcp.boundary" => Ok("network/dhcp/boundary/show"),
+        "network.identity.device_list" => Ok("network/identity/device/list"),
+        "network.dns.status" => Ok("network/dns/status"),
+        "network.dns.read" => Ok("network/dns/read"),
+        "network.dns.resolver.status" => Ok("network/dns/resolver/status"),
         _ => Err(format!(
             "caduceus-network-read-band-unmapped:{}",
             command.command
@@ -246,11 +246,15 @@ fn band_request(command: &ReadCommand) -> Result<&'static str, String> {
 }
 
 pub fn invoke(command: &ReadCommand) -> Result<Value, String> {
+    invoke_with_origin(command).map(|(value, _)| value)
+}
+
+pub(crate) fn invoke_with_origin(command: &ReadCommand) -> Result<(Value, bool), String> {
     if matches!(
         command.command,
         "network dhcp leases" | "network dhcp reservations list"
     ) {
-        return Ok(crate::routes::native_kea_read::response(command.command));
+        return Ok((crate::routes::native_kea_read::response(command.command), false));
     }
     let payload = if let Some(configured) = env::var_os("CADUCEUS_NETWORK_READ_CMD") {
         let configured = configured
@@ -302,18 +306,14 @@ pub fn invoke(command: &ReadCommand) -> Result<Value, String> {
         payload
     } else {
         let band = band_request(command)?;
-        if command.command == "network device list" {
-            let receipt = crate::gate::snake::crossing_path_receipt(band, &json!({}))?;
-            if !receipt.is_object() {
-                return Err("caduceus-agathodaimon-refused".to_string());
-            }
-            if !crate::gate::receipt_succeeded(&receipt) {
-                return Ok(receipt);
-            }
-            receipt
-        } else {
-            crate::gate::snake::crossing_path(band, &json!({}))?
+        let receipt = crate::gate::snake::crossing_path_receipt(band, &json!({}))?;
+        if !receipt.is_object() {
+            return Err("caduceus-agathodaimon-refused".to_string());
         }
+        if !crate::gate::receipt_succeeded(&receipt) {
+            return Ok((receipt, true));
+        }
+        receipt
     };
     if payload.get("ok") == Some(&json!(false)) {
         let signal = payload
@@ -325,20 +325,20 @@ pub fn invoke(command: &ReadCommand) -> Result<Value, String> {
             command.actuator_id, signal
         ));
     }
-    Ok(json!({
+    Ok((json!({
         "schema": "caduceus.network.read.v1",
         "ok": true,
         "command": command.command,
         "actuatorId": command.actuator_id,
         "payload": payload,
         "firstMissingSignal": "none"
-    }))
+    }), false))
 }
 
 pub fn command(command: &ReadCommand) -> i32 {
-    match invoke(command) {
-        Ok(value) => {
-            let ok = if command.command == "network device list" {
+    match invoke_with_origin(command) {
+        Ok((value, crossed_refusal)) => {
+            let ok = if crossed_refusal {
                 crate::gate::receipt_succeeded(&value)
             } else {
                 value.get("ok").and_then(Value::as_bool).unwrap_or(true)
@@ -361,44 +361,7 @@ use crate::gate::ApiErrorBody;
 use axum::{response::Json, Router};
 
 async fn device_list_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    let command = "network device list";
-    let read = named(command).ok_or_else(|| crate::gate::api_error(command))?;
-    match crate::shared::policy::allows_command(command) {
-        Ok(true) => {
-            let context = crate::shared::load_trace::current();
-            let configured_native = env::var_os("CADUCEUS_NETWORK_READ_CMD").is_some();
-            let invocation = context
-                .as_ref()
-                .filter(|_| configured_native)
-                .map(crate::shared::load_trace::begin_invocation);
-            let result = crate::gate::blocking_task(command, move || invoke(read)).await?;
-            if let (Some(context), Some(invocation)) = (context, invocation) {
-                crate::shared::load_trace::record_native_completion(
-                    &context,
-                    command,
-                    invocation,
-                    result.as_ref().map(crate::gate::receipt_succeeded).unwrap_or(false),
-                );
-            }
-            match result {
-                Ok(mut value) => {
-                    let status = crate::gate::mutation_status(&value);
-                    if status == StatusCode::OK {
-                        crate::shared::load_trace::enrich_json(&mut value);
-                    }
-                    Ok((status, Json(value)))
-                }
-                Err(error) => Err((StatusCode::SERVICE_UNAVAILABLE, Json(ApiErrorBody {
-                    schema: "caduceus.api.error.v1",
-                    ok: false,
-                    command: command.to_string(),
-                    first_missing_signal: error,
-                }))),
-            }
-        }
-        Ok(false) => Err(crate::gate::api_error(command)),
-        Err(_) => Err(crate::gate::api_error_signal(command, "caduceus-carapace-desync")),
-    }
+    crate::routes::network_read_route("network device list").await
 }
 
 /// Canonical registration seam; legacy aliases remain hoisted to the same body.
