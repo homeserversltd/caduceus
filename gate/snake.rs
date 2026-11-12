@@ -1074,6 +1074,17 @@ pub fn crossing_path_receipt(path: &str, input: &Value) -> Result<Value, String>
     let mut receipt = v.get("receiptPayload")
         .cloned()
         .ok_or_else(|| "caduceus-snake-receipt-missing".to_string())?;
+    if !receipt.is_object() {
+        return Err(if v.get("ok").and_then(Value::as_bool) == Some(true) {
+            "caduceus-staff-invalid-receipt"
+        } else {
+            receipt.get("error")
+                .or_else(|| receipt.get("firstMissingSignal"))
+                .and_then(Value::as_str)
+                .or_else(|| v.get("firstMissingSignal").and_then(Value::as_str))
+                .unwrap_or("caduceus-agathodaimon-refused")
+        }.to_string());
+    }
     if v.get("ok").and_then(Value::as_bool) == Some(false)
         && receipt.get("ok").and_then(Value::as_bool) != Some(false)
     {
