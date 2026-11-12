@@ -77,8 +77,8 @@ fn maintenance_tick() -> Result<(), String> {
 fn vacuum_journal() -> Result<Option<u64>, String> {
     let receipt = crate::gate::snake::crossing_path_receipt("appliance/journal-vacuum", &json!({}))?;
     match receipt.get("ok").and_then(Value::as_bool) {
-        Some(true) => {}
-        Some(false) => {
+        Some(true) if crate::gate::receipt_succeeded(&receipt) => {}
+        Some(true) | Some(false) => {
             return Err(receipt
                 .get("firstMissingSignal")
                 .and_then(Value::as_str)

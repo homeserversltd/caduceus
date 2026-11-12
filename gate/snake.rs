@@ -1071,9 +1071,20 @@ pub fn crossing_path(path: &str, input: &Value) -> Result<Value, String> {
 pub fn crossing_path_receipt(path: &str, input: &Value) -> Result<Value, String> {
     let env = crossing_envelope(path, input);
     let v = execute(path, &env)?;
-    v.get("receiptPayload")
+    let mut receipt = v.get("receiptPayload")
         .cloned()
-        .ok_or_else(|| "caduceus-snake-receipt-missing".to_string())
+        .ok_or_else(|| "caduceus-snake-receipt-missing".to_string())?;
+    if v.get("ok").and_then(Value::as_bool) == Some(false)
+        && receipt.get("ok").and_then(Value::as_bool) != Some(false)
+    {
+        if let Some(object) = receipt.as_object_mut() {
+            object.entry("doorSignal").or_insert_with(|| {
+                Value::String(v.get("firstMissingSignal").and_then(Value::as_str)
+                    .unwrap_or("caduceus-agathodaimon-refused").to_string())
+            });
+        }
+    }
+    Ok(receipt)
 }
 
 struct NativeChordState {

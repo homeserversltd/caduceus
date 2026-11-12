@@ -209,6 +209,11 @@ pub(crate) async fn gated_body(
         Err(_) => Err(api_error_signal(command, "caduceus-carapace-desync")),
     }
 }
+pub fn receipt_succeeded(value: &Value) -> bool {
+    value.get("ok").and_then(Value::as_bool) == Some(true)
+        && value.get("doorSignal").is_none()
+}
+
 pub(crate) fn mutation_status(value: &Value) -> StatusCode {
     if value.get("ok").and_then(Value::as_bool) == Some(true)
         && value.get("doorSignal").is_none()

@@ -6,7 +6,7 @@ const REQUEST_INVALID: &str = "caduceus-dhcp-request-invalid";
 
 fn cross(stop: &str, input: Map<String, Value>) -> Result<Value, Value> {
     match crate::gate::snake::crossing_path_receipt(&format!("network/dhcp/{stop}"), &Value::Object(input)) {
-        Ok(receipt) if receipt.get("ok").and_then(Value::as_bool) == Some(true) => Ok(receipt),
+        Ok(receipt) if crate::gate::receipt_succeeded(&receipt) => Ok(receipt),
         Ok(receipt) => Err(receipt),
         Err(error) => Err(Value::String(error)),
     }

@@ -85,10 +85,7 @@ pub async fn execute(
             .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
             match result {
                 Ok(receipt_payload) => {
-                    let success = receipt_payload
-                        .get("ok")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false);
+                    let success = crate::gate::receipt_succeeded(&receipt_payload);
                     let failure = if success {
                         None
                     } else {

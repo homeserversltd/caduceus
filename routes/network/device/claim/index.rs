@@ -77,7 +77,7 @@ pub fn command(args: &[String]) -> i32 {
     match invoke(args) {
         Ok(receipt) => {
             println!("{}", serde_json::to_string_pretty(&receipt).unwrap());
-            0
+            if crate::gate::receipt_succeeded(&receipt) { 0 } else { 1 }
         }
         Err(err) => {
             eprintln!("{err}");
@@ -132,7 +132,7 @@ async fn device_claim_route(
             let result = crate::gate::blocking_task(COMMAND, move || network_identity::invoke(&args))
                 .await?;
             result
-                .map(|receipt| (StatusCode::OK, Json(receipt)))
+                .map(|receipt| (crate::gate::mutation_status(&receipt), Json(receipt)))
                 .map_err(|signal| api_error_signal(COMMAND, &signal))
         }
         Ok(false) => Err(api_error(COMMAND)),

@@ -52,7 +52,8 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
     let ok = receipt
         .get("ok")
         .and_then(Value::as_bool)
-        .ok_or_else(|| "caduceus-portal-service-receipt-invalid".to_string())?;
+        .ok_or_else(|| "caduceus-portal-service-receipt-invalid".to_string())?
+        && crate::gate::receipt_succeeded(&receipt);
     let active = match receipt.get("active") {
         Some(Value::Bool(_) | Value::Null) => receipt["active"].clone(),
         _ => return Err("caduceus-portal-service-receipt-invalid".to_string()),

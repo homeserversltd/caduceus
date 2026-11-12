@@ -211,7 +211,7 @@ fn read_policy(cfg: &VaultConfig) -> Result<Value, String> {
     if (receipt.get("schema").and_then(Value::as_str) != Some(POLICY_READ_RECEIPT_SCHEMA)
         && !crate::routes::leaf_schema::bound(&receipt, "storage/vault/policy/read"))
         || receipt.get("op").and_then(Value::as_str) != Some("read")
-        || receipt.get("ok").and_then(Value::as_bool) != Some(true)
+        || !crate::gate::receipt_succeeded(&receipt)
     {
         return Err("vault-policy-invalid".into());
     }
@@ -524,7 +524,7 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
         && !crate::routes::leaf_schema::bound(&receipt, "storage/vault/policy/write"))
         || receipt.get("op").and_then(Value::as_str) != Some("write")
         || receipt.get("unlock").and_then(Value::as_str) != Some(unlock)
-        || receipt.get("ok").and_then(Value::as_bool) != Some(true)
+        || !crate::gate::receipt_succeeded(&receipt)
     {
         let signal = receipt
             .get("firstMissingSignal")

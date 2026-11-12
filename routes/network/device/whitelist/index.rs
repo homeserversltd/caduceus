@@ -23,7 +23,7 @@ pub fn invoke(intent: Value) -> Result<Value, Value> {
         }
     }
     match crate::gate::snake::crossing_path_receipt(path, &Value::Object(payload)) {
-        Ok(receipt) if receipt.get("ok").and_then(Value::as_bool) == Some(true) => Ok(receipt),
+        Ok(receipt) if crate::gate::receipt_succeeded(&receipt) => Ok(receipt),
         Ok(receipt) => Err(receipt),
         Err(e) => Err(serde_json::json!({"error":e})),
     }
