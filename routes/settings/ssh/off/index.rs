@@ -42,11 +42,16 @@ async fn off_route(
         &[json!({"snake":"settings/ssh/off"})], &envelope, Some(TIMEOUT),
     ).await;
     let crossing = crossed.map_err(|signal| crate::gate::service_unavailable(COMMAND, &signal))?;
-    let receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
+    let mut receipt = crossing.get("receiptPayload").cloned().ok_or_else(|| {
         crate::gate::service_unavailable(COMMAND, "caduceus-settings-ssh-off-receipt-missing")
     })?;
-    if !crate::routes::leaf_schema::accepts("caduceus.chord.receipt.v1", &receipt) {
-        return Err(crate::gate::service_unavailable(COMMAND, "caduceus-schema-desync"));
+    if !crate::routes::leaf_schema::aggregate_bound(&receipt, "settings/ssh/off") {
+        let Some(object) = receipt.as_object_mut() else {
+            return Err(crate::gate::service_unavailable(COMMAND, "caduceus-schema-desync"));
+        };
+        object.entry("doorSignal").or_insert_with(|| json!("caduceus-schema-desync"));
+        object.entry("crossedStop").or_insert_with(|| json!("settings/ssh/off"));
+        return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(receipt)));
     }
     Ok((crate::gate::mutation_status(&receipt), Json(receipt)))
 }
