@@ -231,6 +231,9 @@ fn configured_pin() -> Result<String, String> {
 }
 
 fn pin_matches(pin: &str) -> Result<bool, String> {
+    if pin == crate::gate::ADMINISTRATIVE_PIN_REDACTED {
+        return Err("exousia-pin-required".to_string());
+    }
     Ok(pin == configured_pin()?)
 }
 
