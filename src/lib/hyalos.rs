@@ -103,6 +103,35 @@ fn project_attributes(event: &ChannelEvent, run_profile: bool) -> Result<Value, 
         attributes["freed_bytes"] = json!(source.get("freed_bytes").and_then(Value::as_u64));
         attributes["rotated"] = json!(source.get("rotated").and_then(Value::as_bool));
     }
+    if event.organ == "sbin" && event.kind == "sbin.chord" {
+        if let Some(stages) = source.get("stages").and_then(Value::as_array) {
+            let stages: Vec<String> = stages
+                .iter()
+                .filter_map(|pair| {
+                    let pair = pair.as_array()?;
+                    if pair.len() != 2 {
+                        return None;
+                    }
+                    let id = pair[0].as_str()?;
+                    if id.is_empty()
+                        || !id.bytes().all(|byte| {
+                            byte.is_ascii_alphanumeric() || b"_.-".contains(&byte)
+                        })
+                    {
+                        return None;
+                    }
+                    let id = metadata_text(Some(&pair[0]), 24)?;
+                    let word = pair[1].as_str()?;
+                    if !matches!(word, "changed" | "kept" | "refused" | "skipped" | "completed") {
+                        return None;
+                    }
+                    Some(format!("{id}:{word}"))
+                })
+                .take(8)
+                .collect();
+            attributes["stages"] = json!(stages);
+        }
+    }
     if event.kind == "generic-http-door" {
         // The routine id is the target for a generic deed; do not duplicate it.
         attributes.as_object_mut().expect("object").remove("target");
@@ -537,6 +566,12 @@ fn channel_line(event: &ChannelEvent) -> Result<Vec<u8>, String> {
     let disk_event = project_event(event.clone())?;
     let mut disk_event = disk_event;
     let mut line = serialize_line(&disk_event)?;
+    if line.len() >= MAX_LINE_BYTES && disk_event.organ == "sbin" && disk_event.kind == "sbin.chord" {
+        if let Some(attributes) = disk_event.attributes_redacted.as_object_mut() {
+            attributes.remove("stages");
+        }
+        line = serialize_line(&disk_event)?;
+    }
     if line.len() >= MAX_LINE_BYTES {
         if disk_event.kind == "generic-http-door" {
             // Generic declarations are build-bounded; never drop a stage.
