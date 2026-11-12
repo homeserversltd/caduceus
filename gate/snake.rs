@@ -1085,6 +1085,15 @@ pub fn crossing_path_receipt(path: &str, input: &Value) -> Result<Value, String>
             });
         }
     }
+    if !crate::routes::leaf_schema::bound(&receipt, path)
+        && !crate::routes::leaf_schema::aggregate_bound(&receipt, path)
+    {
+        if let Some(object) = receipt.as_object_mut() {
+            object.entry("doorSignal").or_insert_with(|| {
+                Value::String("caduceus-schema-desync".to_string())
+            });
+        }
+    }
     Ok(receipt)
 }
 
