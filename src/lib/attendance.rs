@@ -329,7 +329,9 @@ fn agent_target(body: &Value) -> Result<(String, String, String, String), String
     let pin = body
         .pointer("/flags/exousia/pin")
         .and_then(Value::as_str)
-        .filter(|value| !value.is_empty() && value.len() <= 512)
+        .filter(|value| {
+            !value.is_empty() && value.len() <= 512 && *value != crate::gate::ADMINISTRATIVE_PIN_REDACTED
+        })
         .ok_or_else(|| "exousia-pin-required".to_string())?;
     Ok((
         document.to_string(),

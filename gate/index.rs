@@ -710,7 +710,7 @@ fn administrative_credentials_admit(headers: &HeaderMap, body: &Value) -> Result
     let pin = body
         .pointer("/flags/exousia/pin")
         .and_then(Value::as_str)
-        .filter(|pin| !pin.is_empty() && pin.len() <= 512)
+        .filter(|pin| !pin.is_empty() && pin.len() <= 512 && *pin != ADMINISTRATIVE_PIN_REDACTED)
         .ok_or_else(|| "exousia-pin-required".to_string())?;
     attendance::verify_administrative_pin(pin)
 }
@@ -718,7 +718,7 @@ fn administrative_credentials_admit(headers: &HeaderMap, body: &Value) -> Result
 const INTERNAL_ADMIN_GATE_HEADER: &str = "x-caduceus-internal-administrative-gate";
 const ADMINISTRATIVE_REQUEST_BODY_MAX_BYTES: usize = 2 * 1024 * 1024;
 // keyman::REDACTED is private to its module; this is the gate's marker.
-const ADMINISTRATIVE_PIN_REDACTED: &str = "[REDACTED]";
+pub(crate) const ADMINISTRATIVE_PIN_REDACTED: &str = "[REDACTED]";
 
 pub(crate) fn administrative_admits(
     headers: &HeaderMap,
