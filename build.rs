@@ -449,8 +449,6 @@ fn main() {
         "coronatio.exousia.agent.service.v1",
         "coronatio.exousia.agent.posture.v1",
         "caduceus.nas.setup.v1",
-        "caduceus.forgejo.backup-b2.v1",
-        "caduceus.storage.disk.wipe.v1",
         "caduceus.transmission.status.v1",
         "caduceus.transmission.keys.v1",
         "caduceus.transmission.vpn.settings.v1",
