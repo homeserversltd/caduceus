@@ -717,6 +717,8 @@ fn administrative_credentials_admit(headers: &HeaderMap, body: &Value) -> Result
 
 const INTERNAL_ADMIN_GATE_HEADER: &str = "x-caduceus-internal-administrative-gate";
 const ADMINISTRATIVE_REQUEST_BODY_MAX_BYTES: usize = 2 * 1024 * 1024;
+// keyman::REDACTED is private to its module; this is the gate's marker.
+const ADMINISTRATIVE_PIN_REDACTED: &str = "[REDACTED]";
 
 pub(crate) fn administrative_admits(
     headers: &HeaderMap,
@@ -767,6 +769,16 @@ pub(crate) fn strip_administrative_flags(body: &mut Value) -> bool {
     {
         object.remove("flags");
     }
+    true
+}
+
+fn redact_administrative_pin(body: &mut Value) -> bool {
+    let Some(pin) = body
+        .pointer_mut("/flags/exousia/pin")
+    else {
+        return false;
+    };
+    *pin = Value::String(ADMINISTRATIVE_PIN_REDACTED.to_owned());
     true
 }
 
@@ -826,7 +838,7 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
 
     let mut stripped_pin = false;
     let forwarded_bytes = if let Some(mut body) = parsed_body {
-        stripped_pin = strip_administrative_flags(&mut body);
+        stripped_pin = redact_administrative_pin(&mut body);
         if stripped_pin {
             match serde_json::to_vec(&body) {
                 Ok(bytes) => bytes,
