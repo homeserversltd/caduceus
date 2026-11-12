@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.chord.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "role": "chord declaration",
   "authority": {"owner": "caduceus", "path": "schema/caduceus.chord.v1.json"},
   "evolution": {"law": "additive-only", "unknown_fields_preserved": true},
@@ -8,9 +8,23 @@
   "fields": {
     "serve": {"type": "array", "items": {"$ref": "#/$defs/stage"}},
     "rescue": {"type": "array", "items": {"$ref": "#/$defs/stage"}, "description": "Runs after serve and before finally when a named serve stage refused and dependencies completed."},
-    "finally": {"type": "array", "items": {"$ref": "#/$defs/stage"}}
+    "finally": {"type": "array", "items": {"$ref": "#/$defs/stage"}},
+    "ouroboros": {
+      "type": "object",
+      "required": ["observe"],
+      "fields": {
+        "observe": {"type": "string", "description": "Path of a snake read stop whose mutation_allowed is false."},
+        "arguments": {"type": "object", "default": {}, "description": "Stage arguments laid over the request payload; settle is false for observe and true for reobserve."},
+        "deadline_seconds": {"type": "integer", "minimum": 1, "description": "Deadline for observe."},
+        "reobserve_deadline_seconds": {"type": "integer", "minimum": 1, "description": "Deadline for reobserve."}
+      },
+      "optional": ["arguments", "deadline_seconds", "reobserve_deadline_seconds"],
+      "reserved_stage_ids": ["observe", "reobserve"],
+      "description": "When declared, observe and reobserve are reserved stage ids; the read stop answers #/$defs/observe_answer.",
+      "additionalProperties": true
+    }
   },
-  "optional": ["rescue", "finally"],
+  "optional": ["rescue", "finally", "ouroboros"],
   "$defs": {
     "stage": {
       "type": "object",
@@ -27,9 +41,35 @@
         "depends_on": {"type": "array", "items": {"type": "string"}, "description": "Earlier stage ids."},
         "on_refusal_of": {"type": "array", "minItems": 1, "items": {"type": "string"}, "description": "For rescue stages, the non-empty set of serve stage ids whose refusal triggers this stage."},
         "deadline_seconds": {"type": "integer", "minimum": 1, "description": "At most 600 for a stop; a snake chord step may use up to the leaf deadline."},
-        "receipt": {"type": "string", "description": "Stage receipt seat id."}
+        "receipt": {"type": "string", "description": "Stage receipt seat id."},
+        "settles_on": {"type": "string", "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$", "description": "Serve only, at most once per arpeggio: dotted path into this stage's receipt; exactly true settles later serve stages."}
       },
-      "optional": ["arguments", "required", "depends_on", "on_refusal_of", "deadline_seconds", "receipt"],
+      "optional": ["arguments", "required", "depends_on", "on_refusal_of", "deadline_seconds", "receipt", "settles_on"],
+      "additionalProperties": true
+    },
+    "observe_answer": {
+      "type": "object",
+      "required": ["result"],
+      "fields": {
+        "result": {
+          "type": "object",
+          "required": ["observed", "wanted", "diff"],
+          "fields": {
+            "observed": {"type": "object"},
+            "wanted": {"type": "object"},
+            "diff": {
+              "type": "object",
+              "required": ["empty", "words"],
+              "fields": {
+                "empty": {"type": "boolean"},
+                "words": {"type": "array", "items": {"type": "string"}}
+              },
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": true
+        }
+      },
       "additionalProperties": true
     }
   },
