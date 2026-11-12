@@ -17,7 +17,7 @@ fn invoke(args: &[String]) -> Result<Value, String> {
         }
         _ => return Err("caduceus-household-time-command-invalid".to_string()),
     };
-    crate::gate::snake::crossing_path(&format!("settings/datetime/household-time/{verb}"), &payload)
+    crate::gate::snake::crossing_path_receipt(&format!("settings/datetime/household-time/{verb}"), &payload)
 }
 
 pub fn state_json() -> Result<Value, String> {
@@ -27,8 +27,9 @@ pub fn state_json() -> Result<Value, String> {
 pub fn command(args: &[String]) -> i32 {
     match invoke(args) {
         Ok(value) => {
+            let succeeded = crate::gate::receipt_succeeded(&value);
             println!("{}", serde_json::to_string_pretty(&value).unwrap());
-            0
+            if succeeded { 0 } else { 1 }
         }
         Err(err) => {
             eprintln!("{err}");

@@ -26,7 +26,7 @@ async fn state(peer: Option<ConnectInfo<crate::gate::ConnectionInfo>>) -> Respon
         return crate::gate::api_error_signal("time state", "caduceus-time-peer-not-allowed").into_response();
     }
     match tokio::task::spawn_blocking(crate::routes::set_time::state_json).await {
-        Ok(Ok(value)) => Json(value).into_response(),
+        Ok(Ok(value)) => (crate::gate::mutation_status(&value), Json(value)).into_response(),
         Ok(Err(signal)) => crate::gate::service_unavailable("time state", &signal).into_response(),
         Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "caduceus-time-state-unavailable").into_response(),
     }
