@@ -30,6 +30,18 @@ pub fn benchmark_enabled(envelope: &Value) -> bool {
         == Some(true)
 }
 
+pub fn benchmark_receive_locus() -> Result<String, String> {
+    let seat = crate::routes::leaf_schema::declaration(SCHEMA_ID)
+        .ok_or_else(|| format!("protocol-seat-absent:{SCHEMA_ID}"))?;
+    seat.pointer("/flags/families")
+        .and_then(Value::as_object)
+        .and_then(|families| families.values().find_map(|family| family.get("native_benchmark")))
+        .and_then(|native| native.get("receive_locus"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| format!("protocol-seat-field-missing:{SCHEMA_ID}:receive_locus"))
+}
+
 pub fn benchmark_timing_row(locus: String, elapsed: Duration, ok: bool) -> Value {
     json!({
         "locus": locus,

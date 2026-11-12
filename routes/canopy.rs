@@ -69,6 +69,18 @@ fn stamp(object: &mut serde_json::Map<String, Value>, namespace: Option<&str>, o
     object.insert("final_receipt".into(), json!({"ok": false, "firstMissingSignal": signal}));
 }
 
+pub(crate) fn receive_refusal(raw: &Value, namespace: &str, signal: String) -> Value {
+    let seat = crate::protocol::seat().ok();
+    let kernel = seat.as_ref().and_then(|s| s.pointer("/kernel/fields")).and_then(Value::as_array);
+    let observed = raw.as_object().map(|object| {
+        let fields: Vec<&str> = kernel.into_iter().flatten()
+            .filter_map(Value::as_str).filter(|name| object.contains_key(*name)).collect();
+        json!({"others": object.len() - fields.len(), "fields": fields})
+    }).unwrap_or(Value::Null);
+    let required = seat.as_ref().and_then(|s| s.pointer("/kernel/required")).cloned().unwrap_or(Value::Null);
+    refusal(StatusCode::BAD_REQUEST, Some(namespace), &observed, &required, "receive", signal).1.0
+}
+
 fn refusal(status: StatusCode, namespace: Option<&str>, observed: &Value, required: &Value, step: &str, signal: String) -> (StatusCode, Json<Value>) {
     let mut object = serde_json::Map::new();
     stamp(&mut object, namespace, observed, required, step, &signal);

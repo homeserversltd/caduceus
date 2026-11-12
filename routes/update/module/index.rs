@@ -39,7 +39,10 @@ pub fn execute_envelope(raw: Value) -> Result<Value, String> {
     let (module, apply) = module_request(&raw)?;
     let module = module.to_owned();
     let (declaration, serve) = declaration()?;
-    let mut response = crate::gate::receive(raw, &serve, &declaration, false)?;
+    let mut response = match crate::gate::receive(raw.clone(), &serve, &declaration, false) {
+        Ok(response) => response,
+        Err(signal) => return Ok(crate::routes::canopy::receive_refusal(&raw, NAMESPACE, signal)),
+    };
     let (exit_code, stdout) = harmonia::invoke_update_module(&module, apply);
     let parsed_receipt = serde_json::from_str::<Value>(stdout.trim())
         .unwrap_or_else(|_| Value::String(stdout.clone()));

@@ -320,12 +320,6 @@ fn main() {
     let serpents_shelf_path = seat["serpents_shelf"]["path"]
         .as_str()
         .expect("protocol seat serpents_shelf.path must be a string");
-    let flags_presence_gated = seat["flags"]["presence_gated"]
-        .as_bool()
-        .expect("protocol seat flags.presence_gated must be boolean");
-    let flags_version_compared = seat["flags"]["version_compared"]
-        .as_bool()
-        .expect("protocol seat flags.version_compared must be boolean");
     let benchmark_families = seat["flags"]["families"]
         .as_object()
         .expect("protocol seat flags.families must be an object");
@@ -375,9 +369,6 @@ fn main() {
         "hyalos.channel.event.v2",
         "canonical Hyalos event declaration must name the v2 channel event"
     );
-    let benchmark_receive_locus = native_benchmark["receive_locus"]
-        .as_str()
-        .expect("protocol seat benchmark receive locus must be a string");
     let benchmark_serve_locus = native_benchmark["serve_locus"]
         .as_str()
         .expect("protocol seat benchmark serve locus must be a string");
@@ -385,7 +376,7 @@ fn main() {
         .as_u64()
         .expect("protocol seat benchmark serve ordinal base must be an unsigned integer");
 
-    let generated = format!("pub const SERPENTS_SHELF_PATH: &str = {serpents_shelf_path};\n         pub const FLAGS_PRESENCE_GATED: bool = {flags_presence_gated};\n         pub const FLAGS_VERSION_COMPARED: bool = {flags_version_compared};\n         pub const BENCHMARK_FLAG_NAME: &str = {benchmark_flag_name};\n         pub const BENCHMARK_REPORT_SCHEMA: &str = {benchmark_schema};\n         pub const HYALOS_EVENT_SCHEMA: &str = {hyalos_event_schema};\n         pub const BENCHMARK_RECEIVE_LOCUS: &str = {benchmark_receive_locus};\n         pub const BENCHMARK_SERVE_LOCUS: &str = {benchmark_serve_locus};\n         pub const BENCHMARK_SERVE_ORDINAL_BASE: u64 = {benchmark_serve_ordinal_base};\n", serpents_shelf_path = rust_string(serpents_shelf_path), benchmark_flag_name = rust_string(benchmark_flag_name), benchmark_schema = rust_string(benchmark_schema), hyalos_event_schema = rust_string(hyalos_event_schema), benchmark_receive_locus = rust_string(benchmark_receive_locus), benchmark_serve_locus = rust_string(benchmark_serve_locus));
+    let generated = format!("pub const SERPENTS_SHELF_PATH: &str = {serpents_shelf_path};\n         pub const BENCHMARK_FLAG_NAME: &str = {benchmark_flag_name};\n         pub const BENCHMARK_REPORT_SCHEMA: &str = {benchmark_schema};\n         pub const HYALOS_EVENT_SCHEMA: &str = {hyalos_event_schema};\n         pub const BENCHMARK_SERVE_LOCUS: &str = {benchmark_serve_locus};\n         pub const BENCHMARK_SERVE_ORDINAL_BASE: u64 = {benchmark_serve_ordinal_base};\n", serpents_shelf_path = rust_string(serpents_shelf_path), benchmark_flag_name = rust_string(benchmark_flag_name), benchmark_schema = rust_string(benchmark_schema), hyalos_event_schema = rust_string(hyalos_event_schema), benchmark_serve_locus = rust_string(benchmark_serve_locus));
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR must be set");
     fs::write(Path::new(&out_dir).join("protocol_seat.rs"), generated)
         .expect("generated protocol metadata must be writable");

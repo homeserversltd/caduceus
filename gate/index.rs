@@ -1422,7 +1422,7 @@ pub fn receive(
     attendance_witness: bool,
 ) -> Result<Value, String> {
     let benchmark_started = if crate::protocol::benchmark_enabled(&raw) {
-        Some(Instant::now())
+        Some((Instant::now(), crate::protocol::benchmark_receive_locus()?))
     } else {
         None
     };
@@ -1431,11 +1431,11 @@ pub fn receive(
     let _ = discovery::walk_compiled_route_set(route_set)?;
     let mut receipt =
         receipts::append_stamp(&envelope, admittance, attendance_witness, true, true, None);
-    if let Some(started) = benchmark_started {
+    if let Some((started, locus)) = benchmark_started {
         receipt["benchmarkStamp"] = serde_json::json!({
             "schema": crate::protocol::BENCHMARK_REPORT_SCHEMA,
             "timings": [crate::protocol::benchmark_timing_row(
-                crate::protocol::BENCHMARK_RECEIVE_LOCUS.to_owned(),
+                locus,
                 started.elapsed(),
                 true
             )]
