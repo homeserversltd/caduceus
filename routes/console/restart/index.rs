@@ -64,7 +64,15 @@ async fn restart(
             })
             .await?;
             result
-                .map(|value| (crate::gate::mutation_status(&value), Json(value)))
+                .and_then(|mut value| {
+                    if !crate::routes::leaf_schema::bound(&value, "console/restart") {
+                        let Some(object) = value.as_object_mut() else {
+                            return Err("caduceus-schema-desync".to_string());
+                        };
+                        object.entry("doorSignal").or_insert_with(|| json!("caduceus-schema-desync"));
+                    }
+                    Ok((crate::gate::mutation_status(&value), Json(value)))
+                })
                 .map_err(|signal| staff_refusal("console restart", signal))
         }
         Ok(false) => Err(crate::gate::api_error("console restart")),
