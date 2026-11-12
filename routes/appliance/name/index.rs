@@ -3,7 +3,7 @@
 use serde_json::{json, Value};
 
 fn invoke(band: &str, payload: Value) -> Result<Value, String> {
-    crate::gate::snake::crossing_path(band, &payload)
+    crate::gate::snake::crossing_path_receipt(band, &payload)
 }
 
 pub fn command_admission(args: &[String]) -> Option<(&'static str, &'static str)> {
@@ -53,7 +53,7 @@ pub fn command(args: &[String]) -> i32 {
     match command_json(args) {
         Ok(value) => {
             println!("{}", serde_json::to_string_pretty(&value).unwrap());
-            0
+            if crate::gate::receipt_succeeded(&value) { 0 } else { 1 }
         }
         Err(err) => {
             eprintln!("{err}");
