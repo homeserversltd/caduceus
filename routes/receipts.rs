@@ -752,178 +752,169 @@ pub fn file_ingress_receipt(target: &Path, bytes: usize) -> Result<Value, String
     )
 }
 
-fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
-    let destination = admitted_destination(&metadata)?;
-    let filename = metadata
-        .get("filename")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "caduceus-file-ingress-filename-missing".to_string())?;
-    if filename.is_empty()
-        || Path::new(filename).file_name().and_then(|v| v.to_str()) != Some(filename)
-    {
-        return Err("caduceus-file-ingress-filename-invalid".to_string());
-    }
-    let bytes = metadata
-        .get("payload")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "caduceus-file-ingress-payload-missing".to_string())?
-        .iter()
-        .map(|value| {
-            value
-                .as_u64()
-                .filter(|v| *v <= 255)
-                .map(|v| v as u8)
-                .ok_or_else(|| "caduceus-file-ingress-payload-invalid".to_string())
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let target = destination.join(filename);
-    let mode = metadata
-        .get("mode")
-        .and_then(Value::as_u64)
-        .unwrap_or(0o664);
-    let supplied_uid = metadata.get("uid").and_then(Value::as_u64);
-    let supplied_gid = metadata.get("gid").and_then(Value::as_u64);
-    let spool_root = std::env::var_os("CADUCEUS_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/"))
-        .join("var/lib/caduceus/spool/file-ingress");
-    std::fs::create_dir_all(&spool_root)
-        .map_err(|err| format!("caduceus-file-ingress-spool-unavailable: {err}"))?;
-    let spool_path = spool_root.join(format!(
-        "{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|_| "caduceus-file-ingress-spool-clock-invalid".to_string())?
-            .as_nanos()
-    ));
-    let mut file = std::fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .mode(0o600)
-        .open(&spool_path)
-        .map_err(|err| format!("caduceus-file-ingress-spool-open-failed: {err}"))?;
-    file.write_all(&bytes)
-        .map_err(|err| format!("caduceus-file-ingress-spool-write-failed: {err}"))?;
-    let mut request = metadata;
-    let object = request
-        .as_object_mut()
-        .ok_or_else(|| "caduceus-file-ingress-request-invalid".to_string())?;
-    object.remove("payload");
-    object.insert("spoolPath".into(), json!(spool_path));
-    object.insert("path".into(), json!(target));
-    object.insert("targetPath".into(), json!(target));
-    object.insert("mode".into(), json!(mode));
-    if let Some(uid) = supplied_uid {
-        object.insert("uid".into(), json!(uid));
-    }
-    if let Some(gid) = supplied_gid {
-        object.insert("gid".into(), json!(gid));
-    }
-    let staff = staff_band_receipt("storage/upload/ingress", request);
-    let _ = std::fs::remove_file(&spool_path);
-    let ok = staff.get("ok").and_then(Value::as_bool) == Some(true)
-        && staff.get("doorSignal").is_none();
-    let mutation_performed = ok && staff_mutation_performed(&staff);
-    let signal = staff.get("firstMissingSignal").cloned().unwrap_or_else(|| {
-        json!(if ok {
-            "none"
-        } else {
-            "caduceus-agathodaimon-refused"
-        })
+fn ingress_no_stop(band: &str, target: Option<&Path>, signal: &str, pre_spawn: bool) -> Value {
+    let (noun, verb) = band.rsplit_once('/').unwrap_or((band, ""));
+    let mut receipt = json!({
+        "schema": "caduceus.staff.receipt.v1", "ok": false,
+        "stop": {"noun": noun, "verb": verb}, "observed": {"bandPath": band},
+        "could_change_to": target.map(|path| json!({"path": path})),
+        "attempt": {"attempted": if pre_spawn { json!(false) } else { Value::Null }, "step": band, "outcome": signal},
+        "final_receipt": {"ok": false, "firstMissingSignal": signal},
+        "firstMissingSignal": signal, "execution": "door-refused",
     });
-    let hyalos = if ok {
-        file_ingress_reflection(&target, bytes.len())?
-    } else {
-        Value::Null
-    };
-    Ok(
-        json!({"schema":"caduceus.staff.file_ingress.v1","ok":ok,"accepted":ok,"classification":"file-ingress","mutationPerformed":mutation_performed,"execution":if ok {"staff-snake"} else {"staff-snake-refused"},"path":target,"bytes":bytes.len(),"hyalos":hyalos,"staffReceipt":staff,"firstMissingSignal":signal}),
-    )
+    if pre_spawn { receipt["mutationPerformed"] = json!(false); }
+    if signal == "caduceus-file-ingress-spool-cleanup-failed" { receipt["doorSignal"] = json!(signal); }
+    receipt
+}
+
+// Adapt only the native no-crossing answer, never a receipt printed by a stop.
+fn staff_wrapper_receipt(band: &str, metadata: Value, target: Option<&Path>) -> Value {
+    let mut receipt = staff_band_receipt(band, metadata);
+    let signal = receipt.get("firstMissingSignal").and_then(Value::as_str).unwrap_or("");
+    let before_spawn = matches!(signal,
+        "caduceus-snake-band-path-invalid" | "caduceus-agathodaimon-cli-missing" |
+        "caduceus-agathodaimon-cli-unavailable" | "caduceus-snake-band-not-profile-lit" |
+        "caduceus-agathodaimon-index-missing" | "caduceus-agathodaimon-index-invalid" |
+        "caduceus-agathodaimon-index-children-invalid" | "caduceus-agathodaimon-index-children-missing" |
+        "caduceus-index-child-invalid") || signal.starts_with("caduceus-index-child-missing:")
+        || signal.starts_with("caduceus-index-child-invalid:");
+    if before_spawn && receipt.get("bandPath").and_then(Value::as_str) == Some(band)
+        && receipt.pointer("/observed/bandPath").and_then(Value::as_str) == Some(band)
+        && receipt.get("attempt") == Some(&Value::Null)
+    {
+        let signal = signal.to_owned();
+        let object = receipt.as_object_mut().expect("native receipt is an object");
+        object.insert("attempt".into(), json!({"attempted": false, "step": band, "outcome": signal}));
+        if let Some(target) = target { object.insert("could_change_to".into(), json!({"path": target})); }
+    }
+    receipt
+}
+
+fn decorate_ingress(mut receipt: Value, target: &Path, bytes: u64) -> Value {
+    if !receipt.is_object() { return receipt; }
+    let ok = receipt.get("ok").and_then(Value::as_bool) == Some(true)
+        && receipt.get("doorSignal").is_none();
+    let reflection = if ok {
+        match usize::try_from(bytes).map_err(|_| "caduceus-file-ingress-byte-count-invalid".to_string())
+            .and_then(|size| file_ingress_reflection(target, size)) {
+            Ok(value) => value,
+            Err(signal) => {
+                let object = receipt.as_object_mut().expect("receipt is an object");
+                object.entry("doorSignal").or_insert(json!(signal));
+                Value::Null
+            }
+        }
+    } else { Value::Null };
+    let ok = receipt.get("ok").and_then(Value::as_bool) == Some(true)
+        && receipt.get("doorSignal").is_none();
+    let object = receipt.as_object_mut().expect("receipt is an object");
+    object.entry("classification").or_insert(json!("file-ingress"));
+    object.entry("accepted").or_insert(json!(ok));
+    object.entry("execution").or_insert(json!(if ok { "staff-snake" } else { "staff-snake-refused" }));
+    object.entry("path").or_insert(json!(target));
+    object.entry("bytes").or_insert(json!(bytes));
+    object.entry("hyalos").or_insert(reflection);
+    object.entry("bandPath").or_insert(json!("storage/upload/ingress"));
+    receipt
+}
+
+fn execute_file_ingress(metadata: Value) -> Result<Value, String> {
+    let band = "storage/upload/ingress";
+    let mut resolved_target: Option<PathBuf> = None;
+    let result = (|| -> Result<Value, String> {
+        let destination = admitted_destination(&metadata)?;
+        let filename = metadata.get("filename").and_then(Value::as_str)
+            .ok_or_else(|| "caduceus-file-ingress-filename-missing".to_string())?;
+        if filename.is_empty() || Path::new(filename).file_name().and_then(|v| v.to_str()) != Some(filename) {
+            return Err("caduceus-file-ingress-filename-invalid".into());
+        }
+        let target = destination.join(filename);
+        resolved_target = Some(target.clone());
+        let bytes = metadata.get("payload").and_then(Value::as_array)
+            .ok_or_else(|| "caduceus-file-ingress-payload-missing".to_string())?
+            .iter().map(|value| value.as_u64().filter(|v| *v <= 255).map(|v| v as u8)
+                .ok_or_else(|| "caduceus-file-ingress-payload-invalid".to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let spool_root = std::env::var_os("CADUCEUS_ROOT").map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/")).join("var/lib/caduceus/spool/file-ingress");
+        std::fs::create_dir_all(&spool_root)
+            .map_err(|_| "caduceus-file-ingress-spool-unavailable".to_string())?;
+        let spool_path = spool_root.join(format!("{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| "caduceus-file-ingress-spool-clock-invalid".to_string())?.as_nanos()));
+        let mut file = std::fs::OpenOptions::new().create_new(true).write(true).mode(0o600)
+            .open(&spool_path).map_err(|_| "caduceus-file-ingress-spool-open-failed".to_string())?;
+        if file.write_all(&bytes).is_err() {
+            drop(file);
+            if std::fs::remove_file(&spool_path).is_err() {
+                return Err("caduceus-file-ingress-spool-cleanup-failed".into());
+            }
+            return Err("caduceus-file-ingress-spool-write-failed".into());
+        }
+        drop(file);
+        execute_spooled_file_ingress(metadata, &spool_path, &target, bytes.len() as u64)
+    })();
+    Ok(result.unwrap_or_else(|signal| ingress_no_stop(band, resolved_target.as_deref(), &signal, true)))
 }
 
 pub fn execute_spooled_file_ingress(
-    mut metadata: Value,
-    spool_path: &Path,
-    target: &Path,
-    bytes: u64,
+    mut metadata: Value, spool_path: &Path, target: &Path, bytes: u64,
 ) -> Result<Value, String> {
-    let mode = metadata
-        .get("mode")
-        .and_then(Value::as_u64)
-        .unwrap_or(0o664);
+    let band = "storage/upload/ingress";
+    let mode = metadata.get("mode").and_then(Value::as_u64).unwrap_or(0o664);
     let supplied_uid = metadata.get("uid").and_then(Value::as_u64);
     let supplied_gid = metadata.get("gid").and_then(Value::as_u64);
-    let object = metadata
-        .as_object_mut()
-        .ok_or_else(|| "caduceus-file-ingress-request-invalid".to_string())?;
+    let Some(object) = metadata.as_object_mut() else {
+        let signal = if std::fs::remove_file(spool_path).is_err() {
+            "caduceus-file-ingress-spool-cleanup-failed"
+        } else {
+            "caduceus-file-ingress-request-invalid"
+        };
+        return Ok(ingress_no_stop(band, Some(target), signal, true));
+    };
     object.remove("payload");
     object.insert("spoolPath".into(), json!(spool_path));
     object.insert("path".into(), json!(target));
     object.insert("targetPath".into(), json!(target));
     object.insert("mode".into(), json!(mode));
-    if let Some(uid) = supplied_uid {
-        object.insert("uid".into(), json!(uid));
+    if let Some(uid) = supplied_uid { object.insert("uid".into(), json!(uid)); }
+    if let Some(gid) = supplied_gid { object.insert("gid".into(), json!(gid)); }
+    let mut staff = staff_wrapper_receipt(band, metadata, Some(target));
+    if std::fs::remove_file(spool_path).is_err() {
+        if let Some(object) = staff.as_object_mut() {
+            object.entry("doorSignal").or_insert(json!("caduceus-file-ingress-spool-cleanup-failed"));
+        }
     }
-    if let Some(gid) = supplied_gid {
-        object.insert("gid".into(), json!(gid));
-    }
-    let staff_result = staff_band_receipt("storage/upload/ingress", metadata);
-    let _ = std::fs::remove_file(spool_path);
-    let staff = staff_result;
-    let ok = staff.get("ok").and_then(Value::as_bool) == Some(true)
-        && staff.get("doorSignal").is_none();
-    let mutation_performed = ok && staff_mutation_performed(&staff);
-    let signal = staff.get("firstMissingSignal").cloned().unwrap_or_else(|| {
-        json!(if ok {
-            "none"
-        } else {
-            "caduceus-agathodaimon-refused"
-        })
-    });
-    let hyalos = if ok {
-        let bytes = usize::try_from(bytes)
-            .map_err(|_| "caduceus-file-ingress-byte-count-invalid".to_string())?;
-        file_ingress_reflection(target, bytes)?
-    } else {
-        Value::Null
-    };
-    Ok(
-        json!({"schema":"caduceus.staff.file_ingress.v1","ok":ok,"accepted":ok,"classification":"file-ingress","mutationPerformed":mutation_performed,"execution":if ok {"staff-snake"} else {"staff-snake-refused"},"path":target,"bytes":bytes,"hyalos":hyalos,"staffReceipt":staff,"firstMissingSignal":signal}),
-    )
+    Ok(decorate_ingress(staff, target, bytes))
 }
 
 fn execute_force_permissions(metadata: Value) -> Result<Value, String> {
-    let destination = admitted_destination(&metadata)?;
-    if !destination.is_dir() {
-        return Err("caduceus-force-permissions-directory-missing".to_string());
-    }
-    let mode = metadata
-        .get("mode")
-        .and_then(Value::as_u64)
-        .unwrap_or(0o775);
-    let mut request = metadata;
-    let object = request
-        .as_object_mut()
-        .ok_or_else(|| "caduceus-force-permissions-request-invalid".to_string())?;
-    object.insert("destination".into(), json!(destination));
-    object.insert("directory".into(), json!(destination));
-    object.insert("path".into(), json!(destination));
-    object.insert("mode".into(), json!(mode));
-    let staff = staff_band_receipt("storage/upload/force-permissions", request);
-    let ok = staff.get("ok").and_then(Value::as_bool) == Some(true)
-        && staff.get("doorSignal").is_none();
-    let mutation_performed = ok && staff_mutation_performed(&staff);
-    let signal = staff.get("firstMissingSignal").cloned().unwrap_or_else(|| {
-        json!(if ok {
-            "none"
-        } else {
-            "caduceus-agathodaimon-refused"
-        })
-    });
-    Ok(
-        json!({"schema":"caduceus.staff.force_permissions.v1","ok":ok,"success":ok,"message":if ok {"Permissions updated successfully"} else {"Permissions update refused"},"accepted":ok,"classification":"force-permissions","mutationPerformed":mutation_performed,"execution":if ok {"staff-snake"} else {"staff-snake-refused"},"path":destination,"staffReceipt":staff,"firstMissingSignal":signal}),
-    )
+    let band = "storage/upload/force-permissions";
+    let mut resolved_target: Option<PathBuf> = None;
+    let result = (|| -> Result<Value, String> {
+        let destination = admitted_destination(&metadata)?;
+        resolved_target = Some(destination.clone());
+        if !destination.is_dir() { return Err("caduceus-force-permissions-directory-missing".into()); }
+        let mode = metadata.get("mode").and_then(Value::as_u64).unwrap_or(0o775);
+        let mut request = metadata;
+        let object = request.as_object_mut().ok_or_else(|| "caduceus-force-permissions-request-invalid".to_string())?;
+        object.insert("destination".into(), json!(destination));
+        object.insert("directory".into(), json!(destination));
+        object.insert("path".into(), json!(destination));
+        object.insert("mode".into(), json!(mode));
+        let mut staff = staff_wrapper_receipt(band, request, Some(&destination));
+        let ok = staff.get("ok").and_then(Value::as_bool) == Some(true) && staff.get("doorSignal").is_none();
+        let Some(object) = staff.as_object_mut() else { return Ok(staff); };
+        object.entry("success").or_insert(json!(ok));
+        object.entry("message").or_insert(json!(if ok { "Permissions updated successfully" } else { "Permissions update refused" }));
+        object.entry("accepted").or_insert(json!(ok));
+        object.entry("classification").or_insert(json!("force-permissions"));
+        object.entry("execution").or_insert(json!(if ok { "staff-snake" } else { "staff-snake-refused" }));
+        object.entry("path").or_insert(json!(destination));
+        object.entry("bandPath").or_insert(json!(band));
+        Ok(staff)
+    })();
+    Ok(result.unwrap_or_else(|signal| ingress_no_stop(band, resolved_target.as_deref(), &signal, true)))
 }
 
 #[cfg(test)]
