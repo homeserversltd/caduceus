@@ -209,7 +209,9 @@ pub fn service_status_json() -> Result<Value, String> {
     if let Some(object) = response.as_object_mut() {
         object.entry("enabledBool").or_insert(json!(enabled));
         object.entry("timerState").or_insert(json!(timer_state));
-        object.entry("doorSignal").or_insert(json!(first_missing_signal));
+        if first_missing_signal != "none" {
+            object.entry("doorSignal").or_insert(json!(first_missing_signal));
+        }
     }
     Ok(response)
 }
@@ -257,7 +259,9 @@ pub fn service_toggle_json(state: &str, rest: &[String]) -> Result<Value, String
     if let Some(object) = response.as_object_mut() {
         object.entry("enabledBool").or_insert(json!(enabled));
         object.entry("timerState").or_insert(json!(timer));
-        object.entry("doorSignal").or_insert(json!(signal));
+        if signal != "none" {
+            object.entry("doorSignal").or_insert(json!(signal));
+        }
         object.entry("mutation").or_insert(json!(mutation));
         object.entry("requestedState").or_insert(json!(state));
     }
@@ -301,12 +305,12 @@ pub fn service_status() -> i32 {
     let value = service_status_json().unwrap_or_else(|signal| service_native("status", &signal, false, "status"));
     println!("schema={}", value.get("schema").and_then(Value::as_str).unwrap_or(""));
     println!("receipt={value}");
-    if value["ok"].as_bool() == Some(true) && service_bound(&value) && value["doorSignal"].as_str() == Some("none") { 0 } else { 1 }
+    if value["ok"].as_bool() == Some(true) && service_bound(&value) && value.get("doorSignal").is_none() { 0 } else { 1 }
 }
 
 pub fn service_toggle(state: &str, rest: &[String]) -> i32 {
     let value = service_toggle_json(state, rest).unwrap_or_else(|signal| service_native(state, &signal, false, "toggle"));
-    let success = value["ok"].as_bool() == Some(true) && service_bound(&value);
+    let success = value["ok"].as_bool() == Some(true) && service_bound(&value) && value.get("doorSignal").is_none();
     if success {
         println!("schema={}", value["schema"].as_str().unwrap_or(""));
         println!("mutation={}", value["mutation"]);

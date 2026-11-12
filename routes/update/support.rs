@@ -107,7 +107,7 @@ pub(crate) async fn update_service_status_route() -> (StatusCode, Json<Value>) {
                 Ok(Err(signal)) => update::service_native("status", &signal, false, "status"),
                 Err(_) => update::service_native("status", "caduceus-blocking-task-failed", false, "join"),
             };
-            let status = if value["ok"].as_bool() == Some(true) && update::service_bound(&value) { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+            let status = if value["ok"].as_bool() == Some(true) && update::service_bound(&value) && value.get("doorSignal").is_none() { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
             (status, Json(value))
         }
         Ok(false) => (StatusCode::FORBIDDEN, Json(update::service_native("status", "caduceus-public-action-not-allowed", false, "policy"))),
@@ -135,7 +135,7 @@ pub(crate) async fn update_service_toggle_route(
                 Ok(Err(signal)) => update::service_native(&state, &signal, false, "toggle"),
                 Err(_) => update::service_native(&state, "caduceus-blocking-task-failed", false, "join"),
             };
-            let status = if value["ok"].as_bool() == Some(true) && update::service_bound(&value) { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+            let status = if value["ok"].as_bool() == Some(true) && update::service_bound(&value) && value.get("doorSignal").is_none() { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
             (status, Json(value))
         }
         Ok(false) => (StatusCode::FORBIDDEN, Json(update::service_native(&state, "caduceus-public-action-not-allowed", false, "policy"))),
