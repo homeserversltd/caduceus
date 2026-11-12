@@ -302,7 +302,15 @@ pub fn invoke(command: &ReadCommand) -> Result<Value, String> {
         payload
     } else {
         let band = band_request(command)?;
-        crate::gate::snake::crossing_path(band, &json!({}))?
+        if command.command == "network device list" {
+            let receipt = crate::gate::snake::crossing_path_receipt(band, &json!({}))?;
+            if !crate::gate::receipt_succeeded(&receipt) {
+                return Ok(receipt);
+            }
+            receipt
+        } else {
+            crate::gate::snake::crossing_path(band, &json!({}))?
+        }
     };
     if payload.get("ok") == Some(&json!(false)) {
         let signal = payload
@@ -327,7 +335,11 @@ pub fn invoke(command: &ReadCommand) -> Result<Value, String> {
 pub fn command(command: &ReadCommand) -> i32 {
     match invoke(command) {
         Ok(value) => {
-            let ok = value.get("ok").and_then(Value::as_bool).unwrap_or(true);
+            let ok = if command.command == "network device list" {
+                crate::gate::receipt_succeeded(&value)
+            } else {
+                value.get("ok").and_then(Value::as_bool).unwrap_or(true)
+            };
             println!("{value}");
             if ok {
                 0
@@ -345,8 +357,45 @@ pub fn command(command: &ReadCommand) -> i32 {
 use crate::gate::ApiErrorBody;
 use axum::{response::Json, Router};
 
-async fn device_list_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    network_read_route("network device list").await
+async fn device_list_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let command = "network device list";
+    let read = named(command).ok_or_else(|| crate::gate::api_error(command))?;
+    match crate::shared::policy::allows_command(command) {
+        Ok(true) => {
+            let context = crate::shared::load_trace::current();
+            let configured_native = env::var_os("CADUCEUS_NETWORK_READ_CMD").is_some();
+            let invocation = context
+                .as_ref()
+                .filter(|_| configured_native)
+                .map(crate::shared::load_trace::begin_invocation);
+            let result = crate::gate::blocking_task(command, move || invoke(read)).await?;
+            if let (Some(context), Some(invocation)) = (context, invocation) {
+                crate::shared::load_trace::record_native_completion(
+                    &context,
+                    command,
+                    invocation,
+                    result.as_ref().map(crate::gate::receipt_succeeded).unwrap_or(false),
+                );
+            }
+            match result {
+                Ok(mut value) => {
+                    let status = crate::gate::mutation_status(&value);
+                    if status == StatusCode::OK {
+                        crate::shared::load_trace::enrich_json(&mut value);
+                    }
+                    Ok((status, Json(value)))
+                }
+                Err(error) => Err((StatusCode::SERVICE_UNAVAILABLE, Json(ApiErrorBody {
+                    schema: "caduceus.api.error.v1",
+                    ok: false,
+                    command: command.to_string(),
+                    first_missing_signal: error,
+                }))),
+            }
+        }
+        Ok(false) => Err(crate::gate::api_error(command)),
+        Err(_) => Err(crate::gate::api_error_signal(command, "caduceus-carapace-desync")),
+    }
 }
 
 /// Canonical registration seam; legacy aliases remain hoisted to the same body.
