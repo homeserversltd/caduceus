@@ -778,6 +778,9 @@ fn redact_administrative_pin(body: &mut Value) -> bool {
     else {
         return false;
     };
+    if pin.as_str() == Some(ADMINISTRATIVE_PIN_REDACTED) {
+        return false;
+    }
     *pin = Value::String(ADMINISTRATIVE_PIN_REDACTED.to_owned());
     true
 }
