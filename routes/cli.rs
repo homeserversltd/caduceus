@@ -106,6 +106,9 @@ where
         });
         if let Err(signal) = crate::gate::receive(raw.clone(), serve, &declaration, false) {
             eprintln!("{signal}");
+            let (noun, verb) = namespace.rsplit_once('/').unwrap_or((namespace, ""));
+            let walked: Vec<&str> = namespace.split('/').collect();
+            println!("{}", cli_refusal(&signal, noun, verb, &args, &walked, None, "receive", "receive", serde_json::Value::Null));
             return 2;
         }
         if namespace == "storage/nas/role/swap" && args.len()==4 {
@@ -136,6 +139,7 @@ where
                 Ok(filtered) if filtered.is_empty() => source_map::command(),
                 Ok(_) => {
                     eprintln!("caduceus-source-map-reseed-arguments-forbidden");
+                    println!("{}", cli_refusal("caduceus-source-map-reseed-arguments-forbidden", "profile/sources", "reseed", &args, &["profile", "sources", "reseed"], None, "arguments", "argument-walk", serde_json::json!({"usage": "  caduceus profile sources reseed"})));
                     2
                 }
                 Err(code) => code,
@@ -373,6 +377,8 @@ where
                 let positional: Vec<_> = rest.iter().filter(|arg| arg.as_str() != "--dry-run").collect();
                 if positional.len() != 2 || rest.iter().any(|arg| arg.starts_with("--") && arg != "--dry-run") {
                     eprintln!("agathodaimon-house-ca-refused");
+                    let stopped_at = if positional.len() != 2 { "positional-count" } else { "flag" };
+                    println!("{}", cli_refusal("agathodaimon-house-ca-refused", "cert", "portal-retire", &args, &["cert", "portal-retire"], None, stopped_at, "flag-walk", serde_json::json!({"usage": "  caduceus cert portal-retire [--dry-run] <portal> <owner-mac>"})));
                     return 1;
                 }
                 match crate::routes::issue_certificate::portal_retire_receipt(positional[0], positional[1], rest.iter().any(|arg| arg == "--dry-run"), None) {
@@ -790,10 +796,29 @@ where
         }
         _ => {
             eprintln!("caduceus-public-action-not-allowed");
-            print_help();
+            let unplaced = args.iter().position(|word| !word.starts_with("--"));
+            println!("{}", cli_refusal("caduceus-public-action-not-allowed", "cli", "front-door", &args, &[], unplaced, "walk", "walk", serde_json::json!({"help": "caduceus help", "children": null, "nearest": null})));
             2
         }
     }
+}
+
+fn cli_refusal(signal: &str, noun: &str, verb: &str, args: &[String], walked: &[&str], unplaced: Option<usize>, stopped_at: &str, step: &str, could_change_to: serde_json::Value) -> serde_json::Value {
+    let words: Vec<&str> = args.iter().enumerate().map(|(index, word)| {
+        if let Some(segment) = walked.get(index) { *segment }
+        else if word.starts_with("--") { "<not-a-option>" }
+        else if unplaced == Some(index) { "<not-a-noun>" }
+        else { "<not-a-value>" }
+    }).collect();
+    serde_json::json!({
+        "schema": "caduceus.staff.receipt.v1", "ok": false,
+        "firstMissingSignal": signal, "doorSignal": signal, "mutationPerformed": false,
+        "stop": {"noun": noun, "verb": verb},
+        "observed": {"words": words, "walked": walked, "stopped_at": stopped_at},
+        "could_change_to": could_change_to,
+        "attempt": {"attempted": false, "step": step},
+        "final_receipt": {"ok": false, "firstMissingSignal": signal}
+    })
 }
 
 fn public_action_not_allowed() -> i32 {
