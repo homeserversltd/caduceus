@@ -40,6 +40,7 @@ async fn route(Json(payload): Json<Value>) -> Result<(StatusCode, Json<Value>), 
                     if let Some(object) = receipt.as_object_mut() {
                         object.entry("doorSignal").or_insert_with(|| {
                             Value::String(walked.get("firstMissingSignal").and_then(Value::as_str)
+                                .filter(|signal| !signal.is_empty() && *signal != "none")
                                 .unwrap_or("caduceus-agathodaimon-refused").to_string())
                         });
                     }
