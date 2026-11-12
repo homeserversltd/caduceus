@@ -60,7 +60,7 @@ async fn restart(
     match crate::shared::policy::allows_command("console restart") {
         Ok(true) => {
             let result = crate::gate::blocking_task("console restart", move || {
-                crate::gate::snake::crossing_path("console/restart", &payload)
+                crate::gate::snake::crossing_path_receipt("console/restart", &payload)
             })
             .await?;
             result
