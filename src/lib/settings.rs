@@ -397,7 +397,10 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
         Ok(values) => values,
         Err(signal) => return Ok(mutation_refusal(family, &body, "validate", signal)),
     };
-    let writes_display_config = family == "display"
+    if dry_run.as_ref().is_some_and(|value| !bounded_value(value)) {
+        return Ok(mutation_refusal(family, &body, "validate", "caduceus-settings-value-invalid:dry-run".to_string()));
+    }
+    let writes_display_config = dry_run.is_none() && family == "display"
         && ["resolution", "refresh_rate"]
             .iter()
             .any(|field| values.contains_key(*field));
@@ -421,15 +424,8 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
             }
         }
     }
-    let (path, payload) = if family == "sound" && values.contains_key("test_tone") {
-        let payload = match dry_run {
-            Some(value) if !bounded_value(&value) => {
-                return Ok(mutation_refusal(family, &body, "validate", "caduceus-settings-value-invalid:dry-run".to_string()));
-            }
-            Some(value) => json!({"dry-run": value}),
-            None => json!({}),
-        };
-        ("settings/sound/test-tone/play".to_string(), payload)
+    let (path, mut payload) = if family == "sound" && values.contains_key("test_tone") {
+        ("settings/sound/test-tone/play".to_string(), json!({}))
     } else if family == "display" && values.contains_key("hdr") {
         ("settings/display/hdr/set".to_string(), json!(values))
     } else if family == "display" && values.contains_key("adaptive_sync") {
@@ -437,6 +433,9 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
     } else {
         (format!("settings/{family}/set"), json!(values))
     };
+    if let Some(value) = dry_run {
+        payload["dry-run"] = value;
+    }
     let crossed = cross_mutation(&path, &payload);
     let (mut receipt, crossing_ok) = match crossed {
         Ok(receipt) => receipt,
