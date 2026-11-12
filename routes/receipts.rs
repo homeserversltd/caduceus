@@ -500,7 +500,7 @@ pub fn disk_wipe_payload(metadata: &Value, require_action: bool) -> Result<Value
 }
 
 fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Result<Value, String> {
-    let mut projected: Option<String> = None;
+    let mut bind_forgejo = false;
     let mut crossed_stop = band.to_owned();
     let walked = if actuator_id == "disk-doors" {
         let fields = disk_wipe_payload(&metadata, true)?;
@@ -512,11 +512,18 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         let act = match metadata.get("plan") {
             None | Some(Value::Bool(false)) => "run",
             Some(Value::Bool(true)) => "plan",
-            Some(_) => return Ok(json!({"schema": "caduceus.forgejo.backup-b2.v1", "ok": false, "step": "shape", "reason": "plan-invalid"})),
+            Some(_) => return Ok(json!({
+                "schema": "caduceus.staff.receipt.v1", "ok": false,
+                "stop": {"noun": "storage/backup/forgejo", "verb": "backup-b2"},
+                "step": "shape", "reason": "plan-invalid", "firstMissingSignal": "plan-invalid",
+                "observed": null, "could_change_to": {"plan": "absent, true or false"},
+                "attempt": {"attempted": false},
+                "final_receipt": {"ok": false, "firstMissingSignal": "plan-invalid"}
+            })),
         };
         let stop = format!("storage/backup/forgejo/backup-b2/{act}");
         crossed_stop = stop.clone();
-        projected = Some(format!("caduceus.storage.backup.forgejo.backup-b2.{act}.v1"));
+        bind_forgejo = true;
         let fields = selected_fields(&metadata, &["bucket"]);
         crate::gate::snake::crossing_path_with_timeout(&stop, &fields, Duration::from_secs(30))?
     } else if actuator_id.starts_with("backblaze-bucket-")
@@ -561,9 +568,8 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         .cloned()
         .filter(Value::is_object)
         .ok_or_else(|| "caduceus-staff-invalid-receipt".to_string())?;
-    if let Some(expected) = projected {
-        if receipt.get("schema").and_then(Value::as_str) != Some(expected.as_str())
-            && !crate::routes::leaf_schema::bound(&receipt, &crossed_stop) {
+    if bind_forgejo {
+        if !crate::routes::leaf_schema::bound(&receipt, &crossed_stop) {
             if receipt.get("doorSignal").is_none() {
                 receipt["doorSignal"] = json!("caduceus-schema-desync");
             }
@@ -571,7 +577,6 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         }
     }
     if actuator_id == "disk-doors"
-        && receipt.get("schema").and_then(Value::as_str) != Some("caduceus.storage.disk.wipe.v1")
         && !crate::routes::leaf_schema::bound(&receipt, &crossed_stop)
     {
         if receipt.get("doorSignal").is_none() {
@@ -580,13 +585,11 @@ fn staff_actuator_receipt(actuator_id: &str, band: &str, metadata: Value) -> Res
         return Ok(receipt);
     }
     if actuator_id == "backblaze-bucket-items" {
-        let expected = match band {
-            "storage/backup/backblaze/bucket-items/add" => "caduceus.storage.backup.backblaze.bucket-items.add.v1",
-            "storage/backup/backblaze/bucket-items/remove" => "caduceus.storage.backup.backblaze.bucket-items.remove.v1",
+        match band {
+            "storage/backup/backblaze/bucket-items/add" | "storage/backup/backblaze/bucket-items/remove" => {},
             _ => return Err("operation-invalid".into()),
         };
-        if receipt.get("schema").and_then(Value::as_str) != Some(expected)
-            && !crate::routes::leaf_schema::bound(&receipt, &crossed_stop) {
+        if !crate::routes::leaf_schema::bound(&receipt, &crossed_stop) {
             if receipt.get("doorSignal").is_none() {
                 receipt["doorSignal"] = json!("caduceus-schema-desync");
             }

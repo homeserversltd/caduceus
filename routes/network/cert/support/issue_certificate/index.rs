@@ -329,7 +329,7 @@ pub fn bundle_download_json(platform: &str) -> Result<BundleDownload, String> {
     let bound = crate::routes::leaf_schema::bound(&value, "network/cert/house-ca/bundle-read");
     let receipt: BundleReadReceipt = serde_json::from_value(value)
         .map_err(|_| "caduceus-cert-bundle-read-invalid-receipt".to_string())?;
-    if (receipt.schema != "caduceus.network.cert.house-ca.bundle-read.v1" && !bound)
+    if !bound
         || !receipt.ok
         || receipt.platform != platform
         || receipt.filename != expected_filename
@@ -648,10 +648,8 @@ pub(crate) fn portal_admit_cli_receipt(
         object.len() == 2 && object.contains_key("ok") && object.contains_key("firstMissingSignal")) {
         return result;
     }
-    let former = receipt.get("schema").and_then(Value::as_str)
-        == Some("caduceus.network.cert.house-ca.portal-admit.v1");
     let bound = crate::routes::leaf_schema::bound(receipt, "network/cert/house-ca/portal-admit");
-    if former || bound {
+    if bound {
         result
     } else {
         let mut answer = receipt.clone();
