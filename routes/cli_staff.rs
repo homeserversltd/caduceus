@@ -47,12 +47,12 @@ fn prompt_pin() -> Result<Option<String>, String> {
         let mut byte = [0u8; 1];
         if reader.read(&mut byte).map_err(|_| "caduceus-cli-terminal-unavailable")? == 0 { break; }
         if byte[0] == b'\n' || byte[0] == b'\r' { break; }
-        if bytes.len() == 512 { return Err("caduceus-cli-pin-too-long".into()); }
+        if bytes.len() == 512 { return Err("exousia-pin-invalid".into()); }
         bytes.push(byte[0]);
     }
     drop(guard);
     let _ = tty.write_all(b"\n");
-    String::from_utf8(bytes).map(Some).map_err(|_| "caduceus-cli-pin-invalid".into())
+    String::from_utf8(bytes).map(Some).map_err(|_| "exousia-pin-invalid".into())
 }
 
 fn pin_required() -> bool {
@@ -130,15 +130,32 @@ fn output(result: Result<(u16, Vec<u8>), String>) -> i32 {
         }
     }
 }
-fn mutation(path: &str, mut value: Value, original: Option<Vec<u8>>, timeout: Duration) -> i32 {
-    let changed = match attend(&mut value) { Ok(changed) => changed, Err(signal) => { eprintln!("{signal}"); return 1; } };
+fn refusal(signal: &str, noun: &str, verb: &str, walked: &[&str], stopped_at: &str, step: &str, could_change_to: Value) -> i32 {
+    let words: Vec<String> = walked.iter().map(|word| (*word).to_owned()).collect();
+    eprintln!("{signal}");
+    println!("{}", super::cli_refusal(signal, noun, verb, &words, walked, None, stopped_at, step, could_change_to));
+    1
+}
+fn input_refusal(signal: &str, noun: &str, verb: &str, walked: &[&str], step: &str) -> i32 {
+    let stopped_at = if step == "envelope-parse" { "envelope-parse" } else { "input" };
+    refusal(signal, noun, verb, walked, stopped_at, step, json!({"stdin": "one JSON object, the request payload"}))
+}
+fn mutation(path: &str, mut value: Value, original: Option<Vec<u8>>, timeout: Duration, noun: &str, verb: &str, walked: &[&str]) -> i32 {
+    let changed = match attend(&mut value) { Ok(changed) => changed, Err(signal) => {
+        if signal == "caduceus-cli-envelope-invalid" {
+            return input_refusal(&signal, noun, verb, walked, "envelope-parse");
+        }
+        let could_change_to = if signal == "exousia-pin-invalid" { json!({"pin": "typed at the terminal prompt; UTF-8; at most 512 bytes"}) } else { Value::Null };
+        return refusal(&signal, noun, verb, walked, "pin", "pin-prompt", could_change_to);
+    } };
     let body = if !changed { original.unwrap_or_else(|| value.to_string().into_bytes()) } else { value.to_string().into_bytes() };
     output(exchange("POST", path, &body, timeout))
 }
 pub(crate) fn swap() -> i32 {
-    let raw = match attendance_input() { Ok(raw) => raw, Err(signal) => { eprintln!("{signal}"); return 1; } };
-    let value = match parse_input(raw.as_deref()) { Ok(value) => value, Err(signal) => { eprintln!("{signal}"); return 1; } };
-    mutation("/api/v1/storage/nas/role/swap", value, raw, Duration::from_secs(1900))
+    let walked = ["storage", "nas", "role", "swap"];
+    let raw = match attendance_input() { Ok(raw) => raw, Err(signal) => return input_refusal(&signal, "storage/nas/role", "swap", &walked, "input-read") };
+    let value = match parse_input(raw.as_deref()) { Ok(value) => value, Err(signal) => return input_refusal(&signal, "storage/nas/role", "swap", &walked, "envelope-parse") };
+    mutation("/api/v1/storage/nas/role/swap", value, raw, Duration::from_secs(1900), "storage/nas/role", "swap", &walked)
 }
 #[cfg(leaf_pid2)]
 pub(crate) fn pid2(args: &[String]) -> i32 {
@@ -146,21 +163,23 @@ pub(crate) fn pid2(args: &[String]) -> i32 {
         [verb] if verb == "list" => output(exchange("GET", "/api/v1/pid2/list", &[], Duration::from_secs(300))),
         [verb, id] if verb == "status" => output(exchange("GET", &format!("/api/v1/pid2/status/{}", escape_segment(id)), &[], Duration::from_secs(300))),
         [verb] if verb == "enable" => {
-            let raw = match input(true) { Ok(raw) => raw, Err(signal) => { eprintln!("{signal}"); return 1; } };
-            let value = match parse_input(raw.as_deref()) { Ok(value) => value, Err(signal) => { eprintln!("{signal}"); return 1; } };
-            mutation("/api/v1/pid2/enable", value, raw, Duration::from_secs(300))
+            let walked = ["pid2", "enable"];
+            let raw = match input(true) { Ok(raw) => raw, Err(signal) => return input_refusal(&signal, "pid2", verb, &walked, "input-read") };
+            let value = match parse_input(raw.as_deref()) { Ok(value) => value, Err(signal) => return input_refusal(&signal, "pid2", verb, &walked, "envelope-parse") };
+            mutation("/api/v1/pid2/enable", value, raw, Duration::from_secs(300), "pid2", verb, &walked)
         }
         [verb, id] if ["disable", "start", "stop", "restart", "hold", "release"].contains(&verb.as_str()) => {
-            let raw = match attendance_input() { Ok(raw) => raw, Err(signal) => { eprintln!("{signal}"); return 1; } };
-            let supplied = match parse_input(raw.as_deref()) { Ok(value) => value, Err(signal) => { eprintln!("{signal}"); return 1; } };
+            let walked = ["pid2", verb.as_str()];
+            let raw = match attendance_input() { Ok(raw) => raw, Err(signal) => return input_refusal(&signal, "pid2", verb, &walked, "input-read") };
+            let supplied = match parse_input(raw.as_deref()) { Ok(value) => value, Err(signal) => return input_refusal(&signal, "pid2", verb, &walked, "envelope-parse") };
             let mut body = json!({"schema":crate::protocol::SCHEMA_ID,"intent_id":format!("cli:pid2:{verb}"),"transition":format!("pid2-{verb}"),"origin_of_intent":"near","payload":{}});
             if let Some(object) = supplied.as_object() {
                 for (key, value) in object { body[key] = value.clone(); }
             }
-            if !body["payload"].is_object() { eprintln!("caduceus-cli-envelope-invalid"); return 1; }
+            if !body["payload"].is_object() { return input_refusal("caduceus-cli-envelope-invalid", "pid2", verb, &walked, "envelope-parse"); }
             let field = if ["start", "stop", "restart"].contains(&verb.as_str()) { "unit" } else { "routine_id" };
             body["payload"][field] = json!(id);
-            mutation(&format!("/api/v1/pid2/{verb}"), body, None, Duration::from_secs(300))
+            mutation(&format!("/api/v1/pid2/{verb}"), body, None, Duration::from_secs(300), "pid2", verb, &walked)
         }
         _ => { eprintln!("pid2-arguments-invalid"); 1 }
     }
