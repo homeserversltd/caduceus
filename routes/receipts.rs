@@ -468,7 +468,8 @@ pub fn stop_receipt(stop: &str, fields: Value) -> Result<Value, String> {
         && receipt.get("doorSignal").is_none()
     {
         let signal = receipt.get("firstMissingSignal").and_then(Value::as_str)
-            .unwrap_or("caduceus-staff-refused").to_string();
+            .filter(|signal| !signal.is_empty() && *signal != "none")
+            .unwrap_or("caduceus-agathodaimon-refused").to_string();
         receipt["doorSignal"] = json!(signal);
     }
     Ok(receipt)

@@ -1080,6 +1080,7 @@ pub fn crossing_path_receipt(path: &str, input: &Value) -> Result<Value, String>
         if let Some(object) = receipt.as_object_mut() {
             object.entry("doorSignal").or_insert_with(|| {
                 Value::String(v.get("firstMissingSignal").and_then(Value::as_str)
+                    .filter(|signal| !signal.is_empty() && *signal != "none")
                     .unwrap_or("caduceus-agathodaimon-refused").to_string())
             });
         }
