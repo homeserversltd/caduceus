@@ -413,12 +413,12 @@ async fn dispatch(
 
     let crossed_stop = crossed_stop.as_deref();
     if validation_schema.is_some_and(|schema| {
-        !(schema != "caduceus.staff.receipt.v1" && crate::routes::leaf_schema::accepts(schema, &receipt))
-            && !(schema != "caduceus.chord.receipt.v1" && crossed_stop.is_some_and(|stop| crate::routes::leaf_schema::bound(&receipt, stop)))
+        !(schema != "caduceus.chord.receipt.v1" && crossed_stop.is_some_and(|stop| crate::routes::leaf_schema::bound(&receipt, stop)))
+            && !(is_chord && schema == "caduceus.chord.receipt.v1" && crate::routes::leaf_schema::aggregate_bound(&receipt, namespace))
     }) {
         return Err(DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-schema-desync").with_witness(receipt, None).after_attempt());
     }
-    let changed = declared_receipt_change(validation_schema, crossed_stop, &receipt);
+    let changed = declared_receipt_change(validation_schema, crossed_stop, is_chord.then_some(namespace), &receipt);
     let body = project_response(declaration, &receipt)
         .map_err(|signal| {
             let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, signal).with_witness(receipt.clone(), changed);
@@ -431,13 +431,15 @@ async fn dispatch(
 
 // Only a boolean declared by the expected public seat can establish a no-op.
 // An absent seat, undeclared extension, or malformed value remains unknown.
-pub(crate) fn declared_receipt_change(schema: Option<&str>, stop: Option<&str>, receipt: &Value) -> Option<bool> {
+pub(crate) fn declared_receipt_change(schema: Option<&str>, stop: Option<&str>, routine: Option<&str>, receipt: &Value) -> Option<bool> {
     let schema = schema?;
     let seat_id = if stop.is_some_and(|path| crate::routes::leaf_schema::bound(receipt, path)) {
         "caduceus.staff.receipt.v1"
+    } else if schema == "caduceus.chord.receipt.v1"
+        && routine.is_some_and(|path| crate::routes::leaf_schema::aggregate_bound(receipt, path)) {
+        "caduceus.chord.receipt.v1"
     } else {
-        if !crate::routes::leaf_schema::accepts(schema, receipt) { return None; }
-        schema
+        return None;
     };
     let seat = crate::routes::leaf_schema::declaration(seat_id)?;
     ["changed", "mutationPerformed", "mutation_performed"].iter().find_map(|name| {

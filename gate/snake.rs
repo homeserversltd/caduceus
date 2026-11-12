@@ -1559,8 +1559,8 @@ async fn native_chord_run_steps(
                         .or_else(|| d.pointer("/flags/receiptSchema").and_then(Value::as_str))).map(ToOwned::to_owned));
                 let stage_stop = raw_step.get("snake").and_then(Value::as_str);
                 let schema_ok = expected_schema.as_deref().is_none_or(|schema| {
-                    (schema != "caduceus.staff.receipt.v1" && crate::routes::leaf_schema::accepts(schema, &receipt))
-                        || (schema != "caduceus.chord.receipt.v1" && stage_stop.is_some_and(|stop| crate::routes::leaf_schema::bound(&receipt, stop)))
+                    (schema != "caduceus.chord.receipt.v1" && stage_stop.is_some_and(|stop| crate::routes::leaf_schema::bound(&receipt, stop)))
+                        || (schema == "caduceus.chord.receipt.v1" && stage_stop.is_some_and(|path| crate::routes::leaf_schema::aggregate_bound(&receipt, path)))
                 });
                 if !schema_ok && result.get("firstMissingSignal").and_then(Value::as_str)
                     != Some("caduceus-agathodaimon-output-too-large") {
@@ -1569,7 +1569,7 @@ async fn native_chord_run_steps(
                 } else {
                     let is_read = stage_declaration.as_ref().and_then(|d| d.get("mutation_allowed")).and_then(Value::as_bool) == Some(false);
                     if !is_read {
-                        state.changed = match (state.changed, crate::gate::door::declared_receipt_change(expected_schema.as_deref(), stage_stop, &receipt)) {
+                        state.changed = match (state.changed, crate::gate::door::declared_receipt_change(expected_schema.as_deref(), stage_stop, stage_stop, &receipt)) {
                             (Some(previous), Some(current)) => Some(previous || current),
                             _ => None,
                         };

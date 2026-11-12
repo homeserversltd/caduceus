@@ -141,9 +141,14 @@ pub(crate) fn bound(value: &Value, stop_path: &str) -> bool {
         && value.pointer("/stop/verb").and_then(Value::as_str) == Some(verb)
 }
 
-pub(crate) fn accepts_bound(id: &str, stop_path: &str, value: &Value) -> bool {
-    (id != "caduceus.staff.receipt.v1" && accepts(id, value))
-        || (id != "caduceus.chord.receipt.v1" && bound(value, stop_path))
+// Close 402 binds an arpeggio aggregate to the routine crossed.
+pub(crate) fn aggregate_bound(value: &Value, routine: &str) -> bool {
+    accepts("caduceus.chord.receipt.v1", value)
+        && value.get("routine_id").and_then(Value::as_str) == Some(routine)
+}
+
+pub(crate) fn accepts_bound(_id: &str, stop_path: &str, value: &Value) -> bool {
+    _id != "caduceus.chord.receipt.v1" && bound(value, stop_path)
 }
 
 pub(crate) fn accepts_form(id: &str, form: &str, value: &Value) -> bool {
