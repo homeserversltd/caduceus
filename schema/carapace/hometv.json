@@ -1,8 +1,8 @@
 {
   "schema": "caduceus.carapace.v1",
-  "profile": "tv",
+  "profile": "hometv",
   "gui_face": "Sway",
-  "mode": "tv",
+  "mode": "hometv",
   "planned_capabilities": [
     "pjlink"
   ],

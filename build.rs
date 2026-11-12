@@ -8,6 +8,8 @@ use std::{
 
 #[path = "carapace/index.rs"]
 mod carapace;
+#[path = "src/profile_id.rs"]
+mod profile_id;
 
 fn local_build_env_sha() -> Option<String> {
     fn command_stdout(program: &str, args: &[&str]) -> Option<Vec<u8>> {
@@ -107,7 +109,7 @@ fn birth_certificate_path(root: &Path) -> PathBuf {
 
 pub(crate) fn resolve_build_profile(explicit: Option<&str>, root: &Path) -> String {
     if let Some(profile) = explicit {
-        return profile.to_owned();
+        return profile_id::canonical_profile_id(profile).to_owned();
     }
 
     let profile = fs::read_to_string(birth_certificate_path(root))
@@ -119,10 +121,10 @@ pub(crate) fn resolve_build_profile(explicit: Option<&str>, root: &Path) -> Stri
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_owned)
         });
-    match profile.as_deref() {
+    match profile.as_deref().map(profile_id::canonical_profile_id) {
         Some("homeserver") => "homeserver".to_owned(),
         Some("homeconsole") => "homeconsole".to_owned(),
-        Some("tv") => "tv".to_owned(),
+        Some("hometv") => "hometv".to_owned(),
         Some("homesi") => "homesi".to_owned(),
         _ => "specula".to_owned(),
     }
@@ -278,7 +280,7 @@ fn main() {
     let birth_certificate = birth_certificate_path(&root);
     let explicit = env::var("CADUCEUS_PROFILE").ok();
     let requested = resolve_build_profile(explicit.as_deref(), &root);
-    let profiles = ["homeserver", "homeconsole", "tv", "homesi", "specula"];
+    let profiles = ["homeserver", "homeconsole", "hometv", "homesi", "specula"];
     assert!(
         profiles.contains(&requested.as_str()),
         "unknown CADUCEUS_PROFILE: {requested}"
@@ -484,7 +486,7 @@ fn main() {
         .expect("embedded public seats writable");
 
     let mut embedded_crossings = String::from("const EMBEDDED_CROSSINGS: &[(&str, &str)] = &[\n");
-    for profile in ["homeserver", "homeconsole", "tv", "homesi", "specula"] {
+    for profile in ["homeserver", "homeconsole", "hometv", "homesi", "specula"] {
         let path = format!("crossings/{profile}.json");
         println!("cargo:rerun-if-changed={path}");
         let bytes = fs::read_to_string(&path).unwrap_or_else(|error| {

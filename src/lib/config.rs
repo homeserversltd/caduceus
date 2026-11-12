@@ -55,6 +55,7 @@ pub(crate) fn harmonia_profile_index_path() -> Result<String, String> {
         .get("profile")
         .and_then(Value::as_str)
         .ok_or_else(|| "caduceus-birth-certificate-profile-missing".to_string())?;
+    let profile = crate::profile_id::canonical_profile_id(profile);
     let mut components = Path::new(profile).components();
     if profile.contains('/')
         || profile.contains('\0')
@@ -74,8 +75,8 @@ pub fn overlay_birth_profile_fields(value: &mut serde_json::Value) -> Result<(),
     let profile = birth
         .get("profile")
         .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "caduceus-birth-certificate-profile-missing".to_string())?
-        .to_string();
+        .ok_or_else(|| "caduceus-birth-certificate-profile-missing".to_string())?;
+    let profile = crate::profile_id::canonical_profile_id(profile).to_string();
     let object = value
         .as_object_mut()
         .ok_or_else(|| "caduceus-public-profile-invalid".to_string())?;
@@ -111,10 +112,11 @@ struct Resolved {
 }
 
 fn normalize(value: &str) -> Option<String> {
-    match value.to_ascii_lowercase().as_str() {
+    let lowercase = value.to_ascii_lowercase();
+    match crate::profile_id::canonical_profile_id(&lowercase) {
         "homeserver" => Some("homeserver".to_string()),
         "homeconsole" => Some("homeconsole".to_string()),
-        "tv" => Some("tv".to_string()),
+        "hometv" => Some("hometv".to_string()),
         "homesi" => Some("homesi".to_string()),
         _ => Some("specula".to_string()),
     }

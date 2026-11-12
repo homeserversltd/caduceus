@@ -146,7 +146,7 @@ steps:
 
         build_profile homeserver
         build_profile homeconsole
-        build_profile tv
+        build_profile hometv
         build_profile homesi
         build_profile specula
 

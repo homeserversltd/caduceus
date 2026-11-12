@@ -7,7 +7,7 @@
   "profiles": [
     "homeserver",
     "homesi",
-    "tv",
+    "hometv",
     "homeconsole"
   ],
   "needs": [

@@ -1,6 +1,6 @@
 {
   "schema": "appliance.crossings.v1",
-  "profile": "tv",
+  "profile": "hometv",
   "bands": [
     "appliance/service/start",
     "appliance/service/stop",

@@ -107,7 +107,7 @@ Caduceus carapaces are authored in `schema/carapace/<name>.json` and compiled
 into each binary. Route leaves and their sclerites select CLI and HTTP routes;
 `GET /api/v1/carapace` reports the compiled declaration and build identity.
 
-The shipped appliance profile names are `homeserver`, `homeconsole`, `tv`,
+The shipped appliance profile names are `homeserver`, `homeconsole`, `hometv`,
 `homesi`, and `specula`. The HomeConsole carapace lives at `schema/carapace/homeconsole.json`;
 `CADUCEUS_PROFILE=homeconsole` builds its `caduceus-homeconsole-x86_64` Release
 asset. Appliance profile names do not rename verb namespaces such as
@@ -148,5 +148,5 @@ TLS.
 
 Caduceus SHALL gain **PJLink** capability — LAN projector and display control
 (power, input, status) so operator intent can reach TVs and projectors through
-the public appliance lever. Primary home: `tv` profile; routes and receipts
+the public appliance lever. Primary home: `hometv` profile; routes and receipts
 follow the existing band + HTTP contract pattern.

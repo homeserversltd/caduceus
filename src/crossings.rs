@@ -52,6 +52,7 @@ fn load_once() -> Result<Loaded, String> {
         ));
     }
 
+    let profile = crate::profile_id::canonical_profile_id(profile);
     let selected = EMBEDDED_CROSSINGS.iter().find(|(id, _)| *id == profile);
     let (embedded_profile, raw) = match selected {
         Some(entry) => entry,
