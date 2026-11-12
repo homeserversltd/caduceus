@@ -1,0 +1,14 @@
+{
+  "namespace": "network/identity/device/plan",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "network/identity/device/plan", "verb": ["device", "plan"]}],
+  "commands": ["network identity device plan"],
+  "needs": ["kea", "unbound"],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/identity/device/plan",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "mutation_allowed": false,
+  "deadline_seconds": 30
+}
