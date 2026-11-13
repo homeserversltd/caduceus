@@ -64,8 +64,8 @@ async fn route(Json(payload): Json<Value>) -> Result<(StatusCode, Json<Value>), 
 
     if !crate::routes::leaf_schema::bound(&receipt, NAMESPACE) {
         if let Some(object) = receipt.as_object_mut() {
-            object.insert("doorSignal".to_string(), json!("caduceus-schema-desync"));
-            object.insert("crossedStop".to_string(), json!(NAMESPACE));
+            object.entry("doorSignal").or_insert_with(|| json!("caduceus-schema-desync"));
+            object.entry("crossedStop").or_insert_with(|| json!(NAMESPACE));
         }
         return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(receipt)));
     }
