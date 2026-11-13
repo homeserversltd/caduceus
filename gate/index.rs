@@ -1350,8 +1350,8 @@ pub async fn run_async() -> i32 {
     #[cfg(leaf_storage_shares_converge)]
     tokio::task::spawn_blocking(|| {
         let receipt = crate::routes::leaf_storage_shares_converge::rebuild_at_start();
-        let outcome = if let Some(signal) = receipt.get("doorSignal").and_then(serde_json::Value::as_str) {
-            signal
+        let outcome = if let Some(signal) = receipt.get("doorSignal") {
+            signal.as_str().unwrap_or("caduceus-agathodaimon-refused")
         } else if receipt.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
             "ok"
         } else {
@@ -1361,6 +1361,11 @@ pub async fn run_async() -> i32 {
         let outcome = outcome.split(char::is_control).next()
             .filter(|value| !value.is_empty())
             .unwrap_or("caduceus-staff-invalid-receipt");
+        let outcome = if !receipt_succeeded(&receipt) && outcome == "ok" {
+            "caduceus-agathodaimon-refused"
+        } else {
+            outcome
+        };
         eprintln!("caduceus-shares-rebuild-start: {outcome}");
     });
     attendance::bind();
