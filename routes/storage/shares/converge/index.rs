@@ -20,8 +20,19 @@ fn refusal(signal: &str) -> Value {
 
 fn cross() -> Value {
     match crate::gate::snake::crossing_path_with_timeout(STOP, &json!({}), Duration::from_secs(120)) {
-        Ok(crossing) => crossing.get("receiptPayload").cloned().filter(Value::is_object)
-            .unwrap_or_else(|| refusal("caduceus-staff-invalid-receipt")),
+        Ok(crossing) => {
+            let mut receipt = crossing.get("receiptPayload").cloned().filter(Value::is_object)
+                .unwrap_or_else(|| refusal("caduceus-staff-invalid-receipt"));
+            if crate::routes::leaf_schema::bound(&receipt, STOP)
+                && crossing.get("ok").and_then(Value::as_bool) != Some(true)
+                && receipt.get("ok").and_then(Value::as_bool) != Some(false)
+            {
+                if let Some(object) = receipt.as_object_mut() {
+                    object.entry("doorSignal").or_insert_with(|| json!("caduceus-agathodaimon-refused"));
+                }
+            }
+            receipt
+        },
         Err(signal) => refusal(&signal),
     }
 }
