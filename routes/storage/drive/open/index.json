@@ -1,0 +1,14 @@
+{
+  "namespace": "storage/drive/open",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "storage/drive/open"}],
+  "commands": ["staff intent"],
+  "needs": ["all"],
+  "profiles": ["homeserver"],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/drive/open",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}
