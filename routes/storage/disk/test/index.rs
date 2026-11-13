@@ -193,7 +193,7 @@ pub fn start_json(device: &str, test_type: &str, dry_run: bool) -> Result<Value,
     };
     if !crate::routes::leaf_schema::bound(&receipt, "storage/disk/test") {
         if let Some(object) = receipt.as_object_mut() {
-            object.entry("doorSignal").or_insert_with(|| json!("caduceus-schema-desync"));
+            object.insert("doorSignal".into(), json!("caduceus-schema-desync"));
             object.entry("crossedStop").or_insert_with(|| json!("storage/disk/test"));
         }
     } else if walked.get("ok").and_then(Value::as_bool) != Some(true)
