@@ -1,0 +1,62 @@
+use axum::{extract::Json, http::StatusCode, Router};
+use serde_json::{json, Value};
+use std::time::Duration;
+
+const STOP: &str = "storage/drive/shares/rebuild";
+const COMMAND: &str = "staff intent";
+
+fn refusal(signal: &str) -> Value {
+    json!({
+        "schema": "caduceus.staff.receipt.v1",
+        "stop": {"noun": "storage/drive/shares", "verb": "rebuild"},
+        "ok": false,
+        "firstMissingSignal": signal,
+        "observed": null,
+        "could_change_to": null,
+        "attempt": {"attempted": false},
+        "final_receipt": {"ok": false, "firstMissingSignal": signal}
+    })
+}
+
+fn cross() -> Value {
+    match crate::gate::snake::crossing_path_with_timeout(STOP, &json!({}), Duration::from_secs(120)) {
+        Ok(crossing) => crossing.get("receiptPayload").cloned().filter(Value::is_object)
+            .unwrap_or_else(|| refusal("caduceus-staff-invalid-receipt")),
+        Err(signal) => refusal(&signal),
+    }
+}
+
+fn desync(mut receipt: Value) -> Value {
+    if let Some(object) = receipt.as_object_mut() {
+        object.entry("doorSignal").or_insert_with(|| json!("caduceus-schema-desync"));
+        object.entry("crossedStop").or_insert_with(|| json!(STOP));
+    }
+    receipt
+}
+
+pub fn rebuild_at_start() -> Value {
+    let receipt = cross();
+    if crate::routes::leaf_schema::bound(&receipt, STOP) {
+        receipt
+    } else {
+        desync(receipt)
+    }
+}
+
+async fn route() -> (StatusCode, Json<Value>) {
+    if !matches!(crate::shared::policy::allows_command(COMMAND), Ok(true)) {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(refusal("caduceus-carapace-desync")));
+    }
+    let receipt = match crate::gate::blocking_task(COMMAND, cross).await {
+        Ok(receipt) => receipt,
+        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, Json(refusal("caduceus-blocking-task-failed"))),
+    };
+    if !crate::routes::leaf_schema::bound(&receipt, STOP) {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(desync(receipt)));
+    }
+    (crate::gate::mutation_status(&receipt), Json(receipt))
+}
+
+pub fn register(router: Router) -> Router {
+    router.route("/api/v1/storage/drive/shares/rebuild", axum::routing::post(route))
+}

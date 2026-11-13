@@ -1,0 +1,14 @@
+{
+  "namespace": "storage/drive/shares/rebuild",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "storage/drive/shares/rebuild"}],
+  "commands": ["staff intent"],
+  "needs": ["all"],
+  "profiles": ["homeserver"],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/drive/shares/rebuild",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

@@ -1347,6 +1347,19 @@ pub async fn run_async() -> i32 {
             return 1;
         }
     };
+    #[cfg(leaf_storage_drive_shares_rebuild)]
+    tokio::task::spawn_blocking(|| {
+        let receipt = crate::routes::leaf_storage_drive_shares_rebuild::rebuild_at_start();
+        let outcome = if let Some(signal) = receipt.get("doorSignal").and_then(serde_json::Value::as_str) {
+            signal
+        } else if receipt.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
+            "ok"
+        } else {
+            receipt.get("firstMissingSignal").and_then(serde_json::Value::as_str)
+                .unwrap_or("caduceus-staff-invalid-receipt")
+        };
+        eprintln!("caduceus-shares-rebuild-start: {outcome}");
+    });
     attendance::bind();
     crate::stats::start();
     #[cfg(leaf_pid2)]
