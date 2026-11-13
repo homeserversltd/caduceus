@@ -26,6 +26,7 @@
           "transport": {"type": ["string", "null"]},
           "serial": {"type": ["string", "null"]},
           "sizeHuman": {"type": ["string", "null"]},
+          "diskMounted": {"type": "boolean"},
           "partition": {"type": ["string", "null"]},
           "label": {"type": ["string", "null"]},
           "sizeBytes": {"type": ["integer", "null"]},

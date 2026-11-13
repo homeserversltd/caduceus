@@ -105,7 +105,6 @@ fn project_devices(devices: &[Value], space: &BTreeMap<String, Value>) -> Vec<Va
                 "foreign".to_string(),
                 json!(foreign.into_iter().collect::<Vec<_>>().join(", ")),
             );
-            fields.insert("label".to_string(), Value::Null);
             if let Some(mount) = mounted {
                 fields.insert(
                     "space".to_string(),
@@ -249,6 +248,10 @@ fn receipt(
     };
     let mut value = Map::new();
     value.insert("name".to_string(), json!(string(parent, "name")));
+    value.insert(
+        "diskMounted".to_string(),
+        json!(descendants(parent).any(|device| !mountpoints(device).is_empty())),
+    );
     for (field, source) in [
         ("model", "model"),
         ("transport", "tran"),
