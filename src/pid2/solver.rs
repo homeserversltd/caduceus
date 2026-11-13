@@ -932,6 +932,7 @@ pub(super) fn reconcile(senses:&super::events::Senses,keys:Vec<super::events::Di
                     for (index,need) in stage.get("needs").and_then(Value::as_array).into_iter().flatten().enumerate() {
                         if need.get("kind").and_then(Value::as_str)==Some("observe-block-removed") && device_side_may_match(need,before) {
                             let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+                            // Sequences need uniqueness only among live rows: reset, changed registration, and disable also clear dependent route-step tokens.
                             db.execute("INSERT INTO pid2_block_removals(routine_id,line,need_index,devpath,removal_seq) VALUES(?1,?2,?3,?4,(SELECT COALESCE(MAX(removal_seq),0)+1 FROM pid2_block_removals)) ON CONFLICT(routine_id,line,need_index) DO UPDATE SET devpath=excluded.devpath,removal_seq=excluded.removal_seq",params![line.0,line.1,index as i64,devpath]).map_err(|e|e.to_string())?;
                         }
                     }
