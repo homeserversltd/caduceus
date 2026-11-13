@@ -69,6 +69,9 @@ async fn route(Json(payload): Json<Value>) -> Result<(StatusCode, Json<Value>), 
         }
         return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(receipt)));
     }
+    if receipt.get("converged").and_then(Value::as_bool) == Some(false) {
+        return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(receipt)));
+    }
     if crate::gate::receipt_succeeded(&receipt) {
         crate::stats::disk_census::request_refresh();
     }
