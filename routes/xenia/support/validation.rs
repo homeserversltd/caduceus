@@ -788,6 +788,12 @@ pub fn validate_only(body: &Value) -> Result<Candidate> {
     let mut fetched_release = None;
     let mut requested_source = None;
     if body.get("manifest").is_none() {
+        if let Some(source) = body.get("source").and_then(Value::as_object) {
+            if let Some(key) = source.keys().find(|key| key.as_str() != "release_repo" && key.as_str() != "ref") {
+                return Err(Refusal::new("E", &format!("source.{key}"), "source-only-field-unknown",
+                    "Send only release_repo and ref, or send the whole manifest."));
+            }
+        }
         let Some(mut source_value) = body.get("source").filter(|source| source.get("release_repo").is_some()).cloned() else {
             return Err(refuse("B", "manifest", "manifest-absent"));
         };
