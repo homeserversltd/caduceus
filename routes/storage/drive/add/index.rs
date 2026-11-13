@@ -3,12 +3,12 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 const COMMAND: &str = "staff intent";
-const NAMESPACE: &str = "storage/drive/open";
+const NAMESPACE: &str = "storage/drive/add";
 
 fn native_refusal(status: StatusCode, signal: &str, could_change_to: Value, attempted: bool) -> (StatusCode, Json<Value>) {
     (status, Json(json!({
         "schema": "caduceus.staff.receipt.v1",
-        "stop": {"noun": "storage/drive", "verb": "open"},
+        "stop": {"noun": "storage/drive", "verb": "add"},
         "ok": false,
         "firstMissingSignal": signal,
         "observed": {"payloadFields": ["device"]},
@@ -68,5 +68,5 @@ async fn route(Json(payload): Json<Value>) -> Result<(StatusCode, Json<Value>), 
 }
 
 pub fn register(router: Router) -> Router {
-    router.route("/api/v1/storage/drive/open", axum::routing::post(route))
+    router.route("/api/v1/storage/drive/add", axum::routing::post(route))
 }
