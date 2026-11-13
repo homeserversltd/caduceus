@@ -20,7 +20,7 @@ async fn reconcile_route(
     let crossed = gate::blocking_task(COMMAND, move || {
         crate::shared::load_trace::with_blocking_context(context, || {
             crate::gate::snake::crossing_path_receipt(
-                "storage/drive/shares/rebuild",
+                "storage/shares/converge",
                 &json!({}),
             )
         })
@@ -33,7 +33,7 @@ async fn reconcile_route(
 
 pub fn register(router: Router) -> Router {
     router.route(
-        "/api/v1/storage/drive/shares/reconcile",
+        "/api/v1/storage/shares/reconcile",
         axum::routing::post(reconcile_route),
     )
 }

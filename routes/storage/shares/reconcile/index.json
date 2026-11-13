@@ -1,13 +1,13 @@
 {
-  "namespace": "storage/drive/shares/reconcile",
+  "namespace": "storage/shares/reconcile",
   "admittance": "open",
   "flags": {},
-  "serve": [{"snake": "storage/drive/shares/rebuild"}],
+  "serve": [{"snake": "storage/shares/converge"}],
   "commands": ["staff intent"],
   "needs": ["all"],
   "profiles": ["homeserver"],
   "http_method": "POST",
-  "http_path": "/api/v1/storage/drive/shares/reconcile",
+  "http_path": "/api/v1/storage/shares/reconcile",
   "body": "none",
   "receipt": "caduceus.staff.receipt.v1",
   "routine_callable": true
