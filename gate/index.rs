@@ -1358,6 +1358,9 @@ pub async fn run_async() -> i32 {
             receipt.get("firstMissingSignal").and_then(serde_json::Value::as_str)
                 .unwrap_or("caduceus-staff-invalid-receipt")
         };
+        let outcome = outcome.split(char::is_control).next()
+            .filter(|value| !value.is_empty())
+            .unwrap_or("caduceus-staff-invalid-receipt");
         eprintln!("caduceus-shares-rebuild-start: {outcome}");
     });
     attendance::bind();
