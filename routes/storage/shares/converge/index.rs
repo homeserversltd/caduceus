@@ -2,13 +2,13 @@ use axum::{extract::Json, http::StatusCode, Router};
 use serde_json::{json, Value};
 use std::time::Duration;
 
-const STOP: &str = "storage/drive/shares/rebuild";
+const STOP: &str = "storage/shares/converge";
 const COMMAND: &str = "staff intent";
 
 fn refusal(signal: &str) -> Value {
     json!({
         "schema": "caduceus.staff.receipt.v1",
-        "stop": {"noun": "storage/drive/shares", "verb": "rebuild"},
+        "stop": {"noun": "storage/shares", "verb": "converge"},
         "ok": false,
         "firstMissingSignal": signal,
         "observed": null,
@@ -58,5 +58,5 @@ async fn route() -> (StatusCode, Json<Value>) {
 }
 
 pub fn register(router: Router) -> Router {
-    router.route("/api/v1/storage/drive/shares/rebuild", axum::routing::post(route))
+    router.route("/api/v1/storage/shares/converge", axum::routing::post(route))
 }

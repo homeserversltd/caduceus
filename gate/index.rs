@@ -1347,9 +1347,9 @@ pub async fn run_async() -> i32 {
             return 1;
         }
     };
-    #[cfg(leaf_storage_drive_shares_rebuild)]
+    #[cfg(leaf_storage_shares_converge)]
     tokio::task::spawn_blocking(|| {
-        let receipt = crate::routes::leaf_storage_drive_shares_rebuild::rebuild_at_start();
+        let receipt = crate::routes::leaf_storage_shares_converge::rebuild_at_start();
         let outcome = if let Some(signal) = receipt.get("doorSignal").and_then(serde_json::Value::as_str) {
             signal
         } else if receipt.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
