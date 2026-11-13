@@ -1,4 +1,4 @@
-use super::{observation, seat, Result};
+use super::{observation, seat, Refusal, Result};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -523,7 +523,7 @@ fn candidate_selection(source: &Value, api: &url::Url, repo: &str, reference: &s
     }
 }
 
-pub fn release(manifest: &Value, ref_translated: bool) -> Result<Value> {
+pub fn release(manifest: &Value, ref_translated: bool, fetch_manifest: bool) -> Result<Value> {
     if !std::path::Path::new("/usr/bin/curl").is_file() {
         return Err(observation("F", "source", "curl-absent"));
     }
@@ -680,6 +680,20 @@ pub fn release(manifest: &Value, ref_translated: bool) -> Result<Value> {
         let url = asset_url(name)?;
         if candidate.is_some() { github_read(&url) } else { https(&url, &token) }
     };
+    let release_manifest = if fetch_manifest {
+        if !assets.iter().any(|asset| asset["name"].as_str() == Some("cartridge.json")) {
+            return Err(Refusal::new("F", "release.assets", "release-manifest-absent",
+                "Add the cartridge.json asset to the Release and repeat validation."));
+        }
+        let response = evidence_read("cartridge.json")?;
+        if response.status != 200 {
+            return Err(observation("F", "cartridge.json", "release-evidence-http-failed"));
+        }
+        Some(serde_json::from_slice::<Value>(&response.body)
+            .map_err(|_| observation("F", "cartridge.json", "release-manifest-json-invalid"))?)
+    } else {
+        None
+    };
     let sidecar_response = evidence_read(&sidecar_name)?;
     if sidecar_response.status != 200 {
         return Err(observation("F", "sidecar", "release-evidence-http-failed"));
@@ -741,7 +755,7 @@ pub fn release(manifest: &Value, ref_translated: bool) -> Result<Value> {
             "release-flag-source-mismatch",
         ));
     }
-    if !ref_translated && digest != manifest["content_inventory_digest"].as_str().unwrap_or("") {
+    if !fetch_manifest && !ref_translated && digest != manifest["content_inventory_digest"].as_str().unwrap_or("") {
         return Err(observation(
             "F",
             "content_inventory_digest",
@@ -758,6 +772,9 @@ pub fn release(manifest: &Value, ref_translated: bool) -> Result<Value> {
         }
     }
     let mut evidence = json!({"release": release, "sidecar": sidecar, "flag": flag, "digest": digest, "binary_fetched": false});
+    if let Some(manifest) = release_manifest {
+        evidence["manifest"] = manifest;
+    }
     if candidate_mode {
         evidence["source"] = json!(if candidate.is_some() { "candidate" } else { "forge" });
         evidence["candidate_url"] = json!(candidate);

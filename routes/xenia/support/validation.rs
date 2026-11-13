@@ -752,6 +752,37 @@ pub fn validate_only(body: &Value) -> Result<Candidate> {
     let mut normalized = body.get("manifest").cloned().unwrap_or(Value::Null);
     let mut translated = Vec::new();
     let mut ref_translated = false;
+    seat::startup().map_err(|e| observation("A", "schema", e))?;
+    // A: snapshot lock ends before the first HTTP read.
+    let house = store::snapshot()?;
+    let health = remote::health()?;
+    let mut fetched_release = None;
+    let mut requested_source = None;
+    if body.get("manifest").is_none() {
+        let Some(mut source_value) = body.get("source").filter(|source| source.get("release_repo").is_some()).cloned() else {
+            return Err(refuse("B", "manifest", "manifest-absent"));
+        };
+        if let Some(source) = source_value.as_object_mut() {
+            let reference = source.get("ref").and_then(Value::as_str);
+            let reason = if source.get("ref").is_none() || reference == Some("") {
+                Some("source-ref-absent-to-main")
+            } else if reference.is_some_and(|r| r.len() == 40 && r.bytes().all(|b| b.is_ascii_hexdigit())) {
+                Some("source-ref-pinned-to-main")
+            } else { None };
+            if let Some(reason) = reason {
+                source.insert("ref".into(), json!("main"));
+                translated.push(reason);
+            }
+        }
+        let lookup = json!({"source": source_value});
+        source(&lookup)?;
+        let mut release = remote::release(&lookup, true, true)?;
+        normalized = release.as_object_mut().and_then(|object| object.remove("manifest"))
+            .ok_or_else(|| observation("F", "cartridge.json", "release-manifest-absent"))?;
+        requested_source = Some(lookup["source"].clone());
+        fetched_release = Some(release);
+        translated.push("manifest-from-release");
+    }
     if let Some(source) = normalized.get_mut("source").and_then(Value::as_object_mut) {
         let was_clone = source.get("kind").and_then(Value::as_str) == Some("clone");
         if was_clone {
@@ -776,16 +807,33 @@ pub fn validate_only(body: &Value) -> Result<Candidate> {
             }
         }
     }
-    seat::startup().map_err(|e| observation("A", "schema", e))?;
-    // A: snapshot lock ends before the first HTTP read.
-    let house = store::snapshot()?;
-    let health = remote::health()?;
-    if body.get("manifest").is_none() {
-        return Err(refuse("B", "manifest", "manifest-absent"));
+    if let Some(source) = requested_source {
+        if normalized.pointer("/source/release_repo") != source.get("release_repo") {
+            return Err(refuse("E", "manifest.source.release_repo", "release-repo-mismatch"));
+        }
+        normalized["source"] = source;
+        ref_translated = true;
+        let digest = fetched_release.as_ref().and_then(|release| release["digest"].as_str())
+            .ok_or_else(|| observation("F", "release.digest", "release-digest-absent"))?;
+        if normalized["content_inventory_digest"].as_str() != Some(digest) {
+            normalized["content_inventory_digest"] = json!(digest);
+            translated.push("digest-adopted-from-release");
+        }
     }
     let manifest = &normalized;
     let is_own_service = manifest.pointer("/source/kind").and_then(Value::as_str) == Some("own-service");
     seat::kernel(XENIA, Some("manifest"), manifest, "B", "manifest")?;
+    let kind = manifest["kind"].as_str();
+    let class = manifest["client_class"].as_str();
+    if kind == Some("iframe") && manifest.pointer("/source/release_repo").is_some() {
+        return Err(Refusal::new("B", "manifest.source.release_repo", "iframe-release-road-forbidden",
+            "Use the iframe road instead of a Release repository."));
+    }
+    if matches!(kind, Some("cartridge-process" | "cartridge-static")) && class != Some("fragment")
+        || kind == Some("iframe") && class != Some("iframe") {
+        return Err(Refusal::new("B", "manifest.client_class", "client-class-kind-mismatch",
+            "Use client_class fragment for cartridges and iframe for an iframe."));
+    }
     // B only judges the frozen kernel, custody and types. Identity, source,
     // seats, transport and compatibility keep their own first-failure rungs.
     let fields = seat::declaration(XENIA)?["fields"]
@@ -838,10 +886,14 @@ pub fn validate_only(body: &Value) -> Result<Candidate> {
         }
     }
     // D: the new outcome seat governs only this proposed row.
-    let row = body
-        .get("tabs")
-        .ok_or_else(|| refuse("D", "tabs", "proposed-row-absent"))?
-        .clone();
+    let row = match body.get("tabs") {
+        Some(row) => row.clone(),
+        None => {
+            translated.push("tabs-row-defaulted");
+            json!({"displayName": manifest["display"], "adminOnly": true, "order": 100,
+                "visibility": {"tab": true, "elements": {}}, "data": {}})
+        }
+    };
     seat::field(VERDICT, "tabs", &row, "D", "tabs")?;
     forbidden(&row, policy_keys("forbidden_row_keys")?, "D", "tabs")?;
     let mut entry = manifest.clone();
@@ -949,7 +1001,10 @@ pub fn validate_only(body: &Value) -> Result<Candidate> {
     } else if clone {
         json!({"road": "clone", "host": "git.home.arpa", "release": null})
     } else {
-        remote::release(manifest, ref_translated)?
+        match fetched_release {
+            Some(release) => release,
+            None => remote::release(manifest, ref_translated, false)?,
+        }
     };
     if ref_translated {
         let digest = release["digest"].as_str()
