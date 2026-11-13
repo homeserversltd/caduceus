@@ -772,6 +772,7 @@ pub fn validate_only(body: &Value) -> Result<Candidate> {
             if let Some(reason) = reason {
                 source.insert("ref".into(), json!("main"));
                 translated.push(reason);
+                ref_translated = true;
             }
         }
         let lookup = json!({"source": source_value});
@@ -812,12 +813,13 @@ pub fn validate_only(body: &Value) -> Result<Candidate> {
             return Err(refuse("E", "manifest.source.release_repo", "release-repo-mismatch"));
         }
         normalized["source"] = source;
-        ref_translated = true;
         let digest = fetched_release.as_ref().and_then(|release| release["digest"].as_str())
             .ok_or_else(|| observation("F", "release.digest", "release-digest-absent"))?;
-        if normalized["content_inventory_digest"].as_str() != Some(digest) {
+        if ref_translated && normalized["content_inventory_digest"].as_str() != Some(digest) {
             normalized["content_inventory_digest"] = json!(digest);
             translated.push("digest-adopted-from-release");
+        } else if !ref_translated && normalized["content_inventory_digest"].as_str() != Some(digest) {
+            return Err(observation("F", "content_inventory_digest", "release-digest-mismatch"));
         }
     }
     let manifest = &normalized;
