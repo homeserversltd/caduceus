@@ -396,7 +396,7 @@ fn resolve_line(routine: &str, name: &str, _senses: &super::events::Senses, _vis
     if found.is_some() && !held(routine)? { Ok(()) } else { Err("pid2-required-line-unavailable".into()) }
 }
 
-fn needs(routine: &str, stage_line: &str, need: &Value, senses: &super::events::Senses, visiting: &mut Visiting, separate_election: bool) -> Result<Option<String>, String> {
+fn needs(routine: &str, stage_line: &str, need_index: Option<usize>, need: &Value, senses: &super::events::Senses, visiting: &mut Visiting, separate_election: bool) -> Result<Option<String>, String> {
     let kind = need.get("kind").and_then(Value::as_str).ok_or("pid2-need-kind-missing")?;
     match kind {
         "observe-unit" => {
@@ -482,6 +482,12 @@ fn needs(routine: &str, stage_line: &str, need: &Value, senses: &super::events::
             let properties = need.get("properties").unwrap_or(&Value::Null);
             if device_present(properties)? { Ok(None) } else { Err("pid2-await-device".into()) }
         },
+        "observe-block-removed" => {
+            let index=need_index.ok_or("pid2-observe-block-removed-pending")?;
+            let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+            let seq:Option<i64>=db.query_row("SELECT removal_seq FROM pid2_block_removals WHERE routine_id=?1 AND line=?2 AND need_index=?3",params![routine,stage_line,index as i64],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+            match seq {Some(removal_seq)=>Ok(Some(removal_seq.to_string())),None=>Err("pid2-observe-block-removed-pending".into())}
+        },
         _ => Err("pid2-need-kind-unknown".into()),
     }
 }
@@ -502,7 +508,7 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
     if stage.get("until").is_some_and(|value| !value.is_null() && !value.is_array()) { return Err("pid2-until-not-array".into()); }
     let crossings=stage.get("do").and_then(Value::as_array);
     let until=stage.get("until").and_then(Value::as_array);
-    let dynamic=["needs","until"].into_iter().flat_map(|key|stage.get(key).and_then(Value::as_array).into_iter().flatten()).any(|n|matches!(n.get("kind").and_then(Value::as_str),Some("await-netns"|"observe-link"|"observe-file"|"observe-unit")));
+    let dynamic=["needs","until"].into_iter().flat_map(|key|stage.get(key).and_then(Value::as_array).into_iter().flatten()).any(|n|matches!(n.get("kind").and_then(Value::as_str),Some("await-netns"|"observe-link"|"observe-file"|"observe-unit"|"observe-block-removed")));
     // Migrate a retained boot election before replacing its old line row;
     // a repurposed line without an election must not keep the old value.
     if dynamic {
@@ -520,7 +526,7 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
     let separate_election=dynamic || crossings.is_some() || until.is_some() || stage.get("actions").and_then(Value::as_array).is_some_and(|a|!a.is_empty());
     let check_until = |visiting: &mut Visiting| -> Result<(),String> {
         if let Some(conditions)=until {
-            for condition in conditions { needs(routine,name,condition,senses,visiting,separate_election)?; }
+            for condition in conditions { needs(routine,name,None,condition,senses,visiting,separate_election)?; }
         }
         Ok(())
     };
@@ -535,7 +541,7 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
     }
     let mut value = None;
     let mut need_trace=Vec::new();
-    for need in stage.get("needs").and_then(Value::as_array).into_iter().flatten() {
+    for (need_index,need) in stage.get("needs").and_then(Value::as_array).into_iter().flatten().enumerate() {
         if let Some(branch)=need.get("when_line").and_then(Value::as_str) {
             resolve_line(routine,branch,senses,visiting)?;
             let selected=line(routine,branch)?.and_then(|x|x.0).ok_or("pid2-need-branch-unobserved")?;
@@ -543,7 +549,7 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
             need_trace.push(json!({"branch":branch,"selected":selected,"expected":expected}));
             if selected != expected { continue; }
         }
-        let observed=needs(routine,name,need,senses,visiting,separate_election);
+        let observed=needs(routine,name,Some(need_index),need,senses,visiting,separate_election);
         let mut declared=serde_json::Map::new();
         for key in ["kind","properties","path","name","netns","link","routine_id","line","value","unit","scope","observer","pattern","seat","readiness"] {
             if let Some(v)=need.get(key) { declared.insert(key.into(),v.clone()); }
@@ -871,11 +877,11 @@ fn stage_matches(routine:&str,stage:&Value,key:&super::events::DirtyKey)->bool {
                     let same=properties.and_then(|p|p.get("SUBSYSTEM")).and_then(Value::as_str).is_none_or(|v|v==subsystem);
                     let path=properties.and_then(|p|p.get("DEVPATH")).and_then(Value::as_str);
                     same && (device.is_empty() || path.is_none_or(|v|Path::new(v).starts_with(device) || Path::new(device).starts_with(v))) && (device_side_may_match(need,before) || device_side_may_match(need,after))
-                } else {false}
+                } else if kind=="observe-block-removed" {subsystem=="block" && matches!(after,super::events::DeviceState::Absent) && device_side_may_match(need,before)} else {false}
             },
             DirtyKey::Unit(scope,unit)=>need.get("unit").and_then(Value::as_str)==Some(unit) && ((kind=="await-ready" && unit_scope(unit).is_ok_and(|s|s==*scope)) || (kind=="observe-unit" && need.get("scope").and_then(Value::as_str).unwrap_or("system")==scope)),
             DirtyKey::Sense(scope)|DirtyKey::Offline(scope)|DirtyKey::Unavailable(scope)=>match scope.as_str() {
-                "mount"=>kind=="await-mount", "udev"=>kind=="await-device" || kind=="observe",
+                "mount"=>kind=="await-mount", "udev"=>kind=="await-device" || kind=="observe" || kind=="observe-block-removed",
                 "netns"=>kind=="await-netns", "link"=>kind=="observe-link", "file"=>kind=="observe-file",
                 "system"|"owner"=>(kind=="await-ready" && need.get("unit").and_then(Value::as_str).is_some_and(|u|unit_scope(u).is_ok_and(|s|s==*scope))) || (kind=="observe-unit" && need.get("scope").and_then(Value::as_str).unwrap_or("system")==scope), _=>false,
             },
@@ -921,6 +927,16 @@ pub(super) fn reconcile(senses:&super::events::Senses,keys:Vec<super::events::Di
     let mut queued=HashSet::new(); let mut retry=HashSet::new();
     for (line,stage) in &stages {
         for key in &keys {
+            if let DirtyKey::Device(subsystem,devpath,before,super::events::DeviceState::Absent)=key {
+                if subsystem=="block" {
+                    for (index,need) in stage.get("needs").and_then(Value::as_array).into_iter().flatten().enumerate() {
+                        if need.get("kind").and_then(Value::as_str)==Some("observe-block-removed") && device_side_may_match(need,before) {
+                            let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+                            db.execute("INSERT INTO pid2_block_removals(routine_id,line,need_index,devpath,removal_seq) VALUES(?1,?2,?3,?4,(SELECT COALESCE(MAX(removal_seq),0)+1 FROM pid2_block_removals)) ON CONFLICT(routine_id,line,need_index) DO UPDATE SET devpath=excluded.devpath,removal_seq=excluded.removal_seq",params![line.0,line.1,index as i64,devpath]).map_err(|e|e.to_string())?;
+                        }
+                    }
+                }
+            }
             if stage_matches(&line.0,stage,key) {
                 queued.insert(line.clone());
                 if !matches!(key,DirtyKey::Startup|DirtyKey::Offline(_)|DirtyKey::Unavailable(_)|DirtyKey::Job(_,_)|DirtyKey::Schedule) {retry.insert(line.clone());}
