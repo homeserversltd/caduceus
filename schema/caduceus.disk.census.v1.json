@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.disk.census.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "role": "Caduceus disk census receipt",
   "authority": {
     "owner": "caduceus",
@@ -22,6 +22,10 @@
         "type": ["object", "null"],
         "properties": {
           "name": {"type": ["string", "null"]},
+          "model": {"type": ["string", "null"]},
+          "transport": {"type": ["string", "null"]},
+          "serial": {"type": ["string", "null"]},
+          "sizeHuman": {"type": ["string", "null"]},
           "partition": {"type": ["string", "null"]},
           "label": {"type": ["string", "null"]},
           "sizeBytes": {"type": ["integer", "null"]},

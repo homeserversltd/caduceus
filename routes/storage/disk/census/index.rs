@@ -39,7 +39,7 @@ pub(crate) fn collect_json() -> Result<Value, String> {
             "--json",
             "--bytes",
             "--output",
-            "NAME,KNAME,PKNAME,TYPE,SIZE,FSTYPE,LABEL,PARTLABEL,MOUNTPOINTS",
+            "NAME,KNAME,PKNAME,TYPE,SIZE,FSTYPE,LABEL,PARTLABEL,MOUNTPOINTS,MODEL,TRAN,SERIAL",
         ])
         .output()
         .map_err(|err| format!("caduceus-disk-census-lsblk-unavailable:{err}"))?;
@@ -57,22 +57,7 @@ pub(crate) fn collect_json() -> Result<Value, String> {
         .ok_or_else(|| "caduceus-disk-census-blockdevices-missing".to_string())?;
 
     let space = space_usage();
-    let mut census = Vec::new();
-    for device in devices {
-        if excluded_parent(device) {
-            continue;
-        }
-        if let Some(foreign) = foreign_filesystems(device) {
-            let mut candidate = receipt(device, device, None, &space);
-            candidate
-                .as_object_mut()
-                .expect("disk census receipt is an object")
-                .insert("foreign".to_string(), json!(foreign));
-            census.push(candidate);
-            continue;
-        }
-        collect_candidates(device, device, &space, &mut census);
-    }
+    let census = project_devices(devices, &space);
     Ok(json!({
         "schema": "caduceus.disk.census.v1",
         "ok": true,
@@ -80,6 +65,65 @@ pub(crate) fn collect_json() -> Result<Value, String> {
         "devices": census,
         "firstMissingSignal": "none"
     }))
+}
+
+fn project_devices(devices: &[Value], space: &BTreeMap<String, Value>) -> Vec<Value> {
+    let mut census = Vec::new();
+    for device in devices {
+        if excluded_parent(device) {
+            continue;
+        }
+        let before = census.len();
+        collect_candidates(device, device, space, &mut census);
+        if census.len() != before {
+            continue;
+        }
+        let mut foreign = BTreeSet::new();
+        let mut mounted = None;
+        let mut hidden = false;
+        for entry in descendants(device) {
+            let mounts = mountpoints(entry);
+            hidden |= mounts.iter().any(|m| HIDDEN_MOUNTS.contains(&m.as_str()));
+            if mounted.is_none() {
+                mounted = mounts.into_iter().next();
+            }
+            if (entry == device || string(entry, "type") == Some("part"))
+                && string(entry, "fstype").is_some()
+            {
+                foreign.insert(string(entry, "fstype").unwrap().to_owned());
+            }
+        }
+        if hidden {
+            continue;
+        }
+        if !foreign.is_empty() {
+            let mut candidate = receipt(device, device, None, space);
+            let fields = candidate
+                .as_object_mut()
+                .expect("disk census receipt is an object");
+            fields.insert(
+                "foreign".to_string(),
+                json!(foreign.into_iter().collect::<Vec<_>>().join(", ")),
+            );
+            fields.insert("label".to_string(), Value::Null);
+            if let Some(mount) = mounted {
+                fields.insert(
+                    "space".to_string(),
+                    space.get(&mount).cloned().unwrap_or(Value::Null),
+                );
+                fields.insert("mountpoint".to_string(), json!(mount));
+            }
+            census.push(candidate);
+        } else if mounted.is_none() {
+            let mut candidate = receipt(device, device, None, space);
+            candidate
+                .as_object_mut()
+                .expect("disk census receipt is an object")
+                .insert("blank".to_string(), json!(true));
+            census.push(candidate);
+        }
+    }
+    census
 }
 
 pub fn show() -> i32 {
@@ -97,36 +141,15 @@ pub fn show() -> i32 {
 
 fn excluded_parent(device: &Value) -> bool {
     let name = string(device, "name").unwrap_or_default();
-    name.starts_with("loop")
+    string(device, "type") != Some("disk")
+        || name.starts_with("loop")
+        || name.starts_with("zram")
         || has_tmpfs(device)
         || descendants(device).any(|entry| {
             mountpoints(entry)
                 .iter()
                 .any(|mount| SYSTEM_CRITICAL_MOUNTS.contains(&mount.as_str()))
         })
-}
-
-fn foreign_filesystems(device: &Value) -> Option<String> {
-    if string(device, "type") != Some("disk") {
-        return None;
-    }
-    let mut foreign = BTreeSet::new();
-    for (index, entry) in descendants(device).enumerate() {
-        if !mountpoints(entry).is_empty() || (index > 0 && string(entry, "type") != Some("part")) {
-            return None;
-        }
-        if let Some(fstype) = string(entry, "fstype") {
-            if NAS_FILESYSTEMS
-                .iter()
-                .any(|nas| fstype.eq_ignore_ascii_case(nas))
-                || fstype.eq_ignore_ascii_case("crypto_luks")
-            {
-                return None;
-            }
-            foreign.insert(fstype.to_owned());
-        }
-    }
-    (!foreign.is_empty()).then(|| foreign.into_iter().collect::<Vec<_>>().join(", "))
 }
 
 fn has_tmpfs(entry: &Value) -> bool {
@@ -187,21 +210,7 @@ fn collect_candidates(
         census.push(receipt(parent, entry, luks_mapper, space));
         return;
     }
-    if string(entry, "type") == Some("disk")
-        && parent == entry
-        && string(entry, "fstype").is_none()
-        && entry
-            .get("children")
-            .map_or(true, |children| children.as_array().is_some_and(Vec::is_empty))
-        && mountpoints(entry).is_empty()
-    {
-        let mut candidate = receipt(parent, entry, None, space);
-        if let Some(fields) = candidate.as_object_mut() {
-            fields.insert("blank".to_string(), json!(true));
-        }
-        census.push(candidate);
-        return;
-    }
+
     if let Some(children) = entry.get("children").and_then(Value::as_array) {
         for child in children {
             collect_candidates(parent, child, space, census);
@@ -240,6 +249,29 @@ fn receipt(
     };
     let mut value = Map::new();
     value.insert("name".to_string(), json!(string(parent, "name")));
+    for (field, source) in [
+        ("model", "model"),
+        ("transport", "tran"),
+        ("serial", "serial"),
+    ] {
+        value.insert(
+            field.to_string(),
+            json!(string(parent, source)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())),
+        );
+    }
+    let human = entry.get("size").and_then(Value::as_u64).map(|bytes| {
+        let mut size = bytes as f64;
+        let mut unit = 0;
+        let units = ["B", "KB", "MB", "GB", "TB", "PB"];
+        while size >= 1024.0 && unit < units.len() - 1 {
+            size /= 1024.0;
+            unit += 1;
+        }
+        format!("{size:.1} {}", units[unit])
+    });
+    value.insert("sizeHuman".to_string(), json!(human));
     value.insert(
         "partition".to_string(),
         json!((parent != entry).then(|| string(entry, "name")).flatten()),
@@ -357,9 +389,8 @@ pub fn mutation_target_admitted(target: &str) -> Result<(), String> {
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: axum::Router) -> axum::Router {
-    router
-        .route(
-            "/api/v1/storage/disk/census",
-            axum::routing::get(crate::routes::storage_support::disk_census_route),
-        )
+    router.route(
+        "/api/v1/storage/disk/census",
+        axum::routing::get(crate::routes::storage_support::disk_census_route),
+    )
 }
