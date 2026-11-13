@@ -2,13 +2,13 @@ use axum::{extract::Json, http::StatusCode, Router};
 use serde_json::{json, Value};
 use std::time::Duration;
 
-const NAMESPACE: &str = "storage/drive/eject";
+const NAMESPACE: &str = "storage/drive/remove";
 const COMMAND: &str = "staff intent";
 
 fn native_refusal(status: StatusCode, signal: &str, attempted: bool) -> (StatusCode, Json<Value>) {
     (status, Json(json!({
         "schema": "caduceus.staff.receipt.v1",
-        "stop": {"noun": "storage/drive", "verb": "eject"},
+        "stop": {"noun": "storage/drive", "verb": "remove"},
         "ok": false,
         "firstMissingSignal": signal,
         "observed": {"payloadFields": ["device"]},
@@ -64,8 +64,8 @@ async fn route(Json(payload): Json<Value>) -> Result<(StatusCode, Json<Value>), 
 
     if !crate::routes::leaf_schema::bound(&receipt, NAMESPACE) {
         if let Some(object) = receipt.as_object_mut() {
-            object.entry("doorSignal").or_insert_with(|| json!("caduceus-schema-desync"));
-            object.entry("crossedStop").or_insert_with(|| json!(NAMESPACE));
+            object.insert("doorSignal".to_string(), json!("caduceus-schema-desync"));
+            object.insert("crossedStop".to_string(), json!(NAMESPACE));
         }
         return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(receipt)));
     }
@@ -79,5 +79,5 @@ async fn route(Json(payload): Json<Value>) -> Result<(StatusCode, Json<Value>), 
 }
 
 pub fn register(router: Router) -> Router {
-    router.route("/api/v1/storage/drive/eject", axum::routing::post(route))
+    router.route("/api/v1/storage/drive/remove", axum::routing::post(route))
 }

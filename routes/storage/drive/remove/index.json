@@ -1,13 +1,13 @@
 {
-  "namespace": "storage/drive/eject",
+  "namespace": "storage/drive/remove",
   "admittance": "open",
   "flags": {},
-  "serve": [{"snake": "storage/drive/eject"}],
+  "serve": [{"snake": "storage/drive/remove"}],
   "commands": ["staff intent"],
   "needs": ["all"],
   "profiles": ["homeserver"],
   "http_method": "POST",
-  "http_path": "/api/v1/storage/drive/eject",
+  "http_path": "/api/v1/storage/drive/remove",
   "body": "required",
   "receipt": "caduceus.staff.receipt.v1",
   "administrative": true
