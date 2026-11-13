@@ -183,6 +183,7 @@ pub fn disable(id: &str) -> Result<Value, String> {
     tables(&db)?;
     let changed = db.execute("UPDATE pid2_registrations SET enabled=0 WHERE routine_id=?1 AND enabled<>0", [id]).map_err(|e| e.to_string())?;
     let removed = db.execute("DELETE FROM pid2_route_steps WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+    db.execute("DELETE FROM pid2_block_removals WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
     drop(db);
     drop(process_guard);
     drop(action_guard);
