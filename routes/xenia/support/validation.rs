@@ -748,10 +748,39 @@ pub fn validate(body: &Value) -> Result<Candidate> {
     validate_only(body)
 }
 
+fn translate_source(normalized: &mut Value, translated: &mut Vec<&'static str>, ref_translated: &mut bool) -> Result<()> {
+    if let Some(source) = normalized.get_mut("source").and_then(Value::as_object_mut) {
+        let was_clone = source.get("kind").and_then(Value::as_str) == Some("clone");
+        if was_clone {
+            let repo = source.get("repo").and_then(Value::as_str).filter(|repo| !repo.is_empty())
+                .ok_or_else(|| refuse("E", "manifest.source.kind", "clone-road-retired"))?.to_owned();
+            source.remove("kind");
+            source.remove("repo");
+            source.insert("release_repo".into(), json!(repo));
+            translated.push("source-clone-to-release");
+        }
+        if source.get("kind").and_then(Value::as_str) != Some("own-service") {
+            let reference = source.get("ref").and_then(Value::as_str);
+            let reason = if source.get("ref").is_none() || reference == Some("") {
+                Some("source-ref-absent-to-main")
+            } else if reference.is_some_and(|r| r.len() == 40 && r.bytes().all(|b| b.is_ascii_hexdigit())) {
+                Some("source-ref-pinned-to-main")
+            } else { None };
+            if let Some(reason) = reason {
+                source.insert("ref".into(), json!("main"));
+                translated.push(reason);
+                *ref_translated = true;
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn validate_only(body: &Value) -> Result<Candidate> {
     let mut normalized = body.get("manifest").cloned().unwrap_or(Value::Null);
     let mut translated = Vec::new();
     let mut ref_translated = false;
+    translate_source(&mut normalized, &mut translated, &mut ref_translated)?;
     seat::startup().map_err(|e| observation("A", "schema", e))?;
     // A: snapshot lock ends before the first HTTP read.
     let house = store::snapshot()?;
@@ -783,36 +812,19 @@ pub fn validate_only(body: &Value) -> Result<Candidate> {
         requested_source = Some(lookup["source"].clone());
         fetched_release = Some(release);
         translated.push("manifest-from-release");
-    }
-    if let Some(source) = normalized.get_mut("source").and_then(Value::as_object_mut) {
-        let was_clone = source.get("kind").and_then(Value::as_str) == Some("clone");
-        if was_clone {
-            let repo = source.get("repo").and_then(Value::as_str).filter(|repo| !repo.is_empty())
-                .ok_or_else(|| refuse("E", "manifest.source.kind", "clone-road-retired"))?.to_owned();
-            source.remove("kind");
-            source.remove("repo");
-            source.insert("release_repo".into(), json!(repo));
-            translated.push("source-clone-to-release");
-        }
-        if source.get("kind").and_then(Value::as_str) != Some("own-service") {
-            let reference = source.get("ref").and_then(Value::as_str);
-            let reason = if source.get("ref").is_none() || reference == Some("") {
-                Some("source-ref-absent-to-main")
-            } else if reference.is_some_and(|r| r.len() == 40 && r.bytes().all(|b| b.is_ascii_hexdigit())) {
-                Some("source-ref-pinned-to-main")
-            } else { None };
-            if let Some(reason) = reason {
-                source.insert("ref".into(), json!("main"));
-                translated.push(reason);
-                ref_translated = true;
-            }
-        }
+        translate_source(&mut normalized, &mut translated, &mut ref_translated)?;
     }
     if let Some(source) = requested_source {
         if normalized.pointer("/source/release_repo") != source.get("release_repo") {
             return Err(refuse("E", "manifest.source.release_repo", "release-repo-mismatch"));
         }
         normalized["source"] = source;
+        // As on the supplied-manifest road, translation never manufactures a
+        // missing or malformed digest: the manifest kernel and digest seat
+        // must hold before the verified Release digest can be adopted.
+        seat::kernel(XENIA, Some("manifest"), &normalized, "B", "manifest")?;
+        seat::field(XENIA, "content_inventory_digest", &normalized["content_inventory_digest"],
+            "F", "manifest.content_inventory_digest")?;
         let digest = fetched_release.as_ref().and_then(|release| release["digest"].as_str())
             .ok_or_else(|| observation("F", "release.digest", "release-digest-absent"))?;
         if ref_translated && normalized["content_inventory_digest"].as_str() != Some(digest) {
