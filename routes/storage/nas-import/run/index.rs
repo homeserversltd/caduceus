@@ -2,13 +2,13 @@ use axum::{extract::Json, http::StatusCode, Router};
 use serde_json::{json, Value};
 use std::time::Duration;
 
-const NAMESPACE: &str = "storage/nas/import";
+const NAMESPACE: &str = "storage/nas-import/run";
 const COMMAND: &str = "staff intent";
 
 fn native_refusal(status: StatusCode, signal: &str, could_change_to: Value) -> (StatusCode, Json<Value>) {
     (status, Json(json!({
         "schema": "caduceus.staff.receipt.v1",
-        "stop": {"noun": "storage/nas", "verb": "import"},
+        "stop": {"noun": "storage/nas-import", "verb": "run"},
         "ok": false,
         "firstMissingSignal": signal,
         "observed": {"payloadFields": ["device"]},
@@ -76,5 +76,5 @@ async fn route(Json(payload): Json<Value>) -> Result<(StatusCode, Json<Value>), 
 }
 
 pub fn register(router: Router) -> Router {
-    router.route("/api/v1/storage/nas/import", axum::routing::post(route))
+    router.route("/api/v1/storage/nas-import/run", axum::routing::post(route))
 }
