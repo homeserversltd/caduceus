@@ -32,7 +32,6 @@ fn meter(envelope: &Value) -> Result<Value, &'static str> {
         "cpu" => ("CPU", "CPU usage is missing from the sample"),
         "ram" => ("RAM", "Memory usage or total is missing from the sample"),
         "disk" => ("DSK", "Root disk usage or total is missing from the sample"),
-        "temp" => ("TMP", "CPU temperature is missing from the sample"),
         "gpu" => ("GPU", "GPU utilization is missing from the sample"),
         _ => return Err("face-meter-kind-invalid"),
     };
@@ -56,9 +55,13 @@ fn meter(envelope: &Value) -> Result<Value, &'static str> {
     let reading = match kind {
         "cpu" => number(&sample, "/cpu/usagePercent").map(|pct| {
             let pct = pct.round() as i128;
+            let mut tooltip = format!("CPU: {pct}%");
+            if let Some((temp, sensor)) = cpu_temperature(&sample) {
+                tooltip.push_str(&format!(" · {}°C ({sensor})", temp.round() as i128));
+            }
             success(
                 format!("CPU {}", bars(pct)),
-                format!("CPU: {pct}%"),
+                tooltip,
                 class_for(pct),
                 json!(pct as i64),
             )
@@ -88,45 +91,29 @@ fn meter(envelope: &Value) -> Result<Value, &'static str> {
                     json!(pct as i64),
                 )
             }),
-        "temp" => sample
-            .pointer("/temperature/bySource")
-            .and_then(Value::as_array)
-            .and_then(|entries| {
-                entries
-                    .iter()
-                    .filter_map(|entry| {
-                        if entry.get("label").and_then(Value::as_str) != Some("cpu") {
-                            return None;
-                        }
-                        number(entry, "/celsius").map(|temp| (temp, entry))
-                    })
-                    .max_by(|a, b| a.0.total_cmp(&b.0))
-            })
-            .map(|(temp, entry)| {
-                let celsius = temp.round() as i128;
-                let pct = ((celsius - 30) * 100).div_euclid(70).clamp(0, 100);
-                let class = if temp >= 90.0 {
-                    "high"
-                } else if temp >= 75.0 {
-                    "medium"
-                } else {
-                    "low"
-                };
-                let sensor = entry
-                    .get("sensor")
-                    .and_then(Value::as_str)
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("CPU sensor");
-                success(
-                    format!("TMP {}", bars(pct)),
-                    format!("CPU package temperature ({sensor}): {celsius}°C"),
-                    class,
-                    json!(celsius as i64),
-                )
-            }),
         _ => unreachable!(),
     };
     Ok(reading.unwrap_or_else(|| unknown(label, missing)))
+}
+
+fn cpu_temperature(sample: &Value) -> Option<(f64, &str)> {
+    let (temp, entry) = sample
+        .pointer("/temperature/bySource")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter_map(|entry| {
+            if entry.get("label").and_then(Value::as_str) != Some("cpu") {
+                return None;
+            }
+            number(entry, "/celsius").map(|temp| (temp, entry))
+        })
+        .max_by(|a, b| a.0.total_cmp(&b.0))?;
+    let sensor = entry
+        .get("sensor")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("CPU sensor");
+    Some((temp, sensor))
 }
 
 fn gpu_meter(sample: Option<&Value>, device: u64) -> Value {
