@@ -27,16 +27,10 @@ fn hermes_entry(args: &[&[u8]]) -> bool {
     if *program == b"/opt/hermes/venv/bin/hermes" {
         return true;
     }
-    // Two anchors only. The declared HomeSI venv (/opt/hermes/venv) launches
-    // the gateway; hermes_bootstrap then re-execs it into the runtime Hermes
-    // manages under the hermes account's HERMES_HOME, /home/hermes/.hermes/tools.
-    // From that runtime a process counts when its -c script is the last
-    // argument, carries the relaunch markers (sys._hermes_relaunched = True and
-    // the gateway/run argv assignment) and ends with the exec'd runpy entry, the
-    // same tail test the venv form uses. A
-    // same-named binary elsewhere, another account's home, or system Python
-    // running a similarly named module is not it
-    // (pali:si-homesi-website-portals-and-hermes-count-20261024 organ HermesIdentity).
+    // Three shapes count: the HomeSI venv entry, a hermes tools runtime
+    // relaunch with its markers, or that runtime's launcher script followed
+    // by exactly gateway run. Another account's home and system Python do not
+    // count (pali:si-homesi-website-portals-and-hermes-count-20261024 organ HermesIdentity).
     let venv = venv_python(program);
     if !venv && !relaunch_python(program) {
         return false;
@@ -54,12 +48,17 @@ fn hermes_entry(args: &[&[u8]]) -> bool {
                 if !venv {
                     // The relaunch carries gateway/run inside its own argv
                     // assignment and execs the venv bootstrap verbatim.
-                    return args.len() == index + 2
+                    return (args.len() == index + 2
                         && script.contains("sys._hermes_relaunched = True")
                         && script.contains("sys.argv = ['-c', 'gateway', 'run']")
                         && script.ends_with(
                             "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)\")",
-                        );
+                        ))
+                        || (args.len() == index + 4
+                            && script.contains("from hermes_cli.main import main")
+                            && script.ends_with("sys.exit(main())")
+                            && args.get(index + 2).copied() == Some(b"gateway".as_slice())
+                            && args.get(index + 3).copied() == Some(b"run".as_slice()));
                 }
                 // The gateway service's isolated bootstrap ends with this
                 // entry call and carries the explicit gateway/run argv. Its
