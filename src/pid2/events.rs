@@ -404,9 +404,10 @@ async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync:
         crate::stats::indicators::unit_state::set_online("system",false);
         online.store(false,Ordering::Release); tx.offline("system");
         let reconfigured=matches!(&connected,Err(error) if error=="pid2-unit-watch-reconfigured");
+        let owner_changed=matches!(&connected,Err(error) if error=="pid2-systemd-owner-changed");
         if let Err(error)=connected { if !reconfigured {eprintln!("pid2-system-systemd-watch: {error}");} }
         if tx.closed() { return; }
-        if reconfigured {continue;}
+        if reconfigured || owner_changed {continue;}
         tokio::time::sleep(Duration::from_secs(300)).await;
     }
 }
@@ -581,6 +582,7 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::w
         match owner_uid() {
             Ok(uid) => {
                 let bus=PathBuf::from(format!("/run/user/{uid}/bus"));
+                let mut mounts=tx.mount_event.subscribe();
                 if !bus.exists() {
                     let wait=async {
                         loop {
@@ -591,7 +593,12 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::w
                             let watch=kernel_senses::DirWatch::open(&bus)?;
                             if bus.exists() {return Ok::<(),std::io::Error>(());}
                             if !parent_existed && parent.is_dir() {continue;}
-                            loop {if watch.changed().await? {break;}}
+                            loop {
+                                tokio::select! {
+                                    result=watch.changed()=>if result? {break;},
+                                    result=mounts.changed()=>{result.map_err(|_|std::io::Error::other("pid2-mount-watch-closed"))?; break;},
+                                }
+                            }
                         }
                     };
                     tokio::select! {
