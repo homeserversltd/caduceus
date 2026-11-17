@@ -1,0 +1,15 @@
+{
+  "namespace": "settings/display/hdmi-hold/release",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "settings/display/hdmi-hold/release"}],
+  "commands": ["staff intent"],
+  "needs": ["sway"],
+  "profiles": ["hometv", "homesi"],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/display/hdmi-hold/release",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true
+}

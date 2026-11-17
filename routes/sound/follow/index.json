@@ -1,0 +1,16 @@
+{
+  "namespace": "sound/follow",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "sound/follow"}],
+  "commands": ["staff intent"],
+  "needs": ["pactl"],
+  "profiles": ["hometv", "homesi"],
+  "http_method": "POST",
+  "http_path": "/api/v1/sound/follow",
+  "body": "none",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": false,
+  "mutation_allowed": true,
+  "routine_callable": true
+}

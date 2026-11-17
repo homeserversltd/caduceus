@@ -1,0 +1,16 @@
+{
+  "namespace": "screen/follow",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "screen/follow"}],
+  "commands": ["staff intent"],
+  "needs": ["sway"],
+  "profiles": ["hometv", "homesi"],
+  "http_method": "POST",
+  "http_path": "/api/v1/screen/follow",
+  "body": "none",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": false,
+  "mutation_allowed": true,
+  "routine_callable": true
+}
