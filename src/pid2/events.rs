@@ -569,7 +569,34 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::w
         if let Err(error)=connected { if !reconfigured {eprintln!("pid2-owner-systemd-watch: {error}");} }
         if tx.closed() { return; }
         if reconfigured {continue;}
-        tokio::time::sleep(Duration::from_secs(300)).await;
+        let backstop=tokio::time::sleep(Duration::from_secs(300));
+        tokio::pin!(backstop);
+        match owner_uid() {
+            Ok(uid) => {
+                let bus=PathBuf::from(format!("/run/user/{uid}/bus"));
+                if !bus.exists() {
+                    let wait=async {
+                        loop {
+                            // Reopen when a missing parent appears; close the setup
+                            // race by checking the parent both before and after.
+                            let parent=bus.parent().expect("owner bus has a parent");
+                            let parent_existed=parent.is_dir();
+                            let watch=kernel_senses::DirWatch::open(&bus)?;
+                            if bus.exists() {return Ok::<(),std::io::Error>(());}
+                            if !parent_existed && parent.is_dir() {continue;}
+                            loop {if watch.changed().await? {break;}}
+                        }
+                    };
+                    tokio::select! {
+                        result=wait=>if let Err(error)=result {eprintln!("pid2-owner-bus-watch: {error}"); backstop.await;},
+                        _=&mut backstop=>{},
+                    }
+                    continue;
+                }
+            },
+            Err(error) => eprintln!("pid2-owner-bus-watch: {error}"),
+        }
+        backstop.await;
     }
 }
 

@@ -64,9 +64,9 @@ fn valid_path(path:&Path)->bool { path.is_absolute() && path.file_name().is_some
 
 // One inotify fd watches the target's existing directory ancestors. Directory
 // entries are filtered against the exact target and missing parents are followed.
-struct DirWatch { fd:AsyncFd<OwnedFd>, dirs:HashMap<i32,PathBuf>, target:PathBuf }
+pub(super) struct DirWatch { fd:AsyncFd<OwnedFd>, dirs:HashMap<i32,PathBuf>, target:PathBuf }
 impl DirWatch {
-    fn open(target:&Path)->io::Result<Self> {
+    pub(super) fn open(target:&Path)->io::Result<Self> {
         let raw=unsafe {libc::inotify_init1(libc::IN_CLOEXEC|libc::IN_NONBLOCK)};
         if raw<0 {return Err(io::Error::last_os_error());}
         let owned=unsafe {OwnedFd::from_raw_fd(raw)};
@@ -83,7 +83,7 @@ impl DirWatch {
         }
         Ok(Self{fd:AsyncFd::new(owned)?,dirs,target:target.into()})
     }
-    async fn changed(&self)->io::Result<bool> {
+    pub(super) async fn changed(&self)->io::Result<bool> {
         let mut ready=self.fd.readable().await?;
         let mut relevant=false;
         let mut buffer=[0u8;16384];
