@@ -497,7 +497,12 @@ pub fn owner_sense_cli() -> i32 {
     let result=runtime.block_on(owner_child());
     // Tokio's stdin uses a blocking reader; do not wait for it if the bus fails.
     runtime.shutdown_background();
-    match result { Ok(())=>0, Err(error)=>{eprintln!("pid2-owner-child: {error}");1} }
+    match result { Ok(())=>0, Err(error)=>{
+        if error=="pid2-systemd-owner-changed" {
+            if let Err(write_error)=writeln!(std::io::stdout(),"owner-changed").and_then(|_|std::io::stdout().flush()) {eprintln!("pid2-owner-child-stdout: {write_error}");}
+        }
+        eprintln!("pid2-owner-child: {error}");1
+    } }
 }
 
 async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::watch::Receiver<()>) {
@@ -542,6 +547,7 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::w
                 match line.as_str() {
                     "syncing" => { if online.load(Ordering::Acquire) {crate::stats::indicators::unit_state::set_online("owner",false); online.store(false,Ordering::Release); tx.offline("owner");} },
                     "ready" => { if watched!=scoped_units("owner") {return Err("pid2-unit-watch-reconfigured".into());} set_installed("owner",watched.clone()); crate::stats::indicators::unit_state::set_online("owner",true); online.store(true,Ordering::Release); eprintln!("pid2-owner-sense-online"); sense(&tx,"owner"); },
+                    "owner-changed" => return Err("pid2-owner-changed".into()),
                     "job" if online.load(Ordering::Acquire) => { sense(&tx,"owner"); },
                     _ => {
                         let frame: serde_json::Value = serde_json::from_str(&line).map_err(|_|"pid2-owner-child-protocol-invalid")?;
@@ -566,9 +572,10 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::w
         crate::stats::indicators::unit_state::set_online("owner",false);
         online.store(false,Ordering::Release); tx.offline("owner");
         let reconfigured=matches!(&connected,Err(error) if error=="pid2-unit-watch-reconfigured");
+        let owner_changed=matches!(&connected,Err(error) if error=="pid2-owner-changed");
         if let Err(error)=connected { if !reconfigured {eprintln!("pid2-owner-systemd-watch: {error}");} }
         if tx.closed() { return; }
-        if reconfigured {continue;}
+        if reconfigured || owner_changed {continue;}
         let backstop=tokio::time::sleep(Duration::from_secs(300));
         tokio::pin!(backstop);
         match owner_uid() {
