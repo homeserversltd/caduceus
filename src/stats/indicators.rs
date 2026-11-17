@@ -1695,7 +1695,7 @@ use crate::routes::leaf_portals as portals_registry;
 
 fn collect_services() -> ServicesObservation {
     let shown = match crate::shared::config::show_json() {
-        Ok(value) => Some(value),
+        Ok(value) => value,
         Err(_) => {
             unit_subscription::configure(BTreeSet::new());
             return ServicesObservation::unavailable(
@@ -1703,9 +1703,75 @@ fn collect_services() -> ServicesObservation {
             );
         }
     };
+    let mut observation = collect_portal_services(&shown);
+    if let Some(document) = shown.get("document") {
+        if let Some(services) = document.get("services").and_then(Value::as_array) {
+            for service in services {
+                let Some(kind) = service.get("kind").and_then(Value::as_str).filter(|s| !s.is_empty()) else { continue };
+                let Some(port) = service.get("port").and_then(Value::as_u64).and_then(|p| u16::try_from(p).ok()).filter(|p| *p != 0) else { continue };
+                let Some(path) = service.get("path").and_then(Value::as_str).filter(|p| p.starts_with('/')) else { continue };
+                observation.rows.push(socket_row(kind.to_owned(), port, path));
+            }
+        }
+        for slot in ["brain", "embed", "ear"] {
+            let Some(value) = document.pointer(&format!("/local_ai/slots/{slot}")) else { continue };
+            if value.get("model").and_then(Value::as_str).filter(|s| !s.is_empty()).is_none() { continue; }
+            let Some(port) = value.get("port").and_then(Value::as_u64).and_then(|p| u16::try_from(p).ok()).filter(|p| *p != 0) else { continue };
+            observation.rows.push(socket_row(format!("{slot} model"), port, "/"));
+        }
+    }
+    observation
+}
+
+fn socket_row(name: String, port: u16, path: &str) -> PortalObservation {
+    let up = socket_responds(port, path);
+    PortalObservation {
+        name,
+        units: Vec::new(),
+        status: if up { "up" } else { "down" }.to_owned(),
+        first_missing_signal: if up { None } else { named_signal("caduceus-stats-services-socket-silent") },
+    }
+}
+
+// Bound the whole knock, including a slow status line, not each individual read.
+fn socket_responds(port: u16, path: &str) -> bool {
+    fn knock(port: u16, path: &str) -> Option<bool> {
+        if path.bytes().any(|b| b <= b' ' || b == 127) { return None; }
+        let deadline = Instant::now() + super::MODEL_LANE_TIMEOUT;
+        let remaining = || deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero());
+        let mut stream = TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), remaining()?).ok()?;
+        let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+        let mut pending = request.as_bytes();
+        while !pending.is_empty() {
+            stream.set_write_timeout(Some(remaining()?)).ok()?;
+            let written = stream.write(pending).ok()?;
+            if written == 0 { return None; }
+            pending = &pending[written..];
+        }
+        let mut line = Vec::new();
+        while line.len() < 1024 {
+            stream.set_read_timeout(Some(remaining()?)).ok()?;
+            let mut byte = [0u8; 1];
+            stream.read_exact(&mut byte).ok()?;
+            line.push(byte[0]);
+            if line.ends_with(b"\r\n") {
+                let text = std::str::from_utf8(&line[..line.len()-2]).ok()?;
+                let mut parts = text.splitn(3, ' ');
+                let version = parts.next()?;
+                let code = parts.next()?;
+                if !matches!(version, "HTTP/1.0" | "HTTP/1.1") || code.len() != 3 || !code.bytes().all(|b| b.is_ascii_digit()) { return None; }
+                let code: u16 = code.parse().ok()?;
+                return Some((100..500).contains(&code));
+            }
+        }
+        None
+    }
+    knock(port, path).unwrap_or(false)
+}
+
+fn collect_portal_services(shown: &Value) -> ServicesObservation {
     let tabs_portals = shown
-        .as_ref()
-        .and_then(|value| value.get("document"))
+        .get("document")
         .and_then(|document| document.pointer("/tabs/portals/data/portals"))
         .and_then(Value::as_array);
     let registry = if tabs_portals.is_none() {
