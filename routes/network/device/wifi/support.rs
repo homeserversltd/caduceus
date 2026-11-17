@@ -266,7 +266,13 @@ fn build_plan(
             Ok(Plan::Mutation("network/wifi/network/connect", payload))
         }
         "radio" if command == "network device wifi radio" => match o.get("enabled").and_then(Value::as_bool) {
-            Some(enabled) => Ok(Plan::Mutation("network/wifi/radio/set", json!({"enabled":enabled}))),
+            Some(enabled) => {
+                let mut payload = json!({"enabled":enabled});
+                if o.contains_key("device") {
+                    payload["device"] = text(o, "device", MAX_FIELD)?.into();
+                }
+                Ok(Plan::Mutation("network/wifi/radio/set", payload))
+            }
             None => Err("wifi-enabled-required".into()),
         },
         "disconnect" if command == "network device disconnect" || command == "network device wifi disconnect" => Ok(Plan::Mutation("network/wifi/device/disconnect", json!({
