@@ -259,6 +259,10 @@ fn glob(pattern: &str, value: &str) -> bool {
 }
 
 pub fn observe_drm(pattern: &str) -> Result<String, String> {
+    observe_connector(pattern).map(|value| if value == "connected" { "present".into() } else { "absent".into() })
+}
+
+pub fn observe_connector(pattern: &str) -> Result<String, String> {
     let dir = std::fs::read_dir("/sys/class/drm").map_err(|e| format!("pid2-drm-unavailable: {e}"))?;
     let mut enumerated = false;
     let mut unknown = false;
@@ -270,11 +274,11 @@ pub fn observe_drm(pattern: &str) -> Result<String, String> {
         let name = entry.file_name();
         if !glob(pattern, &name.to_string_lossy()) { continue; }
         let status = std::fs::read_to_string(path).map_err(|e| format!("pid2-drm-status-unavailable: {e}"))?;
-        match status.trim() { "connected" => return Ok("present".into()), "disconnected" => {}, _ => unknown = true }
+        match status.trim() { "connected" => return Ok("connected".into()), "disconnected" => {}, _ => unknown = true }
     }
     if !enumerated { return Err("pid2-drm-connectors-not-enumerated".into()); }
     if unknown { return Err("pid2-drm-connector-state-unknown".into()); }
-    Ok("absent".into())
+    Ok("disconnected".into())
 }
 
 pub(super) fn watched_mounts() -> Result<HashSet<std::path::PathBuf>,String> {
@@ -426,6 +430,11 @@ fn needs(routine: &str, stage_line: &str, need_index: Option<usize>, need: &Valu
             if need.get("value").filter(|v|!v.is_null()).is_some_and(|expected|expected.as_str()!=Some(&value)) {return Err("pid2-await-file-value".into());}
             Ok(Some(value))
         },
+        "observe-connector" => {
+            if !senses.online("udev") { return Err("pid2-udev-sense-unavailable".into()); }
+            let pattern = need.get("pattern").and_then(Value::as_str).unwrap_or("*-HDMI-*");
+            Ok(Some(observe_connector(pattern)?))
+        },
         "observe" => {
             if separate_election {
                 let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
@@ -508,7 +517,7 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
     if stage.get("until").is_some_and(|value| !value.is_null() && !value.is_array()) { return Err("pid2-until-not-array".into()); }
     let crossings=stage.get("do").and_then(Value::as_array);
     let until=stage.get("until").and_then(Value::as_array);
-    let dynamic=["needs","until"].into_iter().flat_map(|key|stage.get(key).and_then(Value::as_array).into_iter().flatten()).any(|n|matches!(n.get("kind").and_then(Value::as_str),Some("await-netns"|"observe-link"|"observe-file"|"observe-unit"|"observe-block-removed")));
+    let dynamic=["needs","until"].into_iter().flat_map(|key|stage.get(key).and_then(Value::as_array).into_iter().flatten()).any(|n|matches!(n.get("kind").and_then(Value::as_str),Some("await-netns"|"observe-link"|"observe-file"|"observe-unit"|"observe-block-removed"|"observe-connector")));
     // Migrate a retained boot election before replacing its old line row;
     // a repurposed line without an election must not keep the old value.
     if dynamic {
@@ -872,7 +881,7 @@ fn stage_matches(routine:&str,stage:&Value,key:&super::events::DirtyKey)->bool {
             DirtyKey::File(path)=>kind=="observe-file" && need.get("path").and_then(Value::as_str).is_some_and(|p|Path::new(p)==path),
             DirtyKey::Mount(path)=>kind=="await-mount" && need.get("path").and_then(Value::as_str).is_some_and(|p|Path::new(p)==path),
             DirtyKey::Device(subsystem,device,before,after)=>{
-                if kind=="observe" {subsystem=="drm" && (device_side_may_match(need,before) || device_side_may_match(need,after))} else if kind=="await-device" {
+                if kind=="observe-connector" {subsystem=="drm"} else if kind=="observe" {subsystem=="drm" && (device_side_may_match(need,before) || device_side_may_match(need,after))} else if kind=="await-device" {
                     let properties=need.get("properties");
                     let same=properties.and_then(|p|p.get("SUBSYSTEM")).and_then(Value::as_str).is_none_or(|v|v==subsystem);
                     let path=properties.and_then(|p|p.get("DEVPATH")).and_then(Value::as_str);
@@ -881,7 +890,7 @@ fn stage_matches(routine:&str,stage:&Value,key:&super::events::DirtyKey)->bool {
             },
             DirtyKey::Unit(scope,unit)=>need.get("unit").and_then(Value::as_str)==Some(unit) && ((kind=="await-ready" && unit_scope(unit).is_ok_and(|s|s==*scope)) || (kind=="observe-unit" && need.get("scope").and_then(Value::as_str).unwrap_or("system")==scope)),
             DirtyKey::Sense(scope)|DirtyKey::Offline(scope)|DirtyKey::Unavailable(scope)=>match scope.as_str() {
-                "mount"=>kind=="await-mount", "udev"=>kind=="await-device" || kind=="observe" || kind=="observe-block-removed",
+                "mount"=>kind=="await-mount", "udev"=>kind=="await-device" || kind=="observe" || kind=="observe-block-removed" || kind=="observe-connector",
                 "netns"=>kind=="await-netns", "link"=>kind=="observe-link", "file"=>kind=="observe-file",
                 "system"|"owner"=>(kind=="await-ready" && need.get("unit").and_then(Value::as_str).is_some_and(|u|unit_scope(u).is_ok_and(|s|s==*scope))) || (kind=="observe-unit" && need.get("scope").and_then(Value::as_str).unwrap_or("system")==scope), _=>false,
             },

@@ -364,7 +364,7 @@ pub fn cli(args: &[String]) -> i32 {
     if let [verb, pattern] = args {
         if verb == "pid2-observe-drm" {
             return match solver::observe_drm(pattern) {
-                Ok(value) => { println!("{}", json!({"observer":"drm-connector","pattern":pattern,"value":value})); 0 }
+                Ok(value) => { let live = if value == "present" { "connected" } else { "disconnected" }; println!("{}", json!({"observer":"drm-connector","pattern":pattern,"value":value,"live_value":live})); 0 }
                 Err(error) => { eprintln!("{error}"); 1 }
             };
         }
