@@ -339,7 +339,22 @@ async fn streams(conn: &Connection, scope: &str) -> Result<(MessageStream,String
     let bus=Proxy::new(conn,"org.freedesktop.DBus","/org/freedesktop/DBus","org.freedesktop.DBus").await.map_err(|e|e.to_string())?;
     let owner_rule=MatchRule::builder().msg_type(Type::Signal).sender("org.freedesktop.DBus").map_err(|e|e.to_string())?.path("/org/freedesktop/DBus").map_err(|e|e.to_string())?.interface("org.freedesktop.DBus").map_err(|e|e.to_string())?.member("NameOwnerChanged").map_err(|e|e.to_string())?.add_arg("org.freedesktop.systemd1").map_err(|e|e.to_string())?.build();
     let _: ()=bus.call("AddMatch",&(owner_rule.to_string(),)).await.map_err(|e|e.to_string())?;
-    let owner: String=bus.call("GetNameOwner",&("org.freedesktop.systemd1",)).await.map_err(|e|e.to_string())?;
+    let owner: String=match bus.call("GetNameOwner",&("org.freedesktop.systemd1",)).await {
+        Ok(owner)=>owner,
+        Err(zbus::Error::MethodError(name,_,_)) if name.as_str()=="org.freedesktop.DBus.Error.NameHasNoOwner" => loop {
+            match incoming.next().await {
+                Some(Ok(message)) if manager_owner_changed(&message) => {
+                    if let Ok((_,_,owner))=message.body().deserialize::<(String,String,String)>() {
+                        if !owner.is_empty() {break owner;}
+                    }
+                },
+                Some(Ok(_))=>{},
+                Some(Err(error))=>return Err(error.to_string()),
+                None=>return Err("pid2-systemd-stream-closed".into()),
+            }
+        },
+        Err(error)=>return Err(error.to_string()),
+    };
     let proxy = Proxy::new(conn,"org.freedesktop.systemd1","/org/freedesktop/systemd1","org.freedesktop.systemd1.Manager").await.map_err(|e|e.to_string())?;
     for member in ["UnitNew", "UnitRemoved", "JobRemoved", "Reloading"] {
         let rule = MatchRule::builder().msg_type(Type::Signal).sender("org.freedesktop.systemd1").map_err(|e|e.to_string())?.path("/org/freedesktop/systemd1").map_err(|e|e.to_string())?.interface("org.freedesktop.systemd1.Manager").map_err(|e|e.to_string())?.member(member).map_err(|e|e.to_string())?.build();
