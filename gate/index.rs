@@ -307,6 +307,7 @@ const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     STATS_ADMIN_HTTP_PATH,
     "/api/v1/storage/vault/auto-decrypt",
     "/api/v1/network/notes",
+    "/api/v1/network/bandwidth/measure",
     "/api/v1/network/dns/adblock",
     "/api/v1/network/dns/blocklist/update",
     "/api/v1/network/dns/blocklist/source/add",

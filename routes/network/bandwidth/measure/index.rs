@@ -48,7 +48,17 @@ pub fn run_json() -> Result<Value, String> {
     }))
 }
 
-async fn http() -> Result<axum::Json<Value>, (axum::http::StatusCode, axum::Json<crate::gate::ApiErrorBody>)> { crate::gate::gated_json("network speedtest", run_json).await }
+async fn http(
+    headers: axum::http::HeaderMap,
+) -> Result<axum::Json<Value>, (axum::http::StatusCode, axum::Json<crate::gate::ApiErrorBody>)> {
+    crate::gate::administrative_admits(
+        &headers,
+        &Value::Null,
+        "/api/v1/network/bandwidth/measure",
+    )
+    .map_err(|signal| crate::gate::api_error_signal("network speedtest", &signal))?;
+    crate::gate::gated_json("network speedtest", run_json).await
+}
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: axum::Router) -> axum::Router {
