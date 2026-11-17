@@ -1694,7 +1694,15 @@ mod portals_registry;
 use crate::routes::leaf_portals as portals_registry;
 
 fn collect_services() -> ServicesObservation {
-    let shown = crate::shared::config::show_json().ok();
+    let shown = match crate::shared::config::show_json() {
+        Ok(value) => Some(value),
+        Err(_) => {
+            unit_subscription::configure(BTreeSet::new());
+            return ServicesObservation::unavailable(
+                "caduceus-stats-services-config-unavailable",
+            );
+        }
+    };
     let tabs_portals = shown
         .as_ref()
         .and_then(|value| value.get("document"))
