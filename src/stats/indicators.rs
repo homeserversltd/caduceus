@@ -1709,7 +1709,7 @@ fn collect_services() -> ServicesObservation {
             for service in services {
                 let Some(kind) = service.get("kind").and_then(Value::as_str).filter(|s| !s.is_empty()) else { continue };
                 let Some(port) = service.get("port").and_then(Value::as_u64).and_then(|p| u16::try_from(p).ok()).filter(|p| *p != 0) else { continue };
-                let Some(path) = service.get("path").and_then(Value::as_str).filter(|p| p.starts_with('/')) else { continue };
+                let Some(path) = service.get("path").and_then(Value::as_str).filter(|p| p.starts_with('/') && !p.bytes().any(|b| b <= b' ' || b == 127)) else { continue };
                 observation.rows.push(socket_row(kind.to_owned(), port, path));
             }
         }
