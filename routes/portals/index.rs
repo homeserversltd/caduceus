@@ -181,7 +181,7 @@ fn projection(block: Option<&Value>, changed: Option<bool>) -> Result<Value, Str
     Ok(value)
 }
 
-fn read() -> Result<Value, String> {
+pub(crate) fn read() -> Result<Value, String> {
     match config::get_json("portals") {
         Ok(value) => projection(value.get("value"), None),
         Err(signal) if signal == "caduceus-household-config-key-missing" => projection(None, None),

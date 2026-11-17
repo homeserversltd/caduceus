@@ -1687,24 +1687,31 @@ struct PortalDraft {
     invalid: bool,
 }
 
+#[cfg(not(leaf_portals))]
+#[path = "../../routes/portals/index.rs"]
+mod portals_registry;
+#[cfg(leaf_portals)]
+use crate::routes::leaf_portals as portals_registry;
+
 fn collect_services() -> ServicesObservation {
-    let shown = match crate::shared::config::show_json() {
-        Ok(value) => value,
-        Err(_) => {
-            unit_subscription::configure(BTreeSet::new());
-            return ServicesObservation::unavailable(
-                "caduceus-stats-services-config-unavailable",
-            )
-        }
-    };
-    let Some(portals) = shown
-        .get("document")
+    let shown = crate::shared::config::show_json().ok();
+    let tabs_portals = shown
+        .as_ref()
+        .and_then(|value| value.get("document"))
         .and_then(|document| document.pointer("/tabs/portals/data/portals"))
-        .and_then(Value::as_array)
-    else {
+        .and_then(Value::as_array);
+    let registry = if tabs_portals.is_none() {
+        portals_registry::read().ok()
+    } else {
+        None
+    };
+    let Some(portals) = tabs_portals.or_else(|| {
+        registry.as_ref().and_then(|value| value.get("entries")).and_then(Value::as_array)
+    }) else {
         unit_subscription::configure(BTreeSet::new());
         return ServicesObservation::unavailable("caduceus-stats-services-portals-unavailable");
     };
+    let from_registry = tabs_portals.is_none();
     let mut drafts = Vec::new();
     let mut unique_units = BTreeSet::new();
     let mut transmission_unit = None;
@@ -1783,6 +1790,15 @@ fn collect_services() -> ServicesObservation {
     }
     if drafts.is_empty() {
         unit_subscription::configure(BTreeSet::new());
+        if from_registry {
+            return ServicesObservation {
+                ts: now_ts(),
+                rows: Vec::new(),
+                units: BTreeMap::new(),
+                transmission_unit: None,
+                first_missing_signal: config_signal,
+            };
+        }
         return ServicesObservation::unavailable(
             config_signal
                 .as_deref()
