@@ -106,6 +106,7 @@ fn entry(value: &Value) -> Result<Value, String> {
     // Coronatio derives these for the face; they never become configuration.
     object.remove("status");
     object.remove("visible");
+    object.remove("native");
     Ok(Value::Object(object))
 }
 
@@ -166,8 +167,38 @@ fn registry(block: Option<&Value>) -> Result<Value, String> {
     Ok(Value::Object(object))
 }
 
+fn slugs(block: Option<&Value>) -> Result<BTreeSet<String>, String> {
+    let value = registry(block)?;
+    Ok(value["entries"].as_array().unwrap().iter()
+        .map(|entry| name_slug(entry["name"].as_str().unwrap()))
+        .collect())
+}
+
+fn native_slugs() -> Result<BTreeSet<String>, String> {
+    let birth = std::fs::read(crate::shared::config::path("/etc/appliance/config.factory"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+    slugs(birth.as_ref().and_then(|value| value.get("portals")))
+        .or_else(|_| slugs(None))
+}
+
+pub(crate) fn guard_native_portals(before: &Value, after: &Value) -> Result<(), String> {
+    if before.get("portals") != after.get("portals") {
+        let remaining = slugs(after.get("portals"))?;
+        if !native_slugs()?.is_subset(&remaining) {
+            return Err("caduceus-portals-native-entry".into());
+        }
+    }
+    Ok(())
+}
+
 fn projection(block: Option<&Value>, changed: Option<bool>) -> Result<Value, String> {
     let mut value = registry(block)?;
+    let native = native_slugs()?;
+    for entry in value["entries"].as_array_mut().unwrap() {
+        let slug = name_slug(entry["name"].as_str().unwrap());
+        entry["native"] = json!(native.contains(&slug));
+    }
     value["schema"] = json!(SCHEMA);
     value["ok"] = json!(true);
     if let Some(changed) = changed {
@@ -223,6 +254,9 @@ fn upsert(slug: &str, body: Value) -> Result<Value, String> {
 fn remove(slug: &str) -> Result<Value, String> {
     if !valid_slug(slug) {
         return Err("caduceus-portals-slug-invalid".into());
+    }
+    if native_slugs()?.contains(slug) {
+        return Err("caduceus-portals-native-entry".into());
     }
     let (block, changed) = config::update_block_json("portals", |current| {
         let mut block = registry(current)?;

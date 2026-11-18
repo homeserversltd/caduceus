@@ -590,6 +590,8 @@ fn mutate_with_rollback(
     }
     let mut document = read_document(&resolved)?;
     let before = document.clone();
+    #[cfg(leaf_portals)]
+    let restoring = restore.is_some();
     if let Some(rollback) = restore.as_ref() {
         if get_dotted(&document, &rollback.path) != Some(&rollback.expected) {
             return Err("caduceus-household-config-rollback-conflict".to_string());
@@ -620,6 +622,10 @@ fn mutate_with_rollback(
         deep_merge(&mut document, update);
         keys
     };
+    #[cfg(leaf_portals)]
+    if !restoring {
+        crate::routes::leaf_portals::guard_native_portals(&before, &document)?;
+    }
     if document == before {
         return Ok(json!({
             "schema": "caduceus.household-config.mutation.v1",
