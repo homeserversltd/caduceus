@@ -1,6 +1,7 @@
 use crate::shared::hyalos;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::io::Write;
 
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,7 +86,7 @@ fn write_latest_inner(body: &str, duration_ms: Option<u64>) -> Result<(), String
     } else {
         "attempted"
     };
-    hyalos::reflect_json(json!({
+    if let Err(error) = hyalos::reflect_json_with_stderr_fallback(json!({
         "organ": "caduceus",
         "kind": "receipt",
         "ok": ok,
@@ -105,6 +106,9 @@ fn write_latest_inner(body: &str, duration_ms: Option<u64>) -> Result<(), String
             "signal": metadata.first_missing_signal,
             "first_missing_field": metadata.first_missing_field,
         }
-    }))
-    .map(|_| ())
+    })) {
+        let signal = error.split(':').next().unwrap_or("hyalos-reflection-failed");
+        let _ = writeln!(std::io::stderr().lock(), "hyalos-deed-failed receipt: {signal}");
+    }
+    Ok(())
 }

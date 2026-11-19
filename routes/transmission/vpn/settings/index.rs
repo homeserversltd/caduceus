@@ -4,6 +4,7 @@ use axum::{
     Router,
 };
 use serde_json::{json, Map, Value};
+use std::io::Write;
 use std::time::Instant;
 
 type ApiError = (StatusCode, Json<crate::gate::ApiErrorBody>);
@@ -193,13 +194,8 @@ fn response(document: &Value, seat: &Value, changed: Option<bool>) -> Result<Val
     Ok(Value::Object(result))
 }
 
-fn record_deed(
-    ok: bool,
-    signal: &str,
-    first_missing_field: Option<&str>,
-    started: Instant,
-) -> Result<(), String> {
-    crate::shared::hyalos::reflect_json(json!({
+fn record_deed(ok: bool, signal: &str, first_missing_field: Option<&str>, started: Instant) {
+    if let Err(error) = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
         "organ": "caduceus",
         "kind": "transmission-vpn-settings",
         "correlation_id": uuid::Uuid::new_v4().to_string(),
@@ -215,18 +211,23 @@ fn record_deed(
             "signal": signal,
             "first_missing_field": first_missing_field
         }
-    }))
-    .map(|_| ())
+    })) {
+        let signal = error.split(':').next().unwrap_or("hyalos-reflection-failed");
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "hyalos-deed-failed transmission-vpn-settings/write: {signal}"
+        );
+    }
 }
 
 fn unavailable(started: Instant, signal: &'static str) -> ApiError {
-    let _ = record_deed(false, signal, None, started);
+    record_deed(false, signal, None, started);
     crate::gate::service_unavailable(COMMAND, signal)
 }
 
 fn invalid_request(started: Instant, field: &str) -> ApiError {
     let signal = format!("caduceus-transmission-vpn-settings-invalid-{field}");
-    let _ = record_deed(false, &signal, Some(field), started);
+    record_deed(false, &signal, Some(field), started);
     (
         StatusCode::BAD_REQUEST,
         Json(crate::gate::ApiErrorBody {
@@ -387,12 +388,7 @@ async fn post_route(headers: HeaderMap, body: Result<Json<Value>, JsonRejection>
         return Err(unavailable(started, signal));
     }
     drop(guard);
-    if record_deed(true, "none", None, started).is_err() {
-        return Err(crate::gate::service_unavailable(
-            COMMAND,
-            "caduceus-transmission-vpn-settings-log-failed",
-        ));
-    }
+    record_deed(true, "none", None, started);
     let output = checked_response(&document, seat, Some(true))?;
     Ok((StatusCode::OK, Json(output)))
 }

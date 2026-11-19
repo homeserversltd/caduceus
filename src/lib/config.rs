@@ -429,7 +429,7 @@ fn write_household_config_receipt(
     atomic_write_owned(&path, &bytes, 0o640)
         .map_err(|_| "caduceus-household-config-receipt-failed".to_string())?;
     remove_legacy_household_config_receipts()?;
-    crate::shared::hyalos::reflect_json(json!({
+    if let Err(error) = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
         "organ": "caduceus",
         "kind": "household-config",
         "correlation_id": run_id,
@@ -444,9 +444,14 @@ fn write_household_config_receipt(
             "duration_ms": duration_ms,
             "signal": "none"
         }
-    }))
-    .map(|_| ())
-    .map_err(|_| "caduceus-household-config-receipt-failed".to_string())
+    })) {
+        let signal = error.split(':').next().unwrap_or("hyalos-reflection-failed");
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "hyalos-deed-failed household-config/{op}: {signal}"
+        );
+    }
+    Ok(())
 }
 
 /// A narrow rollback token for one dotted JSON set. It records only the old

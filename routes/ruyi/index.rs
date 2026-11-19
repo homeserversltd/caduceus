@@ -7,7 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{Error, ErrorKind};
+use std::io::{Error, ErrorKind, Write};
 use std::{
     fs,
     net::Ipv4Addr,
@@ -1713,7 +1713,7 @@ async fn remove(
             })?
             .ok_or_else(|| error(StatusCode::NOT_FOUND, "caduceus-ruyi-row-absent"))?;
         let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        crate::shared::hyalos::reflect_json(json!({
+        if let Err(error) = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
             "organ": "ruyi",
             "kind": "deed",
             "correlation_id": mac.clone(),
@@ -1727,13 +1727,13 @@ async fn remove(
                 "duration_ms": duration_ms,
                 "signal": "none"
             }
-        }))
-        .map_err(|_| {
-            error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "caduceus-ruyi-removed-log-failed",
-            )
-        })?;
+        })) {
+            let signal = error.split(':').next().unwrap_or("hyalos-reflection-failed");
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "hyalos-deed-failed ruyi/remove: {signal}"
+            );
+        }
         Ok::<_, (StatusCode, Json<crate::gate::ApiErrorBody>)>(Json(json!({
             "schema":row_schema(),"ok":true,"removed":mac
         })))

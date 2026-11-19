@@ -9,7 +9,7 @@ use rusqlite::{params, Connection, OpenFlags};
 use serde_json::{json, Value};
 use std::{
     fs::{self, File},
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, Write},
     os::{fd::AsRawFd, unix::fs::MetadataExt},
     path::PathBuf,
     time::Instant,
@@ -93,9 +93,13 @@ fn deed_event(verb: &str, target: &str, started: Instant, ok: bool, signal: &str
     })
 }
 
-fn deed(verb: &str, target: &str, started: Instant, ok: bool, signal: &str) -> Result<(), String> {
-    hyalos::reflect_json(deed_event(verb, target, started, ok, signal))
-        .map(|_| ())
+fn deed(verb: &str, target: &str, started: Instant, ok: bool, signal: &str) {
+    if let Err(error) =
+        hyalos::reflect_json_with_stderr_fallback(deed_event(verb, target, started, ok, signal))
+    {
+        let signal = error.split(':').next().unwrap_or("hyalos-reflection-failed");
+        let _ = writeln!(std::io::stderr().lock(), "hyalos-deed-failed {verb}: {signal}");
+    }
 }
 
 fn import_legacy_inner() -> Result<bool, String> {
@@ -178,25 +182,14 @@ pub(super) fn import_legacy() -> Result<(bool, &'static str), String> {
         Ok(true) => (true, "none"),
         Err(_) => (false, "caduceus-pjlink-catalog-import-failed"),
     };
-    let recorded = hyalos::reflect_json_with_stderr_fallback(deed_event(
+    deed(
         "pjlink-catalog-import",
         "pjlink_known_products",
         started,
         ok,
         signal,
-    ))
-    .unwrap_or(false);
-    // Observability cannot undo committed rows, unlink, or a real import error.
-    result.map(|changed| {
-        (
-            changed,
-            if recorded {
-                "none"
-            } else {
-                "pjlink-catalog-deed-unavailable"
-            },
-        )
-    })
+    );
+    result.map(|changed| (changed, "none"))
 }
 
 fn require_imported() -> Result<(), String> {
@@ -281,7 +274,7 @@ pub(super) fn add(entry: &KnownProductEntry) -> Result<usize, String> {
         } else {
             "caduceus-pjlink-catalog-write-failed"
         },
-    )?;
+    );
     result
 }
 
@@ -329,14 +322,14 @@ pub(super) fn remove(id: &str) -> Result<(usize, usize), String> {
         Ok((removed, count))
     })();
     match &result {
-        Ok((removed, _)) if *removed > 0 => deed("pjlink-known-remove", id, started, true, "none")?,
+        Ok((removed, _)) if *removed > 0 => deed("pjlink-known-remove", id, started, true, "none"),
         Err(_) => deed(
             "pjlink-known-remove",
             id,
             started,
             false,
             "caduceus-pjlink-catalog-write-failed",
-        )?,
+        ),
         _ => (),
     }
     result

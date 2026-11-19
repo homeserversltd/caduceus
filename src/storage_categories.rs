@@ -2,7 +2,7 @@ use chrono::Utc;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -373,8 +373,8 @@ fn remove_legacy_run_directories() -> Result<(), String> {
     Ok(())
 }
 
-fn record_scan_deed(run_id: &str, ok: bool, duration_ms: u64, signal: &str) -> Result<(), String> {
-    crate::shared::hyalos::reflect_json(json!({
+fn record_scan_deed(run_id: &str, ok: bool, duration_ms: u64, signal: &str) {
+    if let Err(error) = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
         "organ": "caduceus",
         "kind": "storage-scan",
         "correlation_id": run_id,
@@ -389,9 +389,10 @@ fn record_scan_deed(run_id: &str, ok: bool, duration_ms: u64, signal: &str) -> R
             "duration_ms": duration_ms,
             "signal": signal
         }
-    }))
-    .map(|_| ())
-    .map_err(|_| "caduceus-storage-categories-ledger-failed".to_string())
+    })) {
+        let signal = error.split(':').next().unwrap_or("hyalos-reflection-failed");
+        let _ = writeln!(std::io::stderr().lock(), "hyalos-deed-failed storage-scan: {signal}");
+    }
 }
 
 fn ensure_parent(path: &Path) -> Result<(), String> {
@@ -551,7 +552,7 @@ pub fn scan_json() -> Result<Value, String> {
         }),
     )?;
     remove_legacy_run_directories()?;
-    record_scan_deed(&run_id, ok, duration_ms, signal)?;
+    record_scan_deed(&run_id, ok, duration_ms, signal);
     snapshot_write?;
     Ok(snapshot)
 }

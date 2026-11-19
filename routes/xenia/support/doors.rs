@@ -3,6 +3,7 @@ use axum::extract::{rejection::JsonRejection, Path};
 use axum::http::StatusCode;
 use axum::Json;
 use serde_json::{json, Value};
+use std::io::Write;
 use std::time::{Duration, Instant};
 
 type Reply = (StatusCode, Json<Value>);
@@ -69,7 +70,7 @@ fn finish(
     }
     if records_deed {
         let ok = value["ok"] == true;
-        if let Err(error) = crate::shared::hyalos::reflect_json(json!({
+        if let Err(error) = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
             "kind": "xenia",
             "organ": "caduceus",
             "correlation_id": id,
@@ -88,15 +89,11 @@ fn finish(
                 "first_missing_field": value.get("firstMissingField").or_else(|| value.get("field")),
             }
         })) {
-            let prior = value;
-            let mut failure = observation(
-                "hyalos",
-                "event",
-                format!("hyalos-emission-failed: {error}"),
-            )
-            .value();
-            failure["observed"] = json!({"door_outcome": prior});
-            return (StatusCode::SERVICE_UNAVAILABLE, Json(failure));
+            let signal = error.split(':').next().unwrap_or("hyalos-reflection-failed");
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "hyalos-deed-failed xenia/{door}: {signal}"
+            );
         }
     }
     let status = if value["ok"] == true {
