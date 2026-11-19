@@ -5,7 +5,7 @@ use crate::shared::{attendance, policy};
 use axum::serve::IncomingStream;
 use axum::{
     body::{to_bytes, Body},
-    extract::connect_info::{ConnectInfo, Connected},
+    extract::connect_info::ConnectInfo,
     http::{header::CONTENT_TYPE, HeaderMap, Request, StatusCode},
     middleware,
     response::{IntoResponse, Response},
@@ -21,7 +21,7 @@ use std::{
     ffi::CString,
     fs::{self, File, OpenOptions},
     io::{self, Read},
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     os::{
         fd::{AsRawFd, FromRawFd, OwnedFd},
         unix::{
@@ -38,7 +38,7 @@ use tokio::{
     sync::watch,
     task::JoinSet,
 };
-use tower::ServiceExt;
+use tower::{ServiceBuilder, ServiceExt};
 
 #[path = "keyman.rs"]
 pub mod keyman;
@@ -522,14 +522,23 @@ fn declared_http_route(method: &str, path: &str) -> Option<Value> {
             declared == method || (method == "HEAD" && declared == "GET")
         })
     };
-    let mut candidate = Some(namespace);
+    // The hand-written Hyalos tail is served under a different namespace.
+    let mut candidate = Some(match namespace {
+        "hyalos/tail" => "log/tail",
+        name => name,
+    });
     while let Some(name) = candidate {
         if let Some(declaration) = crate::routes::selected_declaration(name) {
             let value: Value = serde_json::from_str(declaration).ok()?;
             if generic_http_route_matches(name, &value, method, path) {
                 return Some(value);
             }
-            if !generic_http_declaration(&value) && name == namespace && method_matches(&value) {
+            let path_matches = if name == "log/tail" {
+                value["http_path"].as_str() == Some(path)
+            } else {
+                name == namespace
+            };
+            if !generic_http_declaration(&value) && path_matches && method_matches(&value) {
                 return Some(value);
             }
             if let Some(operations) = value.get("operations").and_then(Value::as_array) {
@@ -694,10 +703,7 @@ fn administrative_pin_required() -> bool {
         .unwrap_or(false)
 }
 
-fn administrative_credentials_admit(headers: &HeaderMap, body: &Value) -> Result<(), String> {
-    if !administrative_pin_required() {
-        return Ok(());
-    }
+fn administrative_attendance_admits(headers: &HeaderMap) -> bool {
     let document = headers
         .get("x-caduceus-document")
         .and_then(|value| value.to_str().ok())
@@ -705,7 +711,11 @@ fn administrative_credentials_admit(headers: &HeaderMap, body: &Value) -> Result
     let attendance = headers
         .get("x-caduceus-attendance")
         .and_then(|value| value.to_str().ok());
-    if document_attendance_admits(document, attendance).is_ok() {
+    document_attendance_admits(document, attendance).is_ok()
+}
+
+fn administrative_credentials_admit(headers: &HeaderMap, body: &Value) -> Result<(), String> {
+    if !administrative_pin_required() || administrative_attendance_admits(headers) {
         return Ok(());
     }
     let pin = body
@@ -793,7 +803,28 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
             return api_error_signal("administrative route gate", &signal).into_response();
         }
     };
-    if !administrative {
+    let declaration = administrative
+        .then(|| declared_http_route(&method, &path))
+        .flatten();
+    let hyalos_read = declaration.as_ref().is_some_and(|declaration| {
+        matches!(
+            declaration["namespace"].as_str(),
+            Some("log/read" | "log/tail")
+        )
+    });
+    if !administrative || hyalos_read {
+        // The staff socket keeps its original read path. Off it the log
+        // requires current Admin Mode, even where ordinary doors waive the PIN.
+        if hyalos_read
+            && !matches!(request_connection(&request), Some(ConnectionInfo::Unix { .. }))
+            && !administrative_attendance_admits(request.headers())
+        {
+            return api_error_signal(
+                "administrative route gate",
+                "caduceus-hyalos-read-admin-required",
+            )
+            .into_response();
+        }
         request.headers_mut().insert(
             INTERNAL_ADMIN_GATE_HEADER,
             axum::http::HeaderValue::from_static("1"),
@@ -802,8 +833,7 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
     }
 
     let started = Instant::now();
-    if declared_http_route(&method, &path)
-        .is_some_and(|declaration| declaration["administrative"].as_bool() == Some(true))
+    if declaration.is_some_and(|declaration| declaration["administrative"].as_bool() == Some(true))
     {
         // New declared deeds fail closed if the PIN switch cannot be read.
         if let Err(signal) = attendance::pin_mode_read() {
@@ -973,10 +1003,37 @@ impl std::fmt::Display for ConnectionInfo {
         }
     }
 }
-impl Connected<IncomingStream<'_>> for ConnectionInfo {
-    fn connect_info(stream: IncomingStream<'_>) -> Self {
-        Self::Tcp(stream.remote_addr())
+#[derive(Clone, Copy)]
+struct TcpLocalIp(Option<IpAddr>);
+
+fn request_connection(request: &Request<Body>) -> Option<ConnectionInfo> {
+    request
+        .extensions()
+        .get::<ConnectInfo<ConnectionInfo>>()
+        .map(|info| info.0)
+}
+
+pub(crate) async fn hyalos_local_write_gate(
+    request: Request<Body>,
+    next: middleware::Next,
+) -> Response {
+    let local = match request_connection(&request) {
+        Some(ConnectionInfo::Unix { .. }) => true,
+        Some(ConnectionInfo::Tcp(peer)) => {
+            let peer = peer.ip().to_canonical();
+            peer.is_loopback()
+                || request
+                    .extensions()
+                    .get::<TcpLocalIp>()
+                    .and_then(|local| local.0)
+                    .is_some_and(|local| local.to_canonical() == peer)
+        }
+        None => false,
+    };
+    if !local {
+        return api_error_signal("hyalos write", "caduceus-hyalos-write-local-only").into_response();
     }
+    next.run(request).await
 }
 
 #[derive(Debug)]
@@ -1379,13 +1436,20 @@ pub async fn run_async() -> i32 {
     let tcp_app = app.clone();
     let tcp_shutdown = wait_for_shutdown(rx.clone());
     let tcp_task = tokio::spawn(async move {
-        axum::serve(
-            tcp,
-            tcp_app.into_make_service_with_connect_info::<ConnectionInfo>(),
-        )
-        .with_graceful_shutdown(tcp_shutdown)
-        .await
-        .map_err(|error| error.to_string())
+        let make_tcp_app = tower::service_fn(move |stream: IncomingStream<'_>| {
+            // Use the accepted stream, not the listener's possibly wildcard bind.
+            let local = TcpLocalIp(stream.local_addr().ok().map(|address| address.ip()));
+            let peer = ConnectInfo(ConnectionInfo::Tcp(stream.remote_addr()));
+            let service = ServiceBuilder::new()
+                .layer(axum::Extension(peer))
+                .layer(axum::Extension(local))
+                .service(tcp_app.clone());
+            std::future::ready(Ok::<_, std::convert::Infallible>(service))
+        });
+        axum::serve(tcp, make_tcp_app)
+            .with_graceful_shutdown(tcp_shutdown)
+            .await
+            .map_err(|error| error.to_string())
     });
     let uds_task = tokio::spawn(serve_unix(uds, app, rx));
     let mut tcp_task = tcp_task;

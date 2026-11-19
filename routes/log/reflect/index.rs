@@ -5,7 +5,9 @@ async fn http(axum::Json(body): axum::Json<serde_json::Value>) -> Result<(axum::
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: axum::Router) -> axum::Router {
-    let router = router.route("/api/v1/log/reflect", axum::routing::post(http))
-        .route("/api/v1/hyalos/reflect", axum::routing::post(http));
+    let reflect = axum::routing::post(http)
+        .route_layer(axum::middleware::from_fn(crate::gate::hyalos_local_write_gate));
     router
+        .route("/api/v1/log/reflect", reflect.clone())
+        .route("/api/v1/hyalos/reflect", reflect)
 }
