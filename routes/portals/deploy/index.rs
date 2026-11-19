@@ -139,15 +139,17 @@ async fn staff_route(
 }
 
 async fn file_ingress(
+    headers: HeaderMap,
     axum::Json(body): axum::Json<serde_json::Value>,
-) -> Result<
-    (axum::http::StatusCode, axum::Json<serde_json::Value>),
-    (
-        axum::http::StatusCode,
-        axum::Json<crate::gate::ApiErrorBody>,
-    ),
-> {
-    staff_route("storage/upload/ingress", body).await
+) -> axum::response::Response {
+    // This door writes a whole file in one call; it admits only the callers
+    // its chunked siblings admit, before the actuator spools a byte.
+    if let Err(response) = document_attendance_admitted(&headers) {
+        return response;
+    }
+    staff_route("storage/upload/ingress", body)
+        .await
+        .into_response()
 }
 
 async fn file_ingress_start(
