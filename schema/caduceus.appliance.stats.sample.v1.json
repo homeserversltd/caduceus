@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.appliance.stats.sample.v1",
-  "schema_version": "1.5.0",
+  "schema_version": "1.6.0",
   "role": "One emitted Caduceus appliance statistics sample",
   "authority": {
     "owner": "caduceus",
@@ -106,6 +106,7 @@
     },
     "gpu": {
       "type": ["object", "null"],
+      "description": "A known no-GPU declaration emits an empty devices array; unknown hardware still emits null.",
       "properties": {
         "utilizationPercent": {"type": ["number", "null"]},
         "temperatureCelsius": {"type": ["number", "null"], "minimum": -100, "maximum": 250},
@@ -117,7 +118,7 @@
       "additionalProperties": true
     },
     "gaps": {"type": "array", "items": {"type": "string"}, "description": "Reasons a sample could not supply a contracted observation, including hardware-rev-unknown."},
-    "quality": {"type": "string", "description": "partial when a hardware Rev is unknown."},
+    "quality": {"type": "string", "description": "partial when the hardware Rev names neither a machine row nor a valid maker declaration; omitted for either kind of known Rev."},
     "memory": {"type": "object"},
     "network": {"type": "object"},
     "power": {"type": "object"},

@@ -134,6 +134,70 @@ fn rust_string(value: &str) -> String {
     serde_json::to_string(value).expect("seat strings must be serializable")
 }
 
+fn hardware_makers(path: &Path, profiles: &[&str]) -> serde_json::Value {
+    use serde_json::Value;
+
+    fn identifier(word: &str) -> bool {
+        !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+    }
+
+    fn text(value: &Value) -> bool {
+        value.as_str().is_some_and(|s| !s.trim().is_empty() && s.trim() == s)
+    }
+
+    fn valid_gpu(row: &Value) -> bool {
+        let (Some(id), Some(vendor)) = (row["id"].as_str(), row["vendor"].as_str()) else {
+            return false;
+        };
+        let Some(hex) = vendor.strip_prefix("0x") else { return false };
+        if !identifier(id)
+            || hex.len() != 4
+            || !hex.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+            || row["card_match"].as_str().and_then(|s| s.strip_prefix("vendor:")) != Some(vendor)
+        {
+            return false;
+        }
+        let fields = row.as_object().map_or(0, |row| row.len());
+        match row["source"].as_str() {
+            Some("drm-sysfs") => fields == 5 && row["temperature_labels"]
+                .as_array()
+                .is_some_and(|labels| !labels.is_empty() && labels.iter().all(text)),
+            Some("i915-rc6" | "nvidia-smi") => fields == 4,
+            _ => false,
+        }
+    }
+
+    let source = fs::read_to_string(path).expect("hardware makers seat must be readable");
+    let makers: Value = serde_json::from_str(&source).expect("hardware makers seat must be valid JSON");
+    assert_eq!(makers["schema"].as_str(), path.file_stem().and_then(|s| s.to_str()),
+        "hardware makers seat id must match its filename");
+    let rows = |key: &str| {
+        makers[key].as_object().filter(|rows| !rows.is_empty())
+            .unwrap_or_else(|| panic!("hardware makers seat requires a nonempty {key} table"))
+    };
+    for (maker, row) in rows("cpu_makers") {
+        let valid_sensors = row["cpu_temperature"].as_array().is_some_and(|sensors| {
+            !sensors.is_empty() && sensors.iter().all(|sensor| {
+                sensor.as_object().is_some_and(|fields| fields.len() == 2)
+                    && text(&sensor["hwmon_name"]) && text(&sensor["label"])
+            })
+        });
+        assert!(identifier(maker) && row.as_object().is_some_and(|fields| fields.len() == 2)
+            && valid_sensors && valid_gpu(&row["chip_graphics"]), "invalid hardware CPU maker row: {maker}");
+    }
+    for (maker, row) in rows("card_makers") {
+        assert!(identifier(maker) && valid_gpu(row), "invalid hardware card maker row: {maker}");
+    }
+    let appliances = rows("appliances");
+    assert!(appliances.contains_key("default"), "hardware makers seat requires a default appliance row");
+    for (profile, row) in appliances {
+        assert!((profile == "default" || profiles.contains(&profile.as_str()))
+            && row.as_object().is_some_and(|fields| fields.len() == 1)
+            && matches!(row["gpu"].as_str(), Some("card" | "none")), "invalid hardware appliance row: {profile}");
+    }
+    makers
+}
+
 fn module_ident(namespace: &str) -> String {
     let mut ident = String::from("leaf_");
     for byte in namespace.bytes() {
@@ -415,8 +479,10 @@ fn main() {
         assert!(hardware.insert(rev.to_owned(), value).is_none(), "duplicate hardware rev");
     }
     let embedded = serde_json::Value::Object(hardware).to_string();
+    let makers = hardware_makers(Path::new("schema/caduceus.hardware.makers.v1.json"), &profiles);
     fs::write(Path::new(&out_dir).join("hardware_table.rs"),
-        format!("pub const HARDWARE_TABLE_JSON: &str = {};\n", rust_string(&embedded)))
+        format!("pub const HARDWARE_TABLE_JSON: &str = {};\npub const HARDWARE_MAKERS_JSON: &str = {};\n",
+            rust_string(&embedded), rust_string(&makers.to_string())))
         .expect("hardware table output must be writable");
 
     // Public seats have one source each. Preserve their exact bytes in the binary.

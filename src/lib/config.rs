@@ -129,15 +129,51 @@ mod hardware_table {
 /// Resolve only the explicitly planted hardware Rev; absence is not a boot error.
 pub(crate) fn hardware_for_profile() -> Option<Value> {
     static TABLE: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    static MAKERS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
     let table = TABLE.get_or_init(|| {
         serde_json::from_str(hardware_table::HARDWARE_TABLE_JSON)
             .expect("compiled hardware table must be valid JSON")
     });
     let paper: Value = serde_json::from_str(
-        &fs::read_to_string(paths::path("/etc/appliance/profile.json")).ok()?
-    ).ok()?;
+        &fs::read_to_string(paths::path("/etc/appliance/profile.json")).ok()?,
+    )
+    .ok()?;
     let rev = paper.pointer("/hardware/rev")?.as_str()?;
-    table.get(rev).cloned()
+    if let Some(machine) = table.get(rev) {
+        return Some(machine.clone());
+    }
+
+    let makers = MAKERS.get_or_init(|| {
+        serde_json::from_str(hardware_table::HARDWARE_MAKERS_JSON)
+            .expect("compiled hardware makers must be valid JSON")
+    });
+    let (cpu, cards) = rev
+        .split_once('.')
+        .map_or((rev, None), |(cpu, cards)| (cpu, Some(cards)));
+    let cpu = makers["cpu_makers"].get(cpu)?;
+    let mut gpus = Vec::new();
+    if let Some(cards) = cards {
+        for card in cards.split('-') {
+            let gpu = makers["card_makers"].get(card)?;
+            // Aliases for the same row do not declare another device.
+            if !gpus.contains(&gpu) {
+                gpus.push(gpu);
+            }
+        }
+    } else {
+        gpus.push(&cpu["chip_graphics"]);
+    }
+
+    let appliances = &makers["appliances"];
+    let appliance = paper["profile"]
+        .as_str()
+        .and_then(normalize)
+        .and_then(|profile| appliances.get(profile))
+        .unwrap_or(&appliances["default"]);
+    if appliance["gpu"] == "none" {
+        gpus.clear();
+    }
+    Some(json!({"rev": rev, "cpu_temperature": cpu["cpu_temperature"], "gpus": gpus}))
 }
 
 fn resolve() -> Result<Resolved, String> {

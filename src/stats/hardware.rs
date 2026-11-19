@@ -64,9 +64,12 @@ fn sysfs_fan_percent(device: &PathBuf) -> Option<f64> {
     None
 }
 
-fn nvidia_at(pci: &str) -> Option<NvidiaGpuCache> {
+fn nvidia_at(pci: Option<&str>) -> Option<NvidiaGpuCache> {
     let mut command = Command::new("nvidia-smi");
-    command.args(["-i", pci, "--query-gpu=uuid,utilization.gpu,temperature.gpu,fan.speed,memory.used,memory.total", "--format=csv,noheader,nounits"])
+    if let Some(pci) = pci {
+        command.args(["-i", pci]);
+    }
+    command.args(["--query-gpu=uuid,utilization.gpu,temperature.gpu,fan.speed,memory.used,memory.total", "--format=csv,noheader,nounits"])
         .stdout(Stdio::piped()).stderr(Stdio::null());
     let mut child = command.spawn().ok()?;
     let status = match crate::shared::child_wait::until(&mut child, Instant::now() + Duration::from_millis(900)).ok()? {
@@ -76,6 +79,7 @@ fn nvidia_at(pci: &str) -> Option<NvidiaGpuCache> {
     if !status.success() { return None; }
     let mut output = String::new();
     child.stdout.take()?.read_to_string(&mut output).ok()?;
+    // Without a PCI selector the driver lists its GPUs; bind only an unambiguous row.
     if output.lines().filter(|line| !line.trim().is_empty()).count() != 1 { return None; }
     Some(nvidia_gpu_output(&output))
 }
@@ -109,7 +113,8 @@ pub(super) fn collect(cache: &mut HardwareCache, hardware: Option<&Value>) -> (V
     let mut devices = Vec::new();
     let mut fans_unavailable = Vec::new();
     let mut gpu_ts = None;
-    for spec in hardware.get("gpus").and_then(Value::as_array).into_iter().flatten() {
+    let gpu_specs = hardware.get("gpus").and_then(Value::as_array);
+    for spec in gpu_specs.into_iter().flatten() {
         let (Some(id), Some(vendor), Some(source)) = (spec.get("id").and_then(Value::as_str), spec.get("vendor").and_then(Value::as_str), spec.get("source").and_then(Value::as_str)) else { continue };
         let mut row = serde_json::Map::new();
         row.insert("id".into(), json!(id)); row.insert("vendor".into(), json!(vendor));
@@ -145,7 +150,14 @@ pub(super) fn collect(cache: &mut HardwareCache, hardware: Option<&Value>) -> (V
                 readings.extend(good); unavailable.extend(bad);
             }
             "nvidia-smi" => {
-                let Some(pci) = spec.get("card_match").and_then(Value::as_str).and_then(|s| s.strip_prefix("pci:")) else { devices.push(Value::Object(row)); continue };
+                let pci = match spec["card_match"].as_str() {
+                    Some(selector) if selector.starts_with("pci:") => Some(&selector[4..]),
+                    Some(selector) if selector.strip_prefix("vendor:") == Some(vendor) => None,
+                    _ => {
+                        devices.push(Value::Object(row));
+                        continue;
+                    }
+                };
                 let needs_refresh = cache.nvidia.get(id).map_or(true, |(instant, _)| instant.elapsed() >= Duration::from_secs(60));
                 if needs_refresh {
                     // Record failures too, so a failed command cannot spawn at 1 Hz.
@@ -170,7 +182,8 @@ pub(super) fn collect(cache: &mut HardwareCache, hardware: Option<&Value>) -> (V
         let mean = if readings.is_empty() { Value::Null } else { json!(readings.iter().map(|r| r.celsius).sum::<f64>() / readings.len() as f64) };
         json!({"celsius": mean, "sources": readings.len(), "bySource": readings.iter().map(temperature_reading_value).collect::<Vec<_>>(), "unavailableSources": unavailable.iter().map(unavailable_reading_value).collect::<Vec<_>>()})
     };
-    let gpu = if devices.is_empty() { Value::Null } else {
+    // A known empty declaration is different from unknown hardware (null).
+    let gpu = if devices.is_empty() && !gpu_specs.is_some_and(Vec::is_empty) { Value::Null } else {
         let mut out = busiest(&devices).unwrap_or_default();
         out.insert("devices".into(), json!(devices));
         Value::Object(out)

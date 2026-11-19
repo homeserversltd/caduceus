@@ -122,12 +122,13 @@ fn gpu_meter(sample: Option<&Value>, device: u64) -> Value {
     } else {
         format!("GPU{}", u128::from(device) + 1)
     };
-    let row = sample
+    let devices = sample
         .and_then(|sample| sample.pointer("/gpu/devices"))
-        .and_then(Value::as_array)
+        .and_then(Value::as_array);
+    let row = devices
         .and_then(|devices| usize::try_from(device).ok().and_then(|index| devices.get(index)));
     let Some(row) = row else {
-        return if device == 0 {
+        return if device == 0 && !devices.is_some_and(Vec::is_empty) {
             unknown(&label, "GPU utilization is missing from the sample")
         } else {
             success(String::new(), String::new(), "absent", Value::Null)
