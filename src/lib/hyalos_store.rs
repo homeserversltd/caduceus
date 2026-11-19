@@ -87,10 +87,7 @@ impl Store {
         };
         // The daemon and native CLI can both write this file. A commit from
         // another connection invalidates the hints before they can drop a recovery.
-        limit_busy(connection, deadline)?;
-        let version = connection
-            .query_row("PRAGMA data_version", [], |row| row.get(0))
-            .map_err(|_| "sqlite-data-version-failed")?;
+        let version = data_version(connection, deadline)?;
         if self.data_version != Some(version) {
             self.troubles.clear();
             self.data_version = Some(version);
@@ -115,9 +112,13 @@ impl Store {
 
     fn writable(&mut self, deadline: Instant) -> StoreResult<&mut Connection> {
         if self.writer.is_none() {
-            self.writer = Some(open(deadline)?);
+            let writer = open(deadline)?;
+            // Versions are connection-local. Baseline the writer before its
+            // first commit warms a key; its own commits do not move the version.
+            let version = data_version(&writer, deadline)?;
+            self.writer = Some(writer);
             self.reader = None;
-            self.data_version = None;
+            self.data_version = Some(version);
             self.troubles.clear();
         }
         Ok(self.writer.as_mut().expect("writer opened"))
@@ -128,6 +129,13 @@ fn limit_busy(connection: &Connection, deadline: Instant) -> StoreResult<()> {
     connection
         .busy_timeout(deadline.saturating_duration_since(Instant::now()))
         .map_err(|_| "sqlite-busy-timeout-failed")
+}
+
+fn data_version(connection: &Connection, deadline: Instant) -> StoreResult<i64> {
+    limit_busy(connection, deadline)?;
+    connection
+        .query_row("PRAGMA data_version", [], |row| row.get(0))
+        .map_err(|_| "sqlite-data-version-failed")
 }
 
 #[derive(Deserialize)]
