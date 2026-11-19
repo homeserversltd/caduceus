@@ -120,6 +120,64 @@ fn project_attributes(event: &ChannelEvent, run_profile: bool) -> Result<Value, 
         attributes["freed_bytes"] = json!(source.get("freed_bytes").and_then(Value::as_u64));
         attributes["rotated"] = json!(source.get("rotated").and_then(Value::as_bool));
     }
+    if event.organ == "file-ingress" && event.kind == "upload" {
+        // Budget JSON bytes as well as characters. The native upload deed
+        // has no ids and leaves 512 bytes for the filename and folder text.
+        fn json_width(ch: char) -> usize {
+            match ch {
+                '\0'..='\x1f' => 6, // At most one \uXXXX escape.
+                '"' | '\\' => 2,
+                _ => ch.len_utf8(),
+            }
+        }
+        fn prefix(text: &str, max_chars: usize, mut bytes: usize) -> &str {
+            for (index, (offset, ch)) in text.char_indices().enumerate() {
+                let width = json_width(ch);
+                if index == max_chars || width > bytes {
+                    return &text[..offset];
+                }
+                bytes -= width;
+            }
+            text
+        }
+
+        let filename = source.get("filename").and_then(Value::as_str).filter(|name| {
+            std::path::Path::new(name).file_name().and_then(|part| part.to_str()) == Some(*name)
+        });
+        if let Some(filename) = filename {
+            const NAME_CHARS: usize = 160;
+            const NAME_BYTES: usize = 320;
+            let short = prefix(filename, NAME_CHARS, NAME_BYTES);
+            let extension = std::path::Path::new(filename)
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .filter(|ext| !ext.is_empty());
+            attributes["filename"] = match extension.filter(|_| short.len() < filename.len()) {
+                Some(ext) => {
+                    let (stem, suffix) = filename.split_at(filename.len() - ext.len() - 1);
+                    let suffix_chars = suffix.chars().count();
+                    let suffix_bytes = suffix.chars().map(json_width).sum::<usize>();
+                    if suffix_chars < NAME_CHARS && suffix_bytes <= NAME_BYTES - 6 {
+                        let stem = prefix(stem, NAME_CHARS - suffix_chars, NAME_BYTES - suffix_bytes);
+                        json!(format!("{stem}{suffix}"))
+                    } else {
+                        json!(short)
+                    }
+                }
+                None => json!(short),
+            };
+            // The ordinary 48-byte target label can be empty for a non-ASCII name.
+            if attributes["target"].is_null() {
+                attributes["target"] = json!(prefix(filename, 48, 48));
+            }
+        }
+        if let Some(destination) = source.get("destination").and_then(Value::as_str) {
+            attributes["destination"] = json!(prefix(destination, 192, 192));
+        }
+        if let Some(bytes) = source.get("bytes").and_then(Value::as_u64) {
+            attributes["bytes"] = json!(bytes);
+        }
+    }
     if event.organ == "sbin" && event.kind == "sbin.chord" {
         if let Some(stages) = source.get("stages").and_then(Value::as_array) {
             let stages: Vec<String> = stages

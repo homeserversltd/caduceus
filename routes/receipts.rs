@@ -711,25 +711,29 @@ fn staff_mutation_performed(receipt: &Value) -> bool {
         .unwrap_or(true)
 }
 
-fn file_ingress_reflection(target: &Path, bytes: usize) -> Result<Value, String> {
+fn file_ingress_reflection(target: &Path, bytes: impl TryInto<u64>) -> Result<Value, String> {
     let filename = target
         .file_name()
         .and_then(|value| value.to_str())
         .ok_or_else(|| "caduceus-file-ingress-filename-invalid".to_string())?;
     let destination = target
         .parent()
+        .and_then(Path::to_str)
         .ok_or_else(|| "caduceus-file-ingress-destination-invalid".to_string())?;
+    let bytes = bytes
+        .try_into()
+        .map_err(|_| "caduceus-file-ingress-byte-count-invalid".to_string())?;
     hyalos::reflect_json(json!({
         "organ": "file-ingress",
         "kind": "upload",
         "level": "info",
         "ok": true,
-        "message": format!("uploaded {filename}"),
+        "message": "uploaded file",
         "attributes_redacted": {
-            "classification": "file-ingress",
+            "verb": "upload",
+            "target": filename,
             "filename": filename,
             "destination": destination,
-            "path": target,
             "bytes": bytes
         }
     }))
@@ -803,26 +807,21 @@ fn decorate_ingress(mut receipt: Value, target: &Path, bytes: u64) -> Value {
     if !receipt.is_object() { return receipt; }
     let ok = receipt.get("ok").and_then(Value::as_bool) == Some(true)
         && receipt.get("doorSignal").is_none();
-    let reflection = if ok {
-        match usize::try_from(bytes).map_err(|_| "caduceus-file-ingress-byte-count-invalid".to_string())
-            .and_then(|size| file_ingress_reflection(target, size)) {
-            Ok(value) => value,
-            Err(signal) => {
-                let object = receipt.as_object_mut().expect("receipt is an object");
-                object.entry("doorSignal").or_insert(json!(signal));
-                Value::Null
-            }
+    if ok {
+        if let Err(error) = file_ingress_reflection(target, bytes) {
+            // Hyalos itself reports store failures; only diagnose a rejected deed here.
+            let signal = error.split_ascii_whitespace().next().unwrap_or("unknown");
+            let _ = writeln!(std::io::stderr().lock(), "hyalos-upload-deed-failed: {signal:.96}");
         }
-    } else { Value::Null };
-    let ok = receipt.get("ok").and_then(Value::as_bool) == Some(true)
-        && receipt.get("doorSignal").is_none();
+    }
     let object = receipt.as_object_mut().expect("receipt is an object");
     object.entry("classification").or_insert(json!("file-ingress"));
     object.entry("accepted").or_insert(json!(ok));
     object.entry("execution").or_insert(json!(if ok { "staff-snake" } else { "staff-snake-refused" }));
     object.entry("path").or_insert(json!(target));
     object.entry("bytes").or_insert(json!(bytes));
-    object.entry("hyalos").or_insert(reflection);
+    // Keep the standing field without reporting the deed's disposition to the caller.
+    object.entry("hyalos").or_insert(Value::Null);
     object.entry("bandPath").or_insert(json!("storage/upload/ingress"));
     receipt
 }

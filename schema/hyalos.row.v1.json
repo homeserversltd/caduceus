@@ -41,7 +41,8 @@
         "maintenance": ["freed_bytes", "rotated"],
         "arpeggio": ["stages", "failedStage"],
         "dictate": ["state", "chars"],
-        "harmonia": ["profile", "finished_at", "module_count", "updated_count", "failures", "failures_more"]
+        "harmonia": ["profile", "finished_at", "module_count", "updated_count", "failures", "failures_more"],
+        "upload": ["filename", "destination", "bytes"]
       }
     }
   }
