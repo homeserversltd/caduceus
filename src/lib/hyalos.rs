@@ -16,6 +16,7 @@ pub const EVENT_SCHEMA: &str = crate::protocol::hyalos_event_schema();
 const LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error", "fatal"];
 const MAX_LINE_BYTES: usize = 1024;
 const MAX_PROJECTED_FAILURES: usize = 32;
+const CLEAR_DEED: &str = "hyalos-clear";
 
 fn metadata_text(value: Option<&Value>, limit: usize) -> Option<String> {
     let value = value?.as_str()?;
@@ -92,13 +93,19 @@ fn project_failures(source: &Value) -> (Vec<Value>, usize) {
 
 fn project_attributes(event: &ChannelEvent, run_profile: bool) -> Result<Value, String> {
     let source = &event.attributes_redacted;
+    // Fit "deleted " and the full decimal count in the seated outcome word.
+    let outcome_limit = if event.organ == "caduceus" && event.kind == CLEAR_DEED {
+        32
+    } else {
+        16
+    };
     let mut attributes = json!({
         "who": metadata_alias(source, &["who"], 24)
             .unwrap_or_else(|| bounded_label(&event.organ, 24, "caduceus")),
         "verb": metadata_alias(source, &["verb"], 32)
             .unwrap_or_else(|| bounded_label(&event.kind, 32, "deed")),
         "target": metadata_alias(source, &["target", "route", "noun", "check"], 48),
-        "outcome": metadata_alias(source, &["outcome"], 16)
+        "outcome": metadata_alias(source, &["outcome"], outcome_limit)
             .unwrap_or_else(|| if event.ok { "success".into() } else { "failure".into() }),
         "duration_ms": source.get("duration_ms")
             .or_else(|| source.get("durationMs"))
@@ -698,6 +705,102 @@ pub(crate) fn record_prune(deleted: usize, freed_bytes: u64) -> Result<(), Strin
         ..Reflection::default()
     })?;
     record(&event, OfferMode::Upkeep).map(|_| ())
+}
+
+pub(crate) const CLEAR_INVALID: &str = "caduceus-hyalos-clear-request-invalid";
+pub(crate) const LEVEL_INVALID: &str = "caduceus-hyalos-level-invalid";
+pub(crate) type DoorResult = Result<Value, &'static str>; // Err means a malformed request.
+
+pub(crate) fn door_error(signal: &str) -> Value {
+    json!({"ok": false, "firstMissingSignal": signal})
+}
+
+fn record_hyalos_change(kind: &str, attributes: Value, mode: OfferMode) -> bool {
+    let event = reflection_event(Reflection {
+        organ: "caduceus".into(),
+        kind: kind.into(),
+        message: "hyalos changed".into(),
+        ok: true,
+        attributes_redacted: attributes,
+        ..Reflection::default()
+    });
+    matches!(event.and_then(|event| record(&event, mode)), Ok(Disposition::Written))
+}
+
+pub(crate) fn clear_json(body: &Value) -> DoorResult {
+    let body = body.as_object().ok_or(CLEAR_INVALID)?;
+    // The gate may forward administrative flags. An unrecognized selector
+    // must not be mistaken for an unfiltered clear.
+    if body.keys().any(|key| !matches!(key.as_str(), "kind" | "verb" | "flags"))
+        || body.get("flags").is_some_and(|flags| !flags.is_object())
+    {
+        return Err(CLEAR_INVALID);
+    }
+    let filter = match (body.get("kind"), body.get("verb")) {
+        (None, None) => None,
+        (Some(kind), Some(verb)) => {
+            let kind = kind.as_str().ok_or(CLEAR_INVALID)?;
+            let verb = verb
+                .as_str()
+                .filter(|verb| !verb.is_empty())
+                .ok_or(CLEAR_INVALID)?;
+            match store::recognizes_kind(kind) {
+                Ok(true) => Some((kind, verb)),
+                Ok(false) => return Err(CLEAR_INVALID),
+                Err(signal) => return Ok(door_error(signal)),
+            }
+        }
+        _ => return Err(CLEAR_INVALID),
+    };
+
+    let (deleted, interruption) = match store::clear(filter) {
+        Ok(pass) => (pass.deleted, pass.interruption),
+        Err(signal) => (0, Some(signal)),
+    };
+    let mut signal = interruption;
+    if deleted > 0 {
+        let target = match filter {
+            Some((kind, verb)) => format!("hyalos/{kind}/{verb}"),
+            None => "hyalos/all".into(),
+        };
+        if !record_hyalos_change(
+            CLEAR_DEED,
+            json!({"verb": "remove", "target": target, "outcome": format!("deleted {deleted}")}),
+            OfferMode::Upkeep,
+        ) {
+            signal = Some("caduceus-hyalos-clear-deed-unwritten");
+        }
+    }
+    store::forget_troubles();
+    Ok(json!({
+        "ok": signal.is_none(),
+        "deleted": deleted,
+        "firstMissingSignal": signal.unwrap_or("none"),
+    }))
+}
+
+pub(crate) fn level_json() -> Value {
+    store::level_status().unwrap_or_else(door_error)
+}
+
+pub(crate) fn set_level_json(body: &Value) -> DoorResult {
+    let level = body.get("level").and_then(Value::as_i64).ok_or(LEVEL_INVALID)?;
+    let mut answer = match store::set_level(level) {
+        Ok(Some(answer)) => answer,
+        Ok(None) => return Err(LEVEL_INVALID),
+        Err(signal) => return Ok(door_error(&signal)),
+    };
+    if answer["changed"] == true
+        && !record_hyalos_change(
+            "hyalos-level",
+            json!({"verb": "set", "target": format!("hyalos/level/{level}")}),
+            OfferMode::Normal,
+        )
+    {
+        answer["ok"] = json!(false);
+        answer["firstMissingSignal"] = json!("caduceus-hyalos-level-deed-unwritten");
+    }
+    Ok(answer)
 }
 
 pub fn tail_json(filters: TailFilters) -> Result<Value, String> {

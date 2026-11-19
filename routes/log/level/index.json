@@ -1,0 +1,22 @@
+{
+  "namespace": "log/level",
+  "admittance": "open",
+  "flags": {},
+  "serve": [],
+  "commands": ["hyalos level"],
+  "needs": ["all"],
+  "http_method": "GET",
+  "http_path": "/api/v1/log/level",
+  "administrative": true,
+  "mutation_allowed": false,
+  "operations": [
+    {
+      "http_method": "POST",
+      "http_path": "/api/v1/log/level",
+      "needs": ["all"],
+      "commands": ["hyalos level"],
+      "administrative": true,
+      "mutation_allowed": true
+    }
+  ]
+}

@@ -19,6 +19,17 @@ pub fn command(args: &[String]) -> i32 {
         }
     }
 
+    let door_result = match args {
+        [verb, rest @ ..] if verb == "clear" => Some(clear_args(rest)),
+        [verb, rest @ ..] if verb == "level" => Some(level_args(rest)),
+        _ => None,
+    };
+    if let Some(result) = door_result {
+        let body = result.unwrap_or_else(hyalos::door_error);
+        println!("{}", serde_json::to_string_pretty(&body).unwrap());
+        return i32::from(body["ok"] != true);
+    }
+
     let result = match args {
         [verb, organ, kind, message, rest @ ..] if verb == "reflect" => {
             let mut value = json!({
@@ -85,6 +96,31 @@ pub fn append_json(value: Value) -> Result<Value, String> {
 
 pub fn tail_json(filters: TailFilters) -> Result<Value, String> {
     hyalos::tail_json(filters)
+}
+
+fn clear_args(args: &[String]) -> hyalos::DoorResult {
+    let body = match args {
+        [] => json!({}),
+        [key, kind, flag, verb] if key == "--kind" && flag == "--verb" => {
+            json!({"kind": kind, "verb": verb})
+        }
+        [flag, verb, key, kind] if key == "--kind" && flag == "--verb" => {
+            json!({"kind": kind, "verb": verb})
+        }
+        _ => return Err(hyalos::CLEAR_INVALID),
+    };
+    hyalos::clear_json(&body)
+}
+
+fn level_args(args: &[String]) -> hyalos::DoorResult {
+    match args {
+        [] => Ok(hyalos::level_json()),
+        [level] => {
+            let level = level.parse::<i64>().map_err(|_| hyalos::LEVEL_INVALID)?;
+            hyalos::set_level_json(&json!({"level": level}))
+        }
+        _ => Err(hyalos::LEVEL_INVALID),
+    }
 }
 
 fn parse_tail_filters(args: &[String]) -> Result<TailFilters, String> {

@@ -1,9 +1,9 @@
-//! The Hyalos store. Only the writer and upkeep open it for writing.
+//! The Hyalos store. Only the writer and bounded deletion passes open it for writing.
 use super::{metadata_alias, ChannelEvent, TailFilters};
 use crate::shared::config;
 use rusqlite::{
     params, params_from_iter, types::Value as SqlValue, Connection, OpenFlags, OptionalExtension,
-    Row, TransactionBehavior,
+    Row, ToSql, TransactionBehavior,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -18,8 +18,12 @@ pub(crate) const DB_PATH: &str = "/var/lib/caduceus/hyalos.sqlite3";
 const STORE_WAIT: Duration = Duration::from_millis(250);
 const TROUBLE_CACHE_KEYS: usize = 1024;
 type StoreResult<T> = Result<T, &'static str>;
-static WRITER: LazyLock<Mutex<Option<Store>>> =
-    LazyLock::new(|| Mutex::new(Some(Store::default())));
+static WRITER: LazyLock<Mutex<WriterSlot>> = LazyLock::new(|| {
+    Mutex::new(WriterSlot {
+        store: Some(Store::default()),
+        forget_troubles: false,
+    })
+});
 static WRITER_READY: Condvar = Condvar::new();
 
 #[derive(Serialize)]
@@ -34,8 +38,8 @@ pub(super) enum Disposition {
 pub(super) enum OfferMode {
     Normal,
     Debug,
-    // A real retention deletion is always recorded, at its seated level.
-    // No sender or door can request this mode.
+    // A real retention or clear deletion is recorded at its seated level.
+    // No sender or door can select this mode for an incoming deed.
     Upkeep,
 }
 
@@ -54,6 +58,11 @@ struct Store {
     troubles: HashMap<Key, bool>,
 }
 
+struct WriterSlot {
+    store: Option<Store>,
+    forget_troubles: bool,
+}
+
 // Lend the connection out without holding the mutex across SQLite I/O.
 // A queued deed spends the same deadline on the writer slot and SQLite locks.
 struct WriterLease(Store);
@@ -65,18 +74,31 @@ impl WriterLease {
             .wait_timeout_while(
                 slot,
                 deadline.saturating_duration_since(Instant::now()),
-                |slot| slot.is_none(),
+                |slot| slot.store.is_none(),
             )
             .map_err(|_| "sqlite-writer-lock-failed")?;
-        slot.take().map(Self).ok_or("sqlite-writer-busy")
+        slot.store.take().map(Self).ok_or("sqlite-writer-busy")
     }
 }
 
 impl Drop for WriterLease {
     fn drop(&mut self) {
-        *WRITER.lock().unwrap_or_else(|error| error.into_inner()) =
-            Some(std::mem::take(&mut self.0));
+        let mut slot = WRITER.lock().unwrap_or_else(|error| error.into_inner());
+        if std::mem::take(&mut slot.forget_troubles) {
+            self.0.troubles.clear();
+        }
+        slot.store = Some(std::mem::take(&mut self.0));
         WRITER_READY.notify_one();
+    }
+}
+
+pub(super) fn forget_troubles() {
+    let mut slot = WRITER.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some(store) = &mut slot.store {
+        store.troubles.clear();
+    } else {
+        // Even an in-flight deed cannot return a warm cache after the clear.
+        slot.forget_troubles = true;
     }
 }
 
@@ -295,12 +317,32 @@ impl Policy {
             .ok_or("seat-no-match")
     }
 
-    fn body_level(&self) -> i64 {
+    fn permits_level(&self, level: i64) -> bool {
+        (self.lowest..=self.highest).contains(&level)
+    }
+
+    fn level_setting(&self, value: &Value) -> Option<i64> {
+        value.as_i64().filter(|level| self.permits_level(*level))
+    }
+
+    fn configured_level(&self) -> Option<i64> {
         config::get_json("hyalos.level")
             .ok()
-            .and_then(|answer| answer["value"].as_i64())
-            .filter(|level| (self.lowest..=self.highest).contains(level))
-            .unwrap_or(self.lowest)
+            .and_then(|answer| self.level_setting(&answer["value"]))
+    }
+
+    fn body_level(&self) -> i64 {
+        self.configured_level().unwrap_or(self.lowest)
+    }
+
+    fn level_answer(&self, configured: Option<i64>) -> Value {
+        json!({
+            "ok": true,
+            "level": configured.unwrap_or(self.lowest),
+            "lowest": self.lowest,
+            "highest": self.highest,
+            "source": if configured.is_some() { "set" } else { "default" },
+        })
     }
 
     fn families(&self, fields: &Value) -> Option<String> {
@@ -329,6 +371,41 @@ impl Policy {
 
 pub(crate) fn body_level() -> StoreResult<i64> {
     Ok(policy()?.body_level())
+}
+
+pub(super) fn level_status() -> StoreResult<Value> {
+    let policy = policy()?;
+    Ok(policy.level_answer(policy.configured_level()))
+}
+
+pub(super) fn set_level(level: i64) -> Result<Option<Value>, String> {
+    let policy = policy()?;
+    if !policy.permits_level(level) {
+        return Ok(None);
+    }
+    let setting =
+        |block: Option<&Value>| block.and_then(|block| policy.level_setting(&block["level"]));
+    // Compare under the household config lock. This primitive leaves the
+    // single deed to Hyalos instead of also writing the generic config deed.
+    let (block, changed) = config::update_block_json("hyalos", |block| {
+        if setting(block).unwrap_or(policy.lowest) == level {
+            return Ok(block.cloned());
+        }
+        let mut hyalos = match block {
+            None => Map::new(),
+            Some(Value::Object(hyalos)) => hyalos.clone(),
+            _ => return Err("caduceus-household-config-path-invalid".into()),
+        };
+        hyalos.insert("level".into(), json!(level));
+        Ok(Some(Value::Object(hyalos)))
+    })?;
+    let mut answer = policy.level_answer(setting(block.as_ref()));
+    answer["changed"] = json!(changed);
+    Ok(Some(answer))
+}
+
+pub(super) fn recognizes_kind(kind: &str) -> StoreResult<bool> {
+    Ok(policy()?.table.kinds.iter().any(|seated| seated == kind))
 }
 
 fn has_deeds(connection: &Connection) -> StoreResult<bool> {
@@ -488,13 +565,13 @@ pub(super) fn offer(
     } else {
         field("target")
     };
-    let routine = field("run_id")
-        .map(str::to_owned)
-        .or_else(|| metadata_alias(&event.attributes_redacted, &["run_id"], 64))
-        .or_else(|| projected.correlation_id.clone())
-        // Retain the existing aliases when neither run nor correlation is set.
+    let routine = metadata_alias(&event.attributes_redacted, &["run_id"], 64)
         .or_else(|| field("routine_id").map(str::to_owned))
-        .or_else(|| metadata_alias(&event.attributes_redacted, &["routine_id", "routine"], 64));
+        .or_else(|| metadata_alias(&event.attributes_redacted, &["routine_id", "routine"], 64))
+        .or_else(|| projected.correlation_id.clone())
+        // A run-profile projection may fill run_id from its legacy correlation
+        // attribute. That is a fallback, not a supplied run id.
+        .or_else(|| field("run_id").map(str::to_owned));
     let key = Key {
         organ: organ.to_owned(),
         verb: verb.map(str::to_owned),
@@ -629,10 +706,10 @@ const NOT_OPEN_TROUBLE: &str = "(trouble = 0 OR EXISTS (
     LIMIT 1
 ))";
 
-fn prune_batch(
+fn delete_batch(
     connection: &mut Connection,
-    prunable: &str,
-    cutoff: f64,
+    predicate: &str,
+    parameters: &[&dyn ToSql],
     ids: &[i64],
 ) -> StoreResult<usize> {
     let tx = connection
@@ -643,11 +720,11 @@ fn prune_batch(
         // Fence each delete against writers. Consume IDs oldest-first so an
         // expired recovery cannot expose an expired predecessor mid-pass.
         let mut delete = tx
-            .prepare(&format!("DELETE FROM deeds WHERE id = ?2 AND {prunable}"))
+            .prepare(&format!("DELETE FROM deeds WHERE {predicate} AND id = ?"))
             .map_err(|_| "sqlite-prune-delete-failed")?;
         for id in ids {
             deleted += delete
-                .execute(params![cutoff, id])
+                .execute(params_from_iter(parameters.iter().copied().chain([id as &dyn ToSql])))
                 .map_err(|_| "sqlite-prune-delete-failed")?;
         }
     }
@@ -667,8 +744,69 @@ fn prune_batch(
     Ok(deleted)
 }
 
+#[derive(Default)]
+pub(super) struct Deletion {
+    pub deleted: usize,
+    pub interruption: Option<&'static str>,
+}
+
+fn delete_batched(reader: &Connection, predicate: &str, parameters: &[&dyn ToSql]) -> Deletion {
+    let mut deleted = 0;
+    let result = (|| {
+        // Even opening a write connection on a quiet pass can checkpoint its WAL.
+        let has_matches: bool = reader
+            .query_row(
+                &format!("SELECT EXISTS (SELECT 1 FROM deeds WHERE {predicate} LIMIT 1)"),
+                parameters,
+                |row| row.get(0),
+            )
+            .map_err(|_| "sqlite-prune-read-failed")?;
+        if !has_matches {
+            return Ok(());
+        }
+        let end: Option<i64> = reader
+            .query_row("SELECT MAX(id) FROM deeds", [], |row| row.get(0))
+            .map_err(|_| "sqlite-prune-read-failed")?;
+        let Some(end) = end else { return Ok(()); };
+        // Advance a rowid cursor; no scan or read snapshot spans a write lock.
+        let mut select = reader
+            .prepare(&format!(
+                "SELECT id FROM deeds NOT INDEXED WHERE {predicate} AND id >= ? AND id <= ?
+                 ORDER BY id LIMIT ?"
+            ))
+            .map_err(|_| "sqlite-prune-read-failed")?;
+        let mut first = i64::MIN;
+        let mut writer = None;
+        loop {
+            let window: [&dyn ToSql; 3] = [&first, &end, &PRUNE_BATCH];
+            let ids = select
+                .query_map(
+                    params_from_iter(parameters.iter().copied().chain(window)),
+                    |row| row.get::<_, i64>(0),
+                )
+                .and_then(Iterator::collect::<Result<Vec<_>, _>>)
+                .map_err(|_| "sqlite-prune-read-failed")?;
+            let Some(&last) = ids.last() else { return Ok(()); };
+            if writer.is_none() {
+                writer = existing_writer()?;
+            }
+            let Some(writer) = writer.as_mut() else { return Ok(()); };
+            deleted += delete_batch(writer, predicate, parameters, &ids)?;
+            if ids.len() < PRUNE_BATCH || last == end {
+                return Ok(());
+            }
+            first = last + 1;
+            // Give waiting native CLI writers a turn as well as daemon writers.
+            std::thread::sleep(PRUNE_GAP);
+        }
+    })();
+    Deletion {
+        deleted,
+        interruption: result.err(),
+    }
+}
+
 pub(crate) fn prune_expired() -> StoreResult<usize> {
-    // Even opening a write connection on a quiet pass can checkpoint its WAL.
     let Some((reader, _)) = open_existing(OpenFlags::SQLITE_OPEN_READ_ONLY)? else {
         return Ok(0);
     };
@@ -678,53 +816,12 @@ pub(crate) fn prune_expired() -> StoreResult<usize> {
     let cutoff: f64 = reader
         .query_row("SELECT julianday('now', '-90 days')", [], |row| row.get(0))
         .map_err(|_| "sqlite-prune-read-failed")?;
-    let prunable = format!("{AGE_KEY} < ?1 AND {NOT_OPEN_TROUBLE}");
-    let has_expired: bool = reader
-        .query_row(
-            &format!("SELECT EXISTS (SELECT 1 FROM deeds WHERE {prunable} LIMIT 1)"),
-            [cutoff],
-            |row| row.get(0),
-        )
-        .map_err(|_| "sqlite-prune-read-failed")?;
-    if !has_expired {
-        return Ok(0);
-    }
-    let end: Option<i64> = reader
-        .query_row("SELECT MAX(id) FROM deeds", [], |row| row.get(0))
-        .map_err(|_| "sqlite-prune-read-failed")?;
-    let Some(end) = end else { return Ok(0); };
-    // Once there is work, advance a rowid cursor instead of sorting the age
-    // index again for every batch. No scan or snapshot spans a write lock.
-    let mut select = reader
-        .prepare(&format!(
-            "SELECT id FROM deeds NOT INDEXED WHERE id >= ?2 AND id <= ?3 AND {prunable}
-             ORDER BY id LIMIT ?4"
-        ))
-        .map_err(|_| "sqlite-prune-read-failed")?;
-    let mut first = i64::MIN;
-    let mut writer = None;
-    let mut deleted = 0;
-    let result = (|| {
-        loop {
-            let ids = select
-                .query_map(params![cutoff, first, end, PRUNE_BATCH], |row| row.get::<_, i64>(0))
-                .and_then(Iterator::collect::<Result<Vec<_>, _>>)
-                .map_err(|_| "sqlite-prune-read-failed")?;
-            let Some(&last) = ids.last() else { return Ok(()); };
-            if writer.is_none() {
-                writer = existing_writer()?;
-            }
-            let Some(writer) = writer.as_mut() else { return Ok(()); };
-            deleted += prune_batch(writer, &prunable, cutoff, &ids)?;
-            if ids.len() < PRUNE_BATCH || last == end {
-                return Ok(());
-            }
-            first = last + 1;
-            // Give waiting native CLI writers a turn as well as daemon writers.
-            std::thread::sleep(PRUNE_GAP);
-        }
-    })();
-    if let Err(error) = result {
+    let prunable = format!("{AGE_KEY} < ? AND {NOT_OPEN_TROUBLE}");
+    let Deletion {
+        deleted,
+        interruption,
+    } = delete_batched(&reader, &prunable, &[&cutoff]);
+    if let Some(error) = interruption {
         if deleted == 0 {
             return Err(error);
         }
@@ -733,6 +830,19 @@ pub(crate) fn prune_expired() -> StoreResult<usize> {
         eprintln!("caduceus-hyalos-prune-incomplete: {error}");
     }
     Ok(deleted)
+}
+
+pub(super) fn clear(filter: Option<(&str, &str)>) -> StoreResult<Deletion> {
+    let Some((reader, _)) = open_existing(OpenFlags::SQLITE_OPEN_READ_ONLY)? else {
+        return Ok(Deletion::default());
+    };
+    if !has_deeds(&reader)? {
+        return Ok(Deletion::default());
+    }
+    Ok(match filter {
+        Some((kind, verb)) => delete_batched(&reader, "kind = ? AND verb = ?", &[&kind, &verb]),
+        None => delete_batched(&reader, "1", &[]),
+    })
 }
 
 #[derive(Default)]

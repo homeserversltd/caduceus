@@ -1187,6 +1187,8 @@ fn print_usage(args: Option<&[String]>) {
     println!("  caduceus staff intent <method> <route>");
     println!("  caduceus hyalos reflect <organ> <kind> <message> [--payload JSON] [--debug]");
     println!("  caduceus hyalos append <event-json>");
+    println!("  caduceus hyalos clear [--kind K --verb V]");
+    println!("  caduceus hyalos level [N]");
     println!("  caduceus hyalos tail [count] [--kind K] [--organ O] [--correlation-id ID] [--level 1-5] [--ok true|false] (Hyalos database)");
     println!("  caduceus sync status");
     println!("  caduceus sync now [--no-restart] [--dry-run]");

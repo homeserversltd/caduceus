@@ -1,0 +1,13 @@
+{
+  "namespace": "log/clear",
+  "admittance": "open",
+  "flags": {},
+  "serve": [],
+  "commands": ["hyalos clear"],
+  "needs": ["all"],
+  "http_method": "POST",
+  "http_path": "/api/v1/log/clear",
+  "body": "optional",
+  "administrative": true,
+  "mutation_allowed": true
+}

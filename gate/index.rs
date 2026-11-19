@@ -813,7 +813,8 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
         matches!(
             declaration["namespace"].as_str(),
             Some("log/read" | "log/tail")
-        )
+        ) || (declaration["namespace"].as_str() == Some("log/level")
+            && matches!(method.as_str(), "GET" | "HEAD"))
     });
     if !administrative || hyalos_read {
         // The staff socket keeps its original read path. Off it the log
