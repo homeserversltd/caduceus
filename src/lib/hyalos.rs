@@ -212,15 +212,15 @@ fn project_attributes(event: &ChannelEvent, run_profile: bool) -> Result<Value, 
 
 fn project_event(mut event: ChannelEvent) -> Result<ChannelEvent, String> {
     let run_profile = is_run_profile_kind(&event.kind);
-    event.timestamp = if event.timestamp.len() <= 40
-        && event.timestamp.chars().all(|character| {
+    if event.timestamp.len() > 40
+        || !event.timestamp.chars().all(|character| {
             character.is_ascii_alphanumeric() || ":+-. ".contains(character)
         })
     {
-        event.timestamp
-    } else {
-        now_timestamp()
-    };
+        // Bound the projection without inventing a time before the write.
+        // An empty stamp takes the same SQLite fallback as any invalid date.
+        event.timestamp.clear();
+    }
     event.body_id = bounded_label(&event.body_id, 24, "unknown-body");
     event.level = normalize_level(Some(event.level))?;
     event.organ = bounded_label(&event.organ, 24, "caduceus");
