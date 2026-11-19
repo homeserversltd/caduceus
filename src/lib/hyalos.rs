@@ -312,6 +312,17 @@ pub struct Reflection {
     pub attributes_redacted: Value,
 }
 
+impl Reflection {
+    fn store_debug(&self) -> bool {
+        // The reflect CLI's existing JSON --payload is its only way to send
+        // this bit. An explicit envelope Boolean takes precedence.
+        self.debug
+            .as_bool()
+            .or_else(|| self.attributes_redacted["debug"].as_bool())
+            .unwrap_or(false)
+    }
+}
+
 fn default_ok() -> bool {
     true
 }
@@ -436,7 +447,7 @@ fn reflection_event(input: Reflection) -> Result<ChannelEvent, String> {
 }
 
 pub fn reflect(input: Reflection) -> Result<ChannelEvent, String> {
-    let debug = input.debug.as_bool();
+    let debug = input.store_debug();
     let event = reflection_event(input)?;
     append(&event, debug)?;
     Ok(event)
@@ -460,7 +471,7 @@ pub fn reflect_json(input: Value) -> Result<Value, String> {
 pub(crate) fn reflect_json_with_stderr_fallback(input: Value) -> Result<bool, String> {
     let reflection: Reflection =
         serde_json::from_value(input).map_err(|err| format!("hyalos-reflection-invalid: {err}"))?;
-    let debug = reflection.debug.as_bool();
+    let debug = reflection.store_debug();
     let event = reflection_event(reflection)?;
     let (_, line) = channel_line(&event)?;
     if append(&event, debug).is_ok() {
@@ -489,7 +500,7 @@ pub fn append_json(input: Value) -> Result<Value, String> {
     if input.get("schema").and_then(Value::as_str) != Some(EVENT_SCHEMA) {
         return Err("hyalos-channel-event-schema-invalid".to_string());
     }
-    let debug = input.get("debug").and_then(Value::as_bool);
+    let debug = input.get("debug").and_then(Value::as_bool) == Some(true);
     let mut event: ChannelEvent = serde_json::from_value(input)
         .map_err(|err| format!("hyalos-channel-event-invalid: {err}"))?;
     if event.organ.trim().is_empty()
@@ -620,7 +631,7 @@ pub(crate) fn lock_channel(file: &File) -> std::io::Result<()> {
     }
 }
 
-fn append(event: &ChannelEvent, debug: Option<bool>) -> Result<(), String> {
+fn append(event: &ChannelEvent, debug: bool) -> Result<(), String> {
     let path = config::path(CHANNEL_PATH);
     // Keep the file's original ordering of errors, even if its I/O fails.
     let parent = path.parent().map_or(Ok(()), |parent| {
@@ -632,11 +643,6 @@ fn append(event: &ChannelEvent, debug: Option<bool>) -> Result<(), String> {
     };
     let appended = parent.and_then(|()| append_line(&path, &line));
 
-    // The existing CLI carries the bit through its JSON --payload, without
-    // adding a flag or letting it into the file projection.
-    let debug = debug
-        .or_else(|| event.attributes_redacted["debug"].as_bool())
-        .unwrap_or(false);
     if let Err(error) = store::offer(event, &projected, debug) {
         let _ = writeln!(std::io::stderr().lock(), "hyalos-store-write-failed: {error}");
     }

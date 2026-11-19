@@ -196,9 +196,15 @@ fn open() -> StoreResult<Connection> {
     connection
         .busy_timeout(Duration::from_secs(5))
         .map_err(|_| "sqlite-busy-timeout-failed")?;
-    connection
-        .execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")
+    let auto_vacuum: i64 = connection
+        .query_row("PRAGMA auto_vacuum", [], |row| row.get(0))
         .map_err(|_| "sqlite-auto-vacuum-failed")?;
+    if auto_vacuum != 2 {
+        // Set the file's mode before the first table, not on every CLI open.
+        connection
+            .execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")
+            .map_err(|_| "sqlite-auto-vacuum-failed")?;
+    }
     let mode: String = connection
         .query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))
         .map_err(|_| "sqlite-wal-failed")?;
@@ -258,7 +264,8 @@ pub(super) fn offer(
     let signal = field("signal");
     let (target, routine) = if projected.kind == "generic-http-door" {
         // The legacy projection keeps this target under routine_id instead.
-        (field("routine_id"), None)
+        let id = field("routine_id");
+        (id, id.map(str::to_owned))
     } else {
         (
             field("target"),
