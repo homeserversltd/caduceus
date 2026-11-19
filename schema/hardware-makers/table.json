@@ -1,7 +1,4 @@
 {
-  "schema": "caduceus.hardware.makers.v1",
-  "schema_version": "1.0.0",
-  "role": "Build-time sensor rows for maker-declared hardware Revs",
   "cpu_makers": {
     "intel": {
       "cpu_temperature": [{"hwmon_name": "coretemp", "label": "Package id 0"}],
@@ -13,6 +10,7 @@
     }
   },
   "card_makers": {
+    "intel": {"id": "intel", "vendor": "0x8086", "source": "i915-rc6", "card_match": "vendor:0x8086"},
     "amd": {"id": "amd", "vendor": "0x1002", "source": "drm-sysfs", "card_match": "vendor:0x1002", "temperature_labels": ["edge", "junction", "mem"]},
     "nvidia": {"id": "nvidia", "vendor": "0x10de", "source": "nvidia-smi", "card_match": "vendor:0x10de"},
     "nvidialegacy": {"id": "nvidia", "vendor": "0x10de", "source": "nvidia-smi", "card_match": "vendor:0x10de"}

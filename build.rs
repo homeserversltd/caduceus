@@ -167,13 +167,13 @@ fn hardware_makers(path: &Path, profiles: &[&str]) -> serde_json::Value {
         }
     }
 
-    let source = fs::read_to_string(path).expect("hardware makers seat must be readable");
-    let makers: Value = serde_json::from_str(&source).expect("hardware makers seat must be valid JSON");
-    assert_eq!(makers["schema"].as_str(), path.file_stem().and_then(|s| s.to_str()),
-        "hardware makers seat id must match its filename");
+    let source = fs::read_to_string(path).expect("hardware maker table must be readable");
+    let makers: Value = serde_json::from_str(&source).expect("hardware maker table must be valid JSON");
+    assert!(makers.as_object().is_some_and(|tables| tables.len() == 3),
+        "hardware maker table must contain only CPU, card, and appliance tables");
     let rows = |key: &str| {
         makers[key].as_object().filter(|rows| !rows.is_empty())
-            .unwrap_or_else(|| panic!("hardware makers seat requires a nonempty {key} table"))
+            .unwrap_or_else(|| panic!("hardware maker table requires a nonempty {key} table"))
     };
     for (maker, row) in rows("cpu_makers") {
         let valid_sensors = row["cpu_temperature"].as_array().is_some_and(|sensors| {
@@ -189,7 +189,7 @@ fn hardware_makers(path: &Path, profiles: &[&str]) -> serde_json::Value {
         assert!(identifier(maker) && valid_gpu(row), "invalid hardware card maker row: {maker}");
     }
     let appliances = rows("appliances");
-    assert!(appliances.contains_key("default"), "hardware makers seat requires a default appliance row");
+    assert!(appliances.contains_key("default"), "hardware maker table requires a default appliance row");
     for (profile, row) in appliances {
         assert!((profile == "default" || profiles.contains(&profile.as_str()))
             && row.as_object().is_some_and(|fields| fields.len() == 1)
@@ -479,7 +479,7 @@ fn main() {
         assert!(hardware.insert(rev.to_owned(), value).is_none(), "duplicate hardware rev");
     }
     let embedded = serde_json::Value::Object(hardware).to_string();
-    let makers = hardware_makers(Path::new("schema/caduceus.hardware.makers.v1.json"), &profiles);
+    let makers = hardware_makers(Path::new("schema/hardware-makers/table.json"), &profiles);
     fs::write(Path::new(&out_dir).join("hardware_table.rs"),
         format!("pub const HARDWARE_TABLE_JSON: &str = {};\npub const HARDWARE_MAKERS_JSON: &str = {};\n",
             rust_string(&embedded), rust_string(&makers.to_string())))
