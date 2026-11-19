@@ -1,5 +1,5 @@
 //! Native argument verbs are clients of the same Hyalos doors as the face.
-use crate::shared::{attendance, config, hyalos};
+use crate::shared::{attendance, hyalos};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::fd::{AsRawFd, RawFd};
@@ -76,7 +76,7 @@ fn ask(path: &str, request: Option<Value>) -> Result<bool, &'static str> {
     };
     let socket = std::env::var_os("CADUCEUS_STAFF_SOCKET")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| config::path("/run/caduceus/staff.sock"));
+        .unwrap_or_else(|| std::path::PathBuf::from("/run/caduceus/staff.sock"));
     let mut stream = UnixStream::connect(socket).map_err(|_| SOCKET_UNAVAILABLE)?;
     let timeout = Some(Duration::from_secs(300));
     stream.set_read_timeout(timeout).map_err(|_| SOCKET_UNAVAILABLE)?;

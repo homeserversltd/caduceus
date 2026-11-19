@@ -737,12 +737,17 @@ fn record_hyalos_change(kind: &str, mut attributes: Value, mode: OfferMode, star
 
 pub(crate) fn clear_json(body: &Value) -> DoorResult {
     let body = body.as_object().ok_or(CLEAR_INVALID)?;
-    // The gate may forward administrative flags. An unrecognized selector
-    // must not be mistaken for an unfiltered clear.
-    if body.keys().any(|key| !matches!(key.as_str(), "kind" | "verb" | "flags"))
-        || body.get("flags").is_some_and(|flags| !flags.is_object())
-    {
+    // Only the gate's PIN container may accompany a clear. A misplaced
+    // selector must not be mistaken for an unfiltered clear.
+    if body.keys().any(|key| !matches!(key.as_str(), "kind" | "verb" | "flags")) {
         return Err(CLEAR_INVALID);
+    }
+    if let Some(flags) = body.get("flags") {
+        let flags = flags.as_object().ok_or(CLEAR_INVALID)?;
+        let exousia = flags.get("exousia").and_then(Value::as_object).ok_or(CLEAR_INVALID)?;
+        if flags.len() != 1 || exousia.len() != 1 || !exousia.contains_key("pin") {
+            return Err(CLEAR_INVALID);
+        }
     }
     let filter = match (body.get("kind"), body.get("verb")) {
         (None, None) => None,
