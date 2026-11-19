@@ -460,12 +460,12 @@ pub fn reflect_json(input: Value) -> Result<Value, String> {
     }))
 }
 
-/// A valid deed is handled even when not stored. `record` owns the single
-/// bounded stderr diagnostic, so the caller does not change its act or answer.
+/// A lawful drop is handled, but a failed write remains visible to callers
+/// that report a deed advisory. `record` owns the single stderr diagnostic.
 pub(crate) fn reflect_json_with_stderr_fallback(input: Value) -> Result<bool, String> {
     let reflection: Reflection =
         serde_json::from_value(input).map_err(|err| format!("hyalos-reflection-invalid: {err}"))?;
-    reflect_and_offer(reflection).map(|_| true)
+    reflect_and_offer(reflection).map(|(_, stored)| !matches!(stored, Disposition::Failed))
 }
 
 pub fn project_json(input: Value) -> Result<Value, String> {

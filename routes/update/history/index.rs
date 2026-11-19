@@ -9,11 +9,18 @@ const SCHEMA: &str = "caduceus.update.history.v1";
 
 fn project_run(row: &Value) -> Value {
     let family = &row["families"]["harmonia"];
+    let outcome = row["outcome"].as_str().and_then(|outcome| {
+        match outcome.to_ascii_lowercase().as_str() {
+            "ok" | "success" => Some("ok"),
+            "failed" | "failure" => Some("failed"),
+            _ => None,
+        }
+    });
     json!({
         "run_id": row["routine"],
         "profile": family["profile"],
         "finished_at": family["finished_at"].as_str().or_else(|| row["at"].as_str()),
-        "outcome": if row["trouble"] == true { "failed" } else { "ok" },
+        "outcome": outcome,
         "duration_ms": row["duration_ms"],
         "module_count": family["module_count"],
         "updated_count": family["updated_count"],

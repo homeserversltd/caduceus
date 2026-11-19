@@ -345,7 +345,7 @@ fn indexes_installed(connection: &Connection) -> StoreResult<bool> {
     // The last index is installed in the same transaction as all the others.
     connection
         .query_row(
-            "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = 'deeds_harmonia_runs' LIMIT 1)",
+            "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = 'deeds_by_ok' LIMIT 1)",
             [],
             |row| row.get(0),
         )
@@ -356,6 +356,21 @@ fn indexes_installed(connection: &Connection) -> StoreResult<bool> {
 // reach julianday() in the index; SQLite treats inputs such as "now" as volatile.
 const AGE_KEY: &str = "julianday(CASE WHEN substr(at, 5, 1) = '-' THEN at END)";
 
+// The sender's ok flag is not the seated trouble predicate. March 1 rows
+// lack that bit, so use inverse trouble only for those rows. This storage
+// column serves the tail filter and is not part of the public row shape.
+const OK_KEY: &str = "coalesce(source_ok, NOT trouble)";
+
+fn has_source_ok(connection: &Connection) -> StoreResult<bool> {
+    connection
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM pragma_table_info('deeds') WHERE name = 'source_ok' LIMIT 1)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| "sqlite-schema-read-failed")
+}
+
 fn install_read_indexes(connection: &mut Connection, deadline: Instant) -> StoreResult<()> {
     limit_busy(connection, deadline)?;
     if indexes_installed(connection)? {
@@ -365,6 +380,13 @@ fn install_read_indexes(connection: &mut Connection, deadline: Instant) -> Store
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|_| "sqlite-index-begin-failed")?;
+    if !has_source_ok(&tx)? {
+        tx.execute(
+            "ALTER TABLE deeds ADD COLUMN source_ok INTEGER CHECK (source_ok IN (0, 1))",
+            [],
+        )
+        .map_err(|_| "sqlite-tail-filter-column-failed")?;
+    }
     tx.execute_batch(&format!(
         "CREATE INDEX IF NOT EXISTS deeds_by_kind ON deeds (kind, id DESC);
          CREATE INDEX IF NOT EXISTS deeds_by_organ ON deeds (organ, id DESC);
@@ -373,7 +395,8 @@ fn install_read_indexes(connection: &mut Connection, deadline: Instant) -> Store
          CREATE INDEX IF NOT EXISTS deeds_by_routine ON deeds (routine, id DESC) WHERE routine IS NOT NULL;
          CREATE INDEX IF NOT EXISTS deeds_by_age ON deeds ({AGE_KEY});
          CREATE INDEX IF NOT EXISTS deeds_harmonia_runs ON deeds (organ, kind, id DESC)
-             WHERE organ = 'harmonia' AND kind = 'run';",
+             WHERE organ = 'harmonia' AND kind = 'run';
+         CREATE INDEX IF NOT EXISTS deeds_by_ok ON deeds ({OK_KEY}, id DESC);",
     ))
     .map_err(|_| "sqlite-index-install-failed")?;
     limit_busy(&tx, deadline)?;
@@ -522,8 +545,8 @@ pub(super) fn offer(
     limit_busy(&tx, deadline)?;
     tx.execute(
         "INSERT INTO deeds (schema, kind, at, level, routine, body, organ, target,
-                            who, verb, outcome, signal, duration_ms, families, trouble)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                            who, verb, outcome, signal, duration_ms, families, trouble, source_ok)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             policy.row.schema,
             kind,
@@ -539,7 +562,8 @@ pub(super) fn offer(
             signal,
             duration_ms,
             families,
-            trouble
+            trouble,
+            event.ok,
         ],
     )
     .map_err(|_| "sqlite-insert-failed")?;
@@ -741,6 +765,9 @@ pub(crate) fn read_page(offset: usize, limit: usize, filters: LogFilters) -> Sto
     selection.filter(format!("{AGE_KEY} >= julianday(?)"), filters.since);
     let ((rows, total), file_size) = read(|connection| {
         let total = selection.total(connection)?;
+        if limit == 0 || i64::try_from(offset).unwrap_or(i64::MAX) >= total {
+            return Ok((Vec::new(), total));
+        }
         Ok((selection.rows(connection, offset, limit)?, total))
     })?;
     Ok(DeedPage { rows, total, file_size })
@@ -754,8 +781,14 @@ pub(super) fn read_tail(filters: &TailFilters, limit: usize) -> StoreResult<(Vec
     selection.filter("organ = ?", filters.organ.clone());
     selection.filter("routine = ?", filters.correlation_id.clone());
     selection.filter("level = ?", level);
-    selection.filter("trouble = ?", filters.ok.map(|ok| i64::from(!ok)));
-    read(|connection| selection.rows(connection, 0, limit))
+    read(|connection| {
+        if let Some(ok) = filters.ok {
+            // A read-only CLI may run before the writer upgrades an old store.
+            let key = if has_source_ok(connection)? { OK_KEY } else { "NOT trouble" };
+            selection.filter(format!("({key}) = ?"), Some(i64::from(ok)));
+        }
+        selection.rows(connection, 0, limit)
+    })
 }
 
 pub(crate) fn read_harmonia_runs() -> StoreResult<Vec<Value>> {
