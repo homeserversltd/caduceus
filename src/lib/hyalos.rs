@@ -716,7 +716,7 @@ pub(crate) fn door_error(signal: &str) -> Value {
     json!({"ok": false, "firstMissingSignal": signal})
 }
 
-fn record_hyalos_change(kind: &str, mut attributes: Value, mode: OfferMode, started: Instant) -> bool {
+fn record_hyalos_change(kind: &str, mut attributes: Value, mode: OfferMode, started: Instant) {
     attributes["duration_ms"] = json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX));
     let event = reflection_event(Reflection {
         organ: "caduceus".into(),
@@ -726,7 +726,13 @@ fn record_hyalos_change(kind: &str, mut attributes: Value, mode: OfferMode, star
         attributes_redacted: attributes,
         ..Reflection::default()
     });
-    matches!(event.and_then(|event| record(&event, mode)), Ok(Disposition::Written))
+    // The deed describes an act that has already happened. A store failure
+    // is reported once by record; a rejected projection gets this fixed line.
+    if !matches!(event.and_then(|event| record(&event, mode)),
+        Ok(Disposition::Written | Disposition::Failed))
+    {
+        let _ = writeln!(std::io::stderr().lock(), "hyalos-deed-unwritten: {kind}");
+    }
 }
 
 pub(crate) fn clear_json(body: &Value) -> DoorResult {
@@ -760,26 +766,23 @@ pub(crate) fn clear_json(body: &Value) -> DoorResult {
         Ok(pass) => (pass.deleted, pass.interruption),
         Err(signal) => (0, Some(signal)),
     };
-    let mut signal = interruption;
     if deleted > 0 {
         let target = match filter {
             Some((kind, verb)) => format!("hyalos/{kind}/{verb}"),
             None => "hyalos/all".into(),
         };
-        if !record_hyalos_change(
+        record_hyalos_change(
             CLEAR_DEED,
             json!({"verb": "remove", "target": target, "outcome": format!("deleted {deleted}")}),
             OfferMode::Upkeep,
             started,
-        ) {
-            signal = Some("caduceus-hyalos-clear-deed-unwritten");
-        }
+        );
     }
     store::forget_troubles();
     Ok(json!({
-        "ok": signal.is_none(),
+        "ok": interruption.is_none(),
         "deleted": deleted,
-        "firstMissingSignal": signal.unwrap_or("none"),
+        "firstMissingSignal": interruption.unwrap_or("none"),
     }))
 }
 
@@ -790,21 +793,18 @@ pub(crate) fn level_json() -> Value {
 pub(crate) fn set_level_json(body: &Value) -> DoorResult {
     let level = body.get("level").and_then(Value::as_i64).ok_or(LEVEL_INVALID)?;
     let started = Instant::now();
-    let mut answer = match store::set_level(level) {
+    let answer = match store::set_level(level) {
         Ok(Some(answer)) => answer,
         Ok(None) => return Err(LEVEL_INVALID),
         Err(signal) => return Ok(door_error(&signal)),
     };
-    if answer["changed"] == true
-        && !record_hyalos_change(
+    if answer["changed"] == true {
+        record_hyalos_change(
             "hyalos-level",
             json!({"verb": "set", "target": format!("hyalos/level/{level}")}),
             OfferMode::Normal,
             started,
-        )
-    {
-        answer["ok"] = json!(false);
-        answer["firstMissingSignal"] = json!("caduceus-hyalos-level-deed-unwritten");
+        );
     }
     Ok(answer)
 }
