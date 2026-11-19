@@ -372,7 +372,7 @@ fn install_read_indexes(connection: &mut Connection, deadline: Instant) -> Store
          CREATE INDEX IF NOT EXISTS deeds_by_level ON deeds (level, id DESC);
          CREATE INDEX IF NOT EXISTS deeds_by_routine ON deeds (routine, id DESC) WHERE routine IS NOT NULL;
          CREATE INDEX IF NOT EXISTS deeds_by_age ON deeds ({AGE_KEY});
-         CREATE INDEX IF NOT EXISTS deeds_harmonia_runs ON deeds (id DESC)
+         CREATE INDEX IF NOT EXISTS deeds_harmonia_runs ON deeds (organ, kind, id DESC)
              WHERE organ = 'harmonia' AND kind = 'run';",
     ))
     .map_err(|_| "sqlite-index-install-failed")?;
@@ -589,18 +589,31 @@ pub(crate) fn prepare_existing() -> StoreResult<()> {
 }
 
 pub(crate) fn prune_expired() -> StoreResult<usize> {
+    // A quiet pass stays read-only: even opening a write connection can
+    // checkpoint an existing WAL as that connection closes.
+    let expired = format!("{AGE_KEY} < julianday('now', '-90 days')");
+    let (has_expired, _) = read(|connection| {
+        connection
+            .query_row(
+                &format!("SELECT EXISTS (SELECT 1 FROM deeds WHERE {expired} LIMIT 1)"),
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|_| "sqlite-prune-read-failed")
+    })?;
+    if !has_expired {
+        return Ok(0);
+    }
     let Some(mut connection) = existing_writer()? else {
         return Ok(0);
     };
-    if !has_deeds(&connection)? {
-        return Ok(0);
-    }
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|_| "sqlite-prune-begin-failed")?;
-    // Use the instant, not the spelling of an RFC3339 date with an offset.
+    // Recheck under the writer lock, using the instant rather than the
+    // spelling of an RFC3339 date with an offset.
     let deleted = tx
-        .execute(&format!("DELETE FROM deeds WHERE {AGE_KEY} < julianday('now', '-90 days')"), [])
+        .execute(&format!("DELETE FROM deeds WHERE {expired}"), [])
         .map_err(|_| "sqlite-prune-delete-failed")?;
     if deleted == 0 {
         return Ok(0);
