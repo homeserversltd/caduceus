@@ -1,5 +1,6 @@
 use crate::shared::hyalos::TailFilters;
 use crate::shared::{hyalos, policy};
+use crate::routes::leaf_log_clear::hand;
 use serde_json::{json, Value};
 
 pub fn command(args: &[String]) -> i32 {
@@ -19,15 +20,14 @@ pub fn command(args: &[String]) -> i32 {
         }
     }
 
-    let door_result = match args {
-        [verb, rest @ ..] if verb == "clear" => Some(clear_args(rest)),
-        [verb, rest @ ..] if verb == "level" => Some(level_args(rest)),
-        _ => None,
-    };
-    if let Some(result) = door_result {
-        let body = result.unwrap_or_else(hyalos::door_error);
-        println!("{}", serde_json::to_string_pretty(&body).unwrap());
-        return i32::from(body["ok"] != true);
+    match args {
+        [verb, rest @ ..] if verb == "clear" => {
+            return hand::command(crate::routes::LEAF_LOG_CLEAR_CANONICAL, clear_args(rest).map(Some));
+        }
+        [verb, rest @ ..] if verb == "level" => {
+            return hand::command(crate::routes::LEAF_LOG_LEVEL_CANONICAL, level_args(rest));
+        }
+        _ => {}
     }
 
     let result = match args {
@@ -98,26 +98,25 @@ pub fn tail_json(filters: TailFilters) -> Result<Value, String> {
     hyalos::tail_json(filters)
 }
 
-fn clear_args(args: &[String]) -> hyalos::DoorResult {
-    let body = match args {
-        [] => json!({}),
-        [key, kind, flag, verb] if key == "--kind" && flag == "--verb" => {
-            json!({"kind": kind, "verb": verb})
+fn clear_args(args: &[String]) -> Result<Value, &'static str> {
+    match args {
+        [] => Ok(json!({})),
+        [first, a, second, b] if first == "--kind" && second == "--verb" => {
+            Ok(json!({"kind": a, "verb": b}))
         }
-        [flag, verb, key, kind] if key == "--kind" && flag == "--verb" => {
-            json!({"kind": kind, "verb": verb})
+        [first, a, second, b] if first == "--verb" && second == "--kind" => {
+            Ok(json!({"kind": b, "verb": a}))
         }
-        _ => return Err(hyalos::CLEAR_INVALID),
-    };
-    hyalos::clear_json(&body)
+        _ => Err(hyalos::CLEAR_INVALID),
+    }
 }
 
-fn level_args(args: &[String]) -> hyalos::DoorResult {
+fn level_args(args: &[String]) -> Result<Option<Value>, &'static str> {
     match args {
-        [] => Ok(hyalos::level_json()),
+        [] => Ok(None),
         [level] => {
             let level = level.parse::<i64>().map_err(|_| hyalos::LEVEL_INVALID)?;
-            hyalos::set_level_json(&json!({"level": level}))
+            Ok(Some(json!({"level": level})))
         }
         _ => Err(hyalos::LEVEL_INVALID),
     }

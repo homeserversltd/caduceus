@@ -3,6 +3,7 @@ use chrono::{TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::io::Write;
+use std::time::Instant;
 
 #[path = "hyalos_store.rs"]
 mod store;
@@ -715,7 +716,8 @@ pub(crate) fn door_error(signal: &str) -> Value {
     json!({"ok": false, "firstMissingSignal": signal})
 }
 
-fn record_hyalos_change(kind: &str, attributes: Value, mode: OfferMode) -> bool {
+fn record_hyalos_change(kind: &str, mut attributes: Value, mode: OfferMode, started: Instant) -> bool {
+    attributes["duration_ms"] = json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX));
     let event = reflection_event(Reflection {
         organ: "caduceus".into(),
         kind: kind.into(),
@@ -753,6 +755,7 @@ pub(crate) fn clear_json(body: &Value) -> DoorResult {
         _ => return Err(CLEAR_INVALID),
     };
 
+    let started = Instant::now();
     let (deleted, interruption) = match store::clear(filter) {
         Ok(pass) => (pass.deleted, pass.interruption),
         Err(signal) => (0, Some(signal)),
@@ -767,6 +770,7 @@ pub(crate) fn clear_json(body: &Value) -> DoorResult {
             CLEAR_DEED,
             json!({"verb": "remove", "target": target, "outcome": format!("deleted {deleted}")}),
             OfferMode::Upkeep,
+            started,
         ) {
             signal = Some("caduceus-hyalos-clear-deed-unwritten");
         }
@@ -785,6 +789,7 @@ pub(crate) fn level_json() -> Value {
 
 pub(crate) fn set_level_json(body: &Value) -> DoorResult {
     let level = body.get("level").and_then(Value::as_i64).ok_or(LEVEL_INVALID)?;
+    let started = Instant::now();
     let mut answer = match store::set_level(level) {
         Ok(Some(answer)) => answer,
         Ok(None) => return Err(LEVEL_INVALID),
@@ -795,6 +800,7 @@ pub(crate) fn set_level_json(body: &Value) -> DoorResult {
             "hyalos-level",
             json!({"verb": "set", "target": format!("hyalos/level/{level}")}),
             OfferMode::Normal,
+            started,
         )
     {
         answer["ok"] = json!(false);

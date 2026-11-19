@@ -3,6 +3,9 @@ use crate::shared::{hyalos, policy};
 use axum::{body::Bytes, http::StatusCode, routing::post, Json, Router};
 use serde_json::{json, Value};
 
+#[path = "hand.rs"]
+pub(crate) mod hand;
+
 const COMMAND: &str = "hyalos clear";
 
 async fn http(body: Bytes) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
