@@ -118,6 +118,17 @@ pub(super) fn collect(cache: &mut HardwareCache, hardware: Option<&Value>) -> (V
         let (Some(id), Some(vendor), Some(source)) = (spec.get("id").and_then(Value::as_str), spec.get("vendor").and_then(Value::as_str), spec.get("source").and_then(Value::as_str)) else { continue };
         let mut row = serde_json::Map::new();
         row.insert("id".into(), json!(id)); row.insert("vendor".into(), json!(vendor));
+        // Keep the declared slots, but do not attribute readings to either
+        // card when their shared vendor selector cannot distinguish them.
+        if let Some(selector) = spec["card_match"].as_str().filter(|s| s.starts_with("vendor:")) {
+            let shared = gpu_specs.into_iter().flatten()
+                .filter(|other| other["card_match"].as_str() == Some(selector))
+                .nth(1).is_some();
+            if shared {
+                devices.push(Value::Object(row));
+                continue;
+            }
+        }
         match source {
             "i915-rc6" => {
                 let Some(device) = sysfs_device(spec) else { devices.push(Value::Object(row)); continue };

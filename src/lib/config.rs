@@ -154,11 +154,7 @@ pub(crate) fn hardware_for_profile() -> Option<Value> {
     let mut gpus = Vec::new();
     if let Some(cards) = cards {
         for card in cards.split('-') {
-            let gpu = makers["card_makers"].get(card)?;
-            // Aliases for the same row do not declare another device.
-            if !gpus.contains(&gpu) {
-                gpus.push(gpu);
-            }
+            gpus.push(makers["card_makers"].get(card)?);
         }
     } else {
         gpus.push(&cpu["chip_graphics"]);
