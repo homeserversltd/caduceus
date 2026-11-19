@@ -166,10 +166,8 @@ fn project_attributes(event: &ChannelEvent, run_profile: bool) -> Result<Value, 
                 }
                 None => json!(short),
             };
-            // The ordinary 48-byte target label can be empty for a non-ASCII name.
-            if attributes["target"].is_null() {
-                attributes["target"] = json!(prefix(filename, 48, 48));
-            }
+            // An upload target names the file, not an ASCII-filtered label.
+            attributes["target"] = json!(prefix(filename, 48, 48));
         }
         if let Some(destination) = source.get("destination").and_then(Value::as_str) {
             attributes["destination"] = json!(prefix(destination, 192, 192));
