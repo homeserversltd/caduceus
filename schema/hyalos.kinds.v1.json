@@ -1,0 +1,356 @@
+{
+ "schema": "hyalos.kinds.v1",
+ "kinds": [
+  "change",
+  "access",
+  "state",
+  "fault",
+  "run",
+  "step"
+ ],
+ "bad_outcomes": [
+  "failed",
+  "failure",
+  "refused",
+  "held",
+  "error"
+ ],
+ "note": "First matching rule wins. A rule matches when every field it names matches: organ and verb exactly; kind exactly or one of a list; outcome exactly (lower-cased); signal exactly; bad true when the event's ok is false or its outcome, lower-cased, is in bad_outcomes, bad false when not. A rule gives the row's kind and level.",
+ "rules": [
+  {
+   "organ": "harmonia",
+   "kind": [
+    "harmonia.run_profile",
+    "harmonia.transaction"
+   ],
+   "bad": true,
+   "row": {
+    "kind": "run",
+    "level": 1
+   }
+  },
+  {
+   "organ": "harmonia",
+   "kind": [
+    "harmonia.run_profile",
+    "harmonia.transaction"
+   ],
+   "row": {
+    "kind": "run",
+    "level": 3
+   }
+  },
+  {
+   "organ": "harmonia",
+   "bad": true,
+   "row": {
+    "kind": "step",
+    "level": 1
+   }
+  },
+  {
+   "organ": "harmonia",
+   "kind": [
+    "harmonia.atom",
+    "harmonia.molt",
+    "xenia"
+   ],
+   "row": {
+    "kind": "step",
+    "level": 5
+   }
+  },
+  {
+   "organ": "harmonia",
+   "kind": [
+    "harmonia.module.outcome",
+    "harmonia.module-outcome"
+   ],
+   "outcome": "changed",
+   "row": {
+    "kind": "step",
+    "level": 4
+   }
+  },
+  {
+   "organ": "harmonia",
+   "kind": [
+    "harmonia.module.outcome",
+    "harmonia.module-outcome"
+   ],
+   "row": {
+    "kind": "step",
+    "level": 5
+   }
+  },
+  {
+   "organ": "harmonia",
+   "row": {
+    "kind": "step",
+    "level": 4
+   }
+  },
+  {
+   "organ": "pid2",
+   "bad": true,
+   "row": {
+    "kind": "state",
+    "level": 1
+   }
+  },
+  {
+   "organ": "pid2",
+   "kind": [
+    "route"
+   ],
+   "row": {
+    "kind": "state",
+    "level": 5
+   }
+  },
+  {
+   "organ": "pid2",
+   "kind": [
+    "line",
+    "program"
+   ],
+   "row": {
+    "kind": "state",
+    "level": 3
+   }
+  },
+  {
+   "organ": "pid2",
+   "row": {
+    "kind": "state",
+    "level": 2
+   }
+  },
+  {
+   "organ": "sbin",
+   "verb": [
+    "nap",
+    "forgejo-backup-b2",
+    "backblaze-bucket-run",
+    "nas-sync-mirror",
+    "converge"
+   ],
+   "bad": true,
+   "row": {
+    "kind": "run",
+    "level": 1
+   }
+  },
+  {
+   "organ": "sbin",
+   "verb": [
+    "nap",
+    "forgejo-backup-b2",
+    "backblaze-bucket-run",
+    "nas-sync-mirror",
+    "converge"
+   ],
+   "row": {
+    "kind": "run",
+    "level": 3
+   }
+  },
+  {
+   "organ": "sbin",
+   "row": {
+    "kind": "change",
+    "level": 1
+   }
+  },
+  {
+   "organ": "caduceus",
+   "kind": [
+    "caduceus.maintenance"
+   ],
+   "bad": true,
+   "row": {
+    "kind": "run",
+    "level": 1
+   }
+  },
+  {
+   "organ": "caduceus",
+   "kind": [
+    "caduceus.maintenance"
+   ],
+   "row": {
+    "kind": "run",
+    "level": 3
+   }
+  },
+  {
+   "organ": "caduceus",
+   "verb": [
+    "set",
+    "admit",
+    "remove"
+   ],
+   "row": {
+    "kind": "change",
+    "level": 1
+   }
+  },
+  {
+   "organ": "caduceus",
+   "verb": [
+    "observe"
+   ],
+   "row": {
+    "kind": "step",
+    "level": 5
+   }
+  },
+  {
+   "organ": "caduceus",
+   "bad": true,
+   "row": {
+    "kind": "fault",
+    "level": 1
+   }
+  },
+  {
+   "organ": "caduceus",
+   "row": {
+    "kind": "change",
+    "level": 4
+   }
+  },
+  {
+   "organ": "caduceus-attendance",
+   "verb": [
+    "open"
+   ],
+   "row": {
+    "kind": "access",
+    "level": 1
+   }
+  },
+  {
+   "organ": "caduceus-attendance",
+   "verb": [
+    "touch"
+   ],
+   "row": {
+    "kind": "access",
+    "level": 4
+   }
+  },
+  {
+   "organ": "caduceus-attendance",
+   "verb": [
+    "invalidate"
+   ],
+   "bad": true,
+   "row": {
+    "kind": "access",
+    "level": 4
+   }
+  },
+  {
+   "organ": "caduceus-attendance",
+   "row": {
+    "kind": "access",
+    "level": 2
+   }
+  },
+  {
+   "organ": "coronatio",
+   "signal": "tab-not-found",
+   "row": {
+    "kind": "fault",
+    "level": 5
+   }
+  },
+  {
+   "organ": "coronatio",
+   "bad": true,
+   "row": {
+    "kind": "fault",
+    "level": 2
+   }
+  },
+  {
+   "organ": "coronatio",
+   "row": {
+    "kind": "step",
+    "level": 5
+   }
+  },
+  {
+   "organ": "notifications",
+   "row": {
+    "kind": "fault",
+    "level": 2
+   }
+  },
+  {
+   "organ": "network-dns-blocklist",
+   "verb": [
+    "converge"
+   ],
+   "bad": true,
+   "row": {
+    "kind": "run",
+    "level": 1
+   }
+  },
+  {
+   "organ": "network-dns-blocklist",
+   "verb": [
+    "converge"
+   ],
+   "row": {
+    "kind": "run",
+    "level": 3
+   }
+  },
+  {
+   "organ": "network-dns-blocklist",
+   "row": {
+    "kind": "change",
+    "level": 1
+   }
+  },
+  {
+   "organ": "keyman",
+   "row": {
+    "kind": "change",
+    "level": 1
+   }
+  },
+  {
+   "organ": "file-ingress",
+   "row": {
+    "kind": "change",
+    "level": 1
+   }
+  },
+  {
+   "kind": [
+    "upload"
+   ],
+   "row": {
+    "kind": "change",
+    "level": 1
+   }
+  },
+  {
+   "bad": true,
+   "row": {
+    "kind": "fault",
+    "level": 1
+   }
+  },
+  {
+   "row": {
+    "kind": "step",
+    "level": 5
+   }
+  }
+ ]
+}

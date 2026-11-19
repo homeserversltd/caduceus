@@ -383,6 +383,20 @@ fn main() {
     fs::write(Path::new(&out_dir).join("protocol_seat.rs"), generated)
         .expect("generated protocol metadata must be writable");
 
+    // Like the channel event, check identities against the canonical JSON at
+    // build time. The writer reads these seats from disk, not from baked rules.
+    let mut hyalos_seats = String::new();
+    for (name, id) in [("ROW_SCHEMA", "hyalos.row.v1"), ("KINDS_SCHEMA", "hyalos.kinds.v1")] {
+        let path = format!("schema/{id}.json");
+        println!("cargo:rerun-if-changed={path}");
+        let bytes = fs::read_to_string(&path).expect("Hyalos writer seat readable");
+        let seat: serde_json::Value = serde_json::from_str(&bytes).expect("Hyalos writer seat valid JSON");
+        assert_eq!(seat["schema"].as_str(), Some(id), "Hyalos writer seat identity");
+        hyalos_seats.push_str(&format!("const {name}: &str = {};\n", rust_string(id)));
+    }
+    fs::write(Path::new(&out_dir).join("hyalos_seats.rs"), hyalos_seats)
+        .expect("generated Hyalos seat identities must be writable");
+
     // The hardware registry is authored at build time and embedded in the binary.
     let mut hardware = serde_json::Map::new();
     let hardware_dir = Path::new("schema/hardware");

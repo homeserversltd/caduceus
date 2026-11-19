@@ -6,6 +6,10 @@ use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
+use std::path::Path;
+
+#[path = "hyalos_store.rs"]
+mod store;
 
 pub const EVENT_SCHEMA: &str = crate::protocol::hyalos_event_schema();
 pub const CHANNEL_PATH: &str = "/var/log/appliance/appliance.log";
@@ -296,6 +300,8 @@ pub struct Reflection {
     #[serde(default = "default_ok")]
     pub ok: bool,
     pub message: String,
+    #[serde(default)]
+    pub debug: Value,
     #[serde(
         default,
         alias = "attributesRedacted",
@@ -430,8 +436,9 @@ fn reflection_event(input: Reflection) -> Result<ChannelEvent, String> {
 }
 
 pub fn reflect(input: Reflection) -> Result<ChannelEvent, String> {
+    let debug = input.debug.as_bool();
     let event = reflection_event(input)?;
-    append(&event)?;
+    append(&event, debug)?;
     Ok(event)
 }
 
@@ -453,9 +460,10 @@ pub fn reflect_json(input: Value) -> Result<Value, String> {
 pub(crate) fn reflect_json_with_stderr_fallback(input: Value) -> Result<bool, String> {
     let reflection: Reflection =
         serde_json::from_value(input).map_err(|err| format!("hyalos-reflection-invalid: {err}"))?;
+    let debug = reflection.debug.as_bool();
     let event = reflection_event(reflection)?;
-    let line = channel_line(&event)?;
-    if append(&event).is_ok() {
+    let (_, line) = channel_line(&event)?;
+    if append(&event, debug).is_ok() {
         Ok(true)
     } else {
         // A closed process stream must not panic or change the applied state.
@@ -481,6 +489,7 @@ pub fn append_json(input: Value) -> Result<Value, String> {
     if input.get("schema").and_then(Value::as_str) != Some(EVENT_SCHEMA) {
         return Err("hyalos-channel-event-schema-invalid".to_string());
     }
+    let debug = input.get("debug").and_then(Value::as_bool);
     let mut event: ChannelEvent = serde_json::from_value(input)
         .map_err(|err| format!("hyalos-channel-event-invalid: {err}"))?;
     if event.organ.trim().is_empty()
@@ -491,7 +500,7 @@ pub fn append_json(input: Value) -> Result<Value, String> {
     }
     event.level = normalize_level(Some(event.level))?;
     event.attributes_redacted = redact(event.attributes_redacted);
-    append(&event)?;
+    append(&event, debug)?;
     Ok(json!({
         "schema": "caduceus.hyalos.append.v1",
         "ok": true,
@@ -561,7 +570,7 @@ fn compact_duplicate_run_ids(event: &mut ChannelEvent) {
     compact_duplicate_id(&mut event.strike_id, &mut seen);
 }
 
-fn channel_line(event: &ChannelEvent) -> Result<Vec<u8>, String> {
+fn channel_line(event: &ChannelEvent) -> Result<(ChannelEvent, Vec<u8>), String> {
     let run_profile = is_run_profile_kind(&event.kind);
     let disk_event = project_event(event.clone())?;
     let mut disk_event = disk_event;
@@ -595,7 +604,7 @@ fn channel_line(event: &ChannelEvent) -> Result<Vec<u8>, String> {
             set_projected_failures(&mut disk_event, &failures, omitted);
         }
     }
-    Ok(line)
+    Ok((disk_event, line))
 }
 
 // The open file description holds the advisory lock until the File is dropped.
@@ -611,19 +620,37 @@ pub(crate) fn lock_channel(file: &File) -> std::io::Result<()> {
     }
 }
 
-fn append(event: &ChannelEvent) -> Result<(), String> {
+fn append(event: &ChannelEvent, debug: Option<bool>) -> Result<(), String> {
     let path = config::path(CHANNEL_PATH);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
+    // Keep the file's original ordering of errors, even if its I/O fails.
+    let parent = path.parent().map_or(Ok(()), |parent| {
+        fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))
+    });
+    let (projected, line) = match channel_line(event) {
+        Ok(record) => record,
+        Err(error) => return parent.and(Err(error)),
+    };
+    let appended = parent.and_then(|()| append_line(&path, &line));
+
+    // The existing CLI carries the bit through its JSON --payload, without
+    // adding a flag or letting it into the file projection.
+    let debug = debug
+        .or_else(|| event.attributes_redacted["debug"].as_bool())
+        .unwrap_or(false);
+    if let Err(error) = store::offer(event, &projected, debug) {
+        let _ = writeln!(std::io::stderr().lock(), "hyalos-store-write-failed: {error}");
     }
-    let line = channel_line(event)?;
+    appended
+}
+
+fn append_line(path: &Path, line: &[u8]) -> Result<(), String> {
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&path)
+        .open(path)
         .map_err(|err| format!("{}: {err}", path.display()))?;
     lock_channel(&file).map_err(|err| format!("hyalos-channel-lock-failed: {err}"))?;
-    file.write_all(&line)
+    file.write_all(line)
         .map_err(|err| format!("{}: {err}", path.display()))
 }
 

@@ -1,0 +1,47 @@
+{
+  "schema": "hyalos.row.v1",
+  "schema_version": "1.0.0",
+  "role": "One projected appliance deed in the Caduceus SQLite store",
+  "authority": {"owner": "caduceus", "path": "schema/hyalos.row.v1.json"},
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Only the kernel is required. Missing or null optional fields select the primitive; unknown fields are skipped."
+  },
+  "required": ["id", "schema", "kind", "at", "level"],
+  "rooms": {
+    "kernel": ["id", "schema", "kind", "at", "level"],
+    "routine": ["routine"],
+    "target": ["body", "organ", "target"],
+    "flags": ["who", "verb", "outcome", "signal", "duration_ms", "families"]
+  },
+  "fields": {
+    "id": {"type": "integer", "description": "SQLite row id, in insertion order."},
+    "schema": {"type": "string", "const": "hyalos.row.v1"},
+    "kind": {"type": "string", "description": "One of the kinds in hyalos.kinds.v1."},
+    "at": {"type": "string", "description": "Projected event timestamp."},
+    "level": {"type": "integer", "description": "A write level from hyalos.kinds.v1."},
+    "routine": {"type": ["string", "null"], "description": "Run or routine id when supplied."},
+    "body": {"type": ["string", "null"]},
+    "organ": {"type": ["string", "null"]},
+    "target": {"type": ["string", "null"], "maxLength": 48},
+    "who": {"type": ["string", "null"]},
+    "verb": {"type": ["string", "null"]},
+    "outcome": {"type": ["string", "null"]},
+    "signal": {"type": ["string", "null"]},
+    "duration_ms": {
+      "type": ["integer", "null"],
+      "description": "Unsigned projected duration; SQLite stores values above its signed integer range as exact decimal text."
+    },
+    "families": {
+      "type": ["object", "null"],
+      "description": "Stored as one nullable JSON object. Only the following bounded, already projected attributes are copied into named families.",
+      "projected_fields": {
+        "diagnostic": ["first_missing_field"],
+        "maintenance": ["freed_bytes", "rotated"],
+        "arpeggio": ["stages", "failedStage"],
+        "dictate": ["state", "chars"],
+        "harmonia": ["profile", "finished_at", "module_count", "updated_count", "failures", "failures_more"]
+      }
+    }
+  }
+}
