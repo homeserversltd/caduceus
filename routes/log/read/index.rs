@@ -28,7 +28,7 @@ pub fn command(args: &[String]) -> i32 {
                 "ok": option_value(rest, "--ok").map(|value| value != "false").unwrap_or(true),
                 "attributes_redacted": option_json(rest, "--payload").unwrap_or_else(|| json!({}))
             });
-            for (flag, field) in [
+            let labels = [
                 ("--body-id", "body_id"),
                 ("--world", "world"),
                 ("--level", "level"),
@@ -37,9 +37,23 @@ pub fn command(args: &[String]) -> i32 {
                 ("--work-id", "work_id"),
                 ("--review-id", "review_id"),
                 ("--strike-id", "strike_id"),
-            ] {
+            ];
+            for (flag, field) in labels {
                 if let Some(item) = option_value(rest, flag) {
                     value[field] = json!(item);
+                }
+            }
+            // A flag is not the value of an existing option.
+            let mut options = rest.iter();
+            while let Some(option) = options.next() {
+                if option == "--debug" {
+                    value["debug"] = json!(true);
+                    break;
+                }
+                if matches!(option.as_str(), "--ok" | "--payload")
+                    || labels.iter().any(|(flag, _)| option.as_str() == *flag)
+                {
+                    let _ = options.next();
                 }
             }
             hyalos::reflect_json(value)

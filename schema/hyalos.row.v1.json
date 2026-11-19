@@ -12,7 +12,7 @@
     "kernel": ["id", "schema", "kind", "at", "level"],
     "routine": ["routine"],
     "target": ["body", "organ", "target"],
-    "flags": ["who", "verb", "outcome", "signal", "duration_ms", "families"]
+    "flags": ["who", "verb", "outcome", "signal", "duration_ms", "families", "trouble"]
   },
   "fields": {
     "id": {"type": "integer", "description": "SQLite row id, in insertion order."},
@@ -28,6 +28,7 @@
     "verb": {"type": ["string", "null"]},
     "outcome": {"type": ["string", "null"]},
     "signal": {"type": ["string", "null"]},
+    "trouble": {"type": "boolean", "description": "Whether the seated bad predicate identified trouble; stored as 0 or 1 in SQLite."},
     "duration_ms": {
       "type": ["integer", "null"],
       "description": "Unsigned projected duration; SQLite stores values above its signed integer range as exact decimal text."

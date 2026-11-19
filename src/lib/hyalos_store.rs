@@ -2,20 +2,133 @@
 use super::{metadata_alias, ChannelEvent};
 use crate::shared::config;
 use rusqlite::{
-    params, types::Value as SqlValue, Connection, OptionalExtension, TransactionBehavior,
+    params, types::Value as SqlValue, Connection, OpenFlags, OptionalExtension, TransactionBehavior,
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::sync::{Condvar, LazyLock, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 include!(concat!(env!("OUT_DIR"), "/hyalos_seats.rs"));
 
 const DB_PATH: &str = "var/lib/caduceus/hyalos.sqlite3";
+const STORE_WAIT: Duration = Duration::from_millis(250);
+const TROUBLE_CACHE_KEYS: usize = 1024;
 type StoreResult<T> = Result<T, &'static str>;
-static WRITER: Mutex<Option<Connection>> = Mutex::new(None);
+static WRITER: LazyLock<Mutex<Option<Store>>> =
+    LazyLock::new(|| Mutex::new(Some(Store::default())));
+static WRITER_READY: Condvar = Condvar::new();
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct Key {
+    organ: String,
+    verb: Option<String>,
+    target: Option<String>,
+}
+
+#[derive(Default)]
+struct Store {
+    writer: Option<Connection>,
+    reader: Option<Connection>,
+    data_version: Option<i64>,
+    troubles: HashMap<Key, bool>,
+}
+
+// Lend the connection out without holding the mutex across SQLite I/O.
+// A queued deed spends the same deadline on the writer slot and SQLite locks.
+struct WriterLease(Store);
+
+impl WriterLease {
+    fn acquire(deadline: Instant) -> StoreResult<Self> {
+        let slot = WRITER.lock().map_err(|_| "sqlite-writer-lock-failed")?;
+        let (mut slot, _) = WRITER_READY
+            .wait_timeout_while(
+                slot,
+                deadline.saturating_duration_since(Instant::now()),
+                |slot| slot.is_none(),
+            )
+            .map_err(|_| "sqlite-writer-lock-failed")?;
+        slot.take().map(Self).ok_or("sqlite-writer-busy")
+    }
+}
+
+impl Drop for WriterLease {
+    fn drop(&mut self) {
+        *WRITER.lock().unwrap_or_else(|error| error.into_inner()) =
+            Some(std::mem::take(&mut self.0));
+        WRITER_READY.notify_one();
+    }
+}
+
+impl Store {
+    fn remember(&mut self, key: Key, trouble: bool) {
+        if self.troubles.len() >= TROUBLE_CACHE_KEYS && !self.troubles.contains_key(&key) {
+            self.troubles.clear(); // A forgotten key is read again, never guessed.
+        }
+        self.troubles.insert(key, trouble);
+    }
+
+    fn newest_is_trouble(&mut self, key: &Key, deadline: Instant) -> StoreResult<bool> {
+        let connection = match (&self.writer, &mut self.reader) {
+            (Some(connection), _) => connection,
+            (None, Some(connection)) => connection,
+            (None, reader) => {
+                let path = config::path(DB_PATH);
+                if !path.try_exists().map_err(|_| "sqlite-path-check-failed")? {
+                    return Ok(false); // A cold drop never creates the database.
+                }
+                reader.insert(
+                    Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                        .map_err(|_| "sqlite-read-open-failed")?,
+                )
+            }
+        };
+        // The daemon and native CLI can both write this file. A commit from
+        // another connection invalidates the hints before they can drop a recovery.
+        limit_busy(connection, deadline)?;
+        let version = connection
+            .query_row("PRAGMA data_version", [], |row| row.get(0))
+            .map_err(|_| "sqlite-data-version-failed")?;
+        if self.data_version != Some(version) {
+            self.troubles.clear();
+            self.data_version = Some(version);
+        }
+        if let Some(&trouble) = self.troubles.get(key) {
+            return Ok(trouble);
+        }
+        limit_busy(connection, deadline)?;
+        let trouble = connection
+            .query_row(
+                "SELECT trouble FROM deeds WHERE organ = ?1 AND verb IS ?2 AND target IS ?3
+             ORDER BY id DESC LIMIT 1",
+                params![key.organ, key.verb, key.target],
+                |row| row.get::<_, bool>(0),
+            )
+            .optional()
+            .map_err(|_| "sqlite-trouble-check-failed")?
+            .unwrap_or(false);
+        self.remember(key.clone(), trouble);
+        Ok(trouble)
+    }
+
+    fn writable(&mut self, deadline: Instant) -> StoreResult<&mut Connection> {
+        if self.writer.is_none() {
+            self.writer = Some(open(deadline)?);
+            self.reader = None;
+            self.data_version = None;
+            self.troubles.clear();
+        }
+        Ok(self.writer.as_mut().expect("writer opened"))
+    }
+}
+
+fn limit_busy(connection: &Connection, deadline: Instant) -> StoreResult<()> {
+    connection
+        .busy_timeout(deadline.saturating_duration_since(Instant::now()))
+        .map_err(|_| "sqlite-busy-timeout-failed")
+}
 
 #[derive(Deserialize)]
 struct RowSeat {
@@ -111,11 +224,12 @@ fn load_policy() -> StoreResult<Policy> {
 }
 
 fn policy() -> StoreResult<&'static Policy> {
-    static POLICY: OnceLock<StoreResult<Policy>> = OnceLock::new();
-    POLICY
-        .get_or_init(load_policy)
-        .as_ref()
-        .map_err(|error| *error)
+    static POLICY: OnceLock<Policy> = OnceLock::new();
+    if let Some(policy) = POLICY.get() {
+        return Ok(policy);
+    }
+    let loaded = load_policy()?; // Only a valid pair is published; try again on the next deed.
+    Ok(POLICY.get_or_init(|| loaded))
 }
 
 impl Policy {
@@ -187,30 +301,31 @@ impl Policy {
     }
 }
 
-fn open() -> StoreResult<Connection> {
+fn open(deadline: Instant) -> StoreResult<Connection> {
     let path = config::path(DB_PATH);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|_| "sqlite-parent-failed")?;
     }
     let connection = Connection::open(path).map_err(|_| "sqlite-open-failed")?;
-    connection
-        .busy_timeout(Duration::from_secs(5))
-        .map_err(|_| "sqlite-busy-timeout-failed")?;
+    limit_busy(&connection, deadline)?;
     let auto_vacuum: i64 = connection
         .query_row("PRAGMA auto_vacuum", [], |row| row.get(0))
         .map_err(|_| "sqlite-auto-vacuum-failed")?;
     if auto_vacuum != 2 {
         // Set the file's mode before the first table, not on every CLI open.
+        limit_busy(&connection, deadline)?;
         connection
             .execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")
             .map_err(|_| "sqlite-auto-vacuum-failed")?;
     }
+    limit_busy(&connection, deadline)?;
     let mode: String = connection
         .query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))
         .map_err(|_| "sqlite-wal-failed")?;
     if mode != "wal" {
         return Err("sqlite-wal-failed");
     }
+    limit_busy(&connection, deadline)?;
     connection
         .execute_batch(
             "PRAGMA synchronous=NORMAL;
@@ -232,9 +347,10 @@ fn open() -> StoreResult<Connection> {
              outcome TEXT,
              signal TEXT,
              duration_ms ANY,
-             families TEXT
+             families TEXT,
+             trouble INTEGER NOT NULL CHECK (trouble IN (0, 1))
          ) STRICT;
-         CREATE INDEX IF NOT EXISTS deeds_latest ON deeds (organ, kind, verb, target, id DESC);",
+         CREATE INDEX IF NOT EXISTS deeds_latest ON deeds (organ, verb, target, id DESC);",
         )
         .map_err(|_| "sqlite-initialize-failed")?;
     Ok(connection)
@@ -246,14 +362,12 @@ pub(super) fn offer(
     debug: bool,
 ) -> StoreResult<()> {
     let policy = policy()?;
-    let (class, bad) = policy.classify(event, projected)?;
-    let level = if debug {
-        policy.highest
-    } else if class.level <= policy.body_level() {
-        class.level
-    } else {
-        return Ok(()); // No SQLite open, transaction, or query on a level drop.
-    };
+    let (class, trouble) = policy.classify(event, projected)?;
+    let allowed = debug || class.level <= policy.body_level();
+    if !allowed && trouble {
+        return Ok(()); // A high-level trouble cannot be a recovery.
+    }
+    let level = if debug { policy.highest } else { class.level };
 
     let fields = &projected.attributes_redacted;
     let field = |name: &str| fields[name].as_str();
@@ -278,6 +392,18 @@ pub(super) fn offer(
             }),
         )
     };
+    let key = Key {
+        organ: organ.to_owned(),
+        verb: verb.map(str::to_owned),
+        target: target.map(str::to_owned),
+    };
+    let deadline = Instant::now() + STORE_WAIT;
+    let mut lease = WriterLease::acquire(deadline)?;
+    let store = &mut lease.0;
+    if !allowed && !store.newest_is_trouble(&key, deadline)? {
+        return Ok(()); // No write transaction or schema setup on a level drop.
+    }
+
     let duration_ms = fields["duration_ms"].as_u64().map(|ms| {
         i64::try_from(ms)
             .map(SqlValue::Integer)
@@ -285,35 +411,39 @@ pub(super) fn offer(
     });
     let families = policy.families(fields);
 
-    let mut writer = WRITER.lock().map_err(|_| "sqlite-writer-lock-failed")?;
-    let connection = match writer.as_mut() {
-        Some(connection) => connection,
-        None => writer.insert(open()?),
-    };
-    // Lock the writer before reading the newest row so concurrent CLI and
-    // server writers cannot both admit the same failure or state.
+    let connection = store.writable(deadline)?;
+    limit_busy(connection, deadline)?;
+    // Recheck under the write lock: a different process may have changed the
+    // key since the read-only lookup. Concurrent recoveries must not both write.
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|_| "sqlite-begin-failed")?;
-    if bad || kind == "state" {
-        let repeated = tx
+    if !allowed || trouble || kind == "state" {
+        limit_busy(&tx, deadline)?;
+        let latest = tx
             .query_row(
-                "SELECT (outcome IS ?5) AND (signal IS ?6) FROM deeds
-             WHERE organ = ?1 AND kind = ?2 AND verb IS ?3 AND target IS ?4
+                "SELECT trouble, (outcome IS ?4) AND (signal IS ?5) AND (families IS ?6) FROM deeds
+             WHERE organ = ?1 AND verb IS ?2 AND target IS ?3
              ORDER BY id DESC LIMIT 1",
-                params![organ, kind, verb, target, outcome, signal],
-                |row| row.get::<_, bool>(0),
+                params![organ, verb, target, outcome, signal, families],
+                |row| Ok((row.get::<_, bool>(0)?, row.get::<_, bool>(1)?)),
             )
             .optional()
             .map_err(|_| "sqlite-repeat-check-failed")?;
-        if repeated == Some(true) {
-            return Ok(()); // The transaction drops without changing any rows.
+        if !allowed && !latest.is_some_and(|(prior_trouble, _)| prior_trouble) {
+            return Ok(()); // No longer a recovery; leave the store unchanged.
+        }
+        // A transition into or out of trouble is not a repeat even when the
+        // sender's three projected fields happen to be identical.
+        if (trouble || kind == "state") && latest == Some((trouble, true)) {
+            return Ok(());
         }
     }
+    limit_busy(&tx, deadline)?;
     tx.execute(
         "INSERT INTO deeds (schema, kind, at, level, routine, body, organ, target,
-                            who, verb, outcome, signal, duration_ms, families)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                            who, verb, outcome, signal, duration_ms, families, trouble)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             policy.row.schema,
             kind,
@@ -328,9 +458,13 @@ pub(super) fn offer(
             outcome,
             signal,
             duration_ms,
-            families
+            families,
+            trouble
         ],
     )
     .map_err(|_| "sqlite-insert-failed")?;
-    tx.commit().map_err(|_| "sqlite-commit-failed")
+    limit_busy(&tx, deadline)?;
+    tx.commit().map_err(|_| "sqlite-commit-failed")?;
+    store.remember(key, trouble);
+    Ok(())
 }
