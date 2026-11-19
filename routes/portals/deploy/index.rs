@@ -466,15 +466,17 @@ async fn file_ingress_abort(
 }
 
 async fn force_permissions(
+    headers: HeaderMap,
     axum::Json(body): axum::Json<serde_json::Value>,
-) -> Result<
-    (axum::http::StatusCode, axum::Json<serde_json::Value>),
-    (
-        axum::http::StatusCode,
-        axum::Json<crate::gate::ApiErrorBody>,
-    ),
-> {
-    staff_route("storage/upload/force-permissions", body).await
+) -> axum::response::Response {
+    // This door changes ownership and modes under the ingress root; it admits
+    // only the callers the ingress doors beside it admit.
+    if let Err(response) = document_attendance_admitted(&headers) {
+        return response;
+    }
+    staff_route("storage/upload/force-permissions", body)
+        .await
+        .into_response()
 }
 
 /// Canonical registration seam for this leaf.
