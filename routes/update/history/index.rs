@@ -12,7 +12,7 @@ fn project_run(row: &Value) -> Value {
     let outcome = row["outcome"].as_str().and_then(|outcome| {
         match outcome.to_ascii_lowercase().as_str() {
             "ok" | "success" => Some("ok"),
-            "failed" | "failure" => Some("failed"),
+            "failed" | "failure" | "refused" => Some("failed"),
             _ => None,
         }
     });

@@ -345,7 +345,7 @@ fn indexes_installed(connection: &Connection) -> StoreResult<bool> {
     // The last index is installed in the same transaction as all the others.
     connection
         .query_row(
-            "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = 'deeds_by_ok' LIMIT 1)",
+            "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = 'deeds_profile_history' LIMIT 1)",
             [],
             |row| row.get(0),
         )
@@ -355,6 +355,8 @@ fn indexes_installed(connection: &Connection) -> StoreResult<bool> {
 // Older projected timestamps were not parsed. Only ISO date-shaped values can
 // reach julianday() in the index; SQLite treats inputs such as "now" as volatile.
 const AGE_KEY: &str = "julianday(CASE WHEN substr(at, 5, 1) = '-' THEN at END)";
+const PROFILE_DEEDS: &str = "organ = 'harmonia' AND routine IS NOT NULL
+                           AND verb IN ('harmonia.run_profile', 'harmonia.run_profile.v1')";
 
 // The sender's ok flag is not the seated trouble predicate. March 1 rows
 // lack that bit, so use inverse trouble only for those rows. This storage
@@ -396,7 +398,8 @@ fn install_read_indexes(connection: &mut Connection, deadline: Instant) -> Store
          CREATE INDEX IF NOT EXISTS deeds_by_age ON deeds ({AGE_KEY});
          CREATE INDEX IF NOT EXISTS deeds_harmonia_runs ON deeds (organ, kind, id DESC)
              WHERE organ = 'harmonia' AND kind = 'run';
-         CREATE INDEX IF NOT EXISTS deeds_by_ok ON deeds ({OK_KEY}, id DESC);",
+         CREATE INDEX IF NOT EXISTS deeds_by_ok ON deeds ({OK_KEY}, id DESC);
+         CREATE INDEX IF NOT EXISTS deeds_profile_history ON deeds (id DESC) WHERE {PROFILE_DEEDS};",
     ))
     .map_err(|_| "sqlite-index-install-failed")?;
     limit_busy(&tx, deadline)?;
@@ -479,22 +482,19 @@ pub(super) fn offer(
     let verb = field("verb");
     let outcome = field("outcome");
     let signal = field("signal");
-    let (target, routine) = if projected.kind == "generic-http-door" {
-        // The legacy projection keeps this target under routine_id instead.
-        let id = field("routine_id");
-        (id, id.map(str::to_owned))
+    let target = if projected.kind == "generic-http-door" {
+        // Its target is the routine name even when its correlation id is set.
+        field("routine_id")
     } else {
-        (
-            field("target"),
-            field("run_id").map(str::to_owned).or_else(|| {
-                metadata_alias(
-                    &event.attributes_redacted,
-                    &["run_id", "routine_id", "routine"],
-                    64,
-                )
-            }),
-        )
+        field("target")
     };
+    let routine = field("run_id")
+        .map(str::to_owned)
+        .or_else(|| metadata_alias(&event.attributes_redacted, &["run_id"], 64))
+        .or_else(|| projected.correlation_id.clone())
+        // Retain the existing aliases when neither run nor correlation is set.
+        .or_else(|| field("routine_id").map(str::to_owned))
+        .or_else(|| metadata_alias(&event.attributes_redacted, &["routine_id", "routine"], 64));
     let key = Key {
         organ: organ.to_owned(),
         verb: verb.map(str::to_owned),
@@ -543,10 +543,16 @@ pub(super) fn offer(
         }
     }
     limit_busy(&tx, deadline)?;
+    // Use the same fixed-date predicate as AGE_KEY. 'now' and bare numbers
+    // are not dates on a deed. SQLite supplies the write time in this insert.
     tx.execute(
         "INSERT INTO deeds (schema, kind, at, level, routine, body, organ, target,
                             who, verb, outcome, signal, duration_ms, families, trouble, source_ok)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+         VALUES (?1, ?2, CASE
+                    WHEN julianday(CASE WHEN substr(?3, 5, 1) = '-' THEN ?3 END)
+                         <= julianday('now', '+1 day') THEN ?3
+                    ELSE strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                END, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             policy.row.schema,
             kind,
@@ -612,44 +618,120 @@ pub(crate) fn prepare_existing() -> StoreResult<()> {
     Ok(())
 }
 
-pub(crate) fn prune_expired() -> StoreResult<usize> {
-    // A quiet pass stays read-only: even opening a write connection can
-    // checkpoint an existing WAL as that connection closes.
-    let expired = format!("{AGE_KEY} < julianday('now', '-90 days')");
-    let (has_expired, _) = read(|connection| {
-        connection
-            .query_row(
-                &format!("SELECT EXISTS (SELECT 1 FROM deeds WHERE {expired} LIMIT 1)"),
-                [],
-                |row| row.get::<_, bool>(0),
-            )
-            .map_err(|_| "sqlite-prune-read-failed")
-    })?;
-    if !has_expired {
-        return Ok(0);
-    }
-    let Some(mut connection) = existing_writer()? else {
-        return Ok(0);
-    };
+const PRUNE_BATCH: usize = 200;
+const PRUNE_GAP: Duration = Duration::from_millis(5);
+// Match the repeat/recovery key, including nullable verb and target. The
+// existing deeds_latest index makes this a seek rather than a second scan.
+const NOT_OPEN_TROUBLE: &str = "(trouble = 0 OR EXISTS (
+    SELECT 1 FROM deeds AS newer
+    WHERE newer.organ IS deeds.organ AND newer.verb IS deeds.verb
+      AND newer.target IS deeds.target AND newer.id > deeds.id
+    LIMIT 1
+))";
+
+fn prune_batch(
+    connection: &mut Connection,
+    prunable: &str,
+    cutoff: f64,
+    ids: &[i64],
+) -> StoreResult<usize> {
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|_| "sqlite-prune-begin-failed")?;
-    // Recheck under the writer lock, using the instant rather than the
-    // spelling of an RFC3339 date with an offset.
-    let deleted = tx
-        .execute(&format!("DELETE FROM deeds WHERE {expired}"), [])
-        .map_err(|_| "sqlite-prune-delete-failed")?;
+    let mut deleted = 0;
+    {
+        // Fence each delete against writers. Consume IDs oldest-first so an
+        // expired recovery cannot expose an expired predecessor mid-pass.
+        let mut delete = tx
+            .prepare(&format!("DELETE FROM deeds WHERE id = ?2 AND {prunable}"))
+            .map_err(|_| "sqlite-prune-delete-failed")?;
+        for id in ids {
+            deleted += delete
+                .execute(params![cutoff, id])
+                .map_err(|_| "sqlite-prune-delete-failed")?;
+        }
+    }
     if deleted == 0 {
         return Ok(0);
     }
     {
-        // SQLite yields one result per reclaimed page. Step all the way to DONE.
-        let mut stmt = tx.prepare("PRAGMA incremental_vacuum").map_err(|_| "sqlite-prune-vacuum-failed")?;
+        // Bound reclamation as well as the delete work done under this lock.
+        let mut stmt = tx
+            .prepare("PRAGMA incremental_vacuum(64)")
+            .map_err(|_| "sqlite-prune-vacuum-failed")?;
         let mut pages = stmt.query([]).map_err(|_| "sqlite-prune-vacuum-failed")?;
         while pages.next().map_err(|_| "sqlite-prune-vacuum-failed")?.is_some() {}
     }
     // A separate connection's commit invalidates the writer's trouble hints.
     tx.commit().map_err(|_| "sqlite-prune-commit-failed")?;
+    Ok(deleted)
+}
+
+pub(crate) fn prune_expired() -> StoreResult<usize> {
+    // Even opening a write connection on a quiet pass can checkpoint its WAL.
+    let Some((reader, _)) = open_existing(OpenFlags::SQLITE_OPEN_READ_ONLY)? else {
+        return Ok(0);
+    };
+    if !has_deeds(&reader)? {
+        return Ok(0);
+    }
+    let cutoff: f64 = reader
+        .query_row("SELECT julianday('now', '-90 days')", [], |row| row.get(0))
+        .map_err(|_| "sqlite-prune-read-failed")?;
+    let prunable = format!("{AGE_KEY} < ?1 AND {NOT_OPEN_TROUBLE}");
+    let has_expired: bool = reader
+        .query_row(
+            &format!("SELECT EXISTS (SELECT 1 FROM deeds WHERE {prunable} LIMIT 1)"),
+            [cutoff],
+            |row| row.get(0),
+        )
+        .map_err(|_| "sqlite-prune-read-failed")?;
+    if !has_expired {
+        return Ok(0);
+    }
+    let end: Option<i64> = reader
+        .query_row("SELECT MAX(id) FROM deeds", [], |row| row.get(0))
+        .map_err(|_| "sqlite-prune-read-failed")?;
+    let Some(end) = end else { return Ok(0); };
+    // Once there is work, advance a rowid cursor instead of sorting the age
+    // index again for every batch. No scan or snapshot spans a write lock.
+    let mut select = reader
+        .prepare(&format!(
+            "SELECT id FROM deeds NOT INDEXED WHERE id >= ?2 AND id <= ?3 AND {prunable}
+             ORDER BY id LIMIT ?4"
+        ))
+        .map_err(|_| "sqlite-prune-read-failed")?;
+    let mut first = i64::MIN;
+    let mut writer = None;
+    let mut deleted = 0;
+    let result = (|| {
+        loop {
+            let ids = select
+                .query_map(params![cutoff, first, end, PRUNE_BATCH], |row| row.get::<_, i64>(0))
+                .and_then(Iterator::collect::<Result<Vec<_>, _>>)
+                .map_err(|_| "sqlite-prune-read-failed")?;
+            let Some(&last) = ids.last() else { return Ok(()); };
+            if writer.is_none() {
+                writer = existing_writer()?;
+            }
+            let Some(writer) = writer.as_mut() else { return Ok(()); };
+            deleted += prune_batch(writer, &prunable, cutoff, &ids)?;
+            if ids.len() < PRUNE_BATCH || last == end {
+                return Ok(());
+            }
+            first = last + 1;
+            // Give waiting native CLI writers a turn as well as daemon writers.
+            std::thread::sleep(PRUNE_GAP);
+        }
+    })();
+    if let Err(error) = result {
+        if deleted == 0 {
+            return Err(error);
+        }
+        // Earlier transactions are durable. Report the interruption and let
+        // the existing caller record their total once, not lose it on error.
+        eprintln!("caduceus-hyalos-prune-incomplete: {error}");
+    }
     Ok(deleted)
 }
 
@@ -793,7 +875,12 @@ pub(super) fn read_tail(filters: &TailFilters, limit: usize) -> StoreResult<(Vec
 
 pub(crate) fn read_harmonia_runs() -> StoreResult<Vec<Value>> {
     let selection = Selection {
-        terms: vec!["organ = 'harmonia'".into(), "kind = 'run'".into()],
+        // Filter on the sender's verb even for versioned rows from before the
+        // kinds-seat change. Only the newest profile deed per run uses a slot.
+        terms: vec![PROFILE_DEEDS.into(), format!(
+            "NOT EXISTS (SELECT 1 FROM deeds AS newer WHERE {PROFILE_DEEDS}
+             AND newer.routine = deeds.routine AND newer.id > deeds.id LIMIT 1)"
+        )],
         args: Vec::new(),
     };
     read(|connection| selection.rows(connection, 0, 10)).map(|(rows, _)| rows)

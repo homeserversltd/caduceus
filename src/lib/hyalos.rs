@@ -62,6 +62,10 @@ fn is_run_profile_kind(kind: &str) -> bool {
             })
 }
 
+fn is_history_verb(verb: &str) -> bool {
+    matches!(verb, "harmonia.run_profile" | "harmonia.run_profile.v1")
+}
+
 fn project_failures(source: &Value) -> (Vec<Value>, usize) {
     let mut failures = Vec::new();
     let mut omitted = 0;
@@ -102,6 +106,16 @@ fn project_attributes(event: &ChannelEvent, run_profile: bool) -> Result<Value, 
         "signal": metadata_alias(source, &["signal", "firstMissingSignal", "first_missing_signal"], if event.kind == "generic-http-door" { 64 } else { 40 }),
         "first_missing_field": metadata_alias(source, &["first_missing_field", "firstMissingField", "field"], 32),
     });
+    if event.organ == "harmonia" {
+        // History identifies the sender's profile kind by verb. A verb
+        // override must neither hide a profile run nor turn a step into one.
+        if is_history_verb(&event.kind) {
+            attributes["verb"] = json!(event.kind);
+        } else if attributes["verb"].as_str().is_some_and(is_history_verb) {
+            let kind = bounded_label(&event.kind, 32, "deed");
+            attributes["verb"] = json!(if is_history_verb(&kind) { "deed" } else { &kind });
+        }
+    }
     if event.organ == "caduceus" && event.kind == "caduceus.maintenance" {
         attributes["freed_bytes"] = json!(source.get("freed_bytes").and_then(Value::as_u64));
         attributes["rotated"] = json!(source.get("rotated").and_then(Value::as_bool));
@@ -169,14 +183,15 @@ fn project_attributes(event: &ChannelEvent, run_profile: bool) -> Result<Value, 
         }
     }
     if run_profile {
-        let run_id = metadata_alias(source, &["run_id", "correlation_id"], 64)
+        let run_id = metadata_alias(source, &["run_id"], 64)
             .or_else(|| event.correlation_id.clone())
+            .or_else(|| metadata_alias(source, &["correlation_id"], 64))
             .ok_or_else(|| "hyalos-run-profile-run-id-missing".to_string())?;
         let outcome = metadata_alias(source, &["outcome"], 16)
             .filter(|value| {
                 matches!(
                     value.to_ascii_lowercase().as_str(),
-                    "ok" | "success" | "failed" | "failure"
+                    "ok" | "success" | "failed" | "failure" | "refused"
                 )
             })
             .unwrap_or_else(|| if event.ok { "success".into() } else { "failure".into() });
@@ -199,7 +214,7 @@ fn project_event(mut event: ChannelEvent) -> Result<ChannelEvent, String> {
     let run_profile = is_run_profile_kind(&event.kind);
     event.timestamp = if event.timestamp.len() <= 40
         && event.timestamp.chars().all(|character| {
-            character.is_ascii_alphanumeric() || ":+-.".contains(character)
+            character.is_ascii_alphanumeric() || ":+-. ".contains(character)
         })
     {
         event.timestamp

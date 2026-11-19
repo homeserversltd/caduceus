@@ -22,7 +22,14 @@ async fn http(
     match policy::allows_command(COMMAND) {
         Ok(true) => {
             let result = crate::gate::blocking_task(COMMAND, move || crate::routes::hyalos::tail_json(filters)).await?;
-            result.map(|value| (StatusCode::OK, Json(value))).map_err(|error| api_error_signal(COMMAND, &error))
+            result.map(|value| (StatusCode::OK, Json(value))).map_err(|error| {
+                let (status, body) = api_error_signal(COMMAND, &error);
+                let status = match error.as_str() {
+                    "hyalos-tail-level-invalid" | "hyalos-tail-world-unavailable" => StatusCode::BAD_REQUEST,
+                    _ => status,
+                };
+                (status, body)
+            })
         }
         Ok(false) => Err(api_error(COMMAND)),
         Err(_) => Err(api_error_signal(COMMAND, "caduceus-carapace-desync")),

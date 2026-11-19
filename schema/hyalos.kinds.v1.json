@@ -21,6 +21,7 @@
    "organ": "harmonia",
    "kind": [
     "harmonia.run_profile",
+    "harmonia.run_profile.v1",
     "harmonia.transaction"
    ],
    "bad": true,
@@ -33,6 +34,7 @@
    "organ": "harmonia",
    "kind": [
     "harmonia.run_profile",
+    "harmonia.run_profile.v1",
     "harmonia.transaction"
    ],
    "row": {
