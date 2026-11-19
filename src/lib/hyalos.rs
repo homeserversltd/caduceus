@@ -2,17 +2,16 @@ use crate::shared::config;
 use chrono::{TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use std::collections::VecDeque;
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::fd::AsRawFd;
-use std::path::Path;
+use std::io::Write;
 
 #[path = "hyalos_store.rs"]
 mod store;
+pub(crate) use store::{
+    body_level, prepare_existing, prune_expired, read_harmonia_runs, read_page, LogFilters, DB_PATH,
+};
+use store::{Disposition, OfferMode};
 
 pub const EVENT_SCHEMA: &str = crate::protocol::hyalos_event_schema();
-pub const CHANNEL_PATH: &str = "/var/log/appliance/appliance.log";
 
 const LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error", "fatal"];
 const MAX_LINE_BYTES: usize = 1024;
@@ -216,6 +215,7 @@ fn project_event(mut event: ChannelEvent) -> Result<ChannelEvent, String> {
     } else {
         "appliance".into()
     };
+    // Preserve the validation bound; messages are not stored in the row.
     event.message = "deed recorded".into();
     event.correlation_id = safe_id(event.correlation_id);
     event.session_id = safe_id(event.session_id);
@@ -436,40 +436,36 @@ fn reflection_event(input: Reflection) -> Result<ChannelEvent, String> {
 }
 
 pub fn reflect(input: Reflection) -> Result<ChannelEvent, String> {
-    let debug = input.debug.as_bool() == Some(true);
+    reflect_and_offer(input).map(|(event, _)| event)
+}
+
+fn reflect_and_offer(input: Reflection) -> Result<(ChannelEvent, Disposition), String> {
+    let mode = offer_mode(input.debug.as_bool());
     let event = reflection_event(input)?;
-    append(&event, debug)?;
-    Ok(event)
+    let stored = record(&event, mode)?;
+    Ok((event, stored))
 }
 
 pub fn reflect_json(input: Value) -> Result<Value, String> {
     let reflection: Reflection =
         serde_json::from_value(input).map_err(|err| format!("hyalos-reflection-invalid: {err}"))?;
-    let event = reflect(reflection)?;
+    let (event, stored) = reflect_and_offer(reflection)?;
     Ok(json!({
         "schema": "caduceus.hyalos.reflect.v1",
         "ok": true,
-        "channelPath": config::path(CHANNEL_PATH),
+        "channelPath": config::path(DB_PATH),
+        "stored": stored,
         "event": event,
         "firstMissingSignal": "none"
     }))
 }
 
-/// An explicitly opted-in deed uses the same bounded channel line on stderr
-/// when its channel append fails. The caller retains the mutation's outcome.
+/// A valid deed is handled even when not stored. `record` owns the single
+/// bounded stderr diagnostic, so the caller does not change its act or answer.
 pub(crate) fn reflect_json_with_stderr_fallback(input: Value) -> Result<bool, String> {
     let reflection: Reflection =
         serde_json::from_value(input).map_err(|err| format!("hyalos-reflection-invalid: {err}"))?;
-    let debug = reflection.debug.as_bool() == Some(true);
-    let event = reflection_event(reflection)?;
-    let (_, line) = channel_line(&event)?;
-    if append(&event, debug).is_ok() {
-        Ok(true)
-    } else {
-        // A closed process stream must not panic or change the applied state.
-        let _ = std::io::stderr().lock().write_all(&line);
-        Ok(false)
-    }
+    reflect_and_offer(reflection).map(|_| true)
 }
 
 pub fn project_json(input: Value) -> Result<Value, String> {
@@ -479,7 +475,7 @@ pub fn project_json(input: Value) -> Result<Value, String> {
     Ok(json!({
         "schema": "caduceus.hyalos.reflect.v1",
         "ok": true,
-        "channelPath": config::path(CHANNEL_PATH),
+        "channelPath": config::path(DB_PATH),
         "event": event,
         "firstMissingSignal": "none"
     }))
@@ -489,7 +485,7 @@ pub fn append_json(input: Value) -> Result<Value, String> {
     if input.get("schema").and_then(Value::as_str) != Some(EVENT_SCHEMA) {
         return Err("hyalos-channel-event-schema-invalid".to_string());
     }
-    let debug = input.get("debug").and_then(Value::as_bool) == Some(true);
+    let mode = offer_mode(input.get("debug").and_then(Value::as_bool));
     let mut event: ChannelEvent = serde_json::from_value(input)
         .map_err(|err| format!("hyalos-channel-event-invalid: {err}"))?;
     if event.organ.trim().is_empty()
@@ -500,21 +496,21 @@ pub fn append_json(input: Value) -> Result<Value, String> {
     }
     event.level = normalize_level(Some(event.level))?;
     event.attributes_redacted = redact(event.attributes_redacted);
-    append(&event, debug)?;
+    let stored = record(&event, mode)?;
     Ok(json!({
         "schema": "caduceus.hyalos.append.v1",
         "ok": true,
-        "channelPath": config::path(CHANNEL_PATH),
+        "channelPath": config::path(DB_PATH),
+        "stored": stored,
         "event": event,
         "firstMissingSignal": "none"
     }))
 }
 
-fn serialize_line(event: &ChannelEvent) -> Result<Vec<u8>, String> {
-    let mut line = serde_json::to_vec(event)
-        .map_err(|_| "hyalos-channel-serialize-failed".to_string())?;
-    line.push(b'\n');
-    Ok(line)
+fn projected_size(event: &ChannelEvent) -> Result<usize, String> {
+    serde_json::to_vec(event)
+        .map(|bytes| bytes.len() + 1)
+        .map_err(|_| "hyalos-channel-serialize-failed".to_string())
 }
 
 fn projected_failures(event: &ChannelEvent) -> Vec<Value> {
@@ -570,195 +566,67 @@ fn compact_duplicate_run_ids(event: &mut ChannelEvent) {
     compact_duplicate_id(&mut event.strike_id, &mut seen);
 }
 
-fn channel_line(event: &ChannelEvent) -> Result<(ChannelEvent, Vec<u8>), String> {
+fn bounded_projection(event: &ChannelEvent) -> Result<ChannelEvent, String> {
     let run_profile = is_run_profile_kind(&event.kind);
-    let disk_event = project_event(event.clone())?;
-    let mut disk_event = disk_event;
-    let mut line = serialize_line(&disk_event)?;
-    if line.len() >= MAX_LINE_BYTES && disk_event.organ == "sbin" && disk_event.kind == "sbin.chord" {
-        if let Some(attributes) = disk_event.attributes_redacted.as_object_mut() {
+    let mut projected = project_event(event.clone())?;
+    let mut size = projected_size(&projected)?;
+    if size >= MAX_LINE_BYTES && projected.organ == "sbin" && projected.kind == "sbin.chord" {
+        if let Some(attributes) = projected.attributes_redacted.as_object_mut() {
             attributes.remove("stages");
         }
-        line = serialize_line(&disk_event)?;
+        size = projected_size(&projected)?;
     }
-    if line.len() >= MAX_LINE_BYTES {
-        if disk_event.kind == "generic-http-door" {
-            // Generic declarations are build-bounded; never drop a stage.
+    if size >= MAX_LINE_BYTES {
+        if projected.kind == "generic-http-door" || !run_profile {
             return Err("hyalos-channel-event-too-large".into());
         }
-        if !run_profile {
-            return Err("hyalos-channel-event-too-large".to_string());
-        }
-        compact_duplicate_run_ids(&mut disk_event);
-        let mut failures = projected_failures(&disk_event);
-        let mut omitted = projected_failures_more(&disk_event);
-        loop {
-            line = serialize_line(&disk_event)?;
-            if line.len() < MAX_LINE_BYTES {
-                break;
-            }
+        compact_duplicate_run_ids(&mut projected);
+        let mut failures = projected_failures(&projected);
+        let mut omitted = projected_failures_more(&projected);
+        while projected_size(&projected)? >= MAX_LINE_BYTES {
             if failures.pop().is_none() {
-                return Err("hyalos-channel-event-too-large".to_string());
+                return Err("hyalos-channel-event-too-large".into());
             }
             omitted += 1;
-            set_projected_failures(&mut disk_event, &failures, omitted);
+            set_projected_failures(&mut projected, &failures, omitted);
         }
     }
-    Ok((disk_event, line))
+    Ok(projected)
 }
 
-// The open file description holds the advisory lock until the File is dropped.
-pub(crate) fn lock_channel(file: &File) -> std::io::Result<()> {
-    loop {
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
-            return Ok(());
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::Interrupted {
-            return Err(error);
-        }
-    }
+fn offer_mode(debug: Option<bool>) -> OfferMode {
+    if debug == Some(true) { OfferMode::Debug } else { OfferMode::Normal }
 }
 
-fn append(event: &ChannelEvent, debug: bool) -> Result<(), String> {
-    let path = config::path(CHANNEL_PATH);
-    // Keep the file's original ordering of errors, even if its I/O fails.
-    let parent = path.parent().map_or(Ok(()), |parent| {
-        fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))
-    });
-    let (projected, line) = match channel_line(event) {
-        Ok(record) => record,
-        Err(error) => return parent.and(Err(error)),
-    };
-    let appended = parent.and_then(|()| append_line(&path, &line));
-
-    if let Err(error) = store::offer(event, &projected, debug) {
-        let _ = writeln!(std::io::stderr().lock(), "hyalos-store-write-failed: {error}");
-    }
-    appended
+fn record(event: &ChannelEvent, mode: OfferMode) -> Result<Disposition, String> {
+    let projected = bounded_projection(event)?;
+    Ok(match store::offer(event, &projected, mode) {
+        Ok(disposition) => disposition,
+        Err(error) => {
+            // The error is a fixed store signal, never a body or a SQLite message.
+            let _ = writeln!(std::io::stderr().lock(), "hyalos-store-write-failed: {error}");
+            Disposition::Failed
+        }
+    })
 }
 
-fn append_line(path: &Path, line: &[u8]) -> Result<(), String> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|err| format!("{}: {err}", path.display()))?;
-    lock_channel(&file).map_err(|err| format!("hyalos-channel-lock-failed: {err}"))?;
-    file.write_all(line)
-        .map_err(|err| format!("{}: {err}", path.display()))
-}
-
-fn parse_channel_line(line: &str) -> Result<Value, String> {
-    let event: Value =
-        serde_json::from_str(line).map_err(|err| format!("hyalos-channel-line-invalid: {err}"))?;
-    let schema = event.get("schema").and_then(Value::as_str);
-    if schema != Some(EVENT_SCHEMA) {
-        return Err("hyalos-channel-event-schema-invalid".to_string());
+pub(crate) fn record_prune(deleted: usize, freed_bytes: u64) -> Result<(), String> {
+    if deleted == 0 {
+        return Ok(());
     }
-    Ok(event)
-}
-
-fn event_field_str<'a>(event: &'a Value, field: &str) -> Option<&'a str> {
-    event.get(field).and_then(Value::as_str)
-}
-
-fn matches_filters(event: &Value, filters: &TailFilters) -> bool {
-    if let Some(kind) = filters.kind.as_deref() {
-        if event_field_str(event, "kind") != Some(kind) {
-            return false;
-        }
-    }
-    if let Some(organ) = filters.organ.as_deref() {
-        if event_field_str(event, "organ") != Some(organ) {
-            return false;
-        }
-    }
-    if let Some(world) = filters.world.as_deref() {
-        if event_field_str(event, "world") != Some(world) {
-            return false;
-        }
-    }
-    if let Some(correlation_id) = filters.correlation_id.as_deref() {
-        if event_field_str(event, "correlation_id") != Some(correlation_id) {
-            return false;
-        }
-    }
-    if let Some(level) = filters.level.as_deref() {
-        if event_field_str(event, "level") != Some(level) {
-            return false;
-        }
-    }
-    if let Some(ok) = filters.ok {
-        if event.get("ok").and_then(Value::as_bool) != Some(ok) {
-            return false;
-        }
-    }
-    true
-}
-
-const TAIL_BLOCK_BYTES: usize = 16 * 1024;
-const TAIL_SCAN_MAX_BYTES: u64 = 4 * 1024 * 1024;
-const TAIL_SCAN_MAX_LINES: usize = 65_536;
-const TAIL_RESULT_MAX_BYTES: usize = 1024 * 1024;
-
-struct TailCollector<'a> {
-    filters: &'a TailFilters,
-    keep: usize,
-    events_newest_first: VecDeque<Value>,
-    result_bytes: usize,
-    invalid_lines_skipped: usize,
-    oversized_lines_skipped: usize,
-    torn_trailing_rows_skipped: usize,
-    blank_lines_skipped: usize,
-    filtered_lines: usize,
-    has_more: Option<bool>,
-    output_limit_reached: bool,
-    count_limit_reached: bool,
-}
-
-impl TailCollector<'_> {
-    fn process_line(&mut self, reversed_line: &mut Vec<u8>, oversized: bool, torn: bool) -> bool {
-        if torn {
-            self.torn_trailing_rows_skipped += 1;
-            return false;
-        }
-        if oversized {
-            self.oversized_lines_skipped += 1;
-            return false;
-        }
-        if reversed_line.is_empty() {
-            self.blank_lines_skipped += 1;
-            return false;
-        }
-        reversed_line.reverse();
-        let Ok(line) = std::str::from_utf8(reversed_line) else {
-            self.invalid_lines_skipped += 1;
-            return false;
-        };
-        let Ok(event) = parse_channel_line(line) else {
-            self.invalid_lines_skipped += 1;
-            return false;
-        };
-        if !matches_filters(&event, self.filters) {
-            self.filtered_lines += 1;
-            return false;
-        }
-        if self.events_newest_first.len() >= self.keep {
-            self.has_more = Some(true);
-            self.count_limit_reached = true;
-            return true;
-        }
-        let event_bytes = serde_json::to_vec(&event).map_or(usize::MAX, |bytes| bytes.len() + 1);
-        if self.result_bytes.saturating_add(event_bytes) > TAIL_RESULT_MAX_BYTES {
-            self.has_more = Some(true);
-            self.output_limit_reached = true;
-            return true;
-        }
-        self.result_bytes += event_bytes;
-        self.events_newest_first.push_back(event);
-        false
-    }
+    let event = reflection_event(Reflection {
+        organ: "caduceus".into(),
+        kind: "caduceus.maintenance".into(),
+        message: "maintenance".into(),
+        ok: true,
+        attributes_redacted: json!({
+            "verb": "maintenance",
+            "target": format!("hyalos/expired-rows/{deleted}"),
+            "freed_bytes": freed_bytes,
+        }),
+        ..Reflection::default()
+    })?;
+    record(&event, OfferMode::Upkeep).map(|_| ())
 }
 
 pub fn tail_json(filters: TailFilters) -> Result<Value, String> {
@@ -783,175 +651,65 @@ pub fn tail_json(filters: TailFilters) -> Result<Value, String> {
 }
 
 fn tail_json_inner(filters: TailFilters) -> Result<Value, String> {
-    let path = config::path(CHANNEL_PATH);
-    let mut file = File::open(&path).map_err(|error| {
-        format!("hyalos-channel-open-failed:{:?}", error.kind())
-    })?;
-    let file_bytes = file
-        .seek(SeekFrom::End(0))
-        .map_err(|error| format!("hyalos-channel-seek-failed:{:?}", error.kind()))?;
-    let scan_bytes = file_bytes.min(TAIL_SCAN_MAX_BYTES);
-    let scan_start = file_bytes - scan_bytes;
+    // `world` was event metadata; the seated row has no such field. Do not
+    // silently broaden an old world-filtered request to the whole Hyalos.
+    if filters.world.is_some() {
+        return Err("hyalos-tail-world-unavailable".into());
+    }
+    const RESULT_MAX_BYTES: usize = 1024 * 1024;
     let keep = filters.count.clamp(1, 1000);
-    let mut collector = TailCollector {
-        filters: &filters,
-        keep,
-        events_newest_first: VecDeque::new(),
-        result_bytes: 0,
-        invalid_lines_skipped: 0,
-        oversized_lines_skipped: 0,
-        torn_trailing_rows_skipped: 0,
-        blank_lines_skipped: 0,
-        filtered_lines: 0,
-        has_more: None,
-        output_limit_reached: false,
-        count_limit_reached: false,
-    };
-    let mut buffer = vec![0u8; TAIL_BLOCK_BYTES];
-    let mut reversed_line = Vec::with_capacity(MAX_LINE_BYTES);
-    let mut oversized = false;
-    let mut trailing_torn_pending = false;
-    let mut first_byte = true;
-    let mut cursor = file_bytes;
-    let mut bytes_scanned = 0u64;
-    let mut lines_scanned = 0usize;
-    let mut blocks_read = 0usize;
-    let mut line_limit_reached = false;
-    let mut stopped_for_more = false;
-
-    while cursor > scan_start {
-        let chunk_start = cursor.saturating_sub(TAIL_BLOCK_BYTES as u64).max(scan_start);
-        let chunk_len = usize::try_from(cursor - chunk_start)
-            .map_err(|_| "hyalos-channel-read-length-invalid".to_string())?;
-        file.seek(SeekFrom::Start(chunk_start))
-            .map_err(|error| format!("hyalos-channel-seek-failed:{:?}", error.kind()))?;
-        file.read_exact(&mut buffer[..chunk_len])
-            .map_err(|error| format!("hyalos-channel-read-failed:{:?}", error.kind()))?;
-        bytes_scanned = bytes_scanned.saturating_add(chunk_len as u64);
-        blocks_read += 1;
-        let mut stop_at = None;
-        for (index, byte) in buffer[..chunk_len].iter().enumerate().rev() {
-            let absolute = chunk_start + index as u64;
-            if first_byte {
-                trailing_torn_pending = *byte != b'\n';
-                first_byte = false;
-                if !trailing_torn_pending {
-                    continue;
-                }
-            }
-            if *byte == b'\n' {
-                lines_scanned += 1;
-                let torn = trailing_torn_pending;
-                trailing_torn_pending = false;
-                if collector.process_line(&mut reversed_line, oversized, torn) {
-                    stopped_for_more = true;
-                    stop_at = Some(absolute);
-                    break;
-                }
-                reversed_line.clear();
-                oversized = false;
-                if lines_scanned >= TAIL_SCAN_MAX_LINES {
-                    line_limit_reached = absolute > 0;
-                    stop_at = Some(absolute);
-                    break;
-                }
-            } else if !oversized {
-                if reversed_line.len() + 2 > MAX_LINE_BYTES.saturating_sub(1) {
-                    oversized = true;
-                    reversed_line.clear();
-                } else {
-                    reversed_line.push(*byte);
-                }
-            }
-        }
-        if let Some(position) = stop_at {
-            cursor = position;
+    let (rows, file_size) = store::read_tail(&filters, keep + 1)?;
+    let lines_scanned = rows.len();
+    let count_limit_reached = lines_scanned > keep;
+    let mut result_bytes = 0;
+    let mut output_limit_reached = false;
+    let mut events = Vec::new();
+    for row in rows.into_iter().take(keep) {
+        let bytes = row.to_string().len() + 1;
+        if result_bytes + bytes > RESULT_MAX_BYTES {
+            output_limit_reached = true;
             break;
         }
-        cursor = chunk_start;
+        result_bytes += bytes;
+        events.push(row);
     }
-
-    let reached_file_start = cursor == 0 && !stopped_for_more && !line_limit_reached;
-    let mut truncated_prefix_line_skipped = false;
-    if !stopped_for_more && !line_limit_reached {
-        if trailing_torn_pending {
-            collector.torn_trailing_rows_skipped += 1;
-            reversed_line.clear();
-            oversized = false;
-            trailing_torn_pending = false;
-        }
-        if reached_file_start {
-            if !reversed_line.is_empty() || oversized {
-                lines_scanned += 1;
-                let _ = collector.process_line(&mut reversed_line, oversized, false);
-            }
-        } else if !reversed_line.is_empty() || oversized {
-            truncated_prefix_line_skipped = true;
-            if oversized {
-                collector.oversized_lines_skipped += 1;
-            }
-        }
-    }
-
-    let scan_limit_reached = scan_start > 0 && cursor == scan_start && !stopped_for_more && !line_limit_reached;
-    let truncated = scan_limit_reached
-        || line_limit_reached
-        || collector.output_limit_reached
-        || collector.count_limit_reached
-        || collector.torn_trailing_rows_skipped > 0
-        || truncated_prefix_line_skipped;
-    let has_more = if collector.has_more == Some(true) {
-        Value::Bool(true)
-    } else if scan_limit_reached || line_limit_reached {
-        Value::Null
-    } else {
-        Value::Bool(false)
-    };
-    let events = collector
-        .events_newest_first
-        .into_iter()
-        .rev()
-        .collect::<Vec<_>>();
-    let count = events.len();
-    let first_missing_signal = if file_bytes == 0 {
-        "hyalos-channel-empty"
-    } else {
-        "none"
-    };
+    // The window is the newest matching rows, in the tail's existing display order.
+    events.reverse();
+    let has_more = count_limit_reached || output_limit_reached;
     Ok(json!({
         "schema": "caduceus.hyalos.tail.v1",
         "ok": true,
-        "channelPath": path,
-        "count": count,
+        "channelPath": config::path(DB_PATH),
+        "count": events.len(),
         "filters": filters,
         "events": events,
         "has_more": has_more,
+        // The file-scan counters are retired; lines_scanned counts SQL rows
+        // returned for this window (including the lookahead), not index visits.
         "scan": {
-            "bytes_available": file_bytes,
-            "bytes_scanned": bytes_scanned,
-            "scan_start": scan_start,
-            "scan_end": file_bytes,
+            "bytes_available": file_size,
+            "bytes_scanned": 0,
+            "scan_start": 0,
+            "scan_end": 0,
             "lines_scanned": lines_scanned,
-            "blocks_read": blocks_read,
-            "invalid_lines_skipped": collector.invalid_lines_skipped,
-            "oversized_lines_skipped": collector.oversized_lines_skipped,
-            "torn_trailing_rows_skipped": collector.torn_trailing_rows_skipped,
-            "blank_lines_skipped": collector.blank_lines_skipped,
-            "filtered_lines": collector.filtered_lines,
-            "result_bytes": collector.result_bytes,
-            "result_limit_bytes": TAIL_RESULT_MAX_BYTES,
-            "line_limit": TAIL_SCAN_MAX_LINES,
-            "line_bytes_limit_including_lf": MAX_LINE_BYTES - 1,
-            "scan_limit_bytes": TAIL_SCAN_MAX_BYTES,
-            "scan_limit_reached": scan_limit_reached,
-            "line_limit_reached": line_limit_reached,
-            "output_limit_reached": collector.output_limit_reached,
-            "count_limit_reached": collector.count_limit_reached,
-            "truncated_prefix_line_skipped": truncated_prefix_line_skipped,
-            "truncated": truncated
+            "blocks_read": 0,
+            "invalid_lines_skipped": 0,
+            "oversized_lines_skipped": 0,
+            "torn_trailing_rows_skipped": 0,
+            "blank_lines_skipped": 0,
+            "filtered_lines": 0,
+            "result_bytes": result_bytes,
+            "result_limit_bytes": RESULT_MAX_BYTES,
+            "line_limit": keep,
+            "line_bytes_limit_including_lf": 0,
+            "scan_limit_bytes": 0,
+            "scan_limit_reached": false,
+            "line_limit_reached": false,
+            "output_limit_reached": output_limit_reached,
+            "count_limit_reached": count_limit_reached,
+            "truncated_prefix_line_skipped": false,
+            "truncated": has_more,
         },
-        "firstMissingSignal": first_missing_signal
+        "firstMissingSignal": "none",
     }))
 }
-
-

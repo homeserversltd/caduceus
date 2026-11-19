@@ -1,25 +1,43 @@
-//! Best-effort SQLite projection beside the unchanged hyalos channel.
-use super::{metadata_alias, ChannelEvent};
+//! The Hyalos store. Only the writer and upkeep open it for writing.
+use super::{metadata_alias, ChannelEvent, TailFilters};
 use crate::shared::config;
 use rusqlite::{
-    params, types::Value as SqlValue, Connection, OpenFlags, OptionalExtension, TransactionBehavior,
+    params, params_from_iter, types::Value as SqlValue, Connection, OpenFlags, OptionalExtension,
+    Row, TransactionBehavior,
 };
-use serde::{de::DeserializeOwned, Deserialize};
-use serde_json::{Map, Value};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap};
-use std::fs;
+use std::{fs, io};
 use std::sync::{Condvar, LazyLock, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 include!(concat!(env!("OUT_DIR"), "/hyalos_seats.rs"));
 
-const DB_PATH: &str = "var/lib/caduceus/hyalos.sqlite3";
+pub(crate) const DB_PATH: &str = "/var/lib/caduceus/hyalos.sqlite3";
 const STORE_WAIT: Duration = Duration::from_millis(250);
 const TROUBLE_CACHE_KEYS: usize = 1024;
 type StoreResult<T> = Result<T, &'static str>;
 static WRITER: LazyLock<Mutex<Option<Store>>> =
     LazyLock::new(|| Mutex::new(Some(Store::default())));
 static WRITER_READY: Condvar = Condvar::new();
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Disposition {
+    Written,
+    Dropped,
+    Failed,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum OfferMode {
+    Normal,
+    Debug,
+    // A real retention deletion is always recorded, at its seated level.
+    // No sender or door can request this mode.
+    Upkeep,
+}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
@@ -309,12 +327,65 @@ impl Policy {
     }
 }
 
+pub(crate) fn body_level() -> StoreResult<i64> {
+    Ok(policy()?.body_level())
+}
+
+fn has_deeds(connection: &Connection) -> StoreResult<bool> {
+    connection
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'deeds' LIMIT 1)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| "sqlite-schema-read-failed")
+}
+
+fn indexes_installed(connection: &Connection) -> StoreResult<bool> {
+    // The last index is installed in the same transaction as all the others.
+    connection
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = 'deeds_harmonia_runs' LIMIT 1)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| "sqlite-schema-read-failed")
+}
+
+// Older projected timestamps were not parsed. Only ISO date-shaped values can
+// reach julianday() in the index; SQLite treats inputs such as "now" as volatile.
+const AGE_KEY: &str = "julianday(CASE WHEN substr(at, 5, 1) = '-' THEN at END)";
+
+fn install_read_indexes(connection: &mut Connection, deadline: Instant) -> StoreResult<()> {
+    limit_busy(connection, deadline)?;
+    if indexes_installed(connection)? {
+        return Ok(());
+    }
+    limit_busy(connection, deadline)?;
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| "sqlite-index-begin-failed")?;
+    tx.execute_batch(&format!(
+        "CREATE INDEX IF NOT EXISTS deeds_by_kind ON deeds (kind, id DESC);
+         CREATE INDEX IF NOT EXISTS deeds_by_organ ON deeds (organ, id DESC);
+         CREATE INDEX IF NOT EXISTS deeds_by_verb ON deeds (verb, id DESC);
+         CREATE INDEX IF NOT EXISTS deeds_by_level ON deeds (level, id DESC);
+         CREATE INDEX IF NOT EXISTS deeds_by_routine ON deeds (routine, id DESC) WHERE routine IS NOT NULL;
+         CREATE INDEX IF NOT EXISTS deeds_by_age ON deeds ({AGE_KEY});
+         CREATE INDEX IF NOT EXISTS deeds_harmonia_runs ON deeds (id DESC)
+             WHERE organ = 'harmonia' AND kind = 'run';",
+    ))
+    .map_err(|_| "sqlite-index-install-failed")?;
+    limit_busy(&tx, deadline)?;
+    tx.commit().map_err(|_| "sqlite-index-commit-failed")
+}
+
 fn open(deadline: Instant) -> StoreResult<Connection> {
     let path = config::path(DB_PATH);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|_| "sqlite-parent-failed")?;
     }
-    let connection = Connection::open(path).map_err(|_| "sqlite-open-failed")?;
+    let mut connection = Connection::open(path).map_err(|_| "sqlite-open-failed")?;
     limit_busy(&connection, deadline)?;
     let auto_vacuum: i64 = connection
         .query_row("PRAGMA auto_vacuum", [], |row| row.get(0))
@@ -361,21 +432,22 @@ fn open(deadline: Instant) -> StoreResult<Connection> {
          CREATE INDEX IF NOT EXISTS deeds_latest ON deeds (organ, verb, target, id DESC);",
         )
         .map_err(|_| "sqlite-initialize-failed")?;
+    install_read_indexes(&mut connection, deadline)?;
     Ok(connection)
 }
 
 pub(super) fn offer(
     event: &ChannelEvent,
     projected: &ChannelEvent,
-    debug: bool,
-) -> StoreResult<()> {
+    mode: OfferMode,
+) -> StoreResult<Disposition> {
     let policy = policy()?;
     let (class, trouble) = policy.classify(event, projected)?;
-    let allowed = debug || class.level <= policy.body_level();
+    let allowed = !matches!(mode, OfferMode::Normal) || class.level <= policy.body_level();
     if !allowed && trouble {
-        return Ok(()); // A high-level trouble cannot be a recovery.
+        return Ok(Disposition::Dropped); // A high-level trouble cannot be a recovery.
     }
-    let level = if debug { policy.highest } else { class.level };
+    let level = if matches!(mode, OfferMode::Debug) { policy.highest } else { class.level };
 
     let fields = &projected.attributes_redacted;
     let field = |name: &str| fields[name].as_str();
@@ -409,7 +481,7 @@ pub(super) fn offer(
     let mut lease = WriterLease::acquire(deadline)?;
     let store = &mut lease.0;
     if !allowed && !store.newest_is_trouble(&key, deadline)? {
-        return Ok(()); // No write transaction or schema setup on a level drop.
+        return Ok(Disposition::Dropped); // No write transaction or schema setup on a level drop.
     }
 
     let duration_ms = fields["duration_ms"].as_u64().map(|ms| {
@@ -439,12 +511,12 @@ pub(super) fn offer(
             .optional()
             .map_err(|_| "sqlite-repeat-check-failed")?;
         if !allowed && !latest.is_some_and(|(prior_trouble, _)| prior_trouble) {
-            return Ok(()); // No longer a recovery; leave the store unchanged.
+            return Ok(Disposition::Dropped); // No longer a recovery; leave the store unchanged.
         }
         // A transition into or out of trouble is not a repeat even when the
         // sender's three projected fields happen to be identical.
         if (trouble || kind == "state") && latest == Some((trouble, true)) {
-            return Ok(());
+            return Ok(Disposition::Dropped);
         }
     }
     limit_busy(&tx, deadline)?;
@@ -474,5 +546,209 @@ pub(super) fn offer(
     limit_busy(&tx, deadline)?;
     tx.commit().map_err(|_| "sqlite-commit-failed")?;
     store.remember(key, trouble);
+    Ok(Disposition::Written)
+}
+
+fn open_existing(flags: OpenFlags) -> StoreResult<Option<(Connection, u64)>> {
+    let path = config::path(DB_PATH);
+    let size = match fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => metadata.len(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        _ => return Err("sqlite-path-unavailable"),
+    };
+    let connection = Connection::open_with_flags(path, flags).map_err(|_| "sqlite-open-failed")?;
+    connection.busy_timeout(STORE_WAIT).map_err(|_| "sqlite-busy-timeout-failed")?;
+    Ok(Some((connection, size)))
+}
+
+fn existing_writer() -> StoreResult<Option<Connection>> {
+    let Some((connection, _)) = open_existing(OpenFlags::SQLITE_OPEN_READ_WRITE)? else {
+        return Ok(None);
+    };
+    connection
+        .execute_batch("PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY;")
+        .map_err(|_| "sqlite-upkeep-open-failed")?;
+    Ok(Some(connection))
+}
+
+// At service start, upgrade the March 1 database without waiting for a deed.
+// This is not part of the periodic pass, and neither path creates a store.
+pub(crate) fn prepare_existing() -> StoreResult<()> {
+    let deadline = Instant::now() + STORE_WAIT;
+    let Some((reader, _)) = open_existing(OpenFlags::SQLITE_OPEN_READ_ONLY)? else {
+        return Ok(());
+    };
+    if !has_deeds(&reader)? || indexes_installed(&reader)? {
+        return Ok(());
+    }
+    drop(reader);
+    if let Some(mut writer) = existing_writer()? {
+        install_read_indexes(&mut writer, deadline)?;
+    }
     Ok(())
+}
+
+pub(crate) fn prune_expired() -> StoreResult<usize> {
+    let Some(mut connection) = existing_writer()? else {
+        return Ok(0);
+    };
+    if !has_deeds(&connection)? {
+        return Ok(0);
+    }
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| "sqlite-prune-begin-failed")?;
+    // Use the instant, not the spelling of an RFC3339 date with an offset.
+    let deleted = tx
+        .execute(&format!("DELETE FROM deeds WHERE {AGE_KEY} < julianday('now', '-90 days')"), [])
+        .map_err(|_| "sqlite-prune-delete-failed")?;
+    if deleted == 0 {
+        return Ok(0);
+    }
+    {
+        // SQLite yields one result per reclaimed page. Step all the way to DONE.
+        let mut stmt = tx.prepare("PRAGMA incremental_vacuum").map_err(|_| "sqlite-prune-vacuum-failed")?;
+        let mut pages = stmt.query([]).map_err(|_| "sqlite-prune-vacuum-failed")?;
+        while pages.next().map_err(|_| "sqlite-prune-vacuum-failed")?.is_some() {}
+    }
+    // A separate connection's commit invalidates the writer's trouble hints.
+    tx.commit().map_err(|_| "sqlite-prune-commit-failed")?;
+    Ok(deleted)
+}
+
+#[derive(Default)]
+pub(crate) struct LogFilters {
+    pub kind: Option<String>,
+    pub organ: Option<String>,
+    pub verb: Option<String>,
+    pub level: Option<i64>,
+    pub since: Option<String>,
+}
+
+#[derive(Default)]
+pub(crate) struct DeedPage {
+    pub rows: Vec<Value>,
+    pub total: i64,
+    pub file_size: u64,
+}
+
+const ROW_COLUMNS: &str = "id, schema, kind, at, level, routine, body, organ, target, who, verb,
+                           outcome, signal, duration_ms, families, trouble";
+
+fn row_json(row: &Row<'_>) -> StoreResult<Value> {
+    let invalid = |_| "sqlite-deed-row-invalid";
+    let text = |name| row.get::<_, Option<String>>(name).map_err(invalid);
+    let integer = |name| row.get::<_, i64>(name).map_err(invalid);
+    let duration = match row.get::<_, SqlValue>("duration_ms").map_err(invalid)? {
+        SqlValue::Null => None,
+        SqlValue::Integer(ms) if ms >= 0 => Some(ms as u64),
+        SqlValue::Text(ms) => Some(ms.parse::<u64>().map_err(|_| "sqlite-deed-row-invalid")?),
+        _ => return Err("sqlite-deed-row-invalid"),
+    };
+    let families = text("families")?
+        .as_deref()
+        .map(serde_json::from_str::<Map<String, Value>>)
+        .transpose()
+        .map_err(|_| "sqlite-deed-row-invalid")?;
+    Ok(json!({
+        "id": integer("id")?, "schema": text("schema")?, "kind": text("kind")?,
+        "at": text("at")?, "level": integer("level")?, "routine": text("routine")?,
+        "body": text("body")?, "organ": text("organ")?, "target": text("target")?,
+        "who": text("who")?, "verb": text("verb")?, "outcome": text("outcome")?,
+        "signal": text("signal")?, "duration_ms": duration, "families": families,
+        "trouble": row.get::<_, bool>("trouble").map_err(invalid)?,
+    }))
+}
+
+#[derive(Default)]
+struct Selection {
+    terms: Vec<String>,
+    args: Vec<SqlValue>,
+}
+
+impl Selection {
+    fn filter(&mut self, term: impl Into<String>, value: Option<impl Into<SqlValue>>) {
+        if let Some(value) = value {
+            self.terms.push(term.into());
+            self.args.push(value.into());
+        }
+    }
+
+    fn clause(&self) -> String {
+        if self.terms.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", self.terms.join(" AND "))
+        }
+    }
+
+    fn total(&self, connection: &Connection) -> StoreResult<i64> {
+        connection
+            .query_row(
+                &format!("SELECT COUNT(*) FROM deeds{} LIMIT 1", self.clause()),
+                params_from_iter(&self.args),
+                |row| row.get(0),
+            )
+            .map_err(|_| "sqlite-deed-count-failed")
+    }
+
+    fn rows(&self, connection: &Connection, offset: usize, limit: usize) -> StoreResult<Vec<Value>> {
+        let pagination = [limit as i64, i64::try_from(offset).unwrap_or(i64::MAX)];
+        let mut stmt = connection
+            .prepare(&format!("SELECT {ROW_COLUMNS} FROM deeds{} ORDER BY id DESC LIMIT ? OFFSET ?", self.clause()))
+            .map_err(|_| "sqlite-deed-select-failed")?;
+        let mut rows = stmt
+            .query(params_from_iter(self.args.iter().cloned().chain(pagination.map(SqlValue::Integer))))
+            .map_err(|_| "sqlite-deed-select-failed")?;
+        let mut page = Vec::new();
+        while let Some(row) = rows.next().map_err(|_| "sqlite-deed-select-failed")? {
+            page.push(row_json(row)?);
+        }
+        Ok(page)
+    }
+}
+
+fn read<T: Default>(query: impl FnOnce(&Connection) -> StoreResult<T>) -> StoreResult<(T, u64)> {
+    let Some((mut connection, file_size)) = open_existing(OpenFlags::SQLITE_OPEN_READ_ONLY)? else {
+        return Ok((T::default(), 0));
+    };
+    connection.execute_batch("PRAGMA temp_store=MEMORY;").map_err(|_| "sqlite-read-open-failed")?;
+    // The filtered total and the page describe the same WAL snapshot.
+    let tx = connection.transaction().map_err(|_| "sqlite-read-begin-failed")?;
+    let result = if has_deeds(&tx)? { query(&tx)? } else { T::default() };
+    Ok((result, file_size))
+}
+
+pub(crate) fn read_page(offset: usize, limit: usize, filters: LogFilters) -> StoreResult<DeedPage> {
+    let mut selection = Selection::default();
+    selection.filter("kind = ?", filters.kind);
+    selection.filter("organ = ?", filters.organ);
+    selection.filter("verb = ?", filters.verb);
+    selection.filter("level <= ?", filters.level);
+    selection.filter(format!("{AGE_KEY} >= julianday(?)"), filters.since);
+    let ((rows, total), file_size) = read(|connection| {
+        let total = selection.total(connection)?;
+        Ok((selection.rows(connection, offset, limit)?, total))
+    })?;
+    Ok(DeedPage { rows, total, file_size })
+}
+
+pub(super) fn read_tail(filters: &TailFilters, limit: usize) -> StoreResult<(Vec<Value>, u64)> {
+    let level = filters.level.as_deref().map(str::parse::<i64>).transpose()
+        .map_err(|_| "hyalos-tail-level-invalid")?;
+    let mut selection = Selection::default();
+    selection.filter("(kind = :kind OR verb = :kind)", filters.kind.clone());
+    selection.filter("organ = ?", filters.organ.clone());
+    selection.filter("routine = ?", filters.correlation_id.clone());
+    selection.filter("level = ?", level);
+    selection.filter("trouble = ?", filters.ok.map(|ok| i64::from(!ok)));
+    read(|connection| selection.rows(connection, 0, limit))
+}
+
+pub(crate) fn read_harmonia_runs() -> StoreResult<Vec<Value>> {
+    let selection = Selection {
+        terms: vec!["organ = 'harmonia'".into(), "kind = 'run'".into()],
+        args: Vec::new(),
+    };
+    read(|connection| selection.rows(connection, 0, 10)).map(|(rows, _)| rows)
 }

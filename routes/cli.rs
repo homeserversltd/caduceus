@@ -1130,7 +1130,7 @@ fn print_usage(args: Option<&[String]>) {
     println!("  caduceus profile show");
     println!("  caduceus profile sources reseed");
     println!("  caduceus health");
-    println!("  caduceus logs read [--offset N] [--limit N]");
+    println!("  caduceus logs read [--offset N] [--limit N] (Hyalos database)");
     println!("  caduceus storage categories scan");
     println!("  caduceus disk census");
     println!("  caduceus time state");
@@ -1185,9 +1185,9 @@ fn print_usage(args: Option<&[String]>) {
     println!("  caduceus staff actuators");
     println!("  caduceus staff crossings");
     println!("  caduceus staff intent <method> <route>");
-    println!("  caduceus hyalos reflect <organ> <kind> <message> [--payload JSON]");
+    println!("  caduceus hyalos reflect <organ> <kind> <message> [--payload JSON] [--debug]");
     println!("  caduceus hyalos append <event-json>");
-    println!("  caduceus hyalos tail [count] [--kind K] [--organ O] [--world W] [--correlation-id ID] [--level L] [--ok true|false]");
+    println!("  caduceus hyalos tail [count] [--kind K] [--organ O] [--correlation-id ID] [--level 1-5] [--ok true|false] (Hyalos database)");
     println!("  caduceus sync status");
     println!("  caduceus sync now [--no-restart] [--dry-run]");
     println!("  caduceus update status");

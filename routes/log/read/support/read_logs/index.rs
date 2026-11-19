@@ -1,92 +1,62 @@
-// Canonical appliance log readback.
-//
-// Every appliance speaks through one path.  The appliance profile identifies
-// the speaker; this band never selects a body-specific fallback log.
-
-use crate::shared::config;
+use crate::shared::hyalos::{self, LogFilters, DB_PATH};
 use serde_json::{json, Value};
-use std::{fs, io};
 
-pub use crate::shared::hyalos::CHANNEL_PATH as LOG_PATH;
+pub const LOG_PATH: &str = DB_PATH;
 pub const DEFAULT_LIMIT: usize = 1000;
 pub const MAX_LIMIT: usize = 5000;
+const SCHEMA: &str = "caduceus.appliance.logs.read.v1";
 
 pub fn read_json(offset: usize, limit: usize) -> Value {
+    read_filtered(offset, limit, LogFilters::default())
+}
+
+pub(crate) fn read_filtered(offset: usize, limit: usize, filters: LogFilters) -> Value {
     let limit = limit.min(MAX_LIMIT);
-    match fs::read(config::path(LOG_PATH)) {
-        Ok(bytes) => {
-            let file_size = bytes.len() as u64;
-            let text = String::from_utf8_lossy(&bytes);
-            let mut lines: Vec<String> = text.split_inclusive('\n').map(str::to_owned).collect();
-            if text.is_empty() {
-                lines.clear();
-            }
-            lines.reverse();
-            let total_lines = lines.len();
-            let selected: Vec<String> = lines.into_iter().skip(offset).take(limit).collect();
+    match hyalos::read_page(offset, limit, filters) {
+        Ok(page) => {
+            let lines: Vec<String> = page.rows.iter().map(|row| format!("{row}\n")).collect();
             json!({
-                "schema": "caduceus.appliance.logs.read.v1",
+                "schema": SCHEMA,
                 "status": "success",
                 "ok": true,
-                "lines": selected,
-                "logs": selected,
+                "lines": lines,
+                "logs": lines,
+                "rows": page.rows,
                 "offset": offset,
                 "limit": limit,
-                "returned_lines": selected.len(),
-                "total_lines": total_lines,
-                "file_size": file_size,
+                "returned_lines": lines.len(),
+                "total_lines": page.total,
+                "file_size": page.file_size,
                 "file_path": LOG_PATH,
-                "last_rotation_timestamp": crate::maintenance::latest_rotation_timestamp(),
-                "firstMissingSignal": "none"
+                "last_rotation_timestamp": null,
+                "firstMissingSignal": "none",
             })
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => missing_receipt("read"),
-        Err(error) => failure_receipt("read", &error),
+        Err(signal) => json!({
+            "schema": SCHEMA,
+            "status": "error",
+            "ok": false,
+            "message": format!("Hyalos database read failed: {signal}"),
+            "lines": [],
+            "logs": [],
+            "rows": [],
+            "offset": offset,
+            "limit": limit,
+            "returned_lines": 0,
+            "total_lines": 0,
+            "file_size": 0,
+            "file_path": LOG_PATH,
+            "last_rotation_timestamp": null,
+            "firstMissingSignal": "caduceus-appliance-log-unavailable",
+        }),
     }
 }
 
-pub fn is_missing(value: &Value) -> bool {
-    value.get("firstMissingSignal").and_then(Value::as_str)
-        == Some("caduceus-appliance-log-missing")
-}
-
 pub fn is_failure(value: &Value) -> bool {
-    value.get("ok").and_then(Value::as_bool) == Some(false) && !is_missing(value)
+    value.get("ok").and_then(Value::as_bool) == Some(false)
 }
 
 pub fn show(offset: usize, limit: usize) -> i32 {
     println!("{}", read_json(offset, limit));
     0
-}
-
-fn missing_receipt(action: &str) -> Value {
-    json!({
-        "schema": format!("caduceus.appliance.logs.{action}.v1"),
-        "status": "error",
-        "ok": false,
-        "message": format!("Canonical appliance log is absent: {LOG_PATH}"),
-        "lines": [],
-        "logs": [],
-        "total_lines": 0,
-        "file_size": 0,
-        "file_path": LOG_PATH,
-        "last_rotation_timestamp": crate::maintenance::latest_rotation_timestamp(),
-        "firstMissingSignal": "caduceus-appliance-log-missing"
-    })
-}
-
-fn failure_receipt(action: &str, error: &io::Error) -> Value {
-    json!({
-        "schema": format!("caduceus.appliance.logs.{action}.v1"),
-        "status": "error",
-        "ok": false,
-        "message": format!("Canonical appliance log {action} failed: {error}"),
-        "lines": [],
-        "logs": [],
-        "total_lines": 0,
-        "file_size": config::path(LOG_PATH).metadata().map(|metadata| metadata.len()).unwrap_or(0),
-        "file_path": LOG_PATH,
-        "last_rotation_timestamp": crate::maintenance::latest_rotation_timestamp(),
-        "firstMissingSignal": "caduceus-appliance-log-unavailable"
-    })
 }

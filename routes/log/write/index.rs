@@ -28,7 +28,7 @@ pub fn command(args: &[String]) -> i32 {
                 "ok": option_value(rest, "--ok").map(|value| value != "false").unwrap_or(true),
                 "attributes_redacted": option_json(rest, "--payload").unwrap_or_else(|| json!({}))
             });
-            for (flag, field) in [
+            let fields = [
                 ("--body-id", "body_id"),
                 ("--world", "world"),
                 ("--level", "level"),
@@ -37,9 +37,21 @@ pub fn command(args: &[String]) -> i32 {
                 ("--work-id", "work_id"),
                 ("--review-id", "review_id"),
                 ("--strike-id", "strike_id"),
-            ] {
+            ];
+            for (flag, field) in fields {
                 if let Some(item) = option_value(rest, flag) {
                     value[field] = json!(item);
+                }
+            }
+            // A string supplied to a valued option is not the debug switch.
+            let mut args = rest.iter();
+            while let Some(arg) = args.next() {
+                if arg == "--debug" {
+                    value["debug"] = json!(true);
+                    break;
+                }
+                if matches!(arg.as_str(), "--ok" | "--payload") || fields.iter().any(|(flag, _)| arg == flag) {
+                    args.next();
                 }
             }
             hyalos::reflect_json(value)
@@ -76,16 +88,10 @@ pub fn tail_json(filters: TailFilters) -> Result<Value, String> {
 }
 
 fn parse_tail_filters(args: &[String]) -> Result<TailFilters, String> {
-    let mut count = 20usize;
-    let mut saw_count = false;
-    for arg in args {
-        if !arg.starts_with("--") && !saw_count {
-            count = arg
-                .parse::<usize>()
-                .map_err(|err| format!("hyalos-tail-count-invalid: {err}"))?;
-            saw_count = true;
-        }
-    }
+    let count = args.first().filter(|value| !value.starts_with("--"))
+        .map(|value| value.parse::<usize>()).transpose()
+        .map_err(|err| format!("hyalos-tail-count-invalid: {err}"))?
+        .unwrap_or(20);
     Ok(TailFilters {
         count,
         kind: option_value(args, "--kind").map(str::to_string),

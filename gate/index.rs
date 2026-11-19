@@ -535,6 +535,9 @@ fn declared_http_route(method: &str, path: &str) -> Option<Value> {
             }
             let path_matches = if name == "log/tail" {
                 value["http_path"].as_str() == Some(path)
+                    || value["http_aliases"].as_array().is_some_and(|aliases| {
+                        aliases.iter().any(|alias| alias.as_str() == Some(path))
+                    })
             } else {
                 name == namespace
             };
