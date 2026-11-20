@@ -796,6 +796,144 @@ fn redact_administrative_pin(body: &mut Value) -> bool {
     true
 }
 
+/// What one pass over a body's raw bytes sees that its parsed value hides:
+/// a key held twice in one object (the parsed value keeps only the last
+/// member) and a PIN carrier, flags.exousia.pin, in any member.
+#[derive(Default)]
+struct RawCarrierScan {
+    duplicate_key: bool,
+    pin_carried: bool,
+}
+
+#[derive(Clone, Copy)]
+enum CarrierDepth {
+    Root,
+    Flags,
+    Exousia,
+    Elsewhere,
+}
+
+struct CarrierSeed<'a> {
+    scan: &'a mut RawCarrierScan,
+    depth: CarrierDepth,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for CarrierSeed<'_> {
+    type Value = ();
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<(), D::Error> {
+        deserializer.deserialize_any(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for CarrierSeed<'_> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a JSON value")
+    }
+
+    fn visit_bool<E>(self, _: bool) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_i64<E>(self, _: i64) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_u64<E>(self, _: u64) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_f64<E>(self, _: f64) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_str<E>(self, _: &str) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_unit<E>(self) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(mut self, mut seq: A) -> Result<(), A::Error> {
+        while seq
+            .next_element_seed(CarrierSeed {
+                scan: &mut *self.scan,
+                depth: CarrierDepth::Elsewhere,
+            })?
+            .is_some()
+        {}
+        Ok(())
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(mut self, mut map: A) -> Result<(), A::Error> {
+        let mut seen = std::collections::HashSet::new();
+        while let Some(key) = map.next_key::<String>()? {
+            let depth = match (self.depth, key.as_str()) {
+                (CarrierDepth::Root, "flags") => CarrierDepth::Flags,
+                (CarrierDepth::Flags, "exousia") => CarrierDepth::Exousia,
+                (CarrierDepth::Exousia, "pin") => {
+                    self.scan.pin_carried = true;
+                    CarrierDepth::Elsewhere
+                }
+                _ => CarrierDepth::Elsewhere,
+            };
+            if !seen.insert(key) {
+                self.scan.duplicate_key = true;
+            }
+            map.next_value_seed(CarrierSeed {
+                scan: &mut *self.scan,
+                depth,
+            })?;
+        }
+        Ok(())
+    }
+}
+
+/// Scans the raw request body once; None when the bytes are not one JSON value.
+fn scan_raw_carrier(bytes: &[u8]) -> Option<RawCarrierScan> {
+    let mut scan = RawCarrierScan::default();
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    serde::de::DeserializeSeed::deserialize(
+        CarrierSeed {
+            scan: &mut scan,
+            depth: CarrierDepth::Root,
+        },
+        &mut deserializer,
+    )
+    .ok()?;
+    deserializer.end().ok()?;
+    Some(scan)
+}
+
+/// Lays the redaction literal in the PIN carrier of the parsed body, building
+/// flags and exousia when the kept member lacks them; false when a step of the
+/// carrier path is not an object.
+fn lay_redaction_literal(body: &mut Value) -> bool {
+    let Some(object) = body.as_object_mut() else {
+        return false;
+    };
+    let flags = object
+        .entry("flags")
+        .or_insert_with(|| Value::Object(Default::default()));
+    let Some(flags) = flags.as_object_mut() else {
+        return false;
+    };
+    let exousia = flags
+        .entry("exousia")
+        .or_insert_with(|| Value::Object(Default::default()));
+    let Some(exousia) = exousia.as_object_mut() else {
+        return false;
+    };
+    exousia.insert(
+        "pin".to_owned(),
+        Value::String(ADMINISTRATIVE_PIN_REDACTED.to_owned()),
+    );
+    true
+}
+
 async fn administrative_route_gate(mut request: Request<Body>, next: middleware::Next) -> Response {
     request.headers_mut().remove(INTERNAL_ADMIN_GATE_HEADER);
     let method = request.method().as_str().to_owned();
@@ -874,6 +1012,17 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
     let mut stripped_pin = false;
     let forwarded_bytes = if let Some(mut body) = parsed_body {
         stripped_pin = redact_administrative_pin(&mut body);
+        // The parsed value keeps only the last of a key held twice, so raw
+        // bytes holding a duplicate could carry a PIN the parsed value hides:
+        // such a body is forwarded re-serialized, never as the caller's bytes,
+        // and a PIN carried in any member leaves the literal in the carrier.
+        let raw_scan = scan_raw_carrier(&bytes);
+        if !stripped_pin && raw_scan.as_ref().is_some_and(|scan| scan.pin_carried) {
+            lay_redaction_literal(&mut body);
+        }
+        if raw_scan.as_ref().is_none_or(|scan| scan.duplicate_key || scan.pin_carried) {
+            stripped_pin = true;
+        }
         if stripped_pin {
             match serde_json::to_vec(&body) {
                 Ok(bytes) => bytes,
