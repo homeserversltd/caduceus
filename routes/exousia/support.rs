@@ -61,14 +61,20 @@ pub(crate) async fn sudo_mode_read_route() -> Result<Json<Value>, (StatusCode, J
 pub(crate) async fn sudo_mode_route(
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     access_attendance_admits(&headers, &body, "/api/v1/access/sudo/mode")?;
     let mut body = body;
     crate::gate::strip_administrative_flags(&mut body);
-    blocking_task("access sudo mode", move || change_pin::set_sudo_mode_json(&body))
-        .await?
-        .map(Json)
-        .map_err(|signal| api_error_signal("access sudo mode", &signal))
+    let (succeeded, receipt) =
+        blocking_task("access sudo mode", move || change_pin::set_sudo_mode_json(&body))
+            .await?
+            .map_err(|signal| api_error_signal("access sudo mode", &signal))?;
+    let status = if succeeded {
+        StatusCode::OK
+    } else {
+        StatusCode::FORBIDDEN
+    };
+    Ok((status, Json(receipt)))
 }
 
 pub(crate) async fn pin_reset_default_route(

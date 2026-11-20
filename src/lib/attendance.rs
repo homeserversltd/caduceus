@@ -117,23 +117,16 @@ pub fn sudo_mode_json() -> Value {
     })
 }
 
-fn sudo_mode_refusal(wrapper: &Value, fallback: &str) -> String {
-    wrapper
-        .get("receiptPayload")
-        .and_then(|receipt| receipt.get("firstMissingSignal"))
-        .and_then(Value::as_str)
-        .filter(|signal| !signal.is_empty() && *signal != "none")
-        .or_else(|| {
-            wrapper
-                .get("firstMissingSignal")
-                .and_then(Value::as_str)
-                .filter(|signal| !signal.is_empty() && *signal != "none")
-        })
-        .unwrap_or(fallback)
-        .to_string()
+fn sudo_mode_refusal(mut receipt: Value, signal: &str) -> (bool, Value) {
+    receipt
+        .as_object_mut()
+        .expect("staff receipt is an object")
+        .entry("doorSignal")
+        .or_insert_with(|| json!(signal));
+    (false, receipt)
 }
 
-pub fn set_sudo_mode_json(body: &Value) -> Result<Value, String> {
+pub fn set_sudo_mode_json(body: &Value) -> Result<(bool, Value), String> {
     let object = body
         .as_object()
         .filter(|object| object.len() == 1)
@@ -156,63 +149,72 @@ pub fn set_sudo_mode_json(body: &Value) -> Result<Value, String> {
         "origin_of_intent": "near",
         "payload": {"passwordless": passwordless_sudo},
     });
-    let refusal = "caduceus-sudo-passwordless-result-unobserved";
     let wrapper = crate::gate::snake::run(band, &envelope)?;
-    if wrapper.get("ok").and_then(Value::as_bool) != Some(true) {
-        return Err(sudo_mode_refusal(&wrapper, refusal));
-    }
-    let Some(receipt) = wrapper.get("receiptPayload") else {
-        return Err(sudo_mode_refusal(&wrapper, refusal));
+    let signal = wrapper
+        .get("firstMissingSignal")
+        .and_then(Value::as_str)
+        .filter(|signal| !signal.is_empty() && *signal != "none")
+        .unwrap_or("caduceus-sudo-passwordless-result-unobserved");
+    let Some(mut receipt) = wrapper
+        .get("receiptPayload")
+        .filter(|value| value.is_object())
+        .cloned()
+    else {
+        return Err(signal.to_owned());
     };
-    if receipt.get("ok").and_then(Value::as_bool) != Some(true) {
-        return Err(sudo_mode_refusal(&wrapper, refusal));
+
+    let former = receipt.get("schema").and_then(Value::as_str)
+        == Some("agathodaimon.appliance.sudo-passwordless.v1");
+    if !former && !crate::routes::leaf_schema::bound(&receipt, band) {
+        let binding = json!({"expectedStop": band, "receivedStop": receipt.get("stop")});
+        receipt
+            .as_object_mut()
+            .expect("staff receipt is an object")
+            .entry("sudoMode")
+            .or_insert(binding);
+        return Ok(sudo_mode_refusal(receipt, "caduceus-schema-desync"));
     }
-    if receipt.get("schema").and_then(Value::as_str)
-        != Some("agathodaimon.appliance.sudo-passwordless.v1")
+    if wrapper.get("ok").and_then(Value::as_bool) != Some(true)
+        || receipt.get("ok").and_then(Value::as_bool) != Some(true)
     {
-        return Err(sudo_mode_refusal(
-            &wrapper,
-            "caduceus-sudo-passwordless-receipt-schema-unobserved",
-        ));
+        return Ok(sudo_mode_refusal(receipt, signal));
     }
-    let Some(echoed_passwordless) = receipt.get("passwordless").and_then(Value::as_bool) else {
-        return Err(sudo_mode_refusal(
-            &wrapper,
-            "caduceus-sudo-passwordless-switch-unobserved",
-        ));
+
+    let verdict = (|| {
+        let echoed_passwordless = receipt
+            .get("passwordless")
+            .and_then(Value::as_bool)
+            .ok_or("caduceus-sudo-passwordless-switch-unobserved")?;
+        if echoed_passwordless != passwordless_sudo {
+            return Err("caduceus-sudo-passwordless-switch-mismatch");
+        }
+        let fragment_present = receipt
+            .get("fragment_present")
+            .and_then(Value::as_bool)
+            .ok_or("caduceus-sudo-passwordless-fragment-presence-unobserved")?;
+        if fragment_present != passwordless_sudo {
+            return Err("caduceus-sudo-passwordless-fragment-presence-mismatch");
+        }
+        let changed = receipt
+            .get("changed")
+            .and_then(Value::as_bool)
+            .ok_or("caduceus-sudo-passwordless-change-unobserved")?;
+        Ok(json!({
+            "passwordless_sudo": passwordless_sudo,
+            "fragment_present": fragment_present,
+            "changed": changed,
+        }))
+    })();
+    let verdict = match verdict {
+        Ok(verdict) => verdict,
+        Err(signal) => return Ok(sudo_mode_refusal(receipt, signal)),
     };
-    if echoed_passwordless != passwordless_sudo {
-        return Err(sudo_mode_refusal(
-            &wrapper,
-            "caduceus-sudo-passwordless-switch-mismatch",
-        ));
-    }
-    let Some(fragment_present) = receipt.get("fragment_present").and_then(Value::as_bool) else {
-        return Err(sudo_mode_refusal(
-            &wrapper,
-            "caduceus-sudo-passwordless-fragment-presence-unobserved",
-        ));
-    };
-    if fragment_present != passwordless_sudo {
-        return Err(sudo_mode_refusal(
-            &wrapper,
-            "caduceus-sudo-passwordless-fragment-presence-mismatch",
-        ));
-    }
-    let Some(changed) = receipt.get("changed").and_then(Value::as_bool) else {
-        return Err(sudo_mode_refusal(
-            &wrapper,
-            "caduceus-sudo-passwordless-change-unobserved",
-        ));
-    };
-    Ok(json!({
-        "schema": "caduceus.access.sudo.mode.v1",
-        "ok": true,
-        "passwordless_sudo": passwordless_sudo,
-        "fragment_present": fragment_present,
-        "changed": changed,
-        "firstMissingSignal": "none",
-    }))
+    receipt
+        .as_object_mut()
+        .expect("staff receipt is an object")
+        .entry("sudoMode")
+        .or_insert(verdict);
+    Ok((true, receipt))
 }
 
 const PIN_NOT_PROVISIONED: &str = "exousia-pin-not-yet-provisioned";
