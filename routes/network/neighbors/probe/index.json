@@ -1,0 +1,15 @@
+{
+  "namespace": "network/neighbors/probe",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "network/neighbor/probe"}],
+  "commands": ["staff intent"],
+  "needs": ["all"],
+  "profiles": ["homeserver", "specula"],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/neighbors/probe",
+  "body": "none",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": false,
+  "mutation_allowed": false
+}

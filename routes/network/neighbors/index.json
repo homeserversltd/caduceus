@@ -1,0 +1,15 @@
+{
+  "namespace": "network/neighbors",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "network/neighbor/read"}],
+  "commands": ["staff intent"],
+  "needs": ["all"],
+  "profiles": ["homeserver", "specula"],
+  "http_method": "GET",
+  "http_path": "/api/v1/network/neighbors",
+  "body": "none",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": false,
+  "mutation_allowed": false
+}

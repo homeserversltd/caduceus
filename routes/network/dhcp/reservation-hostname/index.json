@@ -1,0 +1,15 @@
+{
+  "namespace": "network/dhcp/reservation-hostname",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "network/dhcp/update-reservation-hostname"}],
+  "commands": ["staff intent"],
+  "needs": ["all"],
+  "profiles": ["homeserver", "homeconsole", "hometv", "homesi", "specula"],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/dhcp/reservation-hostname",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true
+}
