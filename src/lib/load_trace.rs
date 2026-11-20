@@ -667,6 +667,11 @@ fn native_operation(command: &str) -> Option<(&'static str, &'static str, &'stat
             "native-kea-configuration",
             "not-applicable",
         )),
+        "network dhcp doorways list" => Some((
+            "caduceus.network.dhcp.doorways",
+            "native-kea-configuration",
+            "not-applicable",
+        )),
         "hyalos tail" => Some((
             "caduceus.hyalos.channel.tail",
             "local-channel-file",

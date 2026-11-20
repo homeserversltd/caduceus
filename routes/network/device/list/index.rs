@@ -186,6 +186,11 @@ pub const COMMANDS: &[ReadCommand] = &[
         args: &["reservations", "list"],
     },
     ReadCommand {
+        command: crate::routes::native_kea_read::DOORWAYS_COMMAND,
+        actuator_id: "network.dhcp.doorways",
+        args: &["doorways", "list"],
+    },
+    ReadCommand {
         command: "network dhcp boundary show",
         actuator_id: "network.dhcp.boundary",
         args: &["boundary", "show"],
@@ -252,7 +257,9 @@ pub fn invoke(command: &ReadCommand) -> Result<Value, String> {
 pub(crate) fn invoke_with_origin(command: &ReadCommand) -> Result<(Value, bool), String> {
     if matches!(
         command.command,
-        "network dhcp leases" | "network dhcp reservations list"
+        "network dhcp leases"
+            | "network dhcp reservations list"
+            | crate::routes::native_kea_read::DOORWAYS_COMMAND
     ) {
         return Ok((crate::routes::native_kea_read::response(command.command), false));
     }

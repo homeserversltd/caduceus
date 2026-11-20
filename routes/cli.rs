@@ -1162,6 +1162,7 @@ fn print_usage(args: Option<&[String]>) {
     println!("  caduceus network dhcp status");
     println!("  caduceus network dhcp leases");
     println!("  caduceus network dhcp reservations list");
+    println!("  caduceus network dhcp doorways list");
     println!("  caduceus network dhcp boundary show");
     println!("  caduceus network dhcp statistics");
     println!("  caduceus network dhcp health");

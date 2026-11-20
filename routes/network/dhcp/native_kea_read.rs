@@ -7,7 +7,9 @@ use std::{
 };
 
 const LEASE_COMMAND: &str = "network dhcp leases";
-const RESERVATION_COMMAND: &str = "network dhcp reservations list";
+pub(crate) const RESERVATION_COMMAND: &str = "network dhcp reservations list";
+pub(crate) const DOORWAYS_COMMAND: &str = "network dhcp doorways list";
+const DHCP_STAFF_SCHEMA: &str = "caduceus.staff.network.dhcp.v1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeaseRow {
@@ -276,6 +278,57 @@ pub fn read_reservations() -> Result<Vec<ReservationRow>, String> {
     Ok(rows)
 }
 
+fn doorway_mac(suffix: &str) -> Option<String> {
+    let literal = suffix.trim_start().strip_prefix("==")?;
+    let literal = literal.trim_start().strip_prefix("0x")?;
+    let (hex, tail) = literal.split_at_checked(12)?;
+    if !hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || tail.as_bytes().first().is_some_and(u8::is_ascii_hexdigit)
+    {
+        return None;
+    }
+    Some(format!(
+        "{}:{}:{}:{}:{}:{}",
+        &hex[..2],
+        &hex[2..4],
+        &hex[4..6],
+        &hex[6..8],
+        &hex[8..10],
+        &hex[10..],
+    ))
+}
+
+fn read_doorways() -> Result<Value, String> {
+    let root = read_config()?;
+    let mut rows = Vec::new();
+    if let Some(classes) = root["Dhcp4"]["client-classes"].as_array() {
+        for class in classes {
+            let (Some(name), Some(test)) = (class["name"].as_str(), class["test"].as_str()) else {
+                continue;
+            };
+            let test = test.to_ascii_lowercase();
+            for (start, token) in test.match_indices("pkt4.mac") {
+                if test[..start]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
+                {
+                    continue;
+                }
+                if let Some(mac) = doorway_mac(&test[start + token.len()..]) {
+                    rows.push((mac, name));
+                }
+            }
+        }
+    }
+    rows.sort_unstable();
+    Ok(Value::Array(
+        rows.into_iter()
+            .map(|(mac, class)| json!({"mac": mac, "class": class}))
+            .collect(),
+    ))
+}
+
 pub fn response(command: &str) -> Value {
     let (action, actuator, result, inner_schema, failure) = match command {
         LEASE_COMMAND => match read_leases() {
@@ -295,7 +348,7 @@ pub fn response(command: &str) -> Value {
                         })
                         .collect(),
                 ),
-                "caduceus.staff.network.dhcp.v1",
+                DHCP_STAFF_SCHEMA,
                 None,
             ),
             Err(error) => (
@@ -322,7 +375,7 @@ pub fn response(command: &str) -> Value {
                         })
                         .collect(),
                 ),
-                "caduceus.staff.network.dhcp.v1",
+                DHCP_STAFF_SCHEMA,
                 None,
             ),
             Err(error) => (
@@ -333,6 +386,19 @@ pub fn response(command: &str) -> Value {
                 Some(error),
             ),
         },
+        DOORWAYS_COMMAND => {
+            let (result, failure) = match read_doorways() {
+                Ok(rows) => (rows, None),
+                Err(error) => (Value::Null, Some(error)),
+            };
+            (
+                "doorways",
+                "network.dhcp.doorways",
+                result,
+                DHCP_STAFF_SCHEMA,
+                failure,
+            )
+        }
         _ => {
             return json!({
                 "actuatorId": "network.dhcp.read",

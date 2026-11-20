@@ -2,6 +2,7 @@
 pub const NAMESPACE: &str = "network/dhcp/status";
 
 use crate::gate::{api_error, api_error_signal, ApiErrorBody};
+use crate::routes::native_kea_read;
 use crate::shared::policy;
 use axum::{extract::Json, http::StatusCode, Router};
 #[cfg(carapace_feature_kea)]
@@ -63,18 +64,15 @@ async fn dhcp_status_route() -> Result<(StatusCode, Json<Value>), (StatusCode, J
     network_read_route("network dhcp status").await
 }
 
-async fn dhcp_reservations_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    let command = "network dhcp reservations list";
+async fn native_dhcp_read(command: &'static str) -> Result<Value, (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(command) {
         Ok(true) => {
             let context = crate::shared::load_trace::current();
             let invocation = context
                 .as_ref()
                 .map(crate::shared::load_trace::begin_invocation);
-            let value = crate::gate::blocking_task(command, move || {
-                crate::routes::native_kea_read::response(command)
-            })
-            .await?;
+            let value =
+                crate::gate::blocking_task(command, move || native_kea_read::response(command)).await?;
             if let (Some(context), Some(invocation)) = (context, invocation) {
                 crate::shared::load_trace::record_native_completion(
                     &context,
@@ -84,28 +82,44 @@ async fn dhcp_reservations_read_route() -> Result<Json<Value>, (StatusCode, Json
                 );
             }
 
-            if value["ok"] == true {
-                let mut value = value;
-                crate::shared::load_trace::enrich_json(&mut value);
-                Ok(Json(value))
-            } else {
-                Err((
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Json(ApiErrorBody {
-                        schema: "caduceus.api.error.v1",
-                        ok: false,
-                        command: command.to_string(),
-                        first_missing_signal: value["firstMissingSignal"]
-                            .as_str()
-                            .unwrap_or("caduceus-network-dhcp-read-failed")
-                            .to_string(),
-                    }),
-                ))
-            }
+            Ok(value)
         }
         Ok(false) => Err(api_error(command)),
         Err(_) => Err(api_error_signal(command, "caduceus-carapace-desync")),
     }
+}
+
+async fn dhcp_reservations_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    let command = native_kea_read::RESERVATION_COMMAND;
+    let mut value = native_dhcp_read(command).await?;
+    if value["ok"] == true {
+        crate::shared::load_trace::enrich_json(&mut value);
+        Ok(Json(value))
+    } else {
+        Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiErrorBody {
+                schema: "caduceus.api.error.v1",
+                ok: false,
+                command: command.to_string(),
+                first_missing_signal: value["firstMissingSignal"]
+                    .as_str()
+                    .unwrap_or("caduceus-network-dhcp-read-failed")
+                    .to_string(),
+            }),
+        ))
+    }
+}
+
+async fn dhcp_doorways_read_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let mut value = native_dhcp_read(native_kea_read::DOORWAYS_COMMAND).await?;
+    let status = if value["ok"] == true {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    crate::shared::load_trace::enrich_json(&mut value);
+    Ok((status, Json(value)))
 }
 
 #[cfg(carapace_feature_kea)]
@@ -182,7 +196,11 @@ pub fn register(router: Router) -> Router {
             "/api/v1/network/dhcp/status",
             axum::routing::get(dhcp_status_route),
         )
-        .route("/api/v1/network/dhcp/reservations", reservations_route);
+        .route("/api/v1/network/dhcp/reservations", reservations_route)
+        .route(
+            "/api/v1/network/dhcp/doorways",
+            axum::routing::get(dhcp_doorways_read_route),
+        );
     #[cfg(carapace_feature_kea)]
     let router = router
         .route(
