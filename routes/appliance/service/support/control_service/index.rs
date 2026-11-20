@@ -48,30 +48,18 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         "status" => "appliance/service/status",
         _ => return Err("caduceus-portal-service-intent-invalid".to_string()),
     };
-    let receipt = crate::gate::snake::crossing_path_receipt(band, &payload)?;
-    let ok = receipt
-        .get("ok")
-        .and_then(Value::as_bool)
-        .ok_or_else(|| "caduceus-portal-service-receipt-invalid".to_string())?
-        && crate::gate::receipt_succeeded(&receipt);
-    let active = match receipt.get("active") {
-        Some(Value::Bool(_) | Value::Null) => receipt["active"].clone(),
-        _ => return Err("caduceus-portal-service-receipt-invalid".to_string()),
-    };
-    let enabled = match receipt.get("enabled") {
-        Some(Value::Bool(_) | Value::Null) => receipt["enabled"].clone(),
-        _ => Value::Null,
-    };
-    let output = receipt
-        .get("output")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "caduceus-portal-service-receipt-invalid".to_string())?;
-    let first_missing_signal = receipt
-        .get("firstMissingSignal")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "caduceus-portal-service-receipt-invalid".to_string())?;
+    let mut receipt = crate::gate::snake::crossing_path_receipt(band, &payload)?;
+    let active = receipt
+        .get("active")
+        .filter(|value| value.is_boolean() || value.is_null());
+    let enabled = receipt.get("enabled").and_then(Value::as_bool);
+    let output = receipt.get("output").and_then(Value::as_str);
+    let first_missing_signal = receipt.get("firstMissingSignal").and_then(Value::as_str);
+    let projection_invalid = active.is_none() || output.is_none() || first_missing_signal.is_none();
+    let crossing_succeeded = crate::gate::receipt_succeeded(&receipt);
+    let ok = crossing_succeeded && !projection_invalid;
 
-    let mut projection = json!({
+    let projection = json!({
         "schema": "caduceus.staff.portal_service.v1",
         "ok": ok,
         "accepted": true,
@@ -89,10 +77,17 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         "firstMissingSignal": first_missing_signal,
         "metadata": metadata
     });
-    if !ok {
-        projection["stopReceipt"] = receipt;
+    if let Some(object) = receipt.as_object_mut() {
+        // A missing projection field must not turn a crossed receipt into a bare error.
+        if crossing_succeeded && projection_invalid {
+            object.insert(
+                "doorSignal".into(),
+                json!("caduceus-portal-service-receipt-invalid"),
+            );
+        }
+        object.entry("portalService").or_insert(projection);
     }
-    Ok(projection)
+    Ok(receipt)
 }
 
 pub fn normalize_systemd_service(service: &str) -> String {
