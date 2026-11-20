@@ -1067,10 +1067,46 @@ pub fn crossing_path(path: &str, input: &Value) -> Result<Value, String> {
     }
 }
 
+/// A stop answer past the crossing bound is answered as the crossed stop's one
+/// receipt: the bound and the bytes read are named, never the bytes themselves.
+fn over_bound_receipt(path: &str, signal: &str) -> Option<Value> {
+    let mut words = signal.split_whitespace();
+    let head = words.next()?;
+    if head != "caduceus-agathodaimon-output-too-large"
+        && head != "caduceus-staff-socket-output-too-large"
+    {
+        return None;
+    }
+    let mut observed = serde_json::Map::new();
+    for word in words {
+        if let Some((key, value)) = word.split_once('=') {
+            if let Ok(number) = value.parse::<u64>() {
+                observed.insert(key.to_string(), json!(number));
+            }
+        }
+    }
+    let (noun, verb) = path.rsplit_once('/').unwrap_or((path, ""));
+    let signal = "caduceus-agathodaimon-output-too-large";
+    Some(json!({
+        "schema": "caduceus.staff.receipt.v1",
+        "ok": false,
+        "firstMissingSignal": signal,
+        "doorSignal": head,
+        "stop": {"noun": noun, "verb": verb},
+        "observed": if observed.is_empty() { Value::Null } else { Value::Object(observed) },
+        "could_change_to": null,
+        "attempt": null,
+        "final_receipt": {"ok": false, "firstMissingSignal": signal}
+    }))
+}
+
 /// Pass the stop's receipt whole, including refusals, under ReceiptPassage.
 pub fn crossing_path_receipt(path: &str, input: &Value) -> Result<Value, String> {
     let env = crossing_envelope(path, input);
-    let v = execute(path, &env)?;
+    let v = match execute(path, &env) {
+        Ok(v) => v,
+        Err(signal) => return over_bound_receipt(path, &signal).ok_or(signal),
+    };
     let mut receipt = v.get("receiptPayload")
         .cloned()
         .ok_or_else(|| "caduceus-snake-receipt-missing".to_string())?;
@@ -1580,11 +1616,21 @@ async fn native_chord_run_steps(
             Err(signal) => {
                 // A timed-out or broken mutating crossing cannot prove it changed nothing.
                 if !is_ring { state.changed = None; }
-                (
-                    "stage-refused",
-                    json!({"ok":false,"firstMissingSignal":signal}),
-                    Some(signal),
-                )
+                match crossed_snake.as_deref().and_then(|path| over_bound_receipt(path, &signal)) {
+                    Some(receipt) => (
+                        "stage-refused",
+                        receipt,
+                        Some("caduceus-agathodaimon-output-too-large".to_owned()),
+                    ),
+                    None => {
+                        let mut receipt = json!({"ok":false,"firstMissingSignal":signal});
+                        if let Some(path) = crossed_snake.as_deref() {
+                            let (noun, verb) = path.rsplit_once('/').unwrap_or((path, ""));
+                            receipt["stop"] = json!({"noun": noun, "verb": verb});
+                        }
+                        ("stage-refused", receipt, Some(signal))
+                    }
+                }
             },
             Ok(result) => {
                 let receipt = result
