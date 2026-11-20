@@ -10,7 +10,6 @@ use crate::gate::door::ARPEGGIO_PARTS;
 
 include!(concat!(env!("OUT_DIR"), "/public_schema_seats.rs"));
 
-const SEAT_FOLDER: &str = "/opt/caduceus/source/schema";
 const SHARED_SEATS: [&str; 5] = [
     crate::protocol::SCHEMA_ID,
     "caduceus.staff.receipt.v1",
@@ -84,7 +83,7 @@ fn registry() -> Result<&'static Registry, &'static str> {
             seats.insert(id, Seat { bytes, declaration });
         }
         let arpeggio_drift = arpeggio_drift(seats.get("caduceus.chord.v1"));
-        Ok(Registry { seats, census: json!({"folder": SEAT_FOLDER, "loaded": loaded, "absent": absent, "arpeggio_drift": arpeggio_drift}) })
+        Ok(Registry { seats, census: json!({"folder": folder.to_string_lossy(), "loaded": loaded, "absent": absent, "arpeggio_drift": arpeggio_drift}) })
     }).as_ref().map_err(String::as_str)
 }
 

@@ -113,9 +113,21 @@ fn exchange(method: &str, path: &str, body: &[u8], timeout: Duration) -> Result<
         .and_then(|code| code.parse::<u16>().ok()).ok_or("caduceus-serve-response-invalid")?;
     Ok((status, response[split + 4..].to_vec()))
 }
-fn output(result: Result<(u16, Vec<u8>), String>) -> i32 {
+fn output(result: Result<(u16, Vec<u8>), String>, noun: &str, verb: &str, walked: &[&str]) -> i32 {
     match result {
-        Err(signal) => { eprintln!("{signal}"); 1 }
+        Err(signal) => {
+            // The exchange was attempted; a missing reply cannot establish whether the act ran.
+            println!("{}", json!({
+                "schema": "caduceus.staff.receipt.v1", "ok": false,
+                "firstMissingSignal": signal, "doorSignal": signal,
+                "stop": {"noun": noun, "verb": verb},
+                "observed": {"words": walked, "walked": walked, "stopped_at": "exchange"},
+                "could_change_to": null,
+                "attempt": {"attempted": true, "step": "exchange"},
+                "final_receipt": {"ok": false, "firstMissingSignal": signal}
+            }));
+            1
+        }
         Ok((status, body)) => {
             let receipt: Option<Value> = serde_json::from_slice(&body).ok();
             let ok = receipt.as_ref().map(|value| {
@@ -149,7 +161,7 @@ fn mutation(path: &str, mut value: Value, original: Option<Vec<u8>>, timeout: Du
         return refusal(&signal, noun, verb, walked, "pin", "pin-prompt", could_change_to);
     } };
     let body = if !changed { original.unwrap_or_else(|| value.to_string().into_bytes()) } else { value.to_string().into_bytes() };
-    output(exchange("POST", path, &body, timeout))
+    output(exchange("POST", path, &body, timeout), noun, verb, walked)
 }
 pub(crate) fn swap() -> i32 {
     let walked = ["storage", "nas", "role", "swap"];
@@ -160,8 +172,8 @@ pub(crate) fn swap() -> i32 {
 #[cfg(leaf_pid2)]
 pub(crate) fn pid2(args: &[String]) -> i32 {
     match args {
-        [verb] if verb == "list" => output(exchange("GET", "/api/v1/pid2/list", &[], Duration::from_secs(300))),
-        [verb, id] if verb == "status" => output(exchange("GET", &format!("/api/v1/pid2/status/{}", escape_segment(id)), &[], Duration::from_secs(300))),
+        [verb] if verb == "list" => output(exchange("GET", "/api/v1/pid2/list", &[], Duration::from_secs(300)), "pid2", "list", &["list"]),
+        [verb, id] if verb == "status" => output(exchange("GET", &format!("/api/v1/pid2/status/{}", escape_segment(id)), &[], Duration::from_secs(300)), "pid2", "status", &["status"]),
         [verb] if verb == "enable" => {
             let walked = ["pid2", "enable"];
             let raw = match input(true) { Ok(raw) => raw, Err(signal) => return input_refusal(&signal, "pid2", verb, &walked, "input-read") };
@@ -181,6 +193,14 @@ pub(crate) fn pid2(args: &[String]) -> i32 {
             body["payload"][field] = json!(id);
             mutation(&format!("/api/v1/pid2/{verb}"), body, None, Duration::from_secs(300), "pid2", verb, &walked)
         }
-        _ => { eprintln!("pid2-arguments-invalid"); 1 }
+        _ => {
+            // The native CLI has already resolved the verb, not the argument words.
+            let verb = args.first().map(String::as_str).unwrap_or("front-door");
+            println!("{}", super::cli_refusal(
+                "pid2-arguments-invalid", "pid2", verb, args, &[verb], None,
+                "arguments", "argument-walk", json!({"help": format!("caduceus {verb} --help")}),
+            ));
+            1
+        }
     }
 }

@@ -442,7 +442,7 @@ pub(crate) fn crossing(noun: &str, verb: &str, input: &Value) -> Result<Value, S
             .get("firstMissingSignal")
             .or_else(|| value.get("error"))
             .and_then(Value::as_str)
-            .unwrap_or("caduceus-pin-not-yet-provisioned")
+            .unwrap_or("exousia-pin-not-yet-provisioned")
             .to_string()
     })
 }

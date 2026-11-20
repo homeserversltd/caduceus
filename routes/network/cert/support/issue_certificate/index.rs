@@ -50,7 +50,7 @@ fn invoke_stop_json_with_timeout(verb: &str, payload: Value, timeout: Duration) 
 
 fn stop_signal(value: Value) -> String {
         if matches!(value.get("firstMissingSignal").and_then(Value::as_str),
-            Some("caduceus-pin-not-yet-provisioned" | "exousia-pin-not-yet-provisioned"))
+            Some("exousia-pin-not-yet-provisioned"))
         {
             "caduceus-house-ca-refused".to_string()
         } else {
@@ -676,7 +676,7 @@ pub fn portal_admit_json(
 ) -> Result<Value, String> {
     portal_admit_receipt(portal, ip, upstream, aliases, dry_run, None).map_err(|value| {
         if matches!(value.get("firstMissingSignal").and_then(Value::as_str),
-            Some("caduceus-pin-not-yet-provisioned" | "exousia-pin-not-yet-provisioned")) {
+            Some("exousia-pin-not-yet-provisioned")) {
             "caduceus-house-ca-refused".to_string()
         } else {
             value.get("firstMissingSignal").and_then(Value::as_str).unwrap_or("caduceus-house-ca-refused").to_string()
