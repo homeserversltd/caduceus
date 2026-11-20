@@ -2,7 +2,7 @@
 use futures_util::{FutureExt, StreamExt};
 use serde_json::Value;
 use std::{collections::{HashMap, HashSet, VecDeque}, ffi::CString, io::{Read, Seek, SeekFrom, Write}, os::fd::{AsRawFd, FromRawFd, OwnedFd}, path::PathBuf, sync::{Arc, Mutex, OnceLock, RwLock, atomic::{AtomicBool, Ordering}}, time::Duration};
-use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Interest}, sync::mpsc};
+use tokio::{io::{unix::AsyncFd, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Interest}, sync::{mpsc, watch}};
 use zbus::{Connection, Message, MatchRule, MessageStream, Proxy, message::Type, zvariant::{OwnedObjectPath, OwnedValue}};
 
 #[path="kernel_senses.rs"]
@@ -113,6 +113,7 @@ fn enum_units()->HashMap<String,HashSet<String>> {
             if let (Some(scope),Some(name))=(unit.get("scope").and_then(Value::as_str),unit.get("unit").and_then(Value::as_str)) {sets.entry(scope.to_owned()).or_default().insert(name.to_owned());}
         }
     }
+    if let Ok(uid)=owner_uid() {sets.entry("system".into()).or_default().insert(owner_manager_unit(uid));}
     sets
 }
 fn refresh_units()->Result<(),String> {
@@ -331,6 +332,40 @@ fn owner_uid() -> Result<u32, String> {
     Ok(pwd.pw_uid)
 }
 
+fn owner_manager_unit(uid: u32) -> String {
+    format!("user@{uid}.service")
+}
+
+fn system_units() -> (HashSet<String>,Option<String>) {
+    let units=scoped_units("system");
+    let owner=owner_uid().ok().map(owner_manager_unit).filter(|unit|units.contains(unit));
+    (units,owner)
+}
+
+fn owner_manager_active(unit: &str) -> bool {
+    crate::stats::indicators::unit_state::observed("system",unit)
+        .is_some_and(|state|state.active_state.as_deref()==Some("active"))
+}
+
+fn owner_manager_changed(updates: &watch::Sender<u64>, unit: Option<&str>) {
+    if let Some(unit)=unit {
+        let active=owner_manager_active(unit);
+        // Retain only a non-active event fence, not a second cache. A fast
+        // down/up must still end the old child or cancel its restart deadline.
+        updates.send_modify(|fence|if !active {*fence=fence.wrapping_add(1);});
+    }
+}
+
+async fn wait_for_owner_manager(updates: &mut watch::Receiver<u64>, unit: &str) -> Option<u64> {
+    loop {
+        // Mark the current notification before reading the cache so a change
+        // during that read stays pending even if the task has not parked yet.
+        let fence=*updates.borrow_and_update();
+        if owner_manager_active(unit) {return Some(fence);}
+        updates.changed().await.ok()?;
+    }
+}
+
 async fn streams(conn: &Connection, scope: &str) -> Result<(MessageStream,String),String> {
     // One receive-ordered stream prevents Manager and PropertiesChanged signals
     // from overtaking one another after a reload or a collected unit's return.
@@ -369,12 +404,13 @@ async fn streams(conn: &Connection, scope: &str) -> Result<(MessageStream,String
     Ok((incoming,owner))
 }
 
-async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::watch::Receiver<()>) {
+async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::watch::Receiver<()>,manager_updates:watch::Sender<u64>) {
+    use crate::stats::indicators::unit_state;
     loop {
         if let Err(error)=refresh_units() {
             eprintln!("pid2-system-unit-config: {error}");
         }
-        let watched=scoped_units("system");
+        let (watched,owner_unit)=system_units();
         let connected: Result<(),String> = async {
             let conn = Connection::system().await.map_err(|e|e.to_string())?;
             let (mut events,manager_owner) = streams(&conn,"system").await?;
@@ -382,33 +418,51 @@ async fn watch_systemd(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync:
             let mut barrier = settled_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?;
             if watched!=scoped_units("system") {return Err("pid2-unit-watch-reconfigured".into());}
             set_installed("system",watched.clone());
-            crate::stats::indicators::unit_state::set_online("system",true);
+            unit_state::set_online("system",true);
             online.store(true,Ordering::Release); sense(&tx,"system");
+            owner_manager_changed(&manager_updates,owner_unit.as_deref());
             loop {
                 let item = if let Some(message)=pending.pop_front() { Some(Ok(message)) } else { tokio::select! {
-                    result=config.changed()=>{result.map_err(|_|"pid2-unit-config-closed")?;if let Err(error)=refresh_units(){eprintln!("pid2-system-unit-config: {error}");continue;}if watched!=scoped_units("system") {return Err("pid2-unit-watch-reconfigured".into());}continue;},
+                    result=config.changed()=>{result.map_err(|_|"pid2-unit-config-closed")?;if let Err(error)=refresh_units(){eprintln!("pid2-system-unit-config: {error}");continue;}let (units,manager)=system_units();if watched!=units || owner_unit!=manager {return Err("pid2-unit-watch-reconfigured".into());}continue;},
                     message=events.next()=>message,
                 }};
                 match item {
                     Some(Ok(message)) if manager_owner_changed(&message) => return Err("pid2-systemd-owner-changed".into()),
                     Some(Ok(message)) if message.recv_position()>barrier && message.header().sender().is_some_and(|s|s.as_str()==manager_owner) && concerns_declared("system",&message) => {
-                        let reloading = message.header().member().is_some_and(|m| m.as_str()=="Reloading");
-                        let changed = if reloading {
-                            crate::stats::indicators::unit_state::set_online("system",false); online.store(false,Ordering::Release); tx.offline("system");
+                        let header=message.header();
+                        let member=header.member().map(|m|m.as_str());
+                        let reloading=member==Some("Reloading");
+                        let update=if reloading { Ok(false) } else { update_scope("system",&message) };
+                        if !reloading && matches!(&update,Ok(false)) {continue;}
+                        let name=message_unit("system",&message);
+                        let manager_event=name.is_some() && name==owner_unit;
+                        if reloading || matches!(&update,Err(error) if error=="pid2-unit-state-invalidated") {
+                            // A manager-only invalidation does not dirty the system
+                            // scope. Preserve any other real changes the snapshot sees.
+                            let before:Vec<_>=if manager_event {
+                                watched.iter().filter(|unit|Some(*unit)!=owner_unit.as_ref()).map(|unit|(unit,unit_state::get("system",unit))).collect()
+                            } else { Vec::new() };
+                            unit_state::set_online("system",false); online.store(false,Ordering::Release);
+                            if !manager_event {tx.offline("system");}
                             barrier=settled_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?;
-                            crate::stats::indicators::unit_state::set_online("system",true); online.store(true,Ordering::Release); true
+                            unit_state::set_online("system",true); online.store(true,Ordering::Release);
+                            owner_manager_changed(&manager_updates,owner_unit.as_deref());
+                            if manager_event {
+                                for (unit,state) in before {
+                                    if state!=unit_state::get("system",unit) {unit_wake(&tx,"system",unit);}
+                                }
+                            } else if let Some(name)=name {unit_wake(&tx,"system",&name);} else {sense(&tx,"system");}
                         } else {
-                            match update_scope("system",&message) {
-                                Ok(changed) => changed,
-                                Err(error) if error=="pid2-unit-state-invalidated" => {
-                                    crate::stats::indicators::unit_state::set_online("system",false); online.store(false,Ordering::Release); tx.offline("system");
-                                    barrier=settled_scope(&conn,"system",&mut events,&manager_owner,&mut pending).await?;
-                                    crate::stats::indicators::unit_state::set_online("system",true); online.store(true,Ordering::Release); true
+                            match update {
+                                Ok(_) if manager_event => {
+                                    if member!=Some("JobRemoved") {owner_manager_changed(&manager_updates,owner_unit.as_deref());}
                                 },
-                                Err(error) => { eprintln!("pid2-system-signal: {error}"); false }
+                                Ok(_) => if let Some(name)=name {
+                                    if member==Some("JobRemoved") {job_wake(&tx,"system",&name);} else {unit_wake(&tx,"system",&name);}
+                                } else {sense(&tx,"system");},
+                                Err(error) => eprintln!("pid2-system-signal: {error}"),
                             }
-                        };
-                        if changed { if let Some(name)=message_unit("system",&message) { if message.header().member().is_some_and(|m|m.as_str()=="JobRemoved") { job_wake(&tx,"system",&name); } else { unit_wake(&tx,"system",&name); } } else { sense(&tx,"system"); } }
+                        }
                     },
                     Some(Ok(_)) => {},
                     Some(Err(e)) => return Err(e.to_string()), None => return Err("pid2-systemd-stream-closed".into())
@@ -521,15 +575,21 @@ pub fn owner_sense_cli() -> i32 {
     } }
 }
 
-async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::watch::Receiver<()>) {
+async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::watch::Receiver<()>,mut manager_updates:watch::Receiver<u64>) {
     loop {
+        let uid=owner_uid();
+        let unit=uid.as_ref().ok().copied().map(owner_manager_unit);
+        let fence=if let Some(unit)=unit.as_deref() {
+            let Some(fence)=wait_for_owner_manager(&mut manager_updates,unit).await else {return;};
+            fence
+        } else { 0 }; // Unavailable owner account: keep the existing error/retry path.
         if let Err(error)=refresh_units() {
             eprintln!("pid2-owner-unit-config: {error}");
         }
         let watched=scoped_units("owner");
         let connected = async {
             let executable=std::env::current_exe().map_err(|e|e.to_string())?;
-            let uid=owner_uid()?;
+            let uid=uid?;
             let mut command=if unsafe { libc::geteuid() } == 0 {
                 let mut c=tokio::process::Command::new("runuser"); c.arg("-u").arg("owner").arg("--").arg(executable); c
             } else if unsafe { libc::geteuid() } == uid {
@@ -539,6 +599,7 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::w
             };
             let watched_json=serde_json::to_string(&watched).map_err(|e|e.to_string())?;
             command.arg("pid2-owner-sense").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).kill_on_drop(true);
+            if unit.as_deref().is_some_and(|unit|!owner_manager_active(unit)) {return Ok(());}
             let mut child=command.spawn().map_err(|e|e.to_string())?;
             let stdin=child.stdin.as_mut().ok_or("pid2-owner-child-stdin-missing")?;
             stdin.write_all(watched_json.as_bytes()).await.map_err(|e|e.to_string())?;
@@ -583,49 +644,29 @@ async fn watch_owner(tx: Wake, online: Arc<AtomicBool>,mut config:tokio::sync::w
             }
             let _=child.wait().await;
             Err::<(),String>("pid2-owner-child-exited".into())
-        }.await;
+        };
+        let (connected,manager_closed)=tokio::select! {
+            biased;
+            // Drop the child (and close its stdin) when the manager goes down.
+            result=manager_updates.wait_for(|last|*last!=fence), if unit.is_some()=>(Ok(()),result.is_err()),
+            result=connected=>(result,false),
+        };
         clear_installed("owner");
         crate::stats::indicators::unit_state::set_online("owner",false);
-        online.store(false,Ordering::Release); tx.offline("owner");
+        let manager_stopped=connected.is_ok();
+        if online.swap(false,Ordering::AcqRel) || !manager_stopped {tx.offline("owner");}
         let reconfigured=matches!(&connected,Err(error) if error=="pid2-unit-watch-reconfigured");
         let owner_changed=matches!(&connected,Err(error) if error=="pid2-owner-changed");
         if let Err(error)=connected { if !reconfigured {eprintln!("pid2-owner-systemd-watch: {error}");} }
-        if tx.closed() { return; }
-        if reconfigured || owner_changed {continue;}
+        if manager_closed || tx.closed() { return; }
+        if manager_stopped || reconfigured || owner_changed {continue;}
+        if unit.as_deref().is_some_and(|unit|!owner_manager_active(unit)) {continue;}
         let backstop=tokio::time::sleep(Duration::from_secs(300));
-        tokio::pin!(backstop);
-        match owner_uid() {
-            Ok(uid) => {
-                let bus=PathBuf::from(format!("/run/user/{uid}/bus"));
-                let mut mounts=tx.mount_event.subscribe();
-                if !bus.exists() {
-                    let wait=async {
-                        loop {
-                            // Reopen when a missing parent appears; close the setup
-                            // race by checking the parent both before and after.
-                            let parent=bus.parent().expect("owner bus has a parent");
-                            let parent_existed=parent.is_dir();
-                            let watch=kernel_senses::DirWatch::open(&bus)?;
-                            if bus.exists() {return Ok::<(),std::io::Error>(());}
-                            if !parent_existed && parent.is_dir() {continue;}
-                            loop {
-                                tokio::select! {
-                                    result=watch.changed()=>if result? {break;},
-                                    result=mounts.changed()=>{result.map_err(|_|std::io::Error::other("pid2-mount-watch-closed"))?; break;},
-                                }
-                            }
-                        }
-                    };
-                    tokio::select! {
-                        result=wait=>if let Err(error)=result {eprintln!("pid2-owner-bus-watch: {error}"); backstop.await;},
-                        _=&mut backstop=>{},
-                    }
-                    continue;
-                }
-            },
-            Err(error) => eprintln!("pid2-owner-bus-watch: {error}"),
+        tokio::select! {
+            biased;
+            result=manager_updates.wait_for(|last|*last!=fence), if unit.is_some()=>if result.is_err() {return;},
+            _=backstop=>{},
         }
-        backstop.await;
     }
 }
 
@@ -859,13 +900,14 @@ pub async fn run() {
     let (channel,mut rx) = mpsc::channel::<()>(1);
     let (reconfigure,config_rx)=tokio::sync::watch::channel(());
     let (mount_event,mount_rx)=tokio::sync::watch::channel(());
+    let (manager_updates,manager_rx)=watch::channel(0);
     let tx=Wake{tx:channel,pending:Arc::new(Mutex::new(Pending::default())),offline:Arc::new(std::sync::atomic::AtomicU8::new(0)),reconfigure,mount_event};
     let senses = Arc::new(Senses { system:Arc::new(AtomicBool::new(false)),owner:Arc::new(AtomicBool::new(false)),udev:Arc::new(AtomicBool::new(false)),mounts:Arc::new(RwLock::new(None)),kernel:Arc::new(kernel_senses::Cache::default()) });
     let tasks = [
         tokio::spawn(kernel_senses::run(tx.clone(),senses.kernel.clone(),config_rx.clone(),mount_rx)),
         tokio::spawn(watch_mounts(tx.clone(),senses.mounts.clone())),
-        tokio::spawn(watch_systemd(tx.clone(),senses.system.clone(),config_rx.clone())),
-        tokio::spawn(watch_owner(tx.clone(),senses.owner.clone(),config_rx)),
+        tokio::spawn(watch_systemd(tx.clone(),senses.system.clone(),config_rx.clone(),manager_updates)),
+        tokio::spawn(watch_owner(tx.clone(),senses.owner.clone(),config_rx,manager_rx)),
         tokio::spawn(watch_fd(udev_socket,"udev",tx.clone(),senses.udev.clone())),
         tokio::spawn(watch_commands(tx.clone())),
     ];
