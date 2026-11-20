@@ -1,34 +1,62 @@
 //! Native subscriptions for the namespace, link and file needs.
 use super::{DirtyKey, Wake};
-use std::{collections::{HashMap,HashSet,VecDeque}, ffi::{CString,OsString}, fs::{self,File,OpenOptions}, io::{self,Read}, os::{fd::{AsRawFd,FromRawFd,OwnedFd},unix::{ffi::OsStrExt,fs::{MetadataExt,OpenOptionsExt}}}, path::{Path,PathBuf}, sync::{Arc,RwLock,atomic::{AtomicBool,Ordering}}, time::Duration};
+use serde_json::{Map,Value};
+use std::{collections::{BTreeMap,HashMap,HashSet,VecDeque}, ffi::{CString,OsString}, fs::{self,File,OpenOptions}, io::{self,Read}, os::{fd::{AsRawFd,FromRawFd,OwnedFd},unix::{ffi::OsStrExt,fs::{MetadataExt,OpenOptionsExt}}}, path::{Path,PathBuf}, sync::{Arc,RwLock,atomic::{AtomicBool,Ordering}}, time::Duration};
 use tokio::{io::unix::AsyncFd, sync::watch, task::JoinHandle};
 
 struct Task(JoinHandle<()>);
 impl Drop for Task { fn drop(&mut self) { self.0.abort(); } }
 impl Task {async fn stop(mut self) {self.0.abort();let _=(&mut self.0).await;}}
 
+// None watches the raw bytes; Some (including an empty list) watches JSON.
+pub(in crate::pid2) type FileFields = Option<Vec<String>>;
+type Lines = HashSet<(String,String)>;
+type Projections = HashSet<FileFields>;
+
 #[derive(Clone,Default,PartialEq,Eq)]
-pub(in crate::pid2) struct Watched { pub names:HashSet<String>, pub links:HashSet<(String,String)>, pub files:HashSet<PathBuf> }
+pub(in crate::pid2) struct Watched {
+    pub names:HashSet<String>,
+    pub links:HashSet<(String,String)>,
+    pub files:HashMap<PathBuf,HashMap<FileFields,Lines>>,
+}
 #[derive(Default)]
-struct Rows { names:HashMap<String,Option<bool>>, links:HashMap<(String,String),Option<String>>, files:HashMap<PathBuf,Option<String>> }
+struct FileRow { value:Option<String>, lines:Lines }
+impl FileRow {
+    fn dirty_keys(&self,path:&Path,fields:&FileFields,keys:&mut Vec<DirtyKey>) {
+        if fields.is_none() {
+            keys.push(DirtyKey::File(path.into()));
+        } else {
+            // A path wake is reserved for whole-file readers. Other
+            // projections of this path may not have changed at all.
+            keys.extend(self.lines.iter().map(|(routine,line)|DirtyKey::Line(routine.clone(),line.clone())));
+        }
+    }
+}
+#[derive(Default)]
+struct Rows { names:HashMap<String,Option<bool>>, links:HashMap<(String,String),Option<String>>, files:HashMap<PathBuf,HashMap<FileFields,FileRow>> }
 #[derive(Default)]
 pub(in crate::pid2) struct Cache { rows:RwLock<Rows>, watch_set_online:AtomicBool }
 impl Cache {
     pub fn netns(&self,name:&str)->Option<bool> { if !self.watch_set_online.load(Ordering::Acquire) {return None;} self.rows.read().ok()?.names.get(name).copied().flatten() }
     pub fn link(&self,ns:&str,link:&str)->Option<String> { if !self.watch_set_online.load(Ordering::Acquire) {return None;} self.rows.read().ok()?.links.get(&(ns.into(),link.into())).cloned().flatten() }
-    pub fn file(&self,path:&Path)->Option<String> { if !self.watch_set_online.load(Ordering::Acquire) {return None;} self.rows.read().ok()?.files.get(path).cloned().flatten() }
+    pub fn file(&self,path:&Path,fields:&FileFields)->Option<String> { if !self.watch_set_online.load(Ordering::Acquire) {return None;} self.rows.read().ok()?.files.get(path)?.get(fields)?.value.clone() }
     pub fn offline_keys(&self)->Vec<DirtyKey> {
         let Ok(r)=self.rows.read() else {return Vec::new();};
-        r.names.iter().filter_map(|(n,v)|v.is_none().then(||DirtyKey::Netns(n.clone())))
-            .chain(r.links.iter().filter_map(|((n,l),v)|v.is_none().then(||DirtyKey::Link(n.clone(),l.clone()))))
-            .chain(r.files.iter().filter_map(|(p,v)|v.is_none().then(||DirtyKey::File(p.clone())))).collect()
+        let mut keys:Vec<_>=r.names.iter().filter_map(|(n,v)|v.is_none().then(||DirtyKey::Netns(n.clone())))
+            .chain(r.links.iter().filter_map(|((n,l),v)|v.is_none().then(||DirtyKey::Link(n.clone(),l.clone())))).collect();
+        for (path,projections) in &r.files {
+            for (fields,row) in projections {
+                if row.value.is_none() {row.dirty_keys(path,fields,&mut keys);}
+            }
+        }
+        keys
     }
     fn invalidate(&self) {
         self.watch_set_online.store(false,Ordering::Release);
         if let Ok(mut r)=self.rows.write() {
             for v in r.names.values_mut() {*v=None;}
             for v in r.links.values_mut() {*v=None;}
-            for v in r.files.values_mut() {*v=None;}
+            for row in r.files.values_mut().flat_map(HashMap::values_mut) {row.value=None;}
         }
     }
     fn namespace(&self,tx:&Wake,name:&str,value:Option<bool>) {
@@ -53,8 +81,23 @@ impl Cache {
         let key=(ns.to_owned(),link.to_owned());
         if let Ok(mut r)=self.rows.write() { if r.links.contains_key(&key) && r.links.get(&key)!=Some(&value) {r.links.insert(key,value);drop(r);tx.push(DirtyKey::Link(ns.into(),link.into()));} }
     }
-    fn file_value(&self,tx:&Wake,path:&Path,value:Option<String>) {
-        if let Ok(mut r)=self.rows.write() { if r.files.contains_key(path) && r.files.get(path)!=Some(&value) {r.files.insert(path.into(),value);drop(r);tx.push(DirtyKey::File(path.into()));} }
+    fn file_values(&self,tx:&Wake,path:&Path,digests:Option<&HashMap<FileFields,String>>) {
+        // Publish the entire file snapshot before waking any of its lines.
+        let Ok(mut rows)=self.rows.write() else {return;};
+        let Some(projections)=rows.files.get_mut(path) else {return;};
+        let mut dirty=Vec::new();
+        for (fields,row) in projections {
+            let next=match digests {
+                Some(digests)=>match digests.get(fields) {Some(value)=>Some(value),None=>continue},
+                None=>None,
+            };
+            if row.value.as_ref()!=next {
+                row.value=next.cloned();
+                row.dirty_keys(path,fields,&mut dirty);
+            }
+        }
+        drop(rows);
+        for key in dirty {tx.push(key);}
     }
 }
 
@@ -110,12 +153,38 @@ impl DirWatch {
     }
 }
 
-fn file_digest(path:&Path)->io::Result<String> {
-    let mut file=match OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK|libc::O_CLOEXEC).open(path) {Ok(file)=>file,Err(e) if e.kind()==io::ErrorKind::NotFound || e.raw_os_error()==Some(libc::ENOTDIR)=>return Ok("absent".into()),Err(e)=>return Err(e)};
+fn file_digests(path:&Path,wanted:&Projections)->io::Result<HashMap<FileFields,String>> {
+    let mut file=match OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK|libc::O_CLOEXEC).open(path) {
+        Ok(file)=>file,
+        Err(e) if e.kind()==io::ErrorKind::NotFound || e.raw_os_error()==Some(libc::ENOTDIR)=>{
+            return Ok(wanted.iter().cloned().map(|fields|(fields,"absent".into())).collect());
+        },
+        Err(e)=>return Err(e),
+    };
     if !file.metadata()?.is_file() {return Err(io::Error::new(io::ErrorKind::InvalidData,"not a regular file"));}
-    let mut context=md5::Context::new();let mut bytes=[0u8;16384];
-    loop {let n=file.read(&mut bytes)?;if n==0 {break;}context.consume(&bytes[..n]);}
-    Ok(format!("md5:{:x}",context.compute()))
+    let mut whole=wanted.contains(&None).then(md5::Context::new);
+    let mut json=wanted.iter().any(Option::is_some).then(Vec::new);
+    let mut bytes=[0u8;16384];
+    loop {
+        let n=file.read(&mut bytes)?;
+        if n==0 {break;}
+        if let Some(context)=&mut whole {context.consume(&bytes[..n]);}
+        if let Some(json)=&mut json {json.extend_from_slice(&bytes[..n]);}
+    }
+    let mut digests=HashMap::new();
+    if let Some(context)=whole {digests.insert(None,format!("md5:{:x}",context.compute()));}
+    if let Some(json)=json {
+        let object=serde_json::from_slice::<Map<String,Value>>(&json).ok();
+        for fields in wanted.iter().flatten() {
+            let digest=if let Some(object)=&object {
+                let projection:BTreeMap<_,_>=fields.iter().map(|key|(key.as_str(),object.get(key).unwrap_or(&Value::Null))).collect();
+                let canonical=serde_json::to_vec(&projection).map_err(io::Error::other)?;
+                format!("md5:{:x}",md5::compute(canonical))
+            } else {"invalid".into()};
+            digests.insert(Some(fields.clone()),digest);
+        }
+    }
+    Ok(digests)
 }
 // Follow each symlink explicitly so the link entry and its referent both
 // have event sources, including dangling links and links in parent paths.
@@ -152,7 +221,7 @@ fn file_watch_paths(path:&Path)->io::Result<Vec<PathBuf>> {
     }
     paths.push(resolved);paths.sort();paths.dedup();Ok(paths)
 }
-async fn file_once(tx:&Wake,cache:&Cache,path:&Path)->io::Result<()> {
+async fn file_once(tx:&Wake,cache:&Cache,path:&Path,projections:&mut watch::Receiver<Projections>)->io::Result<()> {
     if !valid_path(path) {return Err(io::Error::new(io::ErrorKind::InvalidInput,"invalid file path"));}
     let mut races=0;
     loop {
@@ -166,17 +235,24 @@ async fn file_once(tx:&Wake,cache:&Cache,path:&Path)->io::Result<()> {
             continue;
         }
         races=0;
-        cache.file_value(tx,path,Some(file_digest(path)?));
+        let wanted=projections.borrow_and_update().clone();
+        cache.file_values(tx,path,Some(&file_digests(path,&wanted)?));
         let waits:Vec<_>=watches.iter().map(|watch|Box::pin(async move {
             loop {if watch.changed().await? {return Ok::<(),io::Error>(());}}
         })).collect();
-        futures_util::future::select_all(waits).await.0?;
+        tokio::select! {
+            event=futures_util::future::select_all(waits)=>event.0?,
+            result=projections.changed()=>if result.is_err() {return Ok(());},
+        }
     }
 }
-async fn file_task(tx:Wake,cache:Arc<Cache>,path:PathBuf) {
+async fn file_task(tx:Wake,cache:Arc<Cache>,path:PathBuf,mut projections:watch::Receiver<Projections>) {
     loop {
-        if let Err(error)=file_once(&tx,&cache,&path).await {eprintln!("pid2-file-watch: {error}");}
-        cache.file_value(&tx,&path,None);
+        match file_once(&tx,&cache,&path,&mut projections).await {
+            Ok(())=>return,
+            Err(error)=>eprintln!("pid2-file-watch: {error}"),
+        }
+        cache.file_values(&tx,&path,None);
         if tx.closed() {return;}
         tokio::time::sleep(Duration::from_secs(300)).await;
     }
@@ -396,15 +472,19 @@ async fn namespace_task(tx:Wake,cache:Arc<Cache>,name:String,mut links:watch::Re
 
 pub(super) async fn run(tx:Wake,cache:Arc<Cache>,mut changed:watch::Receiver<()>,mounts:watch::Receiver<()>) {
     let mut namespaces:HashMap<String,(watch::Sender<HashSet<String>>,Task)>=HashMap::new();
-    let mut files:HashMap<PathBuf,Task>=HashMap::new();
+    let mut files:HashMap<PathBuf,(watch::Sender<Projections>,Task)>=HashMap::new();
     loop {
         match crate::pid2::solver::watched_kernel() {
             Ok(next)=>{
                 if let Ok(mut rows)=cache.rows.write() {
-                    rows.names.retain(|k,_|next.names.contains(k));rows.links.retain(|k,_|next.links.contains(k));rows.files.retain(|k,_|next.files.contains(k));
+                    rows.names.retain(|k,_|next.names.contains(k));rows.links.retain(|k,_|next.links.contains(k));rows.files.retain(|k,_|next.files.contains_key(k));
                     for name in &next.names {rows.names.entry(name.clone()).or_insert(None);}
                     for link in &next.links {rows.links.entry(link.clone()).or_insert(None);}
-                    for path in &next.files {rows.files.entry(path.clone()).or_insert(None);}
+                    for (path,projections) in &next.files {
+                        let rows=rows.files.entry(path.clone()).or_default();
+                        rows.retain(|fields,_|projections.contains_key(fields));
+                        for (fields,lines) in projections {rows.entry(fields.clone()).or_default().lines.clone_from(lines);}
+                    }
                 }
                 cache.watch_set_online.store(true,Ordering::Release);
                 let stale:Vec<_>=namespaces.keys().filter(|n|!next.names.contains(*n)).cloned().collect();
@@ -420,16 +500,25 @@ pub(super) async fn run(tx:Wake,cache:Arc<Cache>,mut changed:watch::Receiver<()>
                         namespaces.insert(name.clone(),(sender,Task(task)));
                     }
                 }
-                let stale:Vec<_>=files.keys().filter(|p|!next.files.contains(*p)).cloned().collect();
+                let stale:Vec<_>=files.keys().filter(|p|!next.files.contains_key(*p)).cloned().collect();
                 for p in stale {files.remove(&p);}
-                for path in &next.files {if !files.contains_key(path) {files.insert(path.clone(),Task(tokio::spawn(file_task(tx.clone(),cache.clone(),path.clone()))));}}
+                for (path,projections) in &next.files {
+                    let wanted:Projections=projections.keys().cloned().collect();
+                    if let Some((sender,_))=files.get(path) {
+                        if *sender.borrow()!=wanted {sender.send_replace(wanted);}
+                    } else {
+                        let (sender,receiver)=watch::channel(wanted);
+                        let task=tokio::spawn(file_task(tx.clone(),cache.clone(),path.clone(),receiver));
+                        files.insert(path.clone(),(sender,Task(task)));
+                    }
+                }
             },
             Err(error)=>{
                 eprintln!("pid2-kernel-watch-set: {error}");
                 cache.invalidate();
                 for scope in ["netns","link","file"] {tx.offline(scope);}
                 for (_,(_,task)) in namespaces.drain() {task.stop().await;}
-                for (_,task) in files.drain() {task.stop().await;}
+                for (_,(_,task)) in files.drain() {task.stop().await;}
                 cache.invalidate();
                 tokio::select! {
                     result=changed.changed()=>if result.is_err(){break;},

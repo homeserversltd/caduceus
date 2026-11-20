@@ -22,6 +22,7 @@
             "kind": {"type": "string", "enum": ["await-device", "await-mount", "await-line", "await-ready", "await-owner", "observe", "await-netns", "observe-link", "observe-file", "observe-unit", "observe-block-removed", "observe-connector"]},
             "name": {"type": "string"}, "netns": {"type": "string"}, "link": {"type": "string"},
             "properties": {"type": "object"}, "path": {"type": "string"},
+            "fields": {"type": ["array", "null"], "items": {"type": "string"}, "description": "For observe-file: hash these top-level JSON keys in sorted order, using null for missing keys. Omitted or null watches the entire file."},
             "routine_id": {"type": "string"}, "line": {"type": "string"},
             "value": {}, "unit": {"type": "string"}, "scope": {"type": "string"},
             "observer": {"type": "string"}, "pattern": {"type": "string"},
@@ -31,6 +32,7 @@
           "until": {"type":"array", "items":{"type":"object", "properties":{
             "kind":{"type":"string", "enum":["await-device", "await-mount", "await-line", "await-ready", "await-owner", "observe", "await-netns", "observe-link", "observe-file", "observe-unit", "observe-connector"]},
             "name":{"type":"string"}, "netns":{"type":"string"}, "link":{"type":"string"},
+            "fields":{"type":["array","null"], "items":{"type":"string"}, "description":"For observe-file: hash these top-level JSON keys in sorted order, using null for missing keys. Omitted or null watches the entire file."},
             "properties":{"type":"object"}, "path":{"type":"string"}, "routine_id":{"type":"string"}, "line":{"type":"string"}, "value":{}, "unit":{"type":"string"}, "scope":{"type":"string"}, "observer":{"type":"string"}, "pattern":{"type":"string"}, "seat":{"type":"string"}, "when_line":{"type":"string"}, "when_value":{}
           }, "additionalProperties":true}},
           "actions": {"type": "array", "items": {"type": "object", "properties": {

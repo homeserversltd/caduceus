@@ -1,5 +1,6 @@
 //! Level-triggered reconciliation: events are hints, current observations are truth.
 use super::{now, tables};
+use super::events::kernel_senses::FileFields;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 use std::{collections::{BTreeMap,HashMap,HashSet,VecDeque}, path::Path, sync::atomic::{AtomicU64,Ordering}};
@@ -355,15 +356,24 @@ pub(super) fn watched_mounts() -> Result<HashSet<std::path::PathBuf>,String> {
     Ok(result)
 }
 
+fn file_fields(need:&Value) -> Result<FileFields,&'static str> {
+    let Some(fields)=need.get("fields").filter(|value|!value.is_null()) else {return Ok(None);};
+    let mut fields=fields.as_array().and_then(|items|items.iter().map(|v|v.as_str().map(str::to_owned)).collect::<Option<Vec<_>>>()).ok_or("pid2-file-fields-invalid")?;
+    fields.sort_unstable();
+    fields.dedup();
+    Ok(Some(fields))
+}
+
 // Install only facts named by enabled routine needs, including until needs.
 pub(super) fn watched_kernel() -> Result<super::events::kernel_senses::Watched,String> {
     let Some(db)=super::read_db()? else { return Ok(Default::default()); };
     if !super::table_exists(&db,"pid2_registrations")? { return Ok(Default::default()); }
     let mut watched=super::events::kernel_senses::Watched::default();
-    let mut query=db.prepare("SELECT envelope FROM pid2_registrations WHERE enabled=1").map_err(|e|e.to_string())?;
+    let mut query=db.prepare("SELECT routine_id,envelope FROM pid2_registrations WHERE enabled=1").map_err(|e|e.to_string())?;
     let mut rows=query.query([]).map_err(|e|e.to_string())?;
     while let Some(row)=rows.next().map_err(|e|e.to_string())? {
-        let raw:Vec<u8>=row.get(0).map_err(|e|e.to_string())?;
+        let routine:String=row.get(0).map_err(|e|e.to_string())?;
+        let raw:Vec<u8>=row.get(1).map_err(|e|e.to_string())?;
         let envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
         for stage in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten() {
             for field in ["needs","until"] {
@@ -371,7 +381,9 @@ pub(super) fn watched_kernel() -> Result<super::events::kernel_senses::Watched,S
                     match need.get("kind").and_then(Value::as_str) {
                         Some("await-netns") => if let Some(name)=need.get("name").and_then(Value::as_str) { watched.names.insert(name.to_owned()); },
                         Some("observe-link") => if let (Some(ns),Some(link))=(need.get("netns").and_then(Value::as_str),need.get("link").and_then(Value::as_str)) { watched.names.insert(ns.to_owned()); watched.links.insert((ns.to_owned(),link.to_owned())); },
-                        Some("observe-file") => if let Some(path)=need.get("path").and_then(Value::as_str) { watched.files.insert(path.into()); },
+                        Some("observe-file") => if let (Some(path),Ok(fields),Some(line))=(need.get("path").and_then(Value::as_str),file_fields(need),stage.get("line").and_then(Value::as_str)) {
+                            watched.files.entry(path.into()).or_default().entry(fields).or_default().insert((routine.clone(),line.to_owned()));
+                        },
                         _=>{},
                     }
                 }
@@ -483,7 +495,8 @@ fn needs(routine: &str, stage_line: &str, need_index: Option<usize>, need: &Valu
         },
         "observe-file" => {
             let path=need.get("path").and_then(Value::as_str).ok_or("pid2-file-path-missing")?;
-            let value=senses.kernel.file(Path::new(path)).ok_or("pid2-file-sense-unavailable")?;
+            let fields=file_fields(need)?;
+            let value=senses.kernel.file(Path::new(path),&fields).ok_or("pid2-file-sense-unavailable")?;
             if need.get("value").filter(|v|!v.is_null()).is_some_and(|expected|expected.as_str()!=Some(&value)) {return Err("pid2-await-file-value".into());}
             Ok(Some(value))
         },
@@ -619,6 +632,9 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
         let mut declared=serde_json::Map::new();
         for key in ["kind","properties","path","name","netns","link","routine_id","line","value","unit","scope","observer","pattern","seat","readiness"] {
             if let Some(v)=need.get(key) { declared.insert(key.into(),v.clone()); }
+        }
+        if need.get("kind").and_then(Value::as_str)==Some("observe-file") {
+            if let Ok(Some(fields))=file_fields(need) {declared.insert("fields".into(),json!(fields));}
         }
         need_trace.push(json!({"need":declared,"observation":match &observed { Ok(value)=>json!({"value":value}),Err(reason)=>json!({"reason":reason}) }}));
         match observed {
@@ -940,7 +956,7 @@ fn stage_matches(routine:&str,stage:&Value,key:&super::events::DirtyKey)->bool {
         let matches=match key {
             DirtyKey::Netns(name)=>kind=="await-netns" && need.get("name").and_then(Value::as_str)==Some(name),
             DirtyKey::Link(ns,link)=>kind=="observe-link" && need.get("netns").and_then(Value::as_str)==Some(ns) && need.get("link").and_then(Value::as_str)==Some(link),
-            DirtyKey::File(path)=>kind=="observe-file" && need.get("path").and_then(Value::as_str).is_some_and(|p|Path::new(p)==path),
+            DirtyKey::File(path)=>kind=="observe-file" && need.get("fields").is_none_or(Value::is_null) && need.get("path").and_then(Value::as_str).is_some_and(|p|Path::new(p)==path),
             DirtyKey::Mount(path)=>kind=="await-mount" && need.get("path").and_then(Value::as_str).is_some_and(|p|Path::new(p)==path),
             DirtyKey::Device(subsystem,device,before,after)=>{
                 if kind=="observe-connector" {subsystem=="drm"} else if kind=="observe" {subsystem=="drm" && (device_side_may_match(need,before) || device_side_may_match(need,after))} else if kind=="await-device" {
