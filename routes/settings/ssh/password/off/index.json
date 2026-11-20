@@ -1,0 +1,15 @@
+{
+  "namespace": "settings/ssh/password/off",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "settings/ssh/password/off"}],
+  "commands": ["staff intent"],
+  "needs": ["all"],
+  "profiles": ["homeserver"],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/ssh/password/off",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true
+}
