@@ -225,11 +225,14 @@ pub fn set_sudo_mode_json(body: &Value) -> Result<(bool, Value), String> {
         Ok(verdict) => verdict,
         Err(signal) => return Ok(sudo_mode_refusal(receipt, signal)),
     };
-    receipt
-        .as_object_mut()
-        .expect("staff receipt is an object")
-        .entry("sudoMode")
-        .or_insert(verdict);
+    let object = receipt.as_object_mut().expect("staff receipt is an object");
+    if object.contains_key("sudoMode") || object.contains_key("doorSignal") {
+        return Ok(sudo_mode_refusal(
+            receipt,
+            "caduceus-sudo-mode-projection-collision",
+        ));
+    }
+    object.insert("sudoMode".into(), verdict);
     Ok((true, receipt))
 }
 
