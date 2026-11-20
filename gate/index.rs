@@ -797,11 +797,10 @@ fn redact_administrative_pin(body: &mut Value) -> bool {
 }
 
 /// What one pass over a body's raw bytes sees that its parsed value hides:
-/// a key held twice in one object (the parsed value keeps only the last
-/// member) and a PIN carrier, flags.exousia.pin, in any member.
+/// a PIN carrier, flags.exousia.pin, in any member, including a member the
+/// parsed value drops because a later member reuses its key.
 #[derive(Default)]
 struct RawCarrierScan {
-    duplicate_key: bool,
     pin_carried: bool,
 }
 
@@ -857,7 +856,7 @@ impl<'de> serde::de::Visitor<'de> for CarrierSeed<'_> {
         Ok(())
     }
 
-    fn visit_seq<A: serde::de::SeqAccess<'de>>(mut self, mut seq: A) -> Result<(), A::Error> {
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<(), A::Error> {
         while seq
             .next_element_seed(CarrierSeed {
                 scan: &mut *self.scan,
@@ -868,8 +867,7 @@ impl<'de> serde::de::Visitor<'de> for CarrierSeed<'_> {
         Ok(())
     }
 
-    fn visit_map<A: serde::de::MapAccess<'de>>(mut self, mut map: A) -> Result<(), A::Error> {
-        let mut seen = std::collections::HashSet::new();
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
         while let Some(key) = map.next_key::<String>()? {
             let depth = match (self.depth, key.as_str()) {
                 (CarrierDepth::Root, "flags") => CarrierDepth::Flags,
@@ -880,9 +878,6 @@ impl<'de> serde::de::Visitor<'de> for CarrierSeed<'_> {
                 }
                 _ => CarrierDepth::Elsewhere,
             };
-            if !seen.insert(key) {
-                self.scan.duplicate_key = true;
-            }
             map.next_value_seed(CarrierSeed {
                 scan: &mut *self.scan,
                 depth,
@@ -1010,19 +1005,18 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
     }
 
     let mut stripped_pin = false;
+    // The parsed value keeps only the last of a key held twice, so the raw
+    // bytes can carry a PIN the parsed value hides: a body that carried the
+    // PIN in any member is forwarded re-serialized with the literal in the
+    // carrier, never as the caller's bytes; one that carried it and has no
+    // parsed value to re-serialize is refused.
+    let pin_carried = scan_raw_carrier(&bytes).is_some_and(|scan| scan.pin_carried);
     let forwarded_bytes = if let Some(mut body) = parsed_body {
         stripped_pin = redact_administrative_pin(&mut body);
-        // The parsed value keeps only the last of a key held twice, so raw
-        // bytes holding a duplicate could carry a PIN the parsed value hides:
-        // such a body is forwarded re-serialized, never as the caller's bytes,
-        // and a PIN carried in any member leaves the literal in the carrier.
-        let raw_scan = scan_raw_carrier(&bytes);
-        if !stripped_pin && raw_scan.as_ref().is_some_and(|scan| scan.pin_carried) {
+        if pin_carried && !stripped_pin {
             lay_redaction_literal(&mut body);
         }
-        if raw_scan.as_ref().is_none_or(|scan| scan.duplicate_key || scan.pin_carried) {
-            stripped_pin = true;
-        }
+        stripped_pin |= pin_carried;
         if stripped_pin {
             match serde_json::to_vec(&body) {
                 Ok(bytes) => bytes,
@@ -1039,6 +1033,14 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
         } else {
             bytes.to_vec()
         }
+    } else if pin_carried {
+        record_admission_refusal(&method, &path,
+            "caduceus-administrative-request-invalid", started);
+        return api_error_signal(
+            "administrative route gate",
+            "caduceus-administrative-request-invalid",
+        )
+        .into_response();
     } else {
         bytes.to_vec()
     };
