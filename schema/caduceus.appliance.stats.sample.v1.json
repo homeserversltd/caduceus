@@ -251,7 +251,11 @@
     "vpn": {
       "vpnStatus": "string|null",
       "transmissionStatus": "string|null",
+      "on": "boolean|null",
+      "protocol": "string|null",
+      "forwardPort": "integer|null",
       "ts": "integer",
+      "freshUntil": "integer|null",
       "firstMissingSignal": "string|null"
     }
   },

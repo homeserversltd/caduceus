@@ -564,6 +564,7 @@ fn discover_packages() -> Result<Vec<PackageMeters>, ()> {
 #[derive(Clone)]
 struct VpnObservation {
     ts: i64,
+    fresh_until: Option<i64>,
     vpn_status: Option<String>,
     transmission_status: Option<String>,
     on: Option<bool>,
@@ -576,6 +577,7 @@ impl VpnObservation {
     fn unavailable(signal: &str) -> Self {
         Self {
             ts: now_ts(),
+            fresh_until: None,
             vpn_status: Some("unavailable".to_owned()),
             transmission_status: Some("unavailable".to_owned()),
             on: None,
@@ -600,11 +602,32 @@ fn read_vpn() -> VpnObservation {
         Err(_) => return VpnObservation::unavailable("caduceus-carapace-desync"),
     }
 
-    let (ok,signal,kept,recorded_at): (Option<bool>,Option<String>,String,i64) = match (|| {
+    let (ok, signal, kept, recorded_at, deadline): (
+        Option<bool>,
+        Option<String>,
+        String,
+        i64,
+        Option<i64>,
+    ) = match (|| {
         use rusqlite::OptionalExtension;
-        let db=crate::stats::open_db().map_err(|_|"caduceus-stats-vpn-seat-unavailable")?.lock().map_err(|_|"caduceus-stats-vpn-seat-unavailable")?;
-        db.query_row("SELECT ok,first_missing_signal,kept,recorded_at FROM pid2_route_steps WHERE route='transmission/status' ORDER BY recorded_at DESC,rowid DESC LIMIT 1",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(|_|"caduceus-stats-vpn-seat-unavailable")?.ok_or("caduceus-stats-vpn-receipt-absent")
-    })() { Ok(row)=>row,Err(signal)=>return VpnObservation::unavailable(signal) };
+        let db = crate::stats::open_db()
+            .map_err(|_| "caduceus-stats-vpn-seat-unavailable")?
+            .lock()
+            .map_err(|_| "caduceus-stats-vpn-seat-unavailable")?;
+        db.query_row(
+            "SELECT ok,first_missing_signal,kept,recorded_at,deadline \
+             FROM pid2_route_steps WHERE route='transmission/status' \
+             ORDER BY recorded_at DESC,rowid DESC LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .optional()
+        .map_err(|_| "caduceus-stats-vpn-seat-unavailable")?
+        .ok_or("caduceus-stats-vpn-receipt-absent")
+    })() {
+        Ok(row) => row,
+        Err(signal) => return VpnObservation::unavailable(signal),
+    };
     if ok==Some(false) {let mut unavailable=VpnObservation::unavailable(signal.as_deref().unwrap_or("caduceus-stats-vpn-receipt-failed"));unavailable.ts=recorded_at;return unavailable;}
     let receipt:Value=match serde_json::from_str(&kept) {Ok(value)=>value,Err(_)=>return VpnObservation::unavailable("caduceus-stats-vpn-seat-invalid")};
 
@@ -635,6 +658,7 @@ fn read_vpn() -> VpnObservation {
         .unwrap_or(Value::Null);
     VpnObservation {
         ts: recorded_at,
+        fresh_until: deadline,
         vpn_status: Some(if vpn_running { "running" } else { "stopped" }.to_owned()),
         transmission_status: Some(
             if daemon_running { "running" } else { "stopped" }.to_owned(),
@@ -876,6 +900,7 @@ impl Collector {
             "protocol": caches.vpn.protocol,
             "forwardPort": caches.vpn.forward_port,
             "ts": caches.vpn.ts,
+            "freshUntil": caches.vpn.fresh_until,
             "firstMissingSignal": signal_value(&caches.vpn.first_missing_signal)
         });
         let public_ip_admin = json!({
