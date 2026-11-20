@@ -1068,16 +1068,20 @@ pub fn crossing_path(path: &str, input: &Value) -> Result<Value, String> {
 }
 
 /// A stop answer past the crossing bound is answered as the crossed stop's one
-/// receipt: the bound and the bytes read are named, never the bytes themselves.
+/// receipt. The signal that tripped stays the receipt's own word, unrenamed,
+/// and the dispatch it followed is recorded; the answer bytes never ride.
 fn over_bound_receipt(path: &str, signal: &str) -> Option<Value> {
     let mut words = signal.split_whitespace();
     let head = words.next()?;
     if head != "caduceus-agathodaimon-output-too-large"
         && head != "caduceus-staff-socket-output-too-large"
+        && head != "caduceus-staff-socket-reply-too-large"
     {
         return None;
     }
     let mut observed = serde_json::Map::new();
+    observed.insert("band".into(), json!(path));
+    observed.insert("band_crossed".into(), json!(true));
     for word in words {
         if let Some((key, value)) = word.split_once('=') {
             if let Ok(number) = value.parse::<u64>() {
@@ -1086,17 +1090,15 @@ fn over_bound_receipt(path: &str, signal: &str) -> Option<Value> {
         }
     }
     let (noun, verb) = path.rsplit_once('/').unwrap_or((path, ""));
-    let signal = "caduceus-agathodaimon-output-too-large";
     Some(json!({
         "schema": "caduceus.staff.receipt.v1",
         "ok": false,
-        "firstMissingSignal": signal,
-        "doorSignal": head,
+        "firstMissingSignal": head,
         "stop": {"noun": noun, "verb": verb},
-        "observed": if observed.is_empty() { Value::Null } else { Value::Object(observed) },
+        "observed": Value::Object(observed),
         "could_change_to": null,
-        "attempt": null,
-        "final_receipt": {"ok": false, "firstMissingSignal": signal}
+        "attempt": {"attempted": true},
+        "final_receipt": {"ok": false, "firstMissingSignal": head}
     }))
 }
 
@@ -1617,11 +1619,11 @@ async fn native_chord_run_steps(
                 // A timed-out or broken mutating crossing cannot prove it changed nothing.
                 if !is_ring { state.changed = None; }
                 match crossed_snake.as_deref().and_then(|path| over_bound_receipt(path, &signal)) {
-                    Some(receipt) => (
-                        "stage-refused",
-                        receipt,
-                        Some("caduceus-agathodaimon-output-too-large".to_owned()),
-                    ),
+                    Some(receipt) => {
+                        let head = receipt.get("firstMissingSignal").and_then(Value::as_str)
+                            .unwrap_or("caduceus-agathodaimon-output-too-large").to_owned();
+                        ("stage-refused", receipt, Some(head))
+                    },
                     None => {
                         let mut receipt = json!({"ok":false,"firstMissingSignal":signal});
                         if let Some(path) = crossed_snake.as_deref() {
