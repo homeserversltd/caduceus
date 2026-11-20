@@ -4,6 +4,7 @@ use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 use std::{collections::{BTreeMap,HashMap,HashSet,VecDeque}, path::Path, sync::atomic::{AtomicU64,Ordering}};
 static REVISION: AtomicU64 = AtomicU64::new(0);
+pub(super) const UNEXPECTED_STOP: &str = "pid2-unit-stopped-unexpectedly";
 
 fn line(routine: &str, name: &str) -> Result<Option<(Option<String>, String)>, String> {
     let db = crate::stats::open_db()?.lock().map_err(|_| "pid2-database-lock-poisoned")?;
@@ -162,12 +163,25 @@ fn failed_cause(receipt: Option<&str>) -> String {
     serde_json::from_str::<Value>(receipt).ok().and_then(|v|v.get("cause").and_then(Value::as_str).map(str::to_owned)).unwrap_or_else(||receipt.to_owned())
 }
 
-fn rearm_changed_needs(routine: &str, stage: &Value, token: &str) -> Result<(),String> {
+pub(super) fn latching_units(envelope: &Value) -> impl Iterator<Item = &str> {
+    envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten()
+        .flat_map(|stage| stage.get("actions").and_then(Value::as_array).into_iter().flatten())
+        .filter(|action| action.get("latch_on_fall").and_then(Value::as_bool) == Some(true))
+        .filter_map(|action| action.get("unit").and_then(Value::as_str))
+}
+
+fn unexpected_fall(life: &str, receipt: Option<&str>) -> bool {
+    life == "Failed" && failed_cause(receipt) == UNEXPECTED_STOP
+}
+
+fn rearm_changed_needs(routine: &str, stage: &Value, token: &str, visiting: &Visiting) -> Result<(),String> {
+    let opted_in = visiting.latching_units.get(routine);
     for action in stage.get("actions").and_then(Value::as_array).into_iter().flatten() {
         let Some(unit)=action.get("unit").and_then(Value::as_str) else { continue; };
         let Ok(scope)=unit_scope(unit) else { continue; };
         let (_,life,receipt)=program(routine,unit,&scope)?;
         if life!="Failed" { continue; }
+        if opted_in.is_some_and(|units| units.contains(unit)) && unexpected_fall(&life,receipt.as_deref()) { continue; }
         let old=receipt.as_deref().and_then(|r|serde_json::from_str::<Value>(r).ok());
         if old.as_ref().and_then(|v|v.get("needs")).and_then(Value::as_str).is_some_and(|n|n!=token && n.split('\0').next()==token.split('\0').next()) {
             program_state(routine,unit,&scope,"Waiting",None)?;
@@ -223,7 +237,7 @@ fn ensure_running(routine: &str, unit: &str, scope: &str, expected_stage: &Value
             let (_,inactive)=super::events::unit_transitions(scope,unit);
             let settled=mark.as_ref().is_some_and(|m| inactive>if m.0==current.0 {m.1} else {0});
             if (life=="Starting" && settled) || life=="Running" {
-                let error=if life=="Starting" {"pid2-start-unit-not-active"} else {"pid2-unit-stopped-unexpectedly"};
+                let error=if life=="Starting" {"pid2-start-unit-not-active"} else {UNEXPECTED_STOP};
                 let failed_mark=super::events::transition_mark();
                 program_state(routine,unit,scope,"Failed",Some(&failed_receipt(error,needs,Some(&failed_mark))))?;
                 return Err(error.into());
@@ -388,7 +402,12 @@ fn device_present(properties: &Value) -> Result<bool, String> {
     Ok(false)
 }
 
-struct Visiting { active: HashSet<(String,String)>, attempted: HashSet<(String,String)>, retry: HashSet<(String,String)> }
+struct Visiting {
+    active: HashSet<(String,String)>,
+    attempted: HashSet<(String,String)>,
+    retry: HashSet<(String,String)>,
+    latching_units: HashMap<String,HashSet<String>>,
+}
 fn resolve_line(routine: &str, name: &str, _senses: &super::events::Senses, _visiting: &mut Visiting) -> Result<(),String> {
     let raw: Option<Vec<u8>> = {
         let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
@@ -567,11 +586,11 @@ fn stage_inner(routine: &str, stage: &Value, senses: &super::events::Senses, vis
         match observed {
             Ok(Some(v)) => value=Some(v),
             Ok(None) => {},
-            Err(reason) => { rearm_changed_needs(routine,stage,&needs_token(name,&need_trace))?; write_line(routine,name,None,"Waiting",Some(&reason))?; return Ok(()); }
+            Err(reason) => { rearm_changed_needs(routine,stage,&needs_token(name,&need_trace),visiting)?; write_line(routine,name,None,"Waiting",Some(&reason))?; return Ok(()); }
         }
     }
     let needs_fingerprint=needs_token(name,&need_trace);
-    rearm_changed_needs(routine,stage,&needs_fingerprint)?;
+    rearm_changed_needs(routine,stage,&needs_fingerprint,visiting)?;
     if let Some(steps)=crossings {
         if steps.iter().any(|step|step.get("route").is_some()) {
             if !steps.iter().all(|step|step.get("route").and_then(Value::as_str).is_some() && step.get("staff").is_none()) {return Err("pid2-route-mixed-steps".into());}
@@ -752,32 +771,34 @@ pub fn quiesce_held(routine: &str, deadline: std::time::Instant) -> Result<(),St
     let _guard=super::ACTION_LOCK.lock().map_err(|_|"pid2-action-lock-poisoned")?;
     let _process=super::process_action_lock()?;
     if !held(routine)? { return Ok(()); }
-    let rows: Vec<(String,String)> = {
+    let rows: Vec<(String,String,String,String,Option<String>)> = {
         let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
-        let mut query=db.prepare("SELECT unit,scope FROM pid2_programs WHERE routine_id=?1 ORDER BY unit,scope").map_err(|e|e.to_string())?;
-        let result=query.query_map([routine],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+        let mut query=db.prepare("SELECT unit,scope,desired,life,last_receipt FROM pid2_programs WHERE routine_id=?1 ORDER BY unit,scope").map_err(|e|e.to_string())?;
+        let result=query.query_map([routine],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
         result
     };
     let remaining = || -> Result<std::time::Duration,String> {
         let left=deadline.saturating_duration_since(std::time::Instant::now());
         if left.is_zero() {Err("pid2-native-stage-timeout".into())} else {Ok(left.min(std::time::Duration::from_secs(300)))}
     };
-    let active = |unit: &str, scope: &str| -> Result<bool,String> {
+    let active_state = |unit: &str, scope: &str| -> Result<String,String> {
         remaining()?;
         let response=unit_status(unit,scope)?;
         if response.get("ok").and_then(Value::as_bool)!=Some(true) { return Err("pid2-unit-status-refused".into()); }
-        match response.pointer("/readback/active_state").and_then(Value::as_str) {
-            Some("inactive"|"failed")=>Ok(false), Some(_)=>Ok(true), None=>Err("pid2-unit-state-unobserved".into())
-        }
+        response.pointer("/readback/active_state").and_then(Value::as_str).map(str::to_owned).ok_or_else(||"pid2-unit-state-unobserved".into())
     };
-    for (unit,scope) in rows {
-        if active(&unit,&scope)? {
+    for (unit,scope,desired,life,receipt) in rows {
+        let state=active_state(&unit,&scope)?;
+        // A hold leaves a latched fall Failed under Stop intent. Quiescing an
+        // already fallen unit must not erase that receipt before release.
+        let preserve=desired=="Stop" && unexpected_fall(&life,receipt.as_deref()) && state!="active";
+        if !matches!(state.as_str(),"inactive"|"failed") {
             let result=unit_call_timeout("stop",&unit,&scope,remaining()?)?;
             if result.get("ok").and_then(Value::as_bool)!=Some(true) { return Err(format!("pid2-stop-refused: {unit}")); }
-            program_state(routine,&unit,&scope,"Stopping",Some("stop-accepted"))?;
-            if active(&unit,&scope)? { return Err(format!("pid2-stop-not-yet-inactive: {unit}")); }
+            if !preserve { program_state(routine,&unit,&scope,"Stopping",Some("stop-accepted"))?; }
+            if !matches!(active_state(&unit,&scope)?.as_str(),"inactive"|"failed") { return Err(format!("pid2-stop-not-yet-inactive: {unit}")); }
         }
-        program_state(routine,&unit,&scope,"Held",Some("stopped"))?;
+        if !preserve { program_state(routine,&unit,&scope,"Held",Some("stopped"))?; }
     }
     Ok(())
 }
@@ -796,10 +817,13 @@ fn reconcile_stops(senses: &super::events::Senses, keys:&[super::events::DirtyKe
         let _guard=super::ACTION_LOCK.lock().map_err(|_|"pid2-action-lock-poisoned")?;
     let _process_guard=super::process_action_lock()?;
         let (desired,life,receipt)=program(&routine,&unit,&scope)?;
-        if desired!="Stop" || life=="Failed" { continue; }
-        if !senses.online(&scope) { if life!="Stopping" { program_state(&routine,&unit,&scope,"Held",Some("pid2-systemd-sense-unavailable"))?; } continue; }
+        if desired!="Stop" { continue; }
+        let preserve=unexpected_fall(&life,receipt.as_deref());
+        if life=="Failed" && !preserve { continue; }
+        if !senses.online(&scope) { if life!="Stopping" && !preserve { program_state(&routine,&unit,&scope,"Held",Some("pid2-systemd-sense-unavailable"))?; } continue; }
         match unit_status(&unit,&scope) {
             Ok(status) => match status.pointer("/readback/active_state").and_then(Value::as_str) {
+                state if preserve && state!=Some("active") => {},
                 Some("inactive" | "failed") => program_state(&routine,&unit,&scope,"Held",Some("stopped"))?,
                 Some(_) if life=="Stopping" && receipt.as_deref()==Some("stop-accepted") => {},
                 Some(_) => match unit_call("stop",&unit,&scope) {
@@ -810,7 +834,7 @@ fn reconcile_stops(senses: &super::events::Senses, keys:&[super::events::DirtyKe
                 None if life=="Stopping" => {},
                 None => program_state(&routine,&unit,&scope,"Held",Some("pid2-unit-state-unobserved"))?,
             },
-            Err(_) if life=="Stopping" => {},
+            Err(_) if life=="Stopping" || preserve => {},
             Err(error) => program_state(&routine,&unit,&scope,"Held",Some(&error))?,
         }
     }
@@ -924,8 +948,12 @@ pub(super) fn reconcile(senses:&super::events::Senses,keys:Vec<super::events::Di
     };
     let mut stages=BTreeMap::<LineKey,Value>::new();
     let mut reverse=HashMap::<LineKey,HashSet<LineKey>>::new();
+    let mut latches=HashMap::new();
     for (routine,raw) in registrations {
         let envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+        // Multiple actions naming the same unit in a routine share one program row.
+        let units: HashSet<_> = latching_units(&envelope).map(str::to_owned).collect();
+        if !units.is_empty() { latches.insert(routine.clone(),units); }
         for stage in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten() {
             let Some(name)=stage.get("line").and_then(Value::as_str) else {continue;};
             let line=(routine.clone(),name.to_owned());
@@ -966,7 +994,7 @@ pub(super) fn reconcile(senses:&super::events::Senses,keys:Vec<super::events::Di
         pending.remove(&next);
         queue.push_back(next);
     }
-    let mut visiting=Visiting{active:HashSet::new(),attempted:HashSet::new(),retry};
+    let mut visiting=Visiting{active:HashSet::new(),attempted:HashSet::new(),retry,latching_units:latches};
     let mut remaining=stages.len().saturating_mul(64).max(1);
     while let Some(line)=queue.pop_front() {
         queued.remove(&line);

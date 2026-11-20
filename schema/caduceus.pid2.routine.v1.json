@@ -35,6 +35,7 @@
           }, "additionalProperties":true}},
           "actions": {"type": "array", "items": {"type": "object", "properties": {
             "unit": {"type": "string"}, "scope": {"type": "string"},
+            "latch_on_fall": {"type": ["boolean", "null"], "description": "When true, an unexpected unit stop stays Failed across need changes and routine release until the unit is observed active again or the next boot."},
             "when_line": {"type": "string"}, "when_value": {}
           }, "additionalProperties": true}}
         }, "additionalProperties": true}}

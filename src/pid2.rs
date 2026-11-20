@@ -192,6 +192,22 @@ pub fn disable(id: &str) -> Result<Value, String> {
     Ok(json!({"ok":true,"routine_id":id,"changed":changed != 0,"readback":status(id)?}))
 }
 
+fn set_routine_program_intent(tx: &rusqlite::Transaction<'_>, id: &str, envelope: &Value, hold: bool) -> Result<usize,String> {
+    let opted_in: Vec<_> = solver::latching_units(envelope).collect();
+    let opted_in = json!(opted_in).to_string();
+    let (desired,life) = if hold { ("Stop","Queued") } else { ("Run","Waiting") };
+    // Change intent on both edges, but keep the fall and its transition mark.
+    tx.execute("WITH latched AS MATERIALIZED (
+            SELECT unit,scope FROM pid2_programs WHERE routine_id=?1 AND life='Failed'
+            AND unit IN (SELECT value FROM json_each(?5))
+            AND (CASE WHEN json_valid(last_receipt) THEN json_extract(last_receipt,'$.cause') ELSE last_receipt END)=?6
+        ) UPDATE pid2_programs SET desired=?2,
+            life=CASE WHEN (unit,scope) IN latched THEN life ELSE ?3 END,
+            last_receipt=CASE WHEN (unit,scope) IN latched THEN last_receipt ELSE NULL END,
+            updated_at=?4 WHERE routine_id=?1 AND (?2='Run' OR desired<>'Stop')",
+        params![id,desired,life,now(),opted_in,solver::UNEXPECTED_STOP]).map_err(|e|e.to_string())
+}
+
 /// Hold and release serialize with the solver's staff actions.
 fn change_hold(id: &str, hold: bool) -> Result<Value, String> {
     if id.is_empty() { return Err("pid2-routine-id-unavailable".into()); }
@@ -201,30 +217,35 @@ fn change_hold(id: &str, hold: bool) -> Result<Value, String> {
     let mut db = crate::stats::open_db()?.lock().map_err(|_| "pid2-database-lock-poisoned")?;
     tables(&db)?;
     let tx = db.transaction().map_err(|e| e.to_string())?;
-    let registered: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM pid2_registrations WHERE routine_id=?1)",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+    let envelope: Option<Vec<u8>> = tx.query_row("SELECT envelope FROM pid2_registrations WHERE routine_id=?1",[id],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+    let registered = envelope.is_some();
     let was_held: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM pid2_holds WHERE routine_id=?1)",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
-    let changed = if !registered { false } else if hold {
-        let mut n=tx.execute("INSERT OR IGNORE INTO pid2_holds(routine_id,held_at) VALUES(?1,?2)",params![id,now()]).map_err(|e|e.to_string())?;
-        let raw: Vec<u8>=tx.query_row("SELECT envelope FROM pid2_registrations WHERE routine_id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
-        let envelope: Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
-        for action in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten().flat_map(|s|s.get("actions").and_then(Value::as_array).into_iter().flatten()) {
-            let Some(unit)=action.get("unit").and_then(Value::as_str) else { continue; };
-            let scope=solver::unit_scope(unit)?;
-            n+=tx.execute("INSERT OR IGNORE INTO pid2_programs(unit,scope,routine_id,desired,life,updated_at) VALUES(?1,?2,?3,'Stop','Queued',?4)",params![unit,scope,id,now()]).map_err(|e|e.to_string())?;
+    let changed = match (envelope,hold) {
+        (None,_) => false,
+        (Some(raw),true) => {
+            let mut n=tx.execute("INSERT OR IGNORE INTO pid2_holds(routine_id,held_at) VALUES(?1,?2)",params![id,now()]).map_err(|e|e.to_string())?;
+            let envelope: Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+            for action in envelope.pointer("/routine/stages").and_then(Value::as_array).into_iter().flatten().flat_map(|s|s.get("actions").and_then(Value::as_array).into_iter().flatten()) {
+                let Some(unit)=action.get("unit").and_then(Value::as_str) else { continue; };
+                let scope=solver::unit_scope(unit)?;
+                n+=tx.execute("INSERT OR IGNORE INTO pid2_programs(unit,scope,routine_id,desired,life,updated_at) VALUES(?1,?2,?3,'Stop','Queued',?4)",params![unit,scope,id,now()]).map_err(|e|e.to_string())?;
+            }
+            n+=set_routine_program_intent(&tx,id,&envelope,true)?;
+            n != 0
         }
-        n+=tx.execute("UPDATE pid2_programs SET desired='Stop',life='Queued',last_receipt=NULL,updated_at=?2 WHERE routine_id=?1 AND desired<>'Stop'",params![id,now()]).map_err(|e|e.to_string())?;
-        n != 0
-    } else {
-        let n=tx.execute("DELETE FROM pid2_holds WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
-        if n != 0 {
-            tx.execute("DELETE FROM pid2_lines WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
-            tx.execute("DELETE FROM pid2_completed WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
-            tx.execute("DELETE FROM pid2_attempts WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
-            tx.execute("DELETE FROM pid2_elections WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
-            tx.execute("DELETE FROM pid2_crossings WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
-            tx.execute("UPDATE pid2_programs SET desired='Run',life='Waiting',last_receipt=NULL,updated_at=?2 WHERE routine_id=?1",params![id,now()]).map_err(|e|e.to_string())?;
+        (Some(raw),false) => {
+            let n=tx.execute("DELETE FROM pid2_holds WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+            if n != 0 {
+                let envelope: Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+                tx.execute("DELETE FROM pid2_lines WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+                tx.execute("DELETE FROM pid2_completed WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+                tx.execute("DELETE FROM pid2_attempts WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+                tx.execute("DELETE FROM pid2_elections WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+                tx.execute("DELETE FROM pid2_crossings WHERE routine_id=?1",[id]).map_err(|e|e.to_string())?;
+                set_routine_program_intent(&tx,id,&envelope,false)?;
+            }
+            n != 0
         }
-        n != 0
     };
     tx.commit().map_err(|e|e.to_string())?;
     drop(db); drop(process_guard); drop(guard);
