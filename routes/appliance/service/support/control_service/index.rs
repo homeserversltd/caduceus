@@ -78,14 +78,17 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         "metadata": metadata
     });
     if let Some(object) = receipt.as_object_mut() {
-        // A missing projection field must not turn a crossed receipt into a bare error.
-        if crossing_succeeded && projection_invalid {
-            object.insert(
-                "doorSignal".into(),
-                json!("caduceus-portal-service-receipt-invalid"),
-            );
+        // A crossed receipt stays whole even when the door cannot project it.
+        let signal = if object.contains_key("portalService") {
+            Some("caduceus-portal-service-projection-collision")
+        } else {
+            object.insert("portalService".into(), projection);
+            (crossing_succeeded && projection_invalid)
+                .then_some("caduceus-portal-service-receipt-invalid")
+        };
+        if let Some(signal) = signal {
+            object.entry("doorSignal").or_insert_with(|| json!(signal));
         }
-        object.entry("portalService").or_insert(projection);
     }
     Ok(receipt)
 }
