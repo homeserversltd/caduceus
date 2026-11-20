@@ -150,33 +150,49 @@ pub fn set_sudo_mode_json(body: &Value) -> Result<(bool, Value), String> {
         "payload": {"passwordless": passwordless_sudo},
     });
     let wrapper = crate::gate::snake::run(band, &envelope)?;
-    let signal = wrapper
-        .get("firstMissingSignal")
-        .and_then(Value::as_str)
-        .filter(|signal| !signal.is_empty() && *signal != "none")
-        .unwrap_or("caduceus-sudo-passwordless-result-unobserved");
+    const DESYNC: &str = "caduceus-schema-desync";
+    let binding = |received: Option<&Value>| {
+        json!({"expectedStop": band, "receivedStop": received})
+    };
     let Some(mut receipt) = wrapper
         .get("receiptPayload")
         .filter(|value| value.is_object())
         .cloned()
     else {
-        return Err(signal.to_owned());
+        // No stop receipt to pass through. Do not echo arbitrary child stdout.
+        let refusal = json!({
+            "schema": "caduceus.staff.receipt.v1",
+            "stop": {"noun": "access/sudo", "verb": "mode"},
+            "ok": false,
+            "observed": null,
+            "could_change_to": null,
+            "attempt": {"attempted": true},
+            "final_receipt": {"ok": false, "firstMissingSignal": DESYNC},
+            "firstMissingSignal": DESYNC,
+            "sudoMode": binding(None),
+        });
+        return Ok(sudo_mode_refusal(refusal, DESYNC));
     };
 
     let former = receipt.get("schema").and_then(Value::as_str)
         == Some("agathodaimon.appliance.sudo-passwordless.v1");
     if !former && !crate::routes::leaf_schema::bound(&receipt, band) {
-        let binding = json!({"expectedStop": band, "receivedStop": receipt.get("stop")});
+        let mismatch = binding(receipt.get("stop"));
         receipt
             .as_object_mut()
             .expect("staff receipt is an object")
             .entry("sudoMode")
-            .or_insert(binding);
-        return Ok(sudo_mode_refusal(receipt, "caduceus-schema-desync"));
+            .or_insert(mismatch);
+        return Ok(sudo_mode_refusal(receipt, DESYNC));
     }
     if wrapper.get("ok").and_then(Value::as_bool) != Some(true)
         || receipt.get("ok").and_then(Value::as_bool) != Some(true)
     {
+        let signal = wrapper
+            .get("firstMissingSignal")
+            .and_then(Value::as_str)
+            .filter(|signal| !signal.is_empty() && *signal != "none")
+            .unwrap_or("caduceus-sudo-passwordless-result-unobserved");
         return Ok(sudo_mode_refusal(receipt, signal));
     }
 
