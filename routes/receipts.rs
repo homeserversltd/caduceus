@@ -306,7 +306,8 @@ pub fn intent_json(
     });
     #[cfg(leaf_network_device_pin_address)]
     if route.starts_with("/api/dhcp/") || route == "/api/dhcp" {
-        return dhcp::intent_json(method, route, metadata.unwrap_or_else(|| json!({})));
+        return dhcp::intent_json(method, route, metadata.unwrap_or_else(|| json!({})))
+            .map_err(dhcp::legacy_intent_error_signal);
     }
     #[cfg(not(leaf_network_device_pin_address))]
     if route.starts_with("/api/dhcp/") || route == "/api/dhcp" {
@@ -362,7 +363,8 @@ pub fn named_actuator_json(actuator_id: &str, metadata: Value) -> Result<Value, 
         "storage/upload/ingress" => execute_file_ingress(metadata),
         "storage/upload/force-permissions" => execute_force_permissions(metadata),
         #[cfg(leaf_network_device_pin_address)]
-        "network-dhcp" => dhcp::intent_json("POST", "/api/dhcp/reservations", metadata),
+        "network-dhcp" => dhcp::intent_json("POST", "/api/dhcp/reservations", metadata)
+            .map_err(dhcp::legacy_intent_error_signal),
         #[cfg(not(leaf_network_device_pin_address))]
         "network-dhcp" => Err("caduceus-network-dhcp-actuator-not-found".into()),
         #[cfg(leaf_portals_deploy)]

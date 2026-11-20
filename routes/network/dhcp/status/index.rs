@@ -61,7 +61,19 @@ pub(crate) async fn network_read_route(
 }
 
 async fn dhcp_status_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
-    network_read_route("network dhcp status").await
+    let (status, Json(mut receipt)) = network_read_route("network dhcp status").await?;
+    if status != StatusCode::OK {
+        note_staff_refusal(&mut receipt);
+    }
+    Ok((status, Json(receipt)))
+}
+
+fn note_staff_refusal(receipt: &mut Value) {
+    if let Some(fields) = receipt.as_object_mut() {
+        fields.entry("doorSignal").or_insert_with(|| {
+            Value::String("caduceus-agathodaimon-refused".into())
+        });
+    }
 }
 
 async fn native_dhcp_read(command: &'static str) -> Result<Value, (StatusCode, Json<ApiErrorBody>)> {
@@ -123,6 +135,27 @@ async fn dhcp_doorways_read_route() -> Result<(StatusCode, Json<Value>), (Status
 }
 
 #[cfg(carapace_feature_kea)]
+fn dhcp_staff_intent_response(
+    result: Result<Value, Value>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
+    let mut receipt = match result {
+        Ok(receipt) => receipt,
+        Err(receipt) if receipt.is_object() => receipt,
+        Err(signal) => {
+            return Err(api_error_signal(
+                "staff intent",
+                signal.as_str().unwrap_or("caduceus-agathodaimon-refused"),
+            ));
+        }
+    };
+    let status = mutation_status(&receipt);
+    if status != StatusCode::OK {
+        note_staff_refusal(&mut receipt);
+    }
+    Ok((status, Json(receipt)))
+}
+
+#[cfg(carapace_feature_kea)]
 async fn dhcp_staff_actuator_route(
     headers: HeaderMap,
     OriginalUri(uri): OriginalUri,
@@ -145,9 +178,7 @@ async fn dhcp_staff_actuator_route(
                 crate::routes::dhcp::intent_json(method, route, metadata)
             })
             .await?;
-            result
-                .map(|value| (mutation_status(&value), Json(value)))
-                .map_err(|reason| api_error_signal("staff intent", &reason))
+            dhcp_staff_intent_response(result)
         }
         Ok(false) => Err(api_error("staff intent")),
         Err(_) => Err(api_error_signal("staff intent", "caduceus-carapace-desync")),
@@ -177,9 +208,7 @@ async fn dhcp_reservation_staff_actuator_route(
                 crate::routes::dhcp::intent_json(method.as_str(), &route, metadata)
             })
             .await?;
-            result
-                .map(|value| (mutation_status(&value), Json(value)))
-                .map_err(|reason| api_error_signal("staff intent", &reason))
+            dhcp_staff_intent_response(result)
         }
         Ok(false) => Err(api_error("staff intent")),
         Err(_) => Err(api_error_signal("staff intent", "caduceus-carapace-desync")),

@@ -72,7 +72,7 @@ pub fn command(args: &[String]) -> i32 {
         }
     }
 }
-pub fn intent_json(method: &str, route: &str, metadata: Value) -> Result<Value, String> {
+pub fn intent_json(method: &str, route: &str, metadata: Value) -> Result<Value, Value> {
     let mut input = Map::new();
     let stop = match (method, route) {
         ("POST", "/api/dhcp") | ("POST", "/api/dhcp/reservations") => {
@@ -110,12 +110,16 @@ pub fn intent_json(method: &str, route: &str, metadata: Value) -> Result<Value, 
         }
         _ => return Err(ROUTE_INVALID.into()),
     };
-    cross(stop, input).map_err(|error| {
-        error.as_str()
-            .or_else(|| error.get("firstMissingSignal").and_then(Value::as_str))
-            .unwrap_or("caduceus-agathodaimon-refused")
-            .to_string()
-    })
+    cross(stop, input)
+}
+
+// The legacy staff dispatch still has a string error interface.
+pub(crate) fn legacy_intent_error_signal(error: Value) -> String {
+    error
+        .as_str()
+        .or_else(|| error.get("firstMissingSignal").and_then(Value::as_str))
+        .unwrap_or("caduceus-agathodaimon-refused")
+        .to_string()
 }
 
 /// Canonical registration seam for this leaf.
