@@ -150,6 +150,10 @@ fn route_stage(routine:&str, name:&str, stage:&Value, steps:&[Value], token:&str
     let mut line_signal=None;
     for (index,step) in steps.iter().enumerate() {
         let route=step.get("route").and_then(Value::as_str).ok_or("pid2-route-name-missing")?;
+        let backstop_seconds = step.get("backstop_seconds").map(|value| {
+            value.as_i64().filter(|seconds| (1..=21600).contains(seconds))
+                .ok_or("pid2-route-backstop-invalid")
+        }).transpose()?;
         let mut seen=std::collections::HashSet::new();
         let Some(keep)=step.get("keep").and_then(Value::as_array).filter(|values|!values.is_empty() && values.iter().all(|v|v.as_str().is_some_and(|s|s.len()<=64 && seen.insert(s.to_owned())))) else {
             return write_line(routine,name,None,"Held",Some("pid2-route-keep-invalid"));
@@ -167,13 +171,14 @@ fn route_stage(routine:&str, name:&str, stage:&Value, steps:&[Value], token:&str
         let seconds=step.get("deadline_seconds").and_then(Value::as_u64).unwrap_or(180);
         let reply=crate::gate::pid2_route::call(route,step.get("payload"),&keep,seconds);
         let recorded=now();
-        let (status,ok,signal,kept,deadline)=match reply {
-            Ok(value)=>{
-                let deadline=value.fresh_until.filter(|v|v.is_finite() && *v > recorded as f64 && *v <= i64::MAX as f64).map(|v|v.ceil() as i64);
-                (Some(value.status),value.ok,value.signal,value.kept,deadline)
-            },
+        let (status,ok,signal,kept,fresh_until)=match reply {
+            Ok(value)=>(Some(value.status),value.ok,value.signal,value.kept,value.fresh_until),
             Err(signal)=>(None,Some(false),Some(signal),"{}".to_owned(),None),
         };
+        let deadline = backstop_seconds.map(|seconds| recorded + seconds).or_else(|| {
+            fresh_until.filter(|v| v.is_finite() && *v > recorded as f64 && *v <= i64::MAX as f64)
+                .map(|v| v.ceil() as i64)
+        });
         {
             let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
             db.execute("INSERT INTO pid2_route_steps(routine_id,line,step_index,route,response_status,ok,first_missing_signal,kept,needs_token,deadline,recorded_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) ON CONFLICT(routine_id,line,step_index) DO UPDATE SET route=excluded.route,response_status=excluded.response_status,ok=excluded.ok,first_missing_signal=excluded.first_missing_signal,kept=excluded.kept,needs_token=excluded.needs_token,deadline=excluded.deadline,recorded_at=excluded.recorded_at",params![routine,name,index as i64,route,status,ok,signal,kept,token,deadline,recorded]).map_err(|e|e.to_string())?;
