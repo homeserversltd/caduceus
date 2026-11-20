@@ -348,7 +348,7 @@ pub fn response(command: &str) -> Value {
                         })
                         .collect(),
                 ),
-                DHCP_STAFF_SCHEMA,
+                "caduceus.network.dhcp.leases.v1",
                 None,
             ),
             Err(error) => (
@@ -375,7 +375,7 @@ pub fn response(command: &str) -> Value {
                         })
                         .collect(),
                 ),
-                DHCP_STAFF_SCHEMA,
+                "caduceus.network.dhcp.reservations.v1",
                 None,
             ),
             Err(error) => (
