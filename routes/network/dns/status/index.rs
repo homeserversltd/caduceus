@@ -53,9 +53,10 @@ fn invoke_blocklist(band: &str, payload: Value) -> Result<Value, String> {
     if !receipt.is_object() {
         return Err(if failed_exit { exit_signal() } else { "caduceus-staff-invalid-receipt" }.into());
     }
+    let stop_bound = crate::routes::leaf_schema::bound(&receipt, band);
     let door_signal = if failed_exit && receipt.get("ok").and_then(Value::as_bool) != Some(false) {
         Some(exit_signal())
-    } else if !crate::routes::leaf_schema::bound(&receipt, band) {
+    } else if !stop_bound {
         Some("caduceus-schema-desync")
     } else {
         None
