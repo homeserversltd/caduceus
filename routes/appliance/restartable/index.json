@@ -1,0 +1,15 @@
+{
+  "namespace": "appliance/restartable",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "appliance/restartable"}],
+  "commands": ["staff intent"],
+  "needs": ["all"],
+  "profiles": ["homeserver", "homesi"],
+  "http_method": "GET",
+  "http_path": "/api/v1/appliance/restartable",
+  "body": "none",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": false
+}
