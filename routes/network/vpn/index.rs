@@ -7,7 +7,7 @@ pub fn status_json() -> Result<Value, String> {
     let vpn_running = process_running("openvpn");
     let transmission_running = process_running("transmission");
     let is_enabled = Command::new("systemctl")
-        .args(["is-enabled", "transmissionPIA.service"])
+        .args(["is-enabled", "transmissionVPN.service"])
         .output()
         .map(|output| {
             output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "enabled"
