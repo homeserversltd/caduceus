@@ -410,6 +410,7 @@
     "/api/v1/transmission/keys/replace",
     "/api/v1/transmission/keys/rotate",
     "/api/v1/transmission/status",
+    "/api/v1/transmission/status/look",
     "/api/v1/transmission/up",
     "/api/v1/update/check",
     "/api/v1/update/now",

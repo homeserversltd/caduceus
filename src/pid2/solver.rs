@@ -100,6 +100,44 @@ fn needs_token(line: &str, trace: &[Value]) -> String {
     format!("{}\0{:x}",line,md5::compute(serde_json::to_vec(trace).unwrap_or_default()))
 }
 
+#[cfg(leaf_transmission_status_look)]
+pub(crate) fn queue_vpn_look() -> Result<(Option<i64>, bool), &'static str> {
+    const ROUTINE: &str = "vpn";
+    const LINE: &str = "vpn-observed";
+    // Only the SQLite guard, which route_stage drops before calling the route.
+    let (recorded_at, queued) = {
+        let db = crate::stats::open_db().map_err(|_| "pid2-vpn-look-seat-unavailable")?;
+        let db = db.lock().map_err(|_| "pid2-vpn-look-seat-unavailable")?;
+        let state = db.query_row(
+            "SELECT r.enabled, h.held_at IS NOT NULL, s.recorded_at
+             FROM pid2_registrations r
+             LEFT JOIN pid2_holds h USING (routine_id)
+             LEFT JOIN pid2_route_steps s ON s.routine_id=r.routine_id AND s.line=?2 AND s.step_index=0
+             WHERE r.routine_id=?1",
+            params![ROUTINE, LINE],
+            |r| Ok((r.get::<_, bool>(0)?, r.get::<_, bool>(1)?, r.get::<_, Option<i64>>(2)?)),
+        ).optional().map_err(|_| "pid2-vpn-look-seat-unavailable")?;
+        let (enabled, held, recorded_at) = state.ok_or("pid2-vpn-routine-not-registered")?;
+        if !enabled {
+            return Err("pid2-vpn-routine-disabled");
+        }
+        if held {
+            return Err("pid2-vpn-routine-held");
+        }
+        let now = now();
+        let updated = db.execute(
+            "UPDATE pid2_route_steps SET deadline=?3
+             WHERE routine_id=?1 AND line=?2 AND step_index=0 AND recorded_at<=?3-30
+             AND (deadline IS NULL OR deadline>?3)",
+            params![ROUTINE, LINE, now],
+        ).map_err(|_| "pid2-vpn-look-deadline-unavailable")?;
+        (recorded_at, updated != 0)
+    };
+    // A missing row (e.g. at boot) is already due to the solver; wake it too.
+    super::events::notify_line(ROUTINE, LINE).map_err(|_| "pid2-vpn-look-wake-failed")?;
+    Ok((recorded_at, queued))
+}
+
 fn route_stage(routine:&str, name:&str, stage:&Value, steps:&[Value], token:&str, visiting:&mut Visiting) -> Result<(),String> {
     let key=(routine.to_owned(),name.to_owned());
     if visiting.attempted.contains(&key) {return Ok(());}

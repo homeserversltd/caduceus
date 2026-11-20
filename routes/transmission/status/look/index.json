@@ -1,0 +1,1 @@
+{"namespace":"transmission/status/look","admittance":"open","flags":{},"http_method":"POST","administrative":false,"mutation_allowed":false,"commands":["transmission status"],"needs":["transmission"],"profiles":["homeserver"]}
