@@ -600,11 +600,18 @@ pub(super) fn offer(
         .map_err(|_| "sqlite-begin-failed")?;
     if !allowed || trouble || kind == "state" {
         limit_busy(&tx, deadline)?;
+        // Older profile deeds keep their finish time for history. Ignore it
+        // in the repeat comparison without rewriting the stored row.
         let latest = tx
             .query_row(
-                "SELECT trouble, (outcome IS ?4) AND (signal IS ?5) AND (families IS ?6) FROM deeds
-             WHERE organ = ?1 AND verb IS ?2 AND target IS ?3
-             ORDER BY id DESC LIMIT 1",
+                &format!(
+                    "SELECT trouble, (outcome IS ?4) AND (signal IS ?5) AND CASE
+                        WHEN families IS ?6 THEN 1
+                        WHEN {PROFILE_DEEDS} THEN json_remove(families, '$.harmonia.finished_at') IS ?6
+                        ELSE 0 END
+                     FROM deeds WHERE organ = ?1 AND verb IS ?2 AND target IS ?3
+                     ORDER BY id DESC LIMIT 1"
+                ),
                 params![organ, verb, target, outcome, signal, families],
                 |row| Ok((row.get::<_, bool>(0)?, row.get::<_, bool>(1)?)),
             )
