@@ -103,6 +103,7 @@ fn fields(family: &str) -> Option<&'static [&'static str]> {
             "repeat_delay_ms",
             "repeat_interval_ms",
             "natural_scroll",
+            "scroll_factor",
             "tap_to_click",
             "pointer_speed",
             "accel_profile",
@@ -320,7 +321,7 @@ pub fn read_json(family: &str) -> Result<Value, String> {
     let mut result =
         json!({"schema":"caduceus.settings.read.v1","ok":true,"family":family,"values":values,"firstMissingSignal":"none"});
     if family == "input" {
-        for field in ["sources", "base", "override"] {
+        for field in ["sources", "base", "override", "readonly"] {
             if let Some(value) = receipt.get(field) {
                 result[field] = value.clone();
             }
