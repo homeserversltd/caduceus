@@ -49,7 +49,6 @@ pub fn command_json(intent: Value) -> Result<Value, Value> {
 
 use crate::routes::firewall;
 use crate::shared::policy;
-#[cfg(carapace_feature_firewall)]
 use axum::extract::Path;
 #[cfg(carapace_feature_firewall)]
 use axum::http::{HeaderMap};
@@ -129,7 +128,6 @@ fn firewall_refusal(status: StatusCode, signal: &str) -> (StatusCode, Json<Value
     )
 }
 
-#[cfg(carapace_feature_firewall)]
 fn firewall_mac(value: &str) -> Option<String> {
     let compact = value.to_ascii_lowercase().replace('-', ":");
     let canonical = if compact.len() == 12 && compact.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -194,7 +192,16 @@ async fn firewall_read(
             if let Some(mac) = mac {
                 intent["mac"] = Value::String(mac);
             }
-            firewall_invoke_http(command, intent).await
+            firewall_invoke_http(command, intent)
+                .await
+                .map_err(|(status, Json(receipt))| {
+                    let status = if crate::routes::network_read::is_not_the_gateway_refusal(&receipt) {
+                        StatusCode::NOT_FOUND
+                    } else {
+                        status
+                    };
+                    (status, Json(receipt))
+                })
         }
         Ok(false) => Err(firewall_refusal(
             StatusCode::FORBIDDEN,
@@ -211,12 +218,10 @@ async fn firewall_observed_route() -> Result<Json<Value>, (StatusCode, Json<Valu
     firewall_read("caduceus.network.firewall.presence", "observed", None).await
 }
 
-#[cfg(carapace_feature_firewall)]
 async fn firewall_children_route() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     firewall_read("caduceus.network.firewall.read", "list", None).await
 }
 
-#[cfg(carapace_feature_firewall)]
 async fn firewall_child_whitelist_route(
     Path(mac): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
@@ -372,27 +377,28 @@ async fn firewall_whitelist_set_route(
 
 /// Canonical registration seam for this leaf.
 pub fn register(router: Router) -> Router {
-    let router = router.route(
-        "/api/v1/network/firewall/observed",
-        axum::routing::get(firewall_observed_route),
-    );
+    let children = axum::routing::get(firewall_children_route);
+    let whitelist = axum::routing::get(firewall_child_whitelist_route);
     #[cfg(carapace_feature_firewall)]
+    let children = children.post(firewall_register_route);
+    #[cfg(carapace_feature_firewall)]
+    let whitelist = whitelist.put(firewall_whitelist_set_route);
     let router = router
         .route(
+            "/api/v1/network/firewall/observed",
+            axum::routing::get(firewall_observed_route),
+        )
+        .route(
             "/api/v1/network/firewall/children",
-            axum::routing::get(firewall_children_route)
-                .post(firewall_register_route)
-                .layer(axum::extract::DefaultBodyLimit::max(8192)),
-        )
-        .route(
-            "/api/v1/network/firewall/children/:mac",
-            axum::routing::delete(firewall_unregister_route),
-        )
-        .route(
-            "/api/v1/network/firewall/children/:mac/whitelist",
-            axum::routing::get(firewall_child_whitelist_route)
-                .put(firewall_whitelist_set_route)
-                .layer(axum::extract::DefaultBodyLimit::max(8192)),
+            children.layer(axum::extract::DefaultBodyLimit::max(8192)),
         );
-    router
+    #[cfg(carapace_feature_firewall)]
+    let router = router.route(
+        "/api/v1/network/firewall/children/:mac",
+        axum::routing::delete(firewall_unregister_route),
+    );
+    router.route(
+        "/api/v1/network/firewall/children/:mac/whitelist",
+        whitelist.layer(axum::extract::DefaultBodyLimit::max(8192)),
+    )
 }

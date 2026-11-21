@@ -162,6 +162,15 @@ pub fn status() -> i32 {
 
 use std::{env, process::Command};
 
+pub(crate) const NOT_THE_GATEWAY: &str = "not-the-gateway";
+
+pub(crate) fn is_not_the_gateway_refusal(value: &Value) -> bool {
+    // A crossing failure (such as a stop mismatch) retains its old status.
+    value.get("ok").and_then(Value::as_bool) == Some(false)
+        && value.get("firstMissingSignal").and_then(Value::as_str) == Some(NOT_THE_GATEWAY)
+        && value.get("doorSignal").is_none()
+}
+
 #[derive(Clone, Copy)]
 pub struct ReadCommand {
     pub command: &'static str,
@@ -343,8 +352,19 @@ pub(crate) fn invoke_with_origin(command: &ReadCommand) -> Result<(Value, bool),
 }
 
 pub fn command(command: &ReadCommand) -> i32 {
+    use crate::routes::native_kea_read::{LEASE_COMMAND, RESERVATION_COMMAND};
+
     match invoke_with_origin(command) {
         Ok((value, crossed_refusal)) => {
+            if matches!(command.command, LEASE_COMMAND | RESERVATION_COMMAND)
+                && is_not_the_gateway_refusal(&value)
+            {
+                // These two HTTP reads use the compact API error, not the native envelope.
+                let (_, Json(body)) =
+                    crate::gate::service_unavailable(command.command, NOT_THE_GATEWAY);
+                println!("{}", json!(body));
+                return 1;
+            }
             let ok = if crossed_refusal {
                 crate::gate::receipt_succeeded(&value)
             } else {

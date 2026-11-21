@@ -8,10 +8,21 @@ async fn download(
     (axum::http::StatusCode, axum::Json<serde_json::Value>),
 > {
     let cmd = "cert bundle read";
-    if !crate::shared::policy::allows_command(cmd).unwrap_or(false) {
-        return Err((
+    let refusal = match crate::shared::policy::allows_command(cmd) {
+        Ok(true) => None,
+        Ok(false) => Some((
+            axum::http::StatusCode::NOT_FOUND,
+            crate::routes::network_read::NOT_THE_GATEWAY,
+        )),
+        Err(_) => Some((
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            axum::Json(serde_json::json!({"firstMissingSignal":"caduceus-house-ca-refused"})),
+            "caduceus-house-ca-refused",
+        )),
+    };
+    if let Some((status, signal)) = refusal {
+        return Err((
+            status,
+            axum::Json(serde_json::json!({"firstMissingSignal": signal})),
         ));
     }
     let platform = q

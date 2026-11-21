@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const LEASE_COMMAND: &str = "network dhcp leases";
+pub(crate) const LEASE_COMMAND: &str = "network dhcp leases";
 pub(crate) const RESERVATION_COMMAND: &str = "network dhcp reservations list";
 pub(crate) const DOORWAYS_COMMAND: &str = "network dhcp doorways list";
 const DHCP_STAFF_SCHEMA: &str = "caduceus.staff.network.dhcp.v1";
@@ -329,9 +329,17 @@ fn read_doorways() -> Result<Value, String> {
     ))
 }
 
+fn gateway_read<T>(read: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    if cfg!(carapace_feature_kea) {
+        read()
+    } else {
+        Err(crate::routes::network_read::NOT_THE_GATEWAY.into())
+    }
+}
+
 pub fn response(command: &str) -> Value {
     let (action, actuator, result, inner_schema, failure) = match command {
-        LEASE_COMMAND => match read_leases() {
+        LEASE_COMMAND => match gateway_read(read_leases) {
             Ok(rows) => (
                 "leases",
                 "network.dhcp.leases",
@@ -359,7 +367,7 @@ pub fn response(command: &str) -> Value {
                 Some(error),
             ),
         },
-        RESERVATION_COMMAND => match read_reservations() {
+        RESERVATION_COMMAND => match gateway_read(read_reservations) {
             Ok(rows) => (
                 "reservations",
                 "network.dhcp.reservations",
@@ -387,7 +395,7 @@ pub fn response(command: &str) -> Value {
             ),
         },
         DOORWAYS_COMMAND => {
-            let (result, failure) = match read_doorways() {
+            let (result, failure) = match gateway_read(read_doorways) {
                 Ok(rows) => (rows, None),
                 Err(error) => (Value::Null, Some(error)),
             };

@@ -38,7 +38,13 @@ pub(crate) async fn network_read_route(
             }
             match result {
                 Ok((mut value, crossed_refusal)) => {
-                    let status = if crossed_refusal { crate::gate::mutation_status(&value) } else { StatusCode::OK };
+                    let status = if !crossed_refusal {
+                        StatusCode::OK
+                    } else if network_read::is_not_the_gateway_refusal(&value) {
+                        StatusCode::NOT_FOUND
+                    } else {
+                        crate::gate::mutation_status(&value)
+                    };
                     if status == StatusCode::OK {
                         crate::shared::load_trace::enrich_json(&mut value);
                     }
@@ -62,7 +68,7 @@ pub(crate) async fn network_read_route(
 
 async fn dhcp_status_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let (status, Json(mut receipt)) = network_read_route("network dhcp status").await?;
-    if status != StatusCode::OK {
+    if status != StatusCode::OK && status != StatusCode::NOT_FOUND {
         note_staff_refusal(&mut receipt);
     }
     Ok((status, Json(receipt)))
@@ -101,32 +107,37 @@ async fn native_dhcp_read(command: &'static str) -> Result<Value, (StatusCode, J
     }
 }
 
-async fn dhcp_reservations_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
-    let command = native_kea_read::RESERVATION_COMMAND;
+pub(crate) async fn native_dhcp_list_route(
+    command: &'static str,
+) -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
     let mut value = native_dhcp_read(command).await?;
     if value["ok"] == true {
         crate::shared::load_trace::enrich_json(&mut value);
         Ok(Json(value))
     } else {
-        Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiErrorBody {
-                schema: "caduceus.api.error.v1",
-                ok: false,
-                command: command.to_string(),
-                first_missing_signal: value["firstMissingSignal"]
-                    .as_str()
-                    .unwrap_or("caduceus-network-dhcp-read-failed")
-                    .to_string(),
-            }),
-        ))
+        let signal = value["firstMissingSignal"]
+            .as_str()
+            .unwrap_or("caduceus-network-dhcp-read-failed");
+        let (status, body) = crate::gate::service_unavailable(command, signal);
+        let status = if network_read::is_not_the_gateway_refusal(&value) {
+            StatusCode::NOT_FOUND
+        } else {
+            status
+        };
+        Err((status, body))
     }
+}
+
+async fn dhcp_reservations_read_route() -> Result<Json<Value>, (StatusCode, Json<ApiErrorBody>)> {
+    native_dhcp_list_route(native_kea_read::RESERVATION_COMMAND).await
 }
 
 async fn dhcp_doorways_read_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let mut value = native_dhcp_read(native_kea_read::DOORWAYS_COMMAND).await?;
     let status = if value["ok"] == true {
         StatusCode::OK
+    } else if network_read::is_not_the_gateway_refusal(&value) {
+        StatusCode::NOT_FOUND
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     };

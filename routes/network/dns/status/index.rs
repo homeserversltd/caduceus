@@ -289,6 +289,9 @@ async fn dns_status_read_route() -> Result<(StatusCode, Json<Value>), (StatusCod
 
 async fn dns_resolver_status_route() -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     let (status, Json(mut value)) = network_read_route("network dns resolver status").await?;
+    if status == StatusCode::NOT_FOUND {
+        return Ok((status, Json(value)));
+    }
     if status != StatusCode::OK {
         return Ok((status, Json(with_public_receipt(value, &[]))));
     }
