@@ -155,9 +155,16 @@ fn open_db_once() -> Result<Connection, String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let mut c = Connection::open(path).map_err(|e| e.to_string())?;
-    // Set incremental mode on a fresh store. Legacy stores without it can
-    // reuse freed pages; never rewrite this shared database to reclaim them.
-    if let Err(error) = c.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;") {
+    // Setting the mode takes a write lock even if it is already incremental.
+    // Only set it on a fresh store; existing stores can reuse freed pages.
+    let configure_vacuum = (|| -> rusqlite::Result<()> {
+        let pages: i64 = c.query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        if pages == 0 {
+            c.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = configure_vacuum {
         eprintln!("stats vacuum outcome=failed signal={error}");
     }
     c.execute_batch(
@@ -175,25 +182,39 @@ fn open_db_once() -> Result<Connection, String> {
         .map_err(|e| e.to_string())?;
     c.execute_batch("CREATE TABLE IF NOT EXISTS harmonia_check (id INTEGER PRIMARY KEY CHECK(id=1), checked_at INTEGER NOT NULL, answer TEXT NOT NULL);")
         .map_err(|e| e.to_string())?;
-    retire_raw_tier(&mut c).map_err(|e| e.to_string())?;
+    if let Err(error) = retire_raw_tier(&mut c) {
+        // Do not cache a retirement failure as a failed store open. An intact
+        // legacy table will be seen again on the next process start.
+        eprintln!("stats raw retirement outcome=deferred signal={error}");
+    }
     Ok(c)
 }
 
-fn retire_raw_tier(c: &mut Connection) -> rusqlite::Result<()> {
-    let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let legacy: bool = tx.query_row(
+fn legacy_raw_tier_exists(c: &Connection) -> rusqlite::Result<bool> {
+    c.query_row(
         "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type='table' AND name='raw_samples')",
         [],
         |row| row.get(0),
-    )?;
-    if legacy {
+    )
+}
+
+fn retire_raw_tier(c: &mut Connection) -> rusqlite::Result<()> {
+    if !legacy_raw_tier_exists(c)? {
+        return Ok(());
+    }
+    let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    // Another opener may have already retired it while we waited to write.
+    if legacy_raw_tier_exists(&tx)? {
         // The old clean stop could have saved an incomplete final minute
         // without a marker. Mark just the last legacy minute if it was saved
         // before its bucket ended, or its count proves incomplete coverage.
-        // Keep its original samples, aggregates, and paired benchmark.
+        // Bound the search to legacy raw timestamps: a deferred drop lets
+        // this collector write newer rollups before the retirement is retried.
+        // Keep the legacy row's original samples and paired benchmark.
         tx.execute(
             "UPDATE minute_samples SET data=json_set(data,'$.partial',json('true'))
              WHERE id=(SELECT id FROM minute_samples WHERE bucket<=?1
+                       AND bucket<=(SELECT MAX(ts) / 60 FROM raw_samples)
                        ORDER BY bucket DESC,id DESC LIMIT 1)
              AND CASE WHEN json_valid(data) THEN
                  json_type(data,'$.partial') IS NULL
@@ -2365,11 +2386,10 @@ struct MinuteAggregate {
     rss_max: Option<f64>,
     tick_max: Option<f64>,
     samples: u64,
-    seconds: u64,
 }
 
 impl MinuteAggregate {
-    fn record(&mut self, ts: i64, value: &Value) {
+    fn record(&mut self, value: &Value) {
         const PATHS: [&str; 18] = [
             "/load/one", "/load/five", "/load/fifteen", "/temperature/celsius",
             "/gpu/utilizationPercent", "/gpu/temperatureCelsius", "/memory/usedBytes",
@@ -2380,7 +2400,6 @@ impl MinuteAggregate {
             "/power/watts",
         ];
         self.samples += 1;
-        self.seconds |= 1 << ts.rem_euclid(60);
         for (index, path) in PATHS.iter().enumerate() {
             if let Some(number) = value.pointer(path).and_then(Value::as_f64) {
                 self.sums[index] += number;
@@ -2395,7 +2414,7 @@ impl MinuteAggregate {
         }
     }
 
-    fn encode(&self, bucket: i64) -> String {
+    fn encode(&self, bucket: i64, partial: bool) -> String {
         let mean = |i: usize| {
             sql_value((self.counts[i] != 0).then(|| self.sums[i] / self.counts[i] as f64))
         };
@@ -2426,7 +2445,7 @@ impl MinuteAggregate {
                 "powerWatts": mean(17),
             },
         });
-        if self.seconds.count_ones() < 60 {
+        if partial {
             result["partial"] = json!(true);
         }
         result.to_string()
@@ -2683,6 +2702,7 @@ fn flush_rollover(
     minutes: &BTreeMap<i64, MinuteAggregate>,
     first_bucket: i64,
     through_bucket: i64,
+    cut_buckets: [Option<i64>; 2],
     tick_histogram: &[u64; 8],
     persist_histogram: &[u64; 8],
     rss_start: u64,
@@ -2721,7 +2741,10 @@ fn flush_rollover(
         let empty_doors = crate::routes::leaf_appliance_stats::DoorSnapshot::default();
         let empty_minute = MinuteAggregate::default();
         for bucket in first_bucket..through_bucket {
-            let minute = minutes.get(&bucket).unwrap_or(&empty_minute).encode(bucket);
+            let minute = minutes
+                .get(&bucket)
+                .unwrap_or(&empty_minute)
+                .encode(bucket, cut_buckets.contains(&Some(bucket)));
             let (ticks, persists, start, end, max, skipped, bucket_doors) = if bucket == first_bucket {
                 (
                     tick_histogram,
@@ -2798,7 +2821,10 @@ fn collect_loop(
     let mut previous_self_ticks: Option<u64> = None;
     let mut previous_cpu: Option<CpuCounters> = None;
     let mut previous_persist_millis: Option<u64> = None;
-    let mut bucket = now() / 60;
+    let started_at = now();
+    let mut bucket = started_at / 60;
+    // Coverage is about the collector's lifetime, not distinct tick times.
+    let start_cut = (started_at % 60 != 0).then_some(bucket);
     let mut minutes = BTreeMap::<i64, MinuteAggregate>::new();
     let mut tick_histogram = [0u64; 8];
     let mut persist_histogram = [0u64; 8];
@@ -2818,6 +2844,7 @@ fn collect_loop(
     let mut collector_healthy = true;
     loop {
         if stopping.load(Ordering::Acquire) {
+            let stop_cut = Some(now() / 60);
             // Flush minute folds even when an indicator worker failed to stop cleanly.
             let indicators_stopped = indicators.stop();
             // No current samples means there is no partial minute to emit;
@@ -2832,6 +2859,7 @@ fn collect_loop(
                 &minutes,
                 bucket,
                 through_bucket,
+                [start_cut, stop_cut],
                 &tick_histogram,
                 &persist_histogram,
                 bucket_rss_start,
@@ -2907,6 +2935,7 @@ fn collect_loop(
                 &minutes,
                 bucket,
                 current_bucket,
+                [start_cut, None],
                 &tick_histogram,
                 &persist_histogram,
                 bucket_rss_start,
@@ -2991,7 +3020,7 @@ fn collect_loop(
         let persist_started = Instant::now();
         let sample_bucket = ts / 60;
         if sample_bucket >= bucket {
-            minutes.entry(sample_bucket).or_default().record(ts, &value);
+            minutes.entry(sample_bucket).or_default().record(&value);
             // During a prolonged write failure, retain no more than the
             // week of minute folds the writer could still persist.
             while minutes.len() > MINUTE_HISTORY_DEFAULT_LIMIT + 1 {
