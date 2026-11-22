@@ -174,10 +174,9 @@ pub mod native_kea_read;
 
 #[cfg(leaf_network_dhcp_status)]
 pub(crate) use leaf_network_dhcp_status::network_read_route;
-#[cfg(leaf_network_device_list)]
-pub use list_network_devices as network;
-#[cfg(leaf_network_device_list)]
-pub use list_network_devices as network_read;
+#[path = "network/support/read.rs"]
+pub mod network_read;
+pub use network_read as network;
 #[cfg(leaf_settings_child_device)]
 pub use manage_child_device as child_device;
 #[cfg(leaf_network_bandwidth_measure)]
