@@ -154,20 +154,17 @@ fn open_db_once() -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let c = Connection::open(path).map_err(|e| e.to_string())?;
+    let mut c = Connection::open(path).map_err(|e| e.to_string())?;
     // Set incremental mode on a fresh store. Legacy stores without it can
     // reuse freed pages; never rewrite this shared database to reclaim them.
     if let Err(error) = c.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;") {
         eprintln!("stats vacuum outcome=failed signal={error}");
     }
-    // Retire the old table and its index once, without reading any raw rows.
-    // The normal incremental vacuum below can reclaim free pages afterward.
     c.execute_batch(
         "PRAGMA journal_mode=WAL;
          PRAGMA synchronous=NORMAL;
          PRAGMA temp_store=MEMORY;
          PRAGMA journal_size_limit=8388608;
-         DROP TABLE IF EXISTS raw_samples;
          CREATE TABLE IF NOT EXISTS minute_samples (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS self_benchmark (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL);
          CREATE INDEX IF NOT EXISTS minute_bucket ON minute_samples(bucket);
@@ -178,7 +175,38 @@ fn open_db_once() -> Result<Connection, String> {
         .map_err(|e| e.to_string())?;
     c.execute_batch("CREATE TABLE IF NOT EXISTS harmonia_check (id INTEGER PRIMARY KEY CHECK(id=1), checked_at INTEGER NOT NULL, answer TEXT NOT NULL);")
         .map_err(|e| e.to_string())?;
+    retire_raw_tier(&mut c).map_err(|e| e.to_string())?;
     Ok(c)
+}
+
+fn retire_raw_tier(c: &mut Connection) -> rusqlite::Result<()> {
+    let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let legacy: bool = tx.query_row(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type='table' AND name='raw_samples')",
+        [],
+        |row| row.get(0),
+    )?;
+    if legacy {
+        // The old clean stop could have saved an incomplete final minute
+        // without a marker. Mark just the last legacy minute if it was saved
+        // before its bucket ended, or its count proves incomplete coverage.
+        // Keep its original samples, aggregates, and paired benchmark.
+        tx.execute(
+            "UPDATE minute_samples SET data=json_set(data,'$.partial',json('true'))
+             WHERE id=(SELECT id FROM minute_samples WHERE bucket<=?1
+                       ORDER BY bucket DESC,id DESC LIMIT 1)
+             AND CASE WHEN json_valid(data) THEN
+                 json_type(data,'$.partial') IS NULL
+                 AND json_type(data,'$.samples')='integer'
+                 AND (bucket=?1 OR json_extract(data,'$.samples')<60)
+             ELSE 0 END",
+            [now() / 60],
+        )?;
+        // Drop the table and its index without hydrating any raw points.
+        // The existing incremental vacuum can reclaim free pages afterward.
+        tx.execute_batch("DROP TABLE raw_samples;")?;
+    }
+    tx.commit()
 }
 
 fn update_check_state() -> Result<&'static Mutex<Option<(i64, Value)>>, String> {
