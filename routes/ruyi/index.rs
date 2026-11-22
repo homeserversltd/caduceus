@@ -24,6 +24,10 @@ use tokio::{
 };
 
 use crate::routes::leaf_schema::row_schema;
+
+#[path = "gateway.rs"]
+pub(crate) mod gateway;
+
 const TEXT_MAX: usize = 64;
 const MAX_PROJECTION_BYTES: u64 = 1024 * 1024;
 const CADUCEUS_DEFAULT_PORT: u16 = 8787;
@@ -622,9 +626,186 @@ fn normalized_mac(value: &str) -> Option<String> {
 #[derive(Clone)]
 struct KeaCandidate { mac: String, address: Ipv4Addr, hostname: String, fallback_hostname: Option<String> }
 
+#[derive(Deserialize)]
+struct KeaRow {
+    mac: String,
+    ip: String,
+    hostname: String,
+}
+
+type Candidates = BTreeMap<String, KeaCandidate>;
+type DnsView = Vec<(String, String, Ipv4Addr)>;
+
+fn merge_kea_candidates(
+    leases: impl IntoIterator<Item = KeaRow>,
+    reservations: impl IntoIterator<Item = KeaRow>,
+) -> Candidates {
+    use std::collections::btree_map::Entry;
+
+    let mut candidates = Candidates::new();
+    for lease in leases {
+        if let (Some(mac), Ok(address)) = (normalized_mac(&lease.mac), lease.ip.parse()) {
+            candidates.insert(
+                mac.clone(),
+                KeaCandidate {
+                    mac,
+                    address,
+                    hostname: lease.hostname,
+                    fallback_hostname: None,
+                },
+            );
+        }
+    }
+    for reservation in reservations {
+        if let (Some(mac), Ok(address)) = (normalized_mac(&reservation.mac), reservation.ip.parse()) {
+            match candidates.entry(mac.clone()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(KeaCandidate {
+                        mac,
+                        address,
+                        hostname: reservation.hostname,
+                        fallback_hostname: None,
+                    });
+                }
+                Entry::Occupied(mut entry) => {
+                    if valid_hostname(&reservation.hostname) {
+                        entry.get_mut().fallback_hostname = Some(reservation.hostname);
+                    }
+                }
+            }
+        }
+    }
+    candidates
+}
+
+#[cfg(carapace_feature_kea)]
+fn local_kea_candidates() -> Candidates {
+    use crate::routes::native_kea_read::{read_leases, read_reservations};
+
+    match (read_leases(), read_reservations()) {
+        (Ok(leases), Ok(reservations)) => merge_kea_candidates(
+            leases.into_iter().map(|row| KeaRow {
+                mac: row.mac,
+                ip: row.ip,
+                hostname: row.hostname,
+            }),
+            reservations.into_iter().map(|row| KeaRow {
+                mac: row.mac,
+                ip: row.ip,
+                hostname: row.hostname,
+            }),
+        ),
+        _ => Candidates::new(),
+    }
+}
+
+async fn gateway_kea_rows(
+    seat: (Ipv4Addr, u16),
+    path: &'static str,
+    budget: Duration,
+) -> Option<Vec<KeaRow>> {
+    #[derive(Deserialize)]
+    struct Readback {
+        ok: bool,
+        payload: Payload,
+    }
+    #[derive(Deserialize)]
+    struct Payload {
+        ok: bool,
+        result: Vec<KeaRow>,
+    }
+
+    let value = gateway::get_json(seat, path, budget).await?;
+    let reply: Readback = serde_json::from_value(value).ok()?;
+    (reply.ok && reply.payload.ok).then_some(reply.payload.result)
+}
+
+async fn gateway_kea_candidates(seat: (Ipv4Addr, u16), budget: Duration) -> Candidates {
+    let (leases, reservations) = tokio::join!(
+        gateway_kea_rows(seat, "/api/v1/network/dhcp/leases", budget),
+        gateway_kea_rows(seat, "/api/v1/network/dhcp/reservations", budget),
+    );
+    match (leases, reservations) {
+        (Some(leases), Some(reservations)) => merge_kea_candidates(leases, reservations),
+        _ => Candidates::new(),
+    }
+}
+
+async fn gateway_dns_view(seat: (Ipv4Addr, u16), budget: Duration) -> DnsView {
+    let Some(reply) = gateway::get_json(seat, "/api/v1/network/dns/read", budget).await else {
+        return Vec::new();
+    };
+    if reply["ok"] != true || reply["payload"]["ok"] != true {
+        return Vec::new();
+    }
+    let Some(devices) = reply.pointer("/payload/result/devices").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    devices
+        .iter()
+        .filter_map(|device| {
+            let (name, hostname) = canonical_dns_name(device["name"].as_str()?)?;
+            let ipv4 = device["a"]
+                .as_array()?
+                .iter()
+                .find_map(|value| value.as_str()?.parse().ok())?;
+            Some((name, hostname, ipv4))
+        })
+        .collect()
+}
+
+async fn discovery_sources(
+    stream_deadline: Option<Instant>,
+) -> Result<(DnsView, Candidates), (StatusCode, Json<crate::gate::ApiErrorBody>)> {
+    let (dns, candidates, seat) = crate::gate::blocking_task("ruyi", || {
+        let dns = if cfg!(carapace_feature_unbound) {
+            unbound_records(&crate::shared::config::path("etc/unbound"))
+        } else {
+            Vec::new()
+        };
+        #[cfg(carapace_feature_kea)]
+        let candidates = local_kea_candidates();
+        #[cfg(not(carapace_feature_kea))]
+        let candidates = Candidates::new();
+        let seat = if cfg!(all(carapace_feature_kea, carapace_feature_unbound)) {
+            None
+        } else {
+            gateway::resolve()
+        };
+        (dns, candidates, seat)
+    })
+    .await?;
+    let Some(seat) = seat else {
+        return Ok((dns, candidates));
+    };
+
+    // Leave time for the stream's existing peer sweep and first frame.
+    let budget = stream_deadline.map_or(gateway::TIMEOUT, |deadline| {
+        deadline
+            .saturating_duration_since(Instant::now())
+            .saturating_sub(RUYI_PEER_TIMEOUT + RUYI_STREAM_SEND_TIMEOUT)
+    });
+    Ok(tokio::join!(
+        async {
+            if cfg!(carapace_feature_unbound) {
+                dns
+            } else {
+                gateway_dns_view(seat, budget).await
+            }
+        },
+        async {
+            if cfg!(carapace_feature_kea) {
+                candidates
+            } else {
+                gateway_kea_candidates(seat, budget).await
+            }
+        },
+    ))
+}
+
 async fn probe_candidate(
     candidate: KeaCandidate,
-    dns: Vec<(String, String, Ipv4Addr)>,
+    dns: &[(String, String, Ipv4Addr)],
     peer_port: u16,
     include_stats: bool,
 ) -> Option<DiscoveredRuyiRow> {
@@ -670,7 +851,7 @@ async fn probe_candidate(
         .or_else(|| candidate.fallback_hostname.filter(|name| valid_hostname(name)))?;
     let canonical_name = crate::shared::seat_identity::resolver_target(&hostname)?;
     let dns_hostname = hostname.trim().to_ascii_lowercase();
-    let (ipv4, source) = unbound_ipv4_for_hostname(&dns, &dns_hostname)
+    let (ipv4, source) = unbound_ipv4_for_hostname(dns, &dns_hostname)
         .map(|ip| (ip, "dns"))
         .unwrap_or((candidate.address, "declared"));
     let profile = beam.get("profile")?.as_str()?.to_owned();
@@ -880,55 +1061,8 @@ async fn list(
     let self_beam_hostname = self_beam
         .hostname
         .filter(|hostname| !hostname.trim().is_empty());
-    let (dns, mut candidates) = crate::gate::blocking_task("ruyi", || {
-        let dns = unbound_records(&crate::shared::config::path("etc/unbound"));
-        let mut candidates = BTreeMap::<String, KeaCandidate>::new();
-        if let (Ok(leases), Ok(reservations)) = (
-            crate::routes::native_kea_read::read_leases(),
-            crate::routes::native_kea_read::read_reservations(),
-        ) {
-            for lease in leases {
-                if let (Some(mac), Ok(address)) =
-                    (normalized_mac(&lease.mac), lease.ip.parse::<Ipv4Addr>())
-                {
-                    candidates.insert(
-                        mac.clone(),
-                        KeaCandidate {
-                            mac,
-                            address,
-                            hostname: lease.hostname,
-                            fallback_hostname: None,
-                        },
-                    );
-                }
-            }
-            for reservation in reservations {
-                if let (Some(mac), Ok(address)) = (
-                    normalized_mac(&reservation.mac),
-                    reservation.ip.parse::<Ipv4Addr>(),
-                ) {
-                    match candidates.entry(mac.clone()) {
-                        std::collections::btree_map::Entry::Vacant(entry) => {
-                            entry.insert(KeaCandidate {
-                                mac,
-                                address,
-                                hostname: reservation.hostname,
-                                fallback_hostname: None,
-                            });
-                        }
-                        std::collections::btree_map::Entry::Occupied(mut entry) => {
-                            if valid_hostname(&reservation.hostname) {
-                                entry.get_mut().fallback_hostname =
-                                    Some(reservation.hostname);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok::<_, (StatusCode, Json<crate::gate::ApiErrorBody>)>((dns, candidates))
-    })
-    .await??;
+    let (dns, mut candidates) = discovery_sources(None).await?;
+    let dns = Arc::new(dns);
     let stored_macs: BTreeSet<_> = announced.iter().map(|row| row.mac.to_ascii_lowercase()).collect();
     candidates.retain(|mac, _| !stored_macs.contains(mac) && self_mac.as_deref() != Some(mac.as_str()));
     let mut staves: Vec<RuyiStaff> = announced.iter().cloned().map(RuyiStaff::Announced).collect();
@@ -951,8 +1085,8 @@ async fn list(
     }
     let peer_port = peer_probe_port();
     for candidate in candidates.into_values() {
-        let dns = dns.clone();
-        probes.spawn(async move { (None, probe_candidate(candidate, dns, peer_port, include_stats).await) });
+        let dns = Arc::clone(&dns);
+        probes.spawn(async move { (None, probe_candidate(candidate, &dns, peer_port, include_stats).await) });
     }
     let mut peer_stats = BTreeMap::<String, (Option<Value>, Option<String>)>::new();
     while let Some(result) = probes.join_next().await {
@@ -1151,55 +1285,8 @@ async fn stream_list(
     let self_beam_hostname = self_beam
         .hostname
         .filter(|hostname| !hostname.trim().is_empty());
-    let (dns, mut candidates) = crate::gate::blocking_task("ruyi", || {
-        let dns = unbound_records(&crate::shared::config::path("etc/unbound"));
-        let mut candidates = BTreeMap::<String, KeaCandidate>::new();
-        if let (Ok(leases), Ok(reservations)) = (
-            crate::routes::native_kea_read::read_leases(),
-            crate::routes::native_kea_read::read_reservations(),
-        ) {
-            for lease in leases {
-                if let (Some(mac), Ok(address)) =
-                    (normalized_mac(&lease.mac), lease.ip.parse::<Ipv4Addr>())
-                {
-                    candidates.insert(
-                        mac.clone(),
-                        KeaCandidate {
-                            mac,
-                            address,
-                            hostname: lease.hostname,
-                            fallback_hostname: None,
-                        },
-                    );
-                }
-            }
-            for reservation in reservations {
-                if let (Some(mac), Ok(address)) = (
-                    normalized_mac(&reservation.mac),
-                    reservation.ip.parse::<Ipv4Addr>(),
-                ) {
-                    match candidates.entry(mac.clone()) {
-                        std::collections::btree_map::Entry::Vacant(entry) => {
-                            entry.insert(KeaCandidate {
-                                mac,
-                                address,
-                                hostname: reservation.hostname,
-                                fallback_hostname: None,
-                            });
-                        }
-                        std::collections::btree_map::Entry::Occupied(mut entry) => {
-                            if valid_hostname(&reservation.hostname) {
-                                entry.get_mut().fallback_hostname =
-                                    Some(reservation.hostname);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok::<_, (StatusCode, Json<crate::gate::ApiErrorBody>)>((dns, candidates))
-    })
-    .await??;
+    let (dns, mut candidates) = discovery_sources(Some(deadline)).await?;
+    let dns = Arc::new(dns);
     let stored_macs: BTreeSet<_> = announced
         .iter()
         .map(|row| row.mac.to_ascii_lowercase())
@@ -1327,11 +1414,11 @@ async fn stream_list(
         }
         let peer_port = peer_probe_port();
         for candidate in candidates {
-            let dns = dns.clone();
+            let dns = Arc::clone(&dns);
             probes.spawn(async move {
                 (
                     None,
-                    probe_candidate(candidate, dns, peer_port, include_stats).await,
+                    probe_candidate(candidate, &dns, peer_port, include_stats).await,
                 )
             });
         }
