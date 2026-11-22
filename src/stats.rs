@@ -1,13 +1,14 @@
-//! Native, persistent per-host appliance telemetry.
+//! Native per-host appliance telemetry with volatile raw samples and durable rollups.
 use crate::shared::config;
+use flate2::{read::DeflateDecoder, write::DeflateEncoder, Compression};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet},
     ffi::CString,
     fs::{self, File},
-    io::Read,
+    io::{Read, Write},
     net::TcpStream,
     path::PathBuf,
     process::{Command, Stdio},
@@ -41,7 +42,7 @@ struct StatsState {
 }
 static STATE: OnceLock<Arc<RwLock<StatsState>>> = OnceLock::new();
 static DATABASE: OnceLock<Result<Mutex<Connection>, String>> = OnceLock::new();
-static RAW_PENDING: OnceLock<Mutex<VecDeque<PendingRaw>>> = OnceLock::new();
+static RAW_HISTORY: Mutex<BTreeMap<i64, RawSample>> = Mutex::new(BTreeMap::new());
 static COLLECTOR: OnceLock<Mutex<Option<(Arc<AtomicBool>, JoinHandle<Result<(), String>>)>>> =
     OnceLock::new();
 static INDICATOR_POKE_MASK: AtomicU64 = AtomicU64::new(0);
@@ -84,11 +85,58 @@ pub fn poke(block: IndicatorBlock) -> Result<(), String> {
 }
 
 #[derive(Clone)]
-struct PendingRaw {
-    ts: i64,
-    sequence: u64,
-    data: Arc<str>,
-    persisted: bool,
+struct RawSample {
+    collected_at: Instant,
+    json_len: usize,
+    deflated: Arc<[u8]>,
+}
+
+impl RawSample {
+    fn is_recent(&self, at: Instant) -> bool {
+        at.saturating_duration_since(self.collected_at).as_secs() < RAW_RETENTION_SECONDS as u64
+    }
+}
+
+fn record_raw(ts: i64, data: &str, collected_at: Instant) -> std::io::Result<()> {
+    // Compress each point outside the lock. A limited read can decode just the
+    // points it returns, and the compact allocation retains no encoder slack.
+    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(data.as_bytes())?;
+    let sample = RawSample {
+        collected_at,
+        json_len: data.len(),
+        deflated: Arc::from(encoder.finish()?),
+    };
+    let at = Instant::now();
+    let cutoff = now().saturating_sub(RAW_RETENTION_SECONDS);
+    let mut history = RAW_HISTORY.lock().unwrap_or_else(|p| p.into_inner());
+    history.retain(|&ts, sample| ts >= cutoff && sample.is_recent(at));
+    if ts >= cutoff && sample.is_recent(at) {
+        // The newest reading wins when two ticks share a wall-clock second.
+        history.insert(ts, sample);
+        if history.len() > RAW_HISTORY_DEFAULT_LIMIT {
+            // Use collection order even if the wall clock stepped backwards.
+            if let Some(oldest) = history
+                .iter()
+                .min_by_key(|(_, sample)| sample.collected_at)
+                .map(|(&ts, _)| ts)
+            {
+                history.remove(&oldest);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn raw_rows_in_memory() -> usize {
+    let at = Instant::now();
+    let cutoff = now().saturating_sub(RAW_RETENTION_SECONDS);
+    RAW_HISTORY
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .range(cutoff..)
+        .filter(|(_, sample)| sample.is_recent(at))
+        .count()
 }
 
 pub(crate) fn db_path() -> PathBuf {
@@ -107,23 +155,24 @@ fn open_db_once() -> Result<Connection, String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let c = Connection::open(path).map_err(|e| e.to_string())?;
-    // Establish the mode on a new database; an existing database only changes
-    // mode when the one-time reclaim is warranted and VACUUM can apply it.
-    let reclaim = (|| -> rusqlite::Result<()> {
-        let free: i64 = c.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
-        // Existing non-incremental databases need VACUUM to migrate. Request
-        // the mode without violating the small-freelist rule.
-        c.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
-        if free >= 1024 {
-            c.execute_batch("VACUUM;")?;
-        }
-        Ok(())
-    })();
-    if let Err(error) = reclaim {
+    // Set incremental mode on a fresh store. Legacy stores without it can
+    // reuse freed pages; never rewrite this shared database to reclaim them.
+    if let Err(error) = c.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;") {
         eprintln!("stats vacuum outcome=failed signal={error}");
     }
+    // Retire the old table and its index once, without reading any raw rows.
+    // The normal incremental vacuum below can reclaim free pages afterward.
     c.execute_batch(
-        "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY; PRAGMA journal_size_limit=8388608; CREATE TABLE IF NOT EXISTS raw_samples (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS minute_samples (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS self_benchmark (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL); CREATE INDEX IF NOT EXISTS raw_ts ON raw_samples(ts); CREATE INDEX IF NOT EXISTS minute_bucket ON minute_samples(bucket); CREATE INDEX IF NOT EXISTS self_benchmark_bucket ON self_benchmark(bucket); CREATE TABLE IF NOT EXISTS ruyi (mac TEXT PRIMARY KEY, row TEXT NOT NULL, last_seen INTEGER NOT NULL);",
+        "PRAGMA journal_mode=WAL;
+         PRAGMA synchronous=NORMAL;
+         PRAGMA temp_store=MEMORY;
+         PRAGMA journal_size_limit=8388608;
+         DROP TABLE IF EXISTS raw_samples;
+         CREATE TABLE IF NOT EXISTS minute_samples (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS self_benchmark (id INTEGER PRIMARY KEY, bucket INTEGER NOT NULL, data TEXT NOT NULL);
+         CREATE INDEX IF NOT EXISTS minute_bucket ON minute_samples(bucket);
+         CREATE INDEX IF NOT EXISTS self_benchmark_bucket ON self_benchmark(bucket);
+         CREATE TABLE IF NOT EXISTS ruyi (mac TEXT PRIMARY KEY, row TEXT NOT NULL, last_seen INTEGER NOT NULL);",
     ).map_err(|e| e.to_string())?;
     c.execute_batch("CREATE TABLE IF NOT EXISTS ruyi_perspective (mac TEXT PRIMARY KEY, json TEXT NOT NULL, received_at INTEGER NOT NULL);")
         .map_err(|e| e.to_string())?;
@@ -2279,102 +2328,84 @@ fn sql_value(value: Option<f64>) -> Value {
     value.map_or(Value::Null, |value| json!(value))
 }
 
-fn aggregate(pending: &VecDeque<PendingRaw>, bucket: i64) -> Result<String, String> {
-    const PATHS: [&str; 18] = [
-        "/load/one", "/load/five", "/load/fifteen", "/temperature/celsius",
-        "/gpu/utilizationPercent", "/gpu/temperatureCelsius", "/memory/usedBytes",
-        "/memory/usedBytesSwap", "/network/throughput/rxBytesPerSecond",
-        "/network/throughput/txBytesPerSecond", "/disk/throughput/readBytesPerSecond",
-        "/disk/throughput/writeBytesPerSecond", "/self/rssBytes", "/self/tickMillis",
-        "/cpu/usagePercent", "/pressure/io/someAvg10", "/pressure/io/fullAvg10",
-        "/power/watts",
-    ];
-    let start = bucket.saturating_mul(60);
-    let end = start.saturating_add(60);
-    let mut sums = [0.0f64; 18];
-    let mut counts = [0u64; 18];
-    let mut rss_max: Option<f64> = None;
-    let mut tick_max: Option<f64> = None;
-    let mut samples = 0i64;
-    for sample in pending.iter().filter(|sample| sample.ts >= start && sample.ts < end) {
-        let value: Value = serde_json::from_str(&sample.data).map_err(|error| error.to_string())?;
-        samples += 1;
+// Fold at collection time so a retry of the minute writer needs neither a
+// second raw queue nor the raw hour to retain an already sampled bucket.
+#[derive(Default)]
+struct MinuteAggregate {
+    sums: [f64; 18],
+    counts: [u64; 18],
+    rss_max: Option<f64>,
+    tick_max: Option<f64>,
+    samples: u64,
+    seconds: u64,
+}
+
+impl MinuteAggregate {
+    fn record(&mut self, ts: i64, value: &Value) {
+        const PATHS: [&str; 18] = [
+            "/load/one", "/load/five", "/load/fifteen", "/temperature/celsius",
+            "/gpu/utilizationPercent", "/gpu/temperatureCelsius", "/memory/usedBytes",
+            "/memory/usedBytesSwap", "/network/throughput/rxBytesPerSecond",
+            "/network/throughput/txBytesPerSecond", "/disk/throughput/readBytesPerSecond",
+            "/disk/throughput/writeBytesPerSecond", "/self/rssBytes", "/self/tickMillis",
+            "/cpu/usagePercent", "/pressure/io/someAvg10", "/pressure/io/fullAvg10",
+            "/power/watts",
+        ];
+        self.samples += 1;
+        self.seconds |= 1 << ts.rem_euclid(60);
         for (index, path) in PATHS.iter().enumerate() {
             if let Some(number) = value.pointer(path).and_then(Value::as_f64) {
-                sums[index] += number;
-                counts[index] += 1;
-                if index == 12 { rss_max = Some(rss_max.map_or(number, |v| v.max(number))); }
-                if index == 13 { tick_max = Some(tick_max.map_or(number, |v| v.max(number))); }
+                self.sums[index] += number;
+                self.counts[index] += 1;
+                if index == 12 {
+                    self.rss_max = Some(self.rss_max.map_or(number, |v| v.max(number)));
+                }
+                if index == 13 {
+                    self.tick_max = Some(self.tick_max.map_or(number, |v| v.max(number)));
+                }
             }
         }
     }
-    let mean = |i: usize| (counts[i] != 0).then(|| sums[i] / counts[i] as f64);
-    let row = (samples, mean(0), mean(1), mean(2), mean(3), mean(4), mean(5),
-        mean(6), mean(7), mean(8), mean(9), mean(10), mean(11), mean(12), rss_max,
-        mean(13), tick_max, mean(14), mean(15), mean(16), mean(17));
 
-    let (
-        samples,
-        load_one,
-        load_five,
-        load_fifteen,
-        temperature,
-        gpu_utilization,
-        gpu_temperature,
-        memory,
-        swap,
-        network_rx,
-        network_tx,
-        disk_read,
-        disk_write,
-        self_rss,
-        self_rss_max,
-        self_tick,
-        self_tick_max,
-        cpu_usage,
-        io_some,
-        io_full,
-        power_watts,
-    ) = row;
-    let result = json!({
-        "schema": "caduceus.appliance.stats.minute.v1",
-        "bucket": bucket,
-        "samples": samples,
-        "aggregation": {
-            "loadOne": sql_value(load_one),
-            "loadFive": sql_value(load_five),
-            "loadFifteen": sql_value(load_fifteen),
-            "temperatureCelsius": sql_value(temperature),
-            "gpuUtilizationPercent": sql_value(gpu_utilization),
-            "gpuTemperatureCelsius": sql_value(gpu_temperature),
-            "memoryUsedBytes": sql_value(memory),
-            "swapUsedBytes": sql_value(swap),
-            "networkRxBytesPerSecond": sql_value(network_rx),
-            "networkTxBytesPerSecond": sql_value(network_tx),
-            "diskReadBytesPerSecond": sql_value(disk_read),
-            "diskWriteBytesPerSecond": sql_value(disk_write),
-            "selfRssBytes": sql_value(self_rss),
-            "selfRssBytesMax": sql_value(self_rss_max),
-            "selfTickMillis": sql_value(self_tick),
-            "selfTickMillisMax": sql_value(self_tick_max),
-            "cpuUsagePercent": sql_value(cpu_usage),
-            "ioPressureSomeAvg10": sql_value(io_some),
-            "ioPressureFullAvg10": sql_value(io_full),
-            "powerWatts": sql_value(power_watts),
-        },
-    })
-    .to_string();
-    Ok(result)
+    fn encode(&self, bucket: i64) -> String {
+        let mean = |i: usize| {
+            sql_value((self.counts[i] != 0).then(|| self.sums[i] / self.counts[i] as f64))
+        };
+        let mut result = json!({
+            "schema": "caduceus.appliance.stats.minute.v1",
+            "bucket": bucket,
+            "samples": self.samples,
+            "aggregation": {
+                "loadOne": mean(0),
+                "loadFive": mean(1),
+                "loadFifteen": mean(2),
+                "temperatureCelsius": mean(3),
+                "gpuUtilizationPercent": mean(4),
+                "gpuTemperatureCelsius": mean(5),
+                "memoryUsedBytes": mean(6),
+                "swapUsedBytes": mean(7),
+                "networkRxBytesPerSecond": mean(8),
+                "networkTxBytesPerSecond": mean(9),
+                "diskReadBytesPerSecond": mean(10),
+                "diskWriteBytesPerSecond": mean(11),
+                "selfRssBytes": mean(12),
+                "selfRssBytesMax": sql_value(self.rss_max),
+                "selfTickMillis": mean(13),
+                "selfTickMillisMax": sql_value(self.tick_max),
+                "cpuUsagePercent": mean(14),
+                "ioPressureSomeAvg10": mean(15),
+                "ioPressureFullAvg10": mean(16),
+                "powerWatts": mean(17),
+            },
+        });
+        if self.seconds.count_ones() < 60 {
+            result["partial"] = json!(true);
+        }
+        result.to_string()
+    }
 }
 
 fn prune_retention(c: &Connection, timestamp: i64) -> Result<(), String> {
-    let mut raw = c
-        .prepare_cached("DELETE FROM raw_samples WHERE ts < ?1")
-        .map_err(|error| error.to_string())?;
-    raw.execute(params![timestamp.saturating_sub(RAW_RETENTION_SECONDS)])
-        .map_err(|error| error.to_string())?;
-    drop(raw);
-
     let before = timestamp
         .saturating_div(60)
         .saturating_sub(MINUTE_RETENTION_SECONDS / 60);
@@ -2396,13 +2427,18 @@ fn prune_retention(c: &Connection, timestamp: i64) -> Result<(), String> {
 }
 
 fn persist_minute(c: &Connection, bucket: i64, data: &str, benchmark: &str) -> Result<(), String> {
+    // Called inside the writer's IMMEDIATE transaction. The first persisted
+    // slice of a cut minute wins; the next process never overwrites or appends
+    // to it. The raw history of the next process still starts from its own tick.
     c.execute(
-        "INSERT INTO minute_samples(bucket,data) VALUES(?1,?2)",
+        "INSERT INTO minute_samples(bucket,data) SELECT ?1,?2
+         WHERE NOT EXISTS (SELECT 1 FROM minute_samples WHERE bucket=?1)",
         params![bucket, data],
     )
         .map_err(|error| error.to_string())?;
     c.execute(
-        "INSERT INTO self_benchmark(bucket,data) VALUES(?1,?2)",
+        "INSERT INTO self_benchmark(bucket,data) SELECT ?1,?2
+         WHERE NOT EXISTS (SELECT 1 FROM self_benchmark WHERE bucket=?1)",
         params![bucket, benchmark],
     )
         .map_err(|error| error.to_string())?;
@@ -2559,13 +2595,9 @@ fn benchmark(
     anon_mappings_over_64_mib: u64,
     doors: &crate::routes::leaf_appliance_stats::DoorSnapshot,
     c: &Connection,
+    raw_rows: usize,
 ) -> Result<String, String> {
     let (db_bytes, wal_bytes) = db_file_bytes();
-    let raw_rows = c
-        .query_row("SELECT COUNT(*) FROM raw_samples", [], |row| {
-            row.get::<_, u64>(0)
-        })
-        .map_err(|error| error.to_string())?;
     let minute_rows = c
         .query_row("SELECT COUNT(*) FROM minute_samples", [], |row| {
             row.get::<_, u64>(0)
@@ -2586,6 +2618,7 @@ fn benchmark(
         "db": {
             "bytes": db_bytes,
             "walBytes": wal_bytes,
+            // Keep the established key; it now counts live in-memory points.
             "rawRows": raw_rows,
             "minuteRows": minute_rows,
         },
@@ -2619,7 +2652,7 @@ struct FlushResult {
 
 fn flush_rollover(
     database: &'static Mutex<Connection>,
-    pending: &'static Mutex<VecDeque<PendingRaw>>,
+    minutes: &BTreeMap<i64, MinuteAggregate>,
     first_bucket: i64,
     through_bucket: i64,
     tick_histogram: &[u64; 8],
@@ -2631,9 +2664,7 @@ fn flush_rollover(
     anon_mappings_over_64_mib: u64,
     doors: &crate::routes::leaf_appliance_stats::DoorSnapshot,
 ) -> FlushResult {
-    let mut pending = pending
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let raw_rows = raw_rows_in_memory();
     let mut connection = match database.lock() {
         Ok(connection) => connection,
         Err(_) => {
@@ -2658,18 +2689,11 @@ fn flush_rollover(
         through_bucket.saturating_sub(MINUTE_RETENTION_SECONDS / 60),
     );
     let write_result = (|| -> Result<(), String> {
-        for sample in pending.iter().filter(|sample| !sample.persisted) {
-            transaction
-                .execute(
-                    "INSERT INTO raw_samples(ts,data) VALUES(?1,?2)",
-                    params![sample.ts, sample.data.as_ref()],
-                )
-                .map_err(|error| error.to_string())?;
-        }
         let empty_histogram = [0u64; 8];
         let empty_doors = crate::routes::leaf_appliance_stats::DoorSnapshot::default();
+        let empty_minute = MinuteAggregate::default();
         for bucket in first_bucket..through_bucket {
-            let minute = aggregate(&pending, bucket)?;
+            let minute = minutes.get(&bucket).unwrap_or(&empty_minute).encode(bucket);
             let (ticks, persists, start, end, max, skipped, bucket_doors) = if bucket == first_bucket {
                 (
                     tick_histogram,
@@ -2691,7 +2715,7 @@ fn flush_rollover(
                     &empty_doors,
                 )
             };
-            let mut benchmark = benchmark(
+            let benchmark = benchmark(
                 bucket,
                 ticks,
                 persists,
@@ -2702,25 +2726,8 @@ fn flush_rollover(
                 anon_mappings_over_64_mib,
                 bucket_doors,
                 &transaction,
+                raw_rows,
             )?;
-            // A previous clean shutdown can have emitted a partial row for
-            // this bucket. Replace it with the complete folded row atomically.
-            if bucket == first_bucket && pending.iter().any(|sample| sample.persisted && sample.ts / 60 == bucket) {
-                // If this process stopped before producing a sample, its empty
-                // histograms must not erase the previous partial benchmark.
-                if !pending.iter().any(|sample| !sample.persisted && sample.ts / 60 == bucket) {
-                    if let Some(previous) = transaction.query_row(
-                        "SELECT data FROM self_benchmark WHERE bucket = ?1 ORDER BY id DESC LIMIT 1",
-                        [bucket], |row| row.get::<_, String>(0),
-                    ).optional().map_err(|error| error.to_string())? {
-                        benchmark = previous;
-                    }
-                }
-                transaction.execute("DELETE FROM minute_samples WHERE bucket = ?1", [bucket])
-                    .map_err(|error| error.to_string())?;
-                transaction.execute("DELETE FROM self_benchmark WHERE bucket = ?1", [bucket])
-                    .map_err(|error| error.to_string())?;
-            }
             persist_minute(&transaction, bucket, &minute, &benchmark)?;
         }
         prune_retention(&transaction, now())?;
@@ -2739,7 +2746,6 @@ fn flush_rollover(
             error: Some(error.to_string()),
         };
     }
-    pending.clear();
     let checkpoint_error = connection
         .execute_batch("PRAGMA incremental_vacuum(16); PRAGMA wal_checkpoint(PASSIVE);")
         .err()
@@ -2757,7 +2763,6 @@ fn flush_rollover(
 fn collect_loop(
     state: Arc<RwLock<StatsState>>,
     database: &'static Mutex<Connection>,
-    pending: &'static Mutex<VecDeque<PendingRaw>>,
     stopping: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let mut next = Instant::now() + Duration::from_secs(1);
@@ -2766,24 +2771,7 @@ fn collect_loop(
     let mut previous_cpu: Option<CpuCounters> = None;
     let mut previous_persist_millis: Option<u64> = None;
     let mut bucket = now() / 60;
-    // Restore the current minute once at process start: a prior clean stop
-    // already committed these rows, but the eventual rollup must include them.
-    {
-        let mut tail = pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let connection = database.lock().map_err(|_| "stats database lock poisoned".to_owned())?;
-        let mut statement = connection.prepare(
-            "SELECT ts,data FROM raw_samples WHERE ts >= ?1 AND ts < ?2 ORDER BY ts,id"
-        ).map_err(|error| error.to_string())?;
-        let start = bucket.saturating_mul(60);
-        let rows = statement.query_map(params![start, start.saturating_add(60)], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        }).map_err(|error| error.to_string())?;
-        for row in rows {
-            let (ts, data) = row.map_err(|error| error.to_string())?;
-            let sequence = tail.back().map_or(0, |sample| sample.sequence.saturating_add(1));
-            tail.push_back(PendingRaw { ts, sequence, data: Arc::from(data), persisted: true });
-        }
-    }
+    let mut minutes = BTreeMap::<i64, MinuteAggregate>::new();
     let mut tick_histogram = [0u64; 8];
     let mut persist_histogram = [0u64; 8];
     let mut bucket_rss_start = 0u64;
@@ -2802,19 +2790,18 @@ fn collect_loop(
     let mut collector_healthy = true;
     loop {
         if stopping.load(Ordering::Acquire) {
-            // Flush pending samples even when an indicator worker failed to stop cleanly.
+            // Flush minute folds even when an indicator worker failed to stop cleanly.
             let indicators_stopped = indicators.stop();
             // No current samples means there is no partial minute to emit;
             // avoiding an empty shutdown row also prevents duplicate rows when
             // a process is repeatedly stopped before its first sample.
-            let through_bucket = if pending.lock().unwrap_or_else(|p| p.into_inner()).is_empty() {
-                bucket
-            } else {
-                bucket.saturating_add(1)
-            };
+            let through_bucket = minutes
+                .last_key_value()
+                .filter(|(latest, _)| **latest >= bucket)
+                .map_or(bucket, |(&latest, _)| latest.saturating_add(1));
             let flush = flush_rollover(
                 database,
-                pending,
+                &minutes,
                 bucket,
                 through_bucket,
                 &tick_histogram,
@@ -2889,7 +2876,7 @@ fn collect_loop(
         if current_bucket > bucket {
             let flush = flush_rollover(
                 database,
-                pending,
+                &minutes,
                 bucket,
                 current_bucket,
                 &tick_histogram,
@@ -2903,6 +2890,8 @@ fn collect_loop(
             );
             if flush.committed {
                 bucket = current_bucket;
+                // A tick that straddled the boundary belongs to its own bucket.
+                minutes.retain(|&sample_bucket, _| sample_bucket >= bucket);
                 tick_histogram = [0u64; 8];
                 persist_histogram = [0u64; 8];
                 bucket_rss_start = 0;
@@ -2972,25 +2961,23 @@ fn collect_loop(
         let data: Arc<str> = Arc::from(value.to_string());
         let ts = value["ts"].as_i64().unwrap_or_else(now);
         let persist_started = Instant::now();
-        {
-            let mut tail = pending
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let sequence = tail
-                .back()
-                .map_or(0, |sample| sample.sequence.saturating_add(1));
-            tail.push_back(PendingRaw {
-                ts,
-                sequence,
-                data: Arc::clone(&data),
-                persisted: false,
-            });
+        let sample_bucket = ts / 60;
+        if sample_bucket >= bucket {
+            minutes.entry(sample_bucket).or_default().record(ts, &value);
+            // During a prolonged write failure, retain no more than the
+            // week of minute folds the writer could still persist.
+            while minutes.len() > MINUTE_HISTORY_DEFAULT_LIMIT + 1 {
+                minutes.pop_first();
+            }
         }
+        let raw_result = record_raw(ts, &data, sample_started);
         let persist_millis = persist_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
         let persist_bin = histogram_index(Duration::from_millis(persist_millis));
         persist_histogram[persist_bin] = persist_histogram[persist_bin].saturating_add(1);
         previous_persist_millis = Some(persist_millis);
-        if collector_healthy {
+        if let Err(error) = raw_result {
+            collector_error(&state, format!("raw history: {error}"));
+        } else if collector_healthy {
             clear_collector_error(&state);
         }
         {
@@ -3026,7 +3013,6 @@ pub fn start() {
         error: None,
     }));
     let _ = STATE.set(Arc::clone(&state));
-    let pending = RAW_PENDING.get_or_init(|| Mutex::new(VecDeque::new()));
     let collector = COLLECTOR.get_or_init(|| Mutex::new(None));
     match open_db() {
         Ok(database) => {
@@ -3036,7 +3022,7 @@ pub fn start() {
                 .spawn({
                     let state = Arc::clone(&state);
                     let stopping = Arc::clone(&stopping);
-                    move || collect_loop(state, database, pending, stopping)
+                    move || collect_loop(state, database, stopping)
                 })
             {
                 Ok(handle) => {
@@ -3177,78 +3163,38 @@ pub struct HistoryQuery {
     pub limit: Option<usize>,
 }
 
-struct RawHistoryRow {
-    ts: i64,
-    source: u8,
-    order: u64,
-    data: String,
-}
-
-fn history_raw(
-    c: &Connection,
-    pending: &[PendingRaw],
-    since: i64,
-    until: i64,
-    limit: usize,
-) -> Result<String, String> {
-    let mut rows = Vec::with_capacity(limit.min(HISTORY_LIMIT_MAX) + pending.len());
-    let mut statement = c
-        .prepare("SELECT id,ts,data FROM raw_samples WHERE ts >= ?1 AND ts <= ?2 ORDER BY ts DESC,id DESC LIMIT ?3")
-        .map_err(|error| error.to_string())?;
-    let stored = statement
-        .query_map(params![since, until, limit], |row| {
-            Ok(RawHistoryRow {
-                ts: row.get(1)?,
-                source: 0,
-                order: row.get::<_, i64>(0)?.max(0) as u64,
-                data: row.get(2)?,
-            })
-        })
-        .map_err(|error| error.to_string())?;
-    for row in stored {
-        rows.push(row.map_err(|error| error.to_string())?);
+fn history_raw(since: i64, until: i64, limit: usize) -> Result<String, String> {
+    let since = since.max(now().saturating_sub(RAW_RETENTION_SECONDS));
+    if since > until {
+        return Ok("[]".to_owned());
     }
-    rows.extend(
-        pending
-            .iter()
-            .filter(|row| row.ts >= since && row.ts <= until)
-            .map(|row| RawHistoryRow {
-                ts: row.ts,
-                source: 1,
-                order: row.sequence,
-                data: row.data.to_string(),
-            }),
-    );
-    rows.sort_by(|a, b| {
-        a.ts.cmp(&b.ts)
-            .then_with(|| a.source.cmp(&b.source))
-            .then_with(|| a.order.cmp(&b.order))
-    });
-    let mut unique: Vec<RawHistoryRow> = Vec::with_capacity(rows.len());
-    for row in rows {
-        if let Some(previous) = unique.last_mut() {
-            if previous.ts == row.ts {
-                *previous = row;
-                continue;
-            }
-        }
-        unique.push(row);
-    }
-    let mut rows = unique;
-    if rows.len() > limit {
-        rows.drain(..rows.len() - limit);
-    }
-    let capacity = rows.iter().map(|row| row.data.len() + 1).sum::<usize>() + 2;
-    let mut output = String::with_capacity(capacity);
-    output.push('[');
-    for (index, row) in rows.iter().enumerate() {
+    let at = Instant::now();
+    // Select the newest N from memory, then emit oldest first. Release the
+    // collector lock before inflating the selected points into the reply.
+    let rows = RAW_HISTORY
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .range(since..=until)
+        .rev()
+        .filter(|(_, sample)| sample.is_recent(at))
+        .take(limit)
+        .map(|(_, sample)| sample.clone())
+        .collect::<Vec<_>>();
+    let capacity = rows.iter().map(|row| row.json_len + 1).sum::<usize>() + 2;
+    let mut output = Vec::with_capacity(capacity);
+    output.push(b'[');
+    for (index, row) in rows.iter().rev().enumerate() {
         if index != 0 {
-            output.push(',');
+            output.push(b',');
         }
-        output.push_str(&row.data);
+        let start = output.len();
+        output.resize(start + row.json_len, 0);
+        DeflateDecoder::new(row.deflated.as_ref())
+            .read_exact(&mut output[start..])
+            .map_err(|error| format!("raw history: {error}"))?;
     }
-    output.push(']');
-    Ok(output)
+    output.push(b']');
+    String::from_utf8(output).map_err(|error| format!("raw history: {error}"))
 }
 
 fn history_array(
@@ -3309,24 +3255,14 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
         .unwrap_or_else(|| until.saturating_sub(default_retention));
     let raw_since = since.max(until.saturating_sub(RAW_RETENTION_SECONDS));
     let minute_points = MINUTE_RETENTION_SECONDS / 60;
-    let pending = RAW_PENDING.get_or_init(|| Mutex::new(VecDeque::new()));
-    let pending_snapshot = if matches!(tier, "raw" | "both") {
-        let pending_guard = pending
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        pending_guard.iter().cloned().collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
-    let database = open_db_read_only()?;
     let raw = if matches!(tier, "raw" | "both") {
-        history_raw(&database, &pending_snapshot, raw_since, until, raw_limit)?
+        history_raw(raw_since, until, raw_limit)?
     } else {
         "[]".to_owned()
     };
     let minute = if matches!(tier, "minute" | "both") {
         history_array(
-            &database,
+            &open_db_read_only()?,
             "SELECT data FROM minute_samples WHERE bucket >= (?1 / 60) AND bucket <= (?2 / 60) ORDER BY bucket DESC,id DESC LIMIT ?3",
             since,
             until,
@@ -3337,7 +3273,7 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
     };
     let self_benchmark = if tier == "self" {
         history_array(
-            &database,
+            &open_db_read_only()?,
             "SELECT data FROM self_benchmark WHERE bucket >= (?1 / 60) AND bucket <= (?2 / 60) ORDER BY bucket DESC,id DESC LIMIT ?3",
             since,
             until,
@@ -3347,7 +3283,7 @@ pub fn history_with_query(query: HistoryQuery) -> Result<String, String> {
         "[]".to_owned()
     };
     Ok(format!(
-        "{{\"schema\":\"caduceus.appliance.stats.history.v1\",\"retention\":{{\"rawSeconds\":{RAW_RETENTION_SECONDS},\"rawMaxPoints\":{RAW_RETENTION_SECONDS},\"minuteSeconds\":{MINUTE_RETENTION_SECONDS},\"minuteMaxPoints\":{minute_points},\"selfSeconds\":{MINUTE_RETENTION_SECONDS},\"selfMaxPoints\":{minute_points}}},\"consolidation\":{{\"raw\":\"sqlite-backed one-second samples\",\"minute\":{{\"averages\":[\"load.one\",\"load.five\",\"load.fifteen\",\"temperature.celsius\",\"gpu.utilizationPercent\",\"gpu.temperatureCelsius\",\"memory.usedBytes\",\"memory.usedBytesSwap\",\"network.throughput\",\"disk.throughput\",\"self.rssBytes\",\"self.tickMillis\",\"cpu.usagePercent\",\"pressure.io.someAvg10\",\"pressure.io.fullAvg10\",\"power.watts\"]}}}},\"window\":{{\"tier\":{},\"since\":{},\"until\":{},\"limit\":{}}},\"tiers\":{{\"raw\":{},\"minute\":{},\"self\":{}}}}}",
+        "{{\"schema\":\"caduceus.appliance.stats.history.v1\",\"retention\":{{\"rawSeconds\":{RAW_RETENTION_SECONDS},\"rawMaxPoints\":{RAW_RETENTION_SECONDS},\"minuteSeconds\":{MINUTE_RETENTION_SECONDS},\"minuteMaxPoints\":{minute_points},\"selfSeconds\":{MINUTE_RETENTION_SECONDS},\"selfMaxPoints\":{minute_points}}},\"consolidation\":{{\"raw\":\"memory-backed one-second samples\",\"minute\":{{\"averages\":[\"load.one\",\"load.five\",\"load.fifteen\",\"temperature.celsius\",\"gpu.utilizationPercent\",\"gpu.temperatureCelsius\",\"memory.usedBytes\",\"memory.usedBytesSwap\",\"network.throughput\",\"disk.throughput\",\"self.rssBytes\",\"self.tickMillis\",\"cpu.usagePercent\",\"pressure.io.someAvg10\",\"pressure.io.fullAvg10\",\"power.watts\"]}}}},\"window\":{{\"tier\":{},\"since\":{},\"until\":{},\"limit\":{}}},\"tiers\":{{\"raw\":{},\"minute\":{},\"self\":{}}}}}",
         serde_json::to_string(tier).unwrap_or_else(|_| "\"both\"".to_owned()),
         since,
         until,
