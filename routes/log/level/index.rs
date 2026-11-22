@@ -38,7 +38,11 @@ async fn run(action: impl FnOnce() -> Result<LevelAnswer, &'static str> + Send +
     })
 }
 
-fn apply_dial(level: &Value) -> Box<RawValue> {
+fn dial_error(signal: &str) -> Box<RawValue> {
+    to_raw_value(&hyalos::door_error(signal)).expect("level error is valid JSON")
+}
+
+fn apply_dial(level: i64) -> Box<RawValue> {
     let signal = match crate::gate::snake::crossing_path_with_timeout(
         "appliance/log-level",
         &json!({"level": level}),
@@ -64,7 +68,7 @@ fn apply_dial(level: &Value) -> Box<RawValue> {
         Err(signal) => signal,
     };
     // A failed transport has no staff object to pass through.
-    to_raw_value(&hyalos::door_error(&signal)).expect("level error is valid JSON")
+    dial_error(&signal)
 }
 
 async fn read() -> Reply {
@@ -80,8 +84,14 @@ async fn read() -> Reply {
 async fn set(body: Bytes) -> Reply {
     run(move || {
         let value = serde_json::from_slice(&body).map_err(|_| hyalos::LEVEL_INVALID)?;
-        let answer = hyalos::set_level_json(&value)?;
-        let dial = (answer["changed"] == true).then(|| apply_dial(&answer["level"]));
+        let (answer, recorded_level) = hyalos::set_level_json(&value)?;
+        let dial = match recorded_level {
+            Some(level) => Some(apply_dial(level)),
+            // The level was saved, but the deed did not commit. No staff
+            // call was made, so this is a local signal, not a staff receipt.
+            None if answer["changed"] == true => Some(dial_error("hyalos-deed-unwritten")),
+            None => None,
+        };
         Ok(LevelAnswer { body: answer, dial })
     })
     .await

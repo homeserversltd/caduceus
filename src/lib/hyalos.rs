@@ -716,7 +716,7 @@ pub(crate) fn door_error(signal: &str) -> Value {
     json!({"ok": false, "firstMissingSignal": signal})
 }
 
-fn record_hyalos_change(kind: &str, mut attributes: Value, mode: OfferMode, started: Instant) {
+fn record_hyalos_change(kind: &str, mut attributes: Value, mode: OfferMode, started: Instant) -> bool {
     attributes["duration_ms"] = json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX));
     let event = reflection_event(Reflection {
         organ: "caduceus".into(),
@@ -728,10 +728,13 @@ fn record_hyalos_change(kind: &str, mut attributes: Value, mode: OfferMode, star
     });
     // The deed describes an act that has already happened. A store failure
     // is reported once by record; a rejected projection gets this fixed line.
-    if !matches!(event.and_then(|event| record(&event, mode)),
-        Ok(Disposition::Written | Disposition::Failed))
-    {
-        let _ = writeln!(std::io::stderr().lock(), "hyalos-deed-unwritten: {kind}");
+    match event.and_then(|event| record(&event, mode)) {
+        Ok(Disposition::Written) => true,
+        Ok(Disposition::Failed) => false,
+        _ => {
+            let _ = writeln!(std::io::stderr().lock(), "hyalos-deed-unwritten: {kind}");
+            false
+        }
     }
 }
 
@@ -795,23 +798,24 @@ pub(crate) fn level_json() -> Value {
     store::level_status().unwrap_or_else(door_error)
 }
 
-pub(crate) fn set_level_json(body: &Value) -> DoorResult {
+/// Return the level to apply only once its change deed has committed.
+pub(crate) fn set_level_json(body: &Value) -> Result<(Value, Option<i64>), &'static str> {
     let level = body.get("level").and_then(Value::as_i64).ok_or(LEVEL_INVALID)?;
     let started = Instant::now();
     let answer = match store::set_level(level) {
         Ok(Some(answer)) => answer,
         Ok(None) => return Err(LEVEL_INVALID),
-        Err(signal) => return Ok(door_error(&signal)),
+        Err(signal) => return Ok((door_error(&signal), None)),
     };
-    if answer["changed"] == true {
-        record_hyalos_change(
+    let recorded_level = (answer["changed"] == true
+        && record_hyalos_change(
             "hyalos-level",
             json!({"verb": "set", "target": format!("hyalos/level/{level}")}),
             OfferMode::Normal,
             started,
-        );
-    }
-    Ok(answer)
+        ))
+    .then_some(level);
+    Ok((answer, recorded_level))
 }
 
 pub fn tail_json(filters: TailFilters) -> Result<Value, String> {
