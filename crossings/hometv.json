@@ -32,7 +32,6 @@
     "network/cert/house-ca/status",
     "network/cert/house-ca/trust-install",
     "network/cert/refresh",
-    "network/linker",
     "network/wake-on-lan/probe",
     "network/wake-on-lan/send",
     "settings/appearance/read",
@@ -158,10 +157,6 @@
     [
       "face",
       "volume"
-    ],
-    [
-      "network",
-      "linker"
     ],
     [
       "settings",
