@@ -1,1 +1,1 @@
-{"namespace":"network/device/list","admittance":"open","flags":{},"serve":[],"commands":["network device list"],"needs":["all"]}
+{"namespace":"network/device/list","admittance":"open","flags":{},"serve":[],"commands":["network device list"],"needs":["kea"]}

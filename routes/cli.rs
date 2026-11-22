@@ -29,8 +29,10 @@ use crate::routes::local_ai;
 use crate::routes::update_module;
 #[cfg(carapace_feature_kea)]
 use crate::routes::{dhcp, network_identity};
+#[cfg(leaf_appliance_name)]
+use crate::routes::dns;
 use crate::routes::{
-    disk, dns, drive_test, health, help, homeserver_sbin, hyalos, identity, legacy_sbin, logs,
+    disk, drive_test, health, help, homeserver_sbin, hyalos, identity, legacy_sbin, logs,
     network, network_read, profile, receipts, serve, source_map, staff,
 };
 use crate::routes::{
@@ -586,15 +588,16 @@ where
         {
             let command = format!("network dns {}", rest.join(" "));
             if let Some(read) = network_read::named(&command) {
-                read_command(read)
-            } else if let Some((command, target)) = dns::command_admission(rest) {
-                match require_policy(command, rest) {
+                return read_command(read);
+            }
+            #[cfg(leaf_appliance_name)]
+            if let Some((command, _)) = dns::command_admission(rest) {
+                return match require_policy(command, rest) {
                     Ok(filtered) => dns::command(&filtered),
                     Err(code) => code,
-                }
-            } else {
-                public_action_not_allowed()
+                };
             }
+            public_action_not_allowed()
         }
         #[cfg(leaf_time)]
         [domain, verb] if domain == "time" && verb == "state" => time_command("time state", || {
