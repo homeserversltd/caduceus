@@ -192,6 +192,7 @@ struct RowFields {
 #[derive(Deserialize)]
 struct FamilyFields {
     projected_fields: BTreeMap<String, Vec<String>>,
+    uncompared_fields: Option<BTreeMap<String, Vec<String>>>,
 }
 
 #[derive(Deserialize)]
@@ -366,6 +367,49 @@ impl Policy {
             })
             .collect();
         (!families.is_empty()).then(|| Value::Object(families).to_string())
+    }
+
+    fn repeat_families_match(
+        &self,
+        prior: Option<&str>,
+        incoming: Option<&str>,
+        profile_deed: bool,
+    ) -> bool {
+        // The incoming bytes are already valid. Keep exact equality for
+        // other deeds and for a seat without exclusions.
+        if prior == incoming {
+            return true;
+        }
+        let Some(uncompared) = self
+            .row
+            .fields
+            .families
+            .uncompared_fields
+            .as_ref()
+            .filter(|fields| profile_deed && !fields.is_empty())
+        else {
+            return false;
+        };
+        let comparable = |text: Option<&str>| {
+            let mut families: BTreeMap<String, Map<String, Value>> = match text {
+                Some(text) => serde_json::from_str(text).ok()?,
+                None => BTreeMap::new(),
+            };
+            families.retain(|family, fields| {
+                let Some(keys) = uncompared.get(family) else {
+                    return true;
+                };
+                for key in keys {
+                    fields.remove(key);
+                }
+                !fields.is_empty()
+            });
+            Some(families)
+        };
+        // An unreadable stored family cannot establish a repeat.
+        comparable(prior)
+            .zip(comparable(incoming))
+            .is_some_and(|(prior, incoming)| prior == incoming)
     }
 }
 
@@ -600,20 +644,29 @@ pub(super) fn offer(
         .map_err(|_| "sqlite-begin-failed")?;
     if !allowed || trouble || kind == "state" {
         limit_busy(&tx, deadline)?;
-        // Older profile deeds keep their finish time for history. Ignore it
-        // in the repeat comparison without rewriting the stored row.
         let latest = tx
             .query_row(
                 &format!(
-                    "SELECT trouble, (outcome IS ?4) AND (signal IS ?5) AND CASE
-                        WHEN families IS ?6 THEN 1
-                        WHEN {PROFILE_DEEDS} THEN json_remove(families, '$.harmonia.finished_at') IS ?6
-                        ELSE 0 END
+                    "SELECT trouble, (outcome IS ?4) AND (signal IS ?5),
+                            families, ({PROFILE_DEEDS}) IS TRUE
                      FROM deeds WHERE organ = ?1 AND verb IS ?2 AND target IS ?3
                      ORDER BY id DESC LIMIT 1"
                 ),
-                params![organ, verb, target, outcome, signal, families],
-                |row| Ok((row.get::<_, bool>(0)?, row.get::<_, bool>(1)?)),
+                params![organ, verb, target, outcome, signal],
+                |row| {
+                    let profile_deed = row.get::<_, bool>(3)?;
+                    let matches = row.get::<_, bool>(1)?
+                        && row.get_ref(2).is_ok_and(|value| {
+                            value.as_str_or_null().is_ok_and(|prior| {
+                                policy.repeat_families_match(
+                                    prior,
+                                    families.as_deref(),
+                                    profile_deed,
+                                )
+                            })
+                        });
+                    Ok((row.get::<_, bool>(0)?, matches))
+                },
             )
             .optional()
             .map_err(|_| "sqlite-repeat-check-failed")?;
@@ -688,6 +741,9 @@ fn existing_writer() -> StoreResult<Option<Connection>> {
 // At service start, upgrade the March 1 database without waiting for a deed.
 // This is not part of the periodic pass, and neither path creates a store.
 pub(crate) fn prepare_existing() -> StoreResult<()> {
+    // Read the row policy at service start even on an empty store. As in the
+    // deed path, an unavailable seat is not cached and the next offer retries.
+    let _ = policy();
     let deadline = Instant::now() + STORE_WAIT;
     let Some((reader, _)) = open_existing(OpenFlags::SQLITE_OPEN_READ_ONLY)? else {
         return Ok(());
