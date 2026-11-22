@@ -112,7 +112,16 @@ fn fields(family: &str) -> Option<&'static [&'static str]> {
         ]),
         "keyboard" => Some(&["keyboard_layout", "repeat_rate", "repeat_delay"]),
         "region" => Some(&["locale", "measurement_units"]),
-        "energy" => Some(&["screen_off_seconds", "sleep_seconds", "power_button_action"]),
+        "energy" => Some(&[
+            "screen_off_seconds",
+            "sleep_seconds",
+            "power_button_action",
+            "power_profile",
+            "charge_limit",
+            "battery_level",
+            "battery_state",
+            "lid_action",
+        ]),
         "notifications" => Some(&[
             "enabled",
             "do_not_disturb",
@@ -321,11 +330,14 @@ pub fn read_json(family: &str) -> Result<Value, String> {
     let mut result =
         json!({"schema":"caduceus.settings.read.v1","ok":true,"family":family,"values":values,"firstMissingSignal":"none"});
     if family == "input" {
-        for field in ["sources", "base", "override", "readonly"] {
+        for field in ["sources", "base", "override"] {
             if let Some(value) = receipt.get(field) {
                 result[field] = value.clone();
             }
         }
+    }
+    if let Some(readonly) = receipt.get("readonly") {
+        result["readonly"] = readonly.clone();
     }
     let mut options = serde_json::Map::new();
     if let Some(received) = receipt.get("options").and_then(Value::as_object) {
