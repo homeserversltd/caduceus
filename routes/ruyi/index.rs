@@ -699,31 +699,54 @@ fn local_kea_candidates() -> Candidates {
     }
 }
 
-async fn gateway_kea_rows(
+async fn gateway_read_payload(
     seat: (Ipv4Addr, u16),
     path: &'static str,
     budget: Duration,
-) -> Option<Vec<KeaRow>> {
-    #[derive(serde::Deserialize)]
-    struct Readback {
-        ok: bool,
-        payload: Payload,
+) -> Option<Value> {
+    let mut reply = gateway::get_json(seat, path, budget).await?;
+    if reply["schema"] != "caduceus.network.read.v1"
+        || reply["ok"] != true
+        || reply["payload"]["ok"] != true
+    {
+        return None;
     }
-    #[derive(serde::Deserialize)]
-    struct Payload {
-        ok: bool,
-        result: Vec<KeaRow>,
-    }
+    Some(reply["payload"].take())
+}
 
-    let value = gateway::get_json(seat, path, budget).await?;
-    let reply: Readback = serde_json::from_value(value).ok()?;
-    (reply.ok && reply.payload.ok).then_some(reply.payload.result)
+async fn gateway_kea_rows(
+    seat: (Ipv4Addr, u16),
+    path: &'static str,
+    actuator: &'static str,
+    schema: &'static str,
+    budget: Duration,
+) -> Option<Vec<KeaRow>> {
+    let mut payload = gateway_read_payload(seat, path, budget).await?;
+    // Older native replies shared a schema; the actuator still names the door.
+    if payload["actuator"] != actuator
+        || (payload["schema"] != schema && payload["schema"] != "caduceus.staff.network.dhcp.v1")
+    {
+        return None;
+    }
+    serde_json::from_value(payload["result"].take()).ok()
 }
 
 async fn gateway_kea_candidates(seat: (Ipv4Addr, u16), budget: Duration) -> Candidates {
     let (leases, reservations) = tokio::join!(
-        gateway_kea_rows(seat, "/api/v1/network/dhcp/leases", budget),
-        gateway_kea_rows(seat, "/api/v1/network/dhcp/reservations", budget),
+        gateway_kea_rows(
+            seat,
+            "/api/v1/network/dhcp/leases",
+            "network.dhcp.leases",
+            "caduceus.network.dhcp.leases.v1",
+            budget,
+        ),
+        gateway_kea_rows(
+            seat,
+            "/api/v1/network/dhcp/reservations",
+            "network.dhcp.reservations",
+            "caduceus.network.dhcp.reservations.v1",
+            budget,
+        ),
     );
     match (leases, reservations) {
         (Some(leases), Some(reservations)) => merge_kea_candidates(leases, reservations),
@@ -732,13 +755,10 @@ async fn gateway_kea_candidates(seat: (Ipv4Addr, u16), budget: Duration) -> Cand
 }
 
 async fn gateway_dns_view(seat: (Ipv4Addr, u16), budget: Duration) -> DnsView {
-    let Some(reply) = gateway::get_json(seat, "/api/v1/network/dns/read", budget).await else {
+    let Some(payload) = gateway_read_payload(seat, "/api/v1/network/dns/read", budget).await else {
         return Vec::new();
     };
-    if reply["ok"] != true || reply["payload"]["ok"] != true {
-        return Vec::new();
-    }
-    let Some(devices) = reply.pointer("/payload/result/devices").and_then(Value::as_array) else {
+    let Some(devices) = payload.pointer("/result/devices").and_then(Value::as_array) else {
         return Vec::new();
     };
     devices
