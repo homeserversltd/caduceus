@@ -626,7 +626,7 @@ fn normalized_mac(value: &str) -> Option<String> {
 #[derive(Clone)]
 struct KeaCandidate { mac: String, address: Ipv4Addr, hostname: String, fallback_hostname: Option<String> }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 struct KeaRow {
     mac: String,
     ip: String,
@@ -704,12 +704,12 @@ async fn gateway_kea_rows(
     path: &'static str,
     budget: Duration,
 ) -> Option<Vec<KeaRow>> {
-    #[derive(Deserialize)]
+    #[derive(serde::Deserialize)]
     struct Readback {
         ok: bool,
         payload: Payload,
     }
-    #[derive(Deserialize)]
+    #[derive(serde::Deserialize)]
     struct Payload {
         ok: bool,
         result: Vec<KeaRow>,
