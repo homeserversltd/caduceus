@@ -11,6 +11,7 @@
     "appliance/service/reload",
     "appliance/harmonia-press",
     "appliance/journal-vacuum",
+    "appliance/log-level",
     "appliance/service",
     "appliance/sudo-passwordless",
     "console/restart",

@@ -23,6 +23,7 @@
     "local-ai/slot",
     "appliance/harmonia-press",
     "appliance/journal-vacuum",
+    "appliance/log-level",
     "appliance/service",
     "appliance/sudo-passwordless",
     "exousia/bind",
