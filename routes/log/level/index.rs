@@ -84,14 +84,8 @@ async fn read() -> Reply {
 async fn set(body: Bytes) -> Reply {
     run(move || {
         let value = serde_json::from_slice(&body).map_err(|_| hyalos::LEVEL_INVALID)?;
-        let (answer, recorded_level) = hyalos::set_level_json(&value)?;
-        let dial = match recorded_level {
-            Some(level) => Some(apply_dial(level)),
-            // The level was saved, but the deed did not commit. No staff
-            // call was made, so this is a local signal, not a staff receipt.
-            None if answer["changed"] == true => Some(dial_error("hyalos-deed-unwritten")),
-            None => None,
-        };
+        let (answer, changed_level) = hyalos::set_level_json(&value)?;
+        let dial = changed_level.map(apply_dial);
         Ok(LevelAnswer { body: answer, dial })
     })
     .await
