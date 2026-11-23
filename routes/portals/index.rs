@@ -9,6 +9,11 @@ use std::collections::BTreeSet;
 use std::time::Instant;
 
 const SCHEMA: &str = "caduceus.portals.v2";
+const HOMESERVER_PORTALS: &str = "tabs.portals.data.portals";
+
+fn homeserver_profile() -> bool {
+    crate::routes::profile_routes::ACTIVE_PROFILE == "homeserver"
+}
 
 fn name_slug(name: &str) -> String {
     let mut slug = String::new();
@@ -183,7 +188,8 @@ fn native_slugs() -> Result<BTreeSet<String>, String> {
 }
 
 pub(crate) fn guard_native_portals(before: &Value, after: &Value) -> Result<(), String> {
-    if before.get("portals") != after.get("portals") {
+    // Mounting this leaf on HomeServer must not enable the legacy config guard.
+    if !homeserver_profile() && before.get("portals") != after.get("portals") {
         let remaining = slugs(after.get("portals"))?;
         if !native_slugs()?.is_subset(&remaining) {
             return Err("caduceus-portals-native-entry".into());
@@ -213,6 +219,7 @@ fn projection(block: Option<&Value>, changed: Option<bool>) -> Result<Value, Str
 }
 
 pub(crate) fn read() -> Result<Value, String> {
+    // The services census uses this legacy fallback when there is no tabs array.
     match config::get_json("portals") {
         Ok(value) => projection(value.get("value"), None),
         Err(signal) if signal == "caduceus-household-config-key-missing" => projection(None, None),
@@ -220,11 +227,70 @@ pub(crate) fn read() -> Result<Value, String> {
     }
 }
 
+fn homeserver_projection(entries: Vec<Value>, changed: Option<bool>) -> Result<Value, String> {
+    let mut reply = json!({"schema": SCHEMA, "ok": true, "entries": entries});
+    if let Some(changed) = changed {
+        reply["changed"] = Value::Bool(changed);
+    }
+    if !crate::routes::leaf_schema::accepts(SCHEMA, &reply) {
+        return Err("caduceus-portals-schema-desync".into());
+    }
+    Ok(reply)
+}
+
+fn read_door() -> Result<Value, String> {
+    if !homeserver_profile() {
+        return read();
+    }
+    let entries = match config::get_json(HOMESERVER_PORTALS) {
+        Ok(mut value) => match value["value"].take() {
+            Value::Array(entries) => entries,
+            _ => return Err("caduceus-portals-registry-invalid".into()),
+        },
+        Err(signal) if signal == "caduceus-household-config-key-missing" => Vec::new(),
+        Err(signal) => return Err(signal),
+    };
+    homeserver_projection(entries, None)
+}
+
+fn upsert_homeserver(slug: &str, body: &Value, offered: Value) -> Result<Value, String> {
+    // Check the response seat before touching the configuration.
+    let mut reply = homeserver_projection(Vec::new(), Some(false))?;
+    let (entries, changed) = config::update_array_entry_json(HOMESERVER_PORTALS, |entries| {
+        let mut matches = entries.iter().enumerate().filter(|(_, value)| {
+            value["name"].as_str().is_some_and(|name| name_slug(name) == slug)
+        });
+        let Some((index, existing)) = matches.next() else {
+            return Ok((entries.len(), offered));
+        };
+        if matches.next().is_some() {
+            return Err("caduceus-portals-slug-duplicate".into());
+        }
+        let mut merged = existing.as_object().unwrap().clone();
+        // Defaults apply on append, not to omitted fields of a stored entry.
+        merged.extend(
+            offered
+                .as_object()
+                .unwrap()
+                .iter()
+                .filter(|(key, _)| body.get(*key).is_some())
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
+        Ok((index, Value::Object(merged)))
+    })?;
+    reply["entries"] = Value::Array(entries);
+    reply["changed"] = Value::Bool(changed);
+    Ok(reply)
+}
+
 fn upsert(slug: &str, body: Value) -> Result<Value, String> {
     // The central administrative gate removes its PIN, not additive entry fields.
     let offered = entry(&body)?;
     if name_slug(offered["name"].as_str().unwrap()) != slug {
         return Err("caduceus-portals-slug-mismatch".into());
+    }
+    if homeserver_profile() {
+        return upsert_homeserver(slug, &body, offered);
     }
     let (block, changed) = config::update_block_json("portals", |current| {
         let mut block = registry(current)?;
@@ -252,6 +318,9 @@ fn upsert(slug: &str, body: Value) -> Result<Value, String> {
 }
 
 fn remove(slug: &str) -> Result<Value, String> {
+    if homeserver_profile() {
+        return Err("caduceus-portals-delete-homeserver-unlit".into());
+    }
     if !valid_slug(slug) {
         return Err("caduceus-portals-slug-invalid".into());
     }
@@ -318,7 +387,7 @@ fn deed(verb: &'static str, started: Instant, result: Result<Value, String>) -> 
 }
 
 async fn get() -> Response {
-    match crate::gate::blocking_task("portals read", read).await {
+    match crate::gate::blocking_task("portals read", read_door).await {
         Ok(result) => response(result),
         Err(error) => error.into_response(),
     }

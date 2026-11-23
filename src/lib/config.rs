@@ -6,6 +6,7 @@ use std::fs;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::net::SocketAddr;
+use std::ops::Range;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
@@ -748,6 +749,143 @@ where
     atomic_write_owned(&resolved.fs_path, &bytes, OWNED_FILE_MODE)
         .map_err(|_| "caduceus-household-config-write-failed".to_string())?;
     Ok((next, true))
+}
+
+fn skip_json_space(bytes: &[u8], mut offset: usize) -> usize {
+    while matches!(bytes.get(offset), Some(b' ' | b'\t' | b'\r' | b'\n')) {
+        offset += 1;
+    }
+    offset
+}
+
+fn spanned_json<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+    offset: usize,
+) -> Result<(T, Range<usize>), String> {
+    let start = skip_json_space(bytes, offset);
+    let mut stream = serde_json::Deserializer::from_slice(&bytes[start..]).into_iter::<T>();
+    let value = stream
+        .next()
+        .and_then(Result::ok)
+        .ok_or("caduceus-household-config-invalid")?;
+    Ok((value, start..start + stream.byte_offset()))
+}
+
+/// Find the effective member and the insertion point after the last member.
+/// The last occurrence wins, just as in the parsed household document.
+fn json_member(
+    bytes: &[u8],
+    object: usize,
+    wanted: &str,
+) -> Result<(Option<Range<usize>>, usize), String> {
+    let invalid = "caduceus-household-config-invalid";
+    if bytes.get(object) != Some(&b'{') {
+        return Err(invalid.into());
+    }
+    let mut offset = object + 1;
+    let mut member = None;
+    if bytes.get(skip_json_space(bytes, offset)) == Some(&b'}') {
+        return Ok((None, offset));
+    }
+    loop {
+        let (key, key_span) = spanned_json::<String>(bytes, offset)?;
+        let colon = skip_json_space(bytes, key_span.end);
+        if bytes.get(colon) != Some(&b':') {
+            return Err(invalid.into());
+        }
+        let (_, span) = spanned_json::<serde::de::IgnoredAny>(bytes, colon + 1)?;
+        let end = span.end;
+        if key == wanted {
+            member = Some(span);
+        }
+        let delimiter = skip_json_space(bytes, end);
+        match bytes.get(delimiter) {
+            Some(b'}') => return Ok((member, end)),
+            Some(b',') => offset = delimiter + 1,
+            _ => return Err(invalid.into()),
+        }
+    }
+}
+
+/// Replace or append one array entry under the household writer lock. Preserve
+/// the source bytes of every sibling, including entries outside the edited row.
+/// Only the final member may be absent; never reshape its parent objects.
+pub(crate) fn update_array_entry_json(
+    path: &str,
+    edit: impl FnOnce(&[Value]) -> Result<(usize, Value), String>,
+) -> Result<(Vec<Value>, bool), String> {
+    validate_dotted(path)?;
+    let parent_invalid = "caduceus-household-config-array-parent-invalid";
+    let (parent_path, key) = path.rsplit_once('.').ok_or(parent_invalid)?;
+    let _guard = transaction_lock()?;
+    let resolved = resolve()?;
+    ensure_not_symlink_target(&resolved.fs_path)?;
+    if !resolved.fs_path.is_file() {
+        return Err("caduceus-household-config-installed-path-missing".into());
+    }
+    let mut bytes = fs::read(&resolved.fs_path)
+        .map_err(|_| "caduceus-household-config-missing".to_owned())?;
+    let document: Value = serde_json::from_slice(&bytes)
+        .map_err(|_| "caduceus-household-config-invalid".to_owned())?;
+    let parent = get_dotted(&document, parent_path)
+        .and_then(Value::as_object)
+        .ok_or(parent_invalid)?;
+    let mut entries = match parent.get(key) {
+        Some(Value::Array(entries)) => entries.clone(),
+        None => Vec::new(),
+        Some(_) => return Err("caduceus-household-config-array-invalid".into()),
+    };
+    let (index, entry) = edit(&entries)?;
+    if index > entries.len() {
+        return Err("caduceus-household-config-array-index-invalid".into());
+    }
+    if entries.get(index) == Some(&entry) {
+        return Ok((entries, false));
+    }
+
+    let mut object = skip_json_space(&bytes, 0);
+    for key in parent_path.split('.') {
+        object = json_member(&bytes, object, key)?.0.ok_or(parent_invalid)?.start;
+    }
+    let (array, insert_member_at) = json_member(&bytes, object, key)?;
+    let mut replacement = Vec::new();
+    let render_failed = "caduceus-household-config-render-failed";
+    let span = if let Some(array) = &array {
+        let mut end = array.start + 1;
+        let mut offset = end;
+        for _ in 0..index {
+            end = spanned_json::<serde::de::IgnoredAny>(&bytes, offset)?.1.end;
+            offset = skip_json_space(&bytes, end) + 1;
+        }
+        if index < entries.len() {
+            spanned_json::<serde::de::IgnoredAny>(&bytes, offset)?.1
+        } else {
+            if index != 0 {
+                replacement.push(b',');
+            }
+            end..end
+        }
+    } else {
+        if !parent.is_empty() {
+            replacement.push(b',');
+        }
+        serde_json::to_writer(&mut replacement, key).map_err(|_| render_failed)?;
+        replacement.extend_from_slice(b":[");
+        insert_member_at..insert_member_at
+    };
+    serde_json::to_writer(&mut replacement, &entry).map_err(|_| render_failed)?;
+    if array.is_none() {
+        replacement.push(b']');
+    }
+    bytes.splice(span, replacement);
+    atomic_write_owned(&resolved.fs_path, &bytes, OWNED_FILE_MODE)
+        .map_err(|_| "caduceus-household-config-write-failed".to_owned())?;
+    if index == entries.len() {
+        entries.push(entry);
+    } else {
+        entries[index] = entry;
+    }
+    Ok((entries, true))
 }
 
 pub fn set_json(path: &str, value: Value) -> Result<Value, String> {
