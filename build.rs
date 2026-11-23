@@ -492,6 +492,7 @@ fn main() {
         "caduceus.agathodaimon.crossings.v1",
         "caduceus.beam.v1",
         "caduceus.carapace.v1",
+        "caduceus.carapace.resolved.v1",
         "caduceus.docs.seal.v1",
         "caduceus.hermes.alive.v1",
         "caduceus.portals.v2",
@@ -984,6 +985,51 @@ fn main() {
         ));
         resolved_profiles.insert(profile.to_owned(), (routes, commands, sclerites, tree));
     }
+
+    // Publish the same sorted lists used by the generated Rust statics.
+    let resolved_dir = Path::new("schema/carapace/resolved");
+    println!("cargo:rerun-if-changed={}", resolved_dir.display());
+    println!("cargo:rerun-if-env-changed=CADUCEUS_WRITE_RESOLVED");
+    let write_resolved = env::var("CADUCEUS_WRITE_RESOLVED").ok().as_deref() == Some("1");
+    if write_resolved {
+        fs::create_dir_all(resolved_dir).expect("resolved carapace directory writable");
+    }
+    for profile in profiles {
+        let (routes, commands, sclerites, _) = &resolved_profiles[profile];
+        let path = resolved_dir.join(format!("{profile}.json"));
+        let fields = [
+            ("schema", serde_json::json!("caduceus.carapace.resolved.v1")),
+            ("profile", serde_json::json!(profile)),
+            ("routes", serde_json::json!(routes)),
+            ("commands", serde_json::json!(commands)),
+            ("sclerites", serde_json::json!(sclerites)),
+        ];
+        if write_resolved {
+            let fields = fields.map(|(key, value)| {
+                let value = serde_json::to_string_pretty(&value).expect("resolved field serializable");
+                format!("  \"{key}\": {}", value.replace('\n', "\n  "))
+            });
+            fs::write(&path, format!("{{\n{}\n}}\n", fields.join(",\n")))
+                .unwrap_or_else(|error| panic!("carapace-resolved-write:{profile}:{error}"));
+        } else {
+            let expected = serde_json::Value::Object(
+                fields
+                    .into_iter()
+                    .map(|(key, value)| (key.to_owned(), value))
+                    .collect(),
+            );
+            let observed = fs::read(&path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+            if observed.as_ref() != Some(&expected) {
+                panic!(
+                    "carapace-resolved-stale:{profile}\n\
+                     Rebuild with CADUCEUS_WRITE_RESOLVED=1 to regenerate the resolved files."
+                );
+            }
+        }
+    }
+
     generated.push_str("pub static SCLERITES: &[&str] = &[\n");
     for id in &feature_ids {
         generated.push_str(&format!("{},\n", rust_string(id)));

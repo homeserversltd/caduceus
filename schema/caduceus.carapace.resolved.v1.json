@@ -1,0 +1,30 @@
+{
+  "schema": "caduceus.carapace.resolved.v1",
+  "schema_version": "1.0.0",
+  "role": "Caduceus carapace: the route, command, and sclerite rosters resolved at build time for one profile",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.carapace.resolved.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_skipped": true,
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.carapace.resolved.v1"},
+    "profile": {"type": "string", "description": "Carapace profile name; matches the resolved file stem."},
+    "routes": {"type": "array", "items": {"type": "string"}, "description": "Sorted, distinct route namespaces mounted for this profile."},
+    "commands": {"type": "array", "items": {"type": "string"}, "description": "Sorted, distinct command names admitted for this profile."},
+    "sclerites": {"type": "array", "items": {"type": "string"}, "description": "Sorted, distinct sclerite identifiers lit for this profile."}
+  },
+  "field_types": {
+    "schema": "string",
+    "profile": "string",
+    "routes": "array",
+    "commands": "array",
+    "sclerites": "array"
+  },
+  "required": ["schema", "profile", "routes", "commands", "sclerites"],
+  "canonical_bytes": "build.rs emits schema/carapace/resolved/<profile>.json as UTF-8 JSON with two-space indentation and one trailing LF."
+}
