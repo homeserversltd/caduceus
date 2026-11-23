@@ -144,10 +144,25 @@ fn fields(family: &str) -> Option<&'static [&'static str]> {
             "timezone",
             "ntp_enabled",
             "automatic_timezone",
-            "date_format",
             "time_format",
+            "ntp_synchronized",
+            "time_server",
+            "last_sync",
         ]),
         _ => None,
+    }
+}
+
+fn writable_fields(family: &str) -> Option<&'static [&'static str]> {
+    match family {
+        "datetime" => Some(&[
+            "timezone",
+            "ntp_enabled",
+            "automatic_timezone",
+            "time_format",
+            "local_time",
+        ]),
+        _ => fields(family),
     }
 }
 
@@ -190,7 +205,7 @@ fn mutation_refusal(family: &str, body: &Value, step: &str, signal: String) -> V
         "schema": "caduceus.staff.receipt.v1", "ok": false,
         "stop": {"noun": format!("settings/{family}"), "verb": "mutate"},
         "observed": {"family": family, "fields": names},
-        "could_change_to": {"fields": fields(family).unwrap_or(&[])},
+        "could_change_to": {"fields": writable_fields(family).unwrap_or(&[])},
         "attempt": {"attempted": false, "steps": [{"step": step, "signal": signal}]},
         "final_receipt": {"ok": false, "firstMissingSignal": signal},
         "firstMissingSignal": signal
@@ -225,7 +240,8 @@ fn bounded_value(value: &Value) -> bool {
 }
 
 fn validated_fields(family: &str, body: Value) -> Result<BTreeMap<String, Value>, String> {
-    let allowed = fields(family).ok_or_else(|| "caduceus-settings-family-invalid".to_string())?;
+    let allowed = writable_fields(family)
+        .ok_or_else(|| "caduceus-settings-family-invalid".to_string())?;
     let field_room = match body {
         Value::Object(mut object) => object.remove("payload").unwrap_or(Value::Object(object)),
         body => body,
@@ -239,6 +255,11 @@ fn validated_fields(family: &str, body: Value) -> Result<BTreeMap<String, Value>
     let mut values = BTreeMap::new();
     for (field, value) in object {
         if !allowed.contains(&field.as_str()) {
+            if family == "datetime"
+                && fields(family).is_some_and(|readable| readable.contains(&field.as_str()))
+            {
+                return Err(format!("caduceus-settings-field-read-only:{field}"));
+            }
             return Err(format!("caduceus-settings-field-not-allowed:{field}"));
         }
         if !bounded_value(value) {
@@ -390,12 +411,11 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
     if family == "energy" && values.contains_key("sleep_seconds") {
         return Err("unknown-field:sleep_seconds".to_string());
     }
-    if family == "appearance" || family == "notifications" || family == "datetime" {
+    if family == "appearance" || family == "notifications" {
         for field in values.keys() {
             if matches!((family, field.as_str()),
                 ("appearance", "accent_color" | "wallpaper") |
-                ("notifications", "enabled" | "show_banners" | "show_on_lock_screen" | "sound_enabled") |
-                ("datetime", "automatic_timezone" | "date_format" | "time_format")) {
+                ("notifications", "enabled" | "show_banners" | "show_on_lock_screen" | "sound_enabled")) {
                 return Err(format!("unknown-field:{field}"));
             }
         }
