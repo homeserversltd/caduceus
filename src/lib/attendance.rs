@@ -174,9 +174,7 @@ pub fn set_sudo_mode_json(body: &Value) -> Result<(bool, Value), String> {
         return Ok(sudo_mode_refusal(refusal, DESYNC));
     };
 
-    let former = receipt.get("schema").and_then(Value::as_str)
-        == Some("agathodaimon.appliance.sudo-passwordless.v1");
-    if !former && !crate::routes::leaf_schema::bound(&receipt, band) {
+    if !crate::routes::leaf_schema::bound(&receipt, band) {
         let mismatch = binding(receipt.get("stop"));
         receipt
             .as_object_mut()
