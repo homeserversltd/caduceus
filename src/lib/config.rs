@@ -888,6 +888,78 @@ pub(crate) fn update_array_entry_json(
     Ok((entries, true))
 }
 
+/// Remove one array entry under the household writer lock without rewriting
+/// the array or even discarding whitespace around the entry and its comma.
+#[cfg(leaf_portals)]
+pub(crate) fn remove_array_entry_json(
+    path: &str,
+    select: impl FnOnce(&[Value]) -> Result<Option<usize>, String>,
+) -> Result<(Vec<Value>, bool), String> {
+    validate_dotted(path)?;
+    let _guard = transaction_lock()?;
+    let resolved = resolve()?;
+    ensure_not_symlink_target(&resolved.fs_path)?;
+    if !resolved.fs_path.is_file() {
+        return Err("caduceus-household-config-installed-path-missing".into());
+    }
+    let mut bytes = fs::read(&resolved.fs_path)
+        .map_err(|_| "caduceus-household-config-missing".to_owned())?;
+    let invalid = "caduceus-household-config-invalid";
+    let document: Value = serde_json::from_slice(&bytes).map_err(|_| invalid)?;
+    let Some(array) = get_dotted(&document, path) else {
+        return Ok((Vec::new(), false));
+    };
+    let mut entries = array
+        .as_array()
+        .ok_or("caduceus-household-config-array-invalid")?
+        .clone();
+    let Some(index) = select(&entries)? else {
+        return Ok((entries, false));
+    };
+    if index >= entries.len() {
+        return Err("caduceus-household-config-array-index-invalid".into());
+    }
+
+    let mut offset = skip_json_space(&bytes, 0);
+    for key in path.split('.') {
+        offset = json_member(&bytes, offset, key)?.0.ok_or(invalid)?.start;
+    }
+    if bytes.get(offset) != Some(&b'[') {
+        return Err(invalid.into());
+    }
+    offset += 1;
+    let mut preceding_comma = None;
+    for _ in 0..index {
+        let (_, span) = spanned_json::<serde::de::IgnoredAny>(&bytes, offset)?;
+        let comma = skip_json_space(&bytes, span.end);
+        if bytes.get(comma) != Some(&b',') {
+            return Err(invalid.into());
+        }
+        preceding_comma = Some(comma);
+        offset = comma + 1;
+    }
+    let (_, span) = spanned_json::<serde::de::IgnoredAny>(&bytes, offset)?;
+    let following = skip_json_space(&bytes, span.end);
+    // Remove the later span first so the earlier offsets stay valid.
+    match bytes.get(following) {
+        Some(b',') if index + 1 < entries.len() => {
+            bytes.remove(following);
+            drop(bytes.drain(span));
+        }
+        Some(b']') if index + 1 == entries.len() => {
+            drop(bytes.drain(span));
+            if let Some(comma) = preceding_comma {
+                bytes.remove(comma);
+            }
+        }
+        _ => return Err(invalid.into()),
+    }
+    atomic_write_owned(&resolved.fs_path, &bytes, OWNED_FILE_MODE)
+        .map_err(|_| "caduceus-household-config-write-failed".to_owned())?;
+    entries.remove(index);
+    Ok((entries, true))
+}
+
 pub fn set_json(path: &str, value: Value) -> Result<Value, String> {
     mutate("set", path, value)
 }

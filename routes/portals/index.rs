@@ -10,6 +10,8 @@ use std::time::Instant;
 
 const SCHEMA: &str = "caduceus.portals.v2";
 const HOMESERVER_PORTALS: &str = "tabs.portals.data.portals";
+const FACTORY_UNREADABLE: &str = "caduceus-portals-factory-unreadable";
+const FACTORY_INVALID: &str = "caduceus-portals-factory-invalid";
 
 fn homeserver_profile() -> bool {
     crate::routes::profile_routes::ACTIVE_PROFILE == "homeserver"
@@ -187,6 +189,28 @@ fn native_slugs() -> Result<BTreeSet<String>, String> {
         .or_else(|_| slugs(None))
 }
 
+fn homeserver_native_slugs() -> Result<BTreeSet<String>, String> {
+    let bytes = std::fs::read(config::path("/etc/appliance/config.factory"))
+        .map_err(|_| FACTORY_UNREADABLE)?;
+    let birth: Value = serde_json::from_slice(&bytes).map_err(|_| FACTORY_INVALID)?;
+    let entries = HOMESERVER_PORTALS
+        .split('.')
+        .try_fold(&birth, |value, key| value.get(key))
+        .and_then(Value::as_array)
+        .ok_or(FACTORY_INVALID)?;
+    entries
+        .iter()
+        .map(|entry| {
+            entry
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|name| !name.trim().is_empty())
+                .map(name_slug)
+                .ok_or_else(|| FACTORY_INVALID.to_owned())
+        })
+        .collect()
+}
+
 pub(crate) fn guard_native_portals(before: &Value, after: &Value) -> Result<(), String> {
     // Mounting this leaf on HomeServer must not enable the legacy config guard.
     if !homeserver_profile() && before.get("portals") != after.get("portals") {
@@ -317,12 +341,32 @@ fn upsert(slug: &str, body: Value) -> Result<Value, String> {
     projection(block.as_ref(), Some(changed))
 }
 
-fn remove(slug: &str) -> Result<Value, String> {
-    if homeserver_profile() {
-        return Err("caduceus-portals-delete-homeserver-unlit".into());
+fn remove_homeserver(slug: &str) -> Result<Value, String> {
+    if homeserver_native_slugs()?.contains(slug) {
+        return Err("caduceus-portals-native-entry".into());
     }
+    let mut reply = homeserver_projection(Vec::new(), Some(false))?;
+    let (entries, changed) = config::remove_array_entry_json(HOMESERVER_PORTALS, |entries| {
+        let mut matches = entries.iter().enumerate().filter(|(_, entry)| {
+            entry["name"].as_str().is_some_and(|name| name_slug(name) == slug)
+        });
+        let index = matches.next().map(|(index, _)| index);
+        if matches.next().is_some() {
+            return Err("caduceus-portals-slug-duplicate".into());
+        }
+        Ok(index)
+    })?;
+    reply["entries"] = Value::Array(entries);
+    reply["changed"] = Value::Bool(changed);
+    Ok(reply)
+}
+
+fn remove(slug: &str) -> Result<Value, String> {
     if !valid_slug(slug) {
         return Err("caduceus-portals-slug-invalid".into());
+    }
+    if homeserver_profile() {
+        return remove_homeserver(slug);
     }
     if native_slugs()?.contains(slug) {
         return Err("caduceus-portals-native-entry".into());
@@ -344,7 +388,9 @@ fn response(result: Result<Value, String>) -> Response {
     match result {
         Ok(value) => Json(value).into_response(),
         Err(signal) => {
-            let status = if signal.contains("schema-desync") || signal.contains("household-config")
+            let status = if signal.contains("schema-desync")
+                || signal.contains("household-config")
+                || matches!(signal.as_str(), FACTORY_UNREADABLE | FACTORY_INVALID)
             {
                 StatusCode::SERVICE_UNAVAILABLE
             } else {
