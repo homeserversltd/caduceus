@@ -890,7 +890,6 @@ pub(crate) fn update_array_entry_json(
 
 /// Remove one array entry under the household writer lock without rewriting
 /// the array or even discarding whitespace around the entry and its comma.
-#[cfg(leaf_portals)]
 pub(crate) fn remove_array_entry_json(
     path: &str,
     select: impl FnOnce(&[Value]) -> Result<Option<usize>, String>,
