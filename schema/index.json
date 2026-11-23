@@ -48,6 +48,8 @@
     "harmonia.run_profile.v1": {"file": "schema/harmonia.run_profile.v1.json", "schema_version": "1.0.0"},
     "harmonia.ledger.entry.v1": {"file": "schema/harmonia.ledger.entry.v1.json", "schema_version": "1.1.0"},
     "caduceus.receipts.ledger.v1": {"file": "schema/caduceus.receipts.ledger.v1.json", "schema_version": "1.0.0"},
+    "caduceus.update.status.v1": {"file": "schema/caduceus.update.status.v1.json", "schema_version": "1.0.0"},
+    "caduceus.update.history.v1": {"file": "schema/caduceus.update.history.v1.json", "schema_version": "1.0.0"},
     "estate.release-flag.v1": {
       "file": "schema/estate.release-flag.v1.json",
       "schema_version": "1.0.0"

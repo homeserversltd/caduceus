@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema": "caduceus.update.status.v1",
+  "schema_version": "1.0.0",
+  "role": "Public Caduceus update status readback",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.update.status.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_skipped": true,
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Absent optional fields mean null."
+  },
+  "required": [
+    "schema",
+    "ok",
+    "profilePresent",
+    "statePresent",
+    "routePresent",
+    "firstMissingSignal"
+  ],
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.update.status.v1"},
+    "ok": {"type": "boolean", "description": "True when profilePresent and routePresent are both true, independently of statePresent."},
+    "profilePresent": {"type": "boolean", "description": "Whether the compiled Caduceus carapace is an object."},
+    "statePresent": {"type": "boolean", "description": "Whether the Harmonia profile index for the declared appliance profile is a readable file."},
+    "routePresent": {"type": "boolean", "description": "Whether the carapace declares the update_now Harmonia route."},
+    "firstMissingSignal": {"type": "string", "description": "none when ok is true; caduceus-carapace-desync when the profile is absent, otherwise caduceus-harmonia-route-missing:update_now when the route is absent."},
+    "load_context": {"type": "object", "additionalProperties": true, "description": "Optional HTTP trace response: an appliance.load.context.v1 object or a trace_unavailable diagnostic object."}
+  },
+  "http": {
+    "read": {
+      "method": "GET",
+      "path": "/api/v1/update/status",
+      "mutation_allowed": false,
+      "description": "A status observation uses this schema even when ok is false. Gate and worker errors use caduceus.api.error.v1 instead."
+    }
+  },
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

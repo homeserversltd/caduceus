@@ -516,6 +516,8 @@ fn main() {
         "harmonia.run_profile.v1",
         "harmonia.ledger.entry.v1",
         "caduceus.receipts.ledger.v1",
+        "caduceus.update.status.v1",
+        "caduceus.update.history.v1",
         "appliance.xenia.v1",
         "appliance.xenia.install.v1",
         "appliance.local_ai.v1",

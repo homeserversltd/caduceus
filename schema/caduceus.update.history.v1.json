@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema": "caduceus.update.history.v1",
+  "schema_version": "1.0.0",
+  "role": "Public Caduceus history of recent Harmonia runs",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.update.history.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "unknown_fields_skipped": true,
+    "unknown_fields_preserved": true,
+    "missing_field_semantics": "Absent optional fields mean null."
+  },
+  "required": [
+    "schema",
+    "ok",
+    "runs",
+    "level"
+  ],
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.update.history.v1"},
+    "ok": {"type": "boolean", "description": "True when the history read succeeds, including when no runs are recorded."},
+    "runs": {
+      "type": "array",
+      "description": "Up to ten newest Harmonia run deeds, one per run ID; empty when no runs are recorded or the history read fails.",
+      "items": {
+        "type": "object",
+        "required": [
+          "run_id",
+          "profile",
+          "finished_at",
+          "outcome",
+          "duration_ms",
+          "module_count",
+          "updated_count",
+          "failures"
+        ],
+        "fields": {
+          "run_id": {"type": "string", "description": "Run identity from the deed's routine field."},
+          "profile": {"type": ["string", "null"], "description": "Profile name recorded for the run, or null when unavailable."},
+          "finished_at": {"type": ["string", "null"], "description": "Harmonia finish timestamp, falling back to the deed timestamp; null if neither is a string."},
+          "outcome": {"type": ["string", "null"], "description": "ok for ok or success; failed for failed, failure or refused; null for an unrecognized or absent outcome."},
+          "duration_ms": {"type": ["integer", "null"], "minimum": 0, "description": "Run duration in milliseconds, or null when unavailable."},
+          "module_count": {"type": ["integer", "null"], "minimum": 0, "description": "Recorded module count, or null when unavailable."},
+          "updated_count": {"type": ["integer", "null"], "minimum": 0, "description": "Recorded count of updated modules, or null when unavailable."},
+          "failures": {
+            "type": "array",
+            "description": "Recorded module failures; empty when none are available.",
+            "items": {
+              "type": "object",
+              "required": ["module", "signal"],
+              "fields": {
+                "module": {"type": "string"},
+                "signal": {"type": "string"}
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "level": {"type": ["integer", "null"], "description": "The body's Hyalos log level, or null if the level lookup fails."},
+    "firstMissingSignal": {"type": "string", "description": "caduceus-update-history-log-unreadable when the history read fails; omitted when it succeeds."}
+  },
+  "http": {
+    "read": {
+      "method": "GET",
+      "path": "/api/v1/update/history",
+      "mutation_allowed": false,
+      "description": "An unreadable history still uses this schema with ok false and an empty runs array. Gate and worker errors use caduceus.api.error.v1 instead."
+    }
+  },
+  "additionalProperties": true,
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}
