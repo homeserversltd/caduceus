@@ -281,10 +281,20 @@ fn response(result: Result<Value, String>) -> Response {
             } else {
                 StatusCode::UNPROCESSABLE_ENTITY
             };
+            let (noun, verb) = crate::shared::load_trace::refusal_stop("portals");
             (
                 status,
-                Json(json!({"schema":"caduceus.api.error.v1", "ok":false,
-                "command":"portals", "firstMissingSignal":signal})),
+                Json(json!({
+                    "schema": "caduceus.staff.receipt.v1",
+                    "ok": false,
+                    "stop": {"noun": noun, "verb": verb},
+                    "observed": {"command": "portals"},
+                    "could_change_to": null,
+                    "attempt": null,
+                    "final_receipt": {"ok": false, "firstMissingSignal": signal},
+                    "firstMissingSignal": signal,
+                    "command": "portals",
+                })),
             )
                 .into_response()
         }

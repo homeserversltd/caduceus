@@ -1,4 +1,5 @@
 use crate::gate::{api_error, api_error_signal, blocking_task, mutation_status, ApiErrorBody};
+use crate::routes::leaf_log_clear::stamp_refusal;
 use crate::shared::{hyalos, policy};
 use axum::{body::Bytes, http::StatusCode, routing::get, Json, Router};
 use serde_json::Value;
@@ -13,8 +14,14 @@ async fn run(action: impl FnOnce() -> hyalos::DoorResult + Send + 'static) -> Re
         Err(_) => return Err(api_error_signal(COMMAND, "caduceus-carapace-desync")),
     }
     Ok(match blocking_task(COMMAND, action).await? {
-        Ok(body) => (mutation_status(&body), Json(body)),
-        Err(signal) => (StatusCode::BAD_REQUEST, Json(hyalos::door_error(signal))),
+        Ok(body) => (
+            mutation_status(&body),
+            Json(stamp_refusal("level", body, None)),
+        ),
+        Err(signal) => (
+            StatusCode::BAD_REQUEST,
+            Json(stamp_refusal("level", hyalos::door_error(signal), Some(false))),
+        ),
     })
 }
 

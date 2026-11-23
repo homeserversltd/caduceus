@@ -58,7 +58,7 @@ fn stdin_pin() -> Result<Option<Value>, &'static str> {
     Ok(value.pointer("/flags/exousia/pin").cloned())
 }
 
-fn ask(path: &str, request: Option<Value>) -> Result<bool, &'static str> {
+fn ask(path: &str, request: Option<Value>, dispatch_started: &mut bool) -> Result<bool, &'static str> {
     let (method, body) = match request {
         None => ("GET", String::new()),
         Some(mut body) => {
@@ -81,6 +81,8 @@ fn ask(path: &str, request: Option<Value>) -> Result<bool, &'static str> {
     let timeout = Some(Duration::from_secs(300));
     stream.set_read_timeout(timeout).map_err(|_| SOCKET_UNAVAILABLE)?;
     stream.set_write_timeout(timeout).map_err(|_| SOCKET_UNAVAILABLE)?;
+    // Once writing starts, a transport failure no longer proves that nothing ran.
+    *dispatch_started = true;
     write!(stream, "{method} {path} HTTP/1.0\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len())
         .and_then(|_| stream.write_all(body.as_bytes()))
         .map_err(|_| SOCKET_UNAVAILABLE)?;
@@ -103,10 +105,20 @@ fn ask(path: &str, request: Option<Value>) -> Result<bool, &'static str> {
 }
 
 pub(crate) fn command(path: &str, request: Result<Option<Value>, &'static str>) -> i32 {
-    match request.and_then(|body| ask(path, body)) {
+    let mut dispatch_started = false;
+    match request.and_then(|body| ask(path, body, &mut dispatch_started)) {
         Ok(ok) => i32::from(!ok),
         Err(signal) => {
-            println!("{}", hyalos::door_error(signal));
+            let attempted = (!dispatch_started).then_some(false);
+            let verb = if path == crate::routes::LEAF_LOG_LEVEL_CANONICAL {
+                "level"
+            } else {
+                "clear"
+            };
+            println!(
+                "{}",
+                super::stamp_refusal(verb, hyalos::door_error(signal), attempted)
+            );
             1
         }
     }

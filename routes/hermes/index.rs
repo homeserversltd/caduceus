@@ -174,12 +174,24 @@ fn observation() -> Result<serde_json::Value, &'static str> {
 async fn alive() -> Response {
     match crate::gate::blocking_task("hermes alive", observation).await {
         Ok(Ok(value)) => Json(value).into_response(),
-        Ok(Err(signal)) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"schema":"caduceus.api.error.v1", "ok":false,
-                "command":"hermes alive", "firstMissingSignal":signal})),
-        )
-            .into_response(),
+        Ok(Err(signal)) => {
+            let (noun, verb) = crate::shared::load_trace::refusal_stop("hermes alive");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "schema": "caduceus.staff.receipt.v1",
+                    "ok": false,
+                    "stop": {"noun": noun, "verb": verb},
+                    "observed": {"command": "hermes alive"},
+                    "could_change_to": null,
+                    "attempt": null,
+                    "final_receipt": {"ok": false, "firstMissingSignal": signal},
+                    "firstMissingSignal": signal,
+                    "command": "hermes alive",
+                })),
+            )
+                .into_response()
+        }
         Err(error) => error.into_response(),
     }
 }

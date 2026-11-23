@@ -8,6 +8,32 @@ pub(crate) mod hand;
 
 const COMMAND: &str = "hyalos clear";
 
+pub(crate) fn stamp_refusal(verb: &str, mut body: Value, attempted: Option<bool>) -> Value {
+    if let Some(fields) = body
+        .as_object_mut()
+        .filter(|fields| fields.get("ok") == Some(&Value::Bool(false)))
+    {
+        let command = format!("log {verb}");
+        let (noun, verb) = crate::shared::load_trace::refusal_stop(&command);
+        let stamp = json!({
+            "schema": "caduceus.staff.receipt.v1",
+            "stop": {"noun": noun, "verb": verb},
+            "observed": {"command": command},
+            "could_change_to": null,
+            "attempt": attempted.map(|attempted| json!({"attempted": attempted})),
+            "final_receipt": {"ok": false, "firstMissingSignal": fields.get("firstMissingSignal")},
+            "command": command,
+        });
+        // Keep the native outcome, including the count from an interrupted clear.
+        if let Value::Object(stamp) = stamp {
+            for (key, value) in stamp {
+                fields.entry(key).or_insert(value);
+            }
+        }
+    }
+    body
+}
+
 async fn http(body: Bytes) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command(COMMAND) {
         Ok(true) => {}
@@ -24,8 +50,14 @@ async fn http(body: Bytes) -> Result<(StatusCode, Json<Value>), (StatusCode, Jso
     })
     .await?;
     Ok(match outcome {
-        Ok(body) => (mutation_status(&body), Json(body)),
-        Err(signal) => (StatusCode::BAD_REQUEST, Json(hyalos::door_error(signal))),
+        Ok(body) => (
+            mutation_status(&body),
+            Json(stamp_refusal("clear", body, None)),
+        ),
+        Err(signal) => (
+            StatusCode::BAD_REQUEST,
+            Json(stamp_refusal("clear", hyalos::door_error(signal), Some(false))),
+        ),
     })
 }
 

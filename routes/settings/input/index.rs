@@ -11,11 +11,24 @@ const INPUT_FIELDS: &[&str] = &[
 ];
 
 fn admitted(command: &str) -> Result<(), (StatusCode, Json<Value>)> {
-    match crate::shared::policy::allows_command(command) {
-        Ok(true) => Ok(()),
-        Ok(false) => Err((StatusCode::FORBIDDEN, Json(json!({"schema":"caduceus.api.error.v1","ok":false,"command":command,"first_missing_signal":"caduceus-public-action-not-allowed"})))),
-        Err(_) => Err((StatusCode::FORBIDDEN, Json(json!({"schema":"caduceus.api.error.v1","ok":false,"command":command,"first_missing_signal":"caduceus-carapace-desync"})))),
-    }
+    let signal = match crate::shared::policy::allows_command(command) {
+        Ok(true) => return Ok(()),
+        Ok(false) => "caduceus-public-action-not-allowed",
+        Err(_) => "caduceus-carapace-desync",
+    };
+    let (noun, verb) = crate::shared::load_trace::refusal_stop(command);
+    Err((StatusCode::FORBIDDEN, Json(json!({
+        "schema": "caduceus.staff.receipt.v1",
+        "ok": false,
+        "stop": {"noun": noun, "verb": verb},
+        "observed": {"command": command},
+        "could_change_to": null,
+        "attempt": {"attempted": false},
+        "final_receipt": {"ok": false, "firstMissingSignal": signal},
+        "firstMissingSignal": signal,
+        "first_missing_signal": signal,
+        "command": command,
+    }))))
 }
 
 fn actuator_receipt(transition: &str, payload: Option<Value>) -> (StatusCode, Value) {
