@@ -537,6 +537,8 @@ fn main() {
         "caduceus.thyrsus.propose.v1",
         "caduceus.thyrsus.admit.v1",
         "caduceus.thyrsus.forge-token.v1",
+        "caduceus.appliance.secrets.v1",
+        "caduceus.keyman.secret.v1",
         "caduceus.thyrsus.forge.v1",
         "caduceus.network.tailscale.v1",
         "caduceus.disk.census.v1",
