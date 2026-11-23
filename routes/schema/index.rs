@@ -5,6 +5,8 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path as FsPath;
 use std::sync::OnceLock;
 use crate::gate::door::ARPEGGIO_PARTS;
 
@@ -25,7 +27,63 @@ struct Seat {
 
 struct Registry {
     seats: BTreeMap<&'static str, Seat>,
+    // Intent seats are served as documents, not consumed by admission.
+    intents: BTreeMap<String, String>,
     census: Value,
+}
+
+fn read_intent_seat(path: &FsPath, intent: &str) -> Option<String> {
+    let bytes = fs::read_to_string(path).ok()?;
+    let declaration: Value = serde_json::from_str(&bytes).ok()?;
+    let object = declaration.as_object()?;
+    let valid = object.get("schema").and_then(Value::as_str) == Some(crate::protocol::SCHEMA_ID)
+        && object.get("intent").and_then(Value::as_str) == Some(intent);
+    valid.then_some(bytes)
+}
+
+fn load_intent_seats(folder: &FsPath) -> (BTreeMap<String, String>, Vec<String>) {
+    let root = folder.join("intents");
+    let mut seats = BTreeMap::new();
+    let mut invalid = Vec::new();
+    if !fs::symlink_metadata(&root).is_ok_and(|metadata| metadata.is_dir()) {
+        return (seats, invalid);
+    }
+    let mut pending = vec![root.clone()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            // Walk regular files and real subdirectories without following links.
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let path = entry.path();
+            if kind.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if !kind.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            // The document names the stop (e.g. unit/start); the door adds intents/.
+            let relative = path
+                .strip_prefix(&root)
+                .expect("intent seat walked below the intent root")
+                .with_extension("");
+            let id = format!("intents/{}", relative.display());
+            let Some(bytes) = relative
+                .to_str()
+                .and_then(|intent| read_intent_seat(&path, intent))
+            else {
+                invalid.push(id);
+                continue;
+            };
+            seats.insert(id, bytes);
+        }
+    }
+    invalid.sort_unstable();
+    (seats, invalid)
 }
 
 fn arpeggio_drift(chord: Option<&Seat>) -> Value {
@@ -83,7 +141,23 @@ fn registry() -> Result<&'static Registry, &'static str> {
             seats.insert(id, Seat { bytes, declaration });
         }
         let arpeggio_drift = arpeggio_drift(seats.get("caduceus.chord.v1"));
-        Ok(Registry { seats, census: json!({"folder": folder.to_string_lossy(), "loaded": loaded, "absent": absent, "arpeggio_drift": arpeggio_drift}) })
+        let (intents, invalid_intents) = load_intent_seats(&folder);
+        let census = json!({
+            "folder": folder.to_string_lossy(),
+            "loaded": loaded,
+            "absent": absent,
+            "arpeggio_drift": arpeggio_drift,
+            "intents": {
+                "loaded_count": intents.len(),
+                "loaded": intents.keys().collect::<Vec<_>>(),
+                "invalid": invalid_intents,
+            },
+        });
+        Ok(Registry {
+            seats,
+            intents,
+            census,
+        })
     }).as_ref().map_err(String::as_str)
 }
 
@@ -91,8 +165,12 @@ pub(crate) fn initialize() -> Result<&'static Value, &'static str> {
     registry().map(|registry| &registry.census)
 }
 
+fn loaded_registry() -> &'static Registry {
+    registry().expect("caduceus-seat-foreign: startup initialization failed")
+}
+
 fn seats() -> &'static BTreeMap<&'static str, Seat> {
-    &registry().expect("caduceus-seat-foreign: startup initialization failed").seats
+    &loaded_registry().seats
 }
 
 /// Borrow the declaration already loaded by the startup registry.
@@ -172,8 +250,17 @@ async fn list() -> Json<Value> {
 }
 
 async fn get(Path(id): Path<String>) -> Response {
-    match seats().get(id.as_str()) {
-        Some(seat) => ([(CONTENT_TYPE, "application/json")], seat.bytes.as_str()).into_response(),
+    schema_response(seats().get(id.as_str()).map(|seat| seat.bytes.as_str()))
+}
+
+async fn get_intent(Path(intent): Path<String>) -> Response {
+    let id = format!("intents/{intent}");
+    schema_response(loaded_registry().intents.get(&id).map(String::as_str))
+}
+
+fn schema_response(bytes: Option<&'static str>) -> Response {
+    match bytes {
+        Some(bytes) => ([(CONTENT_TYPE, "application/json")], bytes).into_response(),
         None => (
             StatusCode::NOT_FOUND,
             Json(crate::gate::ApiErrorBody {
@@ -187,8 +274,12 @@ async fn get(Path(id): Path<String>) -> Response {
 }
 
 pub fn register(router: axum::Router) -> axum::Router {
-    let _ = seats(); // Load and check every embedded seat at router startup.
+    let _ = loaded_registry();
     router
         .route("/api/v1/schema", axum::routing::get(list))
         .route("/api/v1/schema/:id", axum::routing::get(get))
+        .route(
+            "/api/v1/schema/intents/*intent",
+            axum::routing::get(get_intent),
+        )
 }
