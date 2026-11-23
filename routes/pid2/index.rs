@@ -15,16 +15,32 @@ fn refusal(signal: String, noun: &str, verb: &str, route: &str, attempted: Optio
         "final_receipt": {"ok": false, "firstMissingSignal": signal}
     })))
 }
-fn respond(result: Result<Value, String>, request: Option<Value>, transition: &str, noun: &str, verb: &str, route: &str, attempted: Option<bool>) -> Response {
-    result.map(|receipt| Json(json!({
-        "schema": crate::protocol::SCHEMA_ID,
-        "intent_id": request.as_ref().and_then(|r| r.get("intent_id")).cloned().unwrap_or_else(||json!(format!("caduceus-pid2-{transition}"))),
-        "transition": transition,
-        "version": env!("CARGO_PKG_VERSION"),
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-        "rawEnvelope": request,
-        "receiptPayload": receipt
-    }))).map_err(|signal| refusal(signal, noun, verb, route, attempted))
+// Keep the call signature for the schedule actuator's unchanged refusal path.
+fn respond(result: Result<Value, String>, request: Option<Value>, _transition: &str, noun: &str, verb: &str, route: &str, attempted: Option<bool>) -> Response {
+    result.map(|db_answer| {
+        let ok = db_answer.get("ok").and_then(Value::as_bool).unwrap_or(true);
+        let outcome = if ok { "success" } else { "pid2-db-reported-not-ok" };
+        let mut receipt = json!({
+            "schema": RECEIPT_SCHEMA, "ok": ok,
+            "stop": {"noun": noun, "verb": verb}, "observed": {"route": route},
+            "could_change_to": null,
+            "attempt": {"attempted": request.is_some(), "step": format!("{noun}/{verb}"), "outcome": outcome},
+            "final_receipt": {"ok": ok, "firstMissingSignal": if ok { "none" } else { outcome }}
+        });
+        if let Some(intent_id) = request.as_ref().and_then(|r| r.get("intent_id")).and_then(Value::as_str) {
+            receipt["intent_id"] = json!(intent_id);
+        }
+        if let Value::Object(fields) = db_answer {
+            for (key, value) in fields {
+                if key == "dbAnswer" || receipt.get(&key).is_some() {
+                    receipt["dbAnswer"][key] = value;
+                } else {
+                    receipt[key] = value;
+                }
+            }
+        }
+        Json(receipt)
+    }).map_err(|signal| refusal(signal, noun, verb, route, attempted))
 }
 static IN_FLIGHT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(16);
 async fn work<F>(run: F) -> Result<Value,String>
