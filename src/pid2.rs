@@ -38,6 +38,7 @@ pub(crate) fn swap_lease() -> Result<std::fs::File,String> {
     if unsafe { libc::fcntl(file.as_raw_fd(),libc::F_OFD_SETLK,&lock) } != 0 { return Err("pid2-swap-busy".into()); }
     Ok(file)
 }
+mod declared;
 pub mod solver;
 pub mod events;
 pub mod schedule;
@@ -129,7 +130,8 @@ pub fn enable(raw: &[u8]) -> Result<Value, String> {
     if envelope.get("schema").and_then(Value::as_str) != Some(SCHEMA) {
         return Err(format!("pid2-schema-desync: expected {SCHEMA}, observed {}", envelope.get("schema").unwrap_or(&Value::Null)));
     }
-    let seat = crate::routes::leaf_schema::declaration(SCHEMA).ok_or("pid2-schema-seat-missing")?;
+    let seat = declared::routine_seat()?;
+    let envelope = declared::project(envelope, seat);
     let kernel = seat.get("required").and_then(Value::as_array).ok_or("pid2-schema-kernel-missing")?;
     for field in kernel {
         let key = field.as_str().ok_or("pid2-schema-kernel-invalid")?;
@@ -138,6 +140,7 @@ pub fn enable(raw: &[u8]) -> Result<Value, String> {
         }
     }
     let id = envelope.pointer("/routine/routine_id").and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or("pid2-routine-id-unavailable")?;
+    let projected = envelope.to_string();
     let _swap_guard=if matches!(id,"nas"|"nas-backup") { Some(swap_lease()?) } else { None };
     let _walk=walk_lock()?;
     let action_guard=ACTION_LOCK.lock().map_err(|_|"pid2-action-lock-poisoned")?;
@@ -146,9 +149,12 @@ pub fn enable(raw: &[u8]) -> Result<Value, String> {
     tables(&db)?;
     let tx=db.transaction().map_err(|e|e.to_string())?;
     let previous:Option<Vec<u8>>=tx.query_row("SELECT envelope FROM pid2_registrations WHERE routine_id=?1",[id],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
-    let changed=tx.execute("INSERT INTO pid2_registrations(routine_id,enabled,envelope,registered_at) VALUES(?1,1,?2,?3) ON CONFLICT(routine_id) DO UPDATE SET enabled=1,envelope=excluded.envelope,registered_at=excluded.registered_at WHERE enabled<>1 OR envelope<>excluded.envelope", params![id, raw, now()]).map_err(|e| e.to_string())?;
+    let prior = previous.as_deref().map(|raw| declared::stored(raw, seat)).transpose()?;
+    // An enabled legacy row with the same declared content is not a new registration.
+    let declared_changed = prior.as_ref().is_some_and(|prior| prior != &envelope);
+    let changed=tx.execute("INSERT INTO pid2_registrations(routine_id,enabled,envelope,registered_at) VALUES(?1,1,?2,?3) ON CONFLICT(routine_id) DO UPDATE SET enabled=1,envelope=excluded.envelope,registered_at=excluded.registered_at WHERE enabled<>1 OR ?4", params![id, projected.as_bytes(), now(), declared_changed]).map_err(|e| e.to_string())?;
     let mut removed_routes=0;
-    if previous.as_deref().is_some_and(|prior|prior!=raw) {
+    if declared_changed {
         tx.execute("DELETE FROM pid2_lines WHERE routine_id=?1 AND state<>'Observed'",[id]).map_err(|e|e.to_string())?;
         // A formerly observation-only line may now also execute a crossing
         // or action; its old value must not masquerade as completion.
@@ -275,8 +281,7 @@ pub fn list() -> Result<Value, String> {
     let mut out = Vec::new();
     for row in rows {
         let (id, enabled, raw, at) = row.map_err(|e| e.to_string())?;
-        let envelope: Value = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
-        let raw_envelope = String::from_utf8(raw).map_err(|e| e.to_string())?;
+        let (envelope, raw_envelope) = declared::echo(&raw)?;
         let hold = held_at(&db,&id)?;
         out.push(json!({"routine_id":id,"enabled":enabled,"registered_at":at,"held":hold.is_some(),"held_at":hold,"envelope":envelope,"raw_envelope":raw_envelope}));
     }
@@ -310,8 +315,7 @@ pub fn status(id: &str) -> Result<Value, String> {
     let registration = match stored {
         None=>None,
         Some((name,enabled,raw,registered_at))=>{
-            let envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
-            let raw_envelope=String::from_utf8(raw).map_err(|e|e.to_string())?;
+            let (envelope, raw_envelope) = declared::echo(&raw)?;
             Some(json!({"routine_id":name,"enabled":enabled,"registered_at":registered_at,"envelope":envelope,"raw_envelope":raw_envelope}))
         }
     };
