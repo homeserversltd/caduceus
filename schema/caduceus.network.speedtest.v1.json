@@ -1,0 +1,42 @@
+{
+  "schema": "caduceus.network.speedtest.v1",
+  "schema_version": "1.0.0",
+  "role": "Successful Caduceus network bandwidth measurement reply",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.network.speedtest.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "The measured fields are emitted on success; load_context is present only when the gate attaches a trace.",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.network.speedtest.v1"},
+    "ok": {"type": "boolean", "const": true},
+    "download": {"type": "number", "description": "Download throughput in decimal megabits per second, rounded to one decimal place."},
+    "upload": {"type": "number", "description": "Upload throughput in decimal megabits per second, rounded to one decimal place."},
+    "latency": {"type": ["number", "null"], "description": "Ping in milliseconds, rounded to one decimal place; null if that rounding overflows to a non-finite number."},
+    "mutationPerformed": {"type": "boolean", "const": false},
+    "firstMissingSignal": {"type": "string", "const": "none"},
+    "load_context": {"type": "object", "schema_ref": "appliance.load.context.v1"}
+  },
+  "field_types": {
+    "schema": "string",
+    "ok": "boolean",
+    "download": "number",
+    "upload": "number",
+    "latency": "number|null",
+    "mutationPerformed": "boolean",
+    "firstMissingSignal": "string",
+    "load_context": "object"
+  },
+  "required": ["schema"],
+  "optional": ["ok", "download", "upload", "latency", "mutationPerformed", "firstMissingSignal", "load_context"],
+  "error_responses": {
+    "schema_ref": "caduceus.staff.receipt.v1",
+    "403": "The administrative or command gate refused the request; the receipt names the gate signal.",
+    "503": "The measurement did not complete: unavailable launcher, failed or empty output, invalid JSON, or a missing or non-numeric download, upload or ping. The gate maps worker errors to its firstMissingSignal (normally caduceus-operation-failed), not to a speedtest reply with missing measurements. Worker join failure is also a staff receipt."
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

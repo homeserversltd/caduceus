@@ -26,7 +26,6 @@
     "face/workspace",
     "face/launch",
     "face/launcher-cache",
-    "face/meter",
     "face/screenshot",
     "face/volume",
     "network/cert/house-ca/status",
@@ -148,10 +147,6 @@
     ],
     [
       "face",
-      "meter"
-    ],
-    [
-      "face",
       "screenshot"
     ],
     [
@@ -245,7 +240,6 @@
     "/api/v1/face/workspace",
     "/api/v1/face/launch",
     "/api/v1/face/launcher-cache",
-    "/api/v1/face/meter",
     "/api/v1/face/screenshot",
     "/api/v1/face/volume",
     "/api/v1/file/ingress",

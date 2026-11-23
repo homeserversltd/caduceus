@@ -1,0 +1,97 @@
+{
+  "schema": "caduceus.appliance.stats.history.v1",
+  "schema_version": "1.0.0",
+  "role": "Successful Caduceus appliance statistics history reply",
+  "authority": {
+    "owner": "caduceus",
+    "path": "schema/caduceus.appliance.stats.history.v1.json"
+  },
+  "evolution": {
+    "law": "additive-only",
+    "missing_field_semantics": "Unselected tiers are empty arrays; load_context is present only when the gate attaches a trace.",
+    "unknown_fields_preserved": true
+  },
+  "fields": {
+    "schema": {"type": "string", "const": "caduceus.appliance.stats.history.v1"},
+    "retention": {
+      "type": "object",
+      "properties": {
+        "rawSeconds": {"type": "integer"},
+        "rawMaxPoints": {"type": "integer"},
+        "minuteSeconds": {"type": "integer"},
+        "minuteMaxPoints": {"type": "integer"},
+        "selfSeconds": {"type": "integer"},
+        "selfMaxPoints": {"type": "integer"}
+      },
+      "description": "Retention durations in seconds and capacity in points for the one-second raw tier and both one-minute tiers."
+    },
+    "consolidation": {
+      "type": "object",
+      "properties": {
+        "raw": {"type": "string", "description": "Description of the memory-backed one-second samples."},
+        "minute": {
+          "type": "object",
+          "properties": {
+            "averages": {"type": "array", "items": {"type": "string"}, "description": "Metric paths covered by the minute aggregation."}
+          }
+        }
+      }
+    },
+    "window": {
+      "type": "object",
+      "properties": {
+        "tier": {"type": "string", "enum": ["raw", "minute", "both", "self"], "description": "Both selects raw and minute; self is requested separately."},
+        "since": {"type": "integer", "description": "Lower bound in Unix seconds, before any extra raw retention clamp."},
+        "until": {"type": "integer", "description": "Upper bound in Unix seconds."},
+        "limit": {
+          "description": "A provided limit is clamped and reported as one integer; when omitted the object reports the defaults for each tier.",
+          "oneOf": [
+            {"type": "integer", "minimum": 1, "maximum": 20000},
+            {
+              "type": "object",
+              "properties": {"raw": {"type": "integer"}, "minute": {"type": "integer"}, "self": {"type": "integer"}}
+            }
+          ]
+        }
+      }
+    },
+    "tiers": {
+      "type": "object",
+      "description": "Each selected tier returns up to its limit of newest eligible rows, ordered oldest first. Unselected or empty tiers return an empty array.",
+      "properties": {
+        "raw": {
+          "type": "array",
+          "items": {"type": "object", "schema_ref": "caduceus.appliance.stats.sample.v1"},
+          "description": "Recent one-second public samples."
+        },
+        "minute": {
+          "type": "array",
+          "items": {"type": "object"},
+          "description": "Stored minute samples carry schema, bucket (Unix minute), samples, aggregation (nullable means and RSS/tick maxima), and partial when the stored minute was cut short."
+        },
+        "self": {
+          "type": "array",
+          "items": {"type": "object"},
+          "description": "Stored per-minute self benchmarks carry schema, bucket, tick and persist timing percentiles, skippedTicks, rss, db, arena, doors, and mallocTrim."
+        }
+      }
+    },
+    "load_context": {"type": "object", "schema_ref": "appliance.load.context.v1"}
+  },
+  "field_types": {
+    "schema": "string",
+    "retention": "object",
+    "consolidation": "object",
+    "window": "object",
+    "tiers": "object",
+    "load_context": "object"
+  },
+  "required": ["schema"],
+  "optional": ["retention", "consolidation", "window", "tiers", "load_context"],
+  "error_responses": {
+    "400": {"content_type": "text/plain", "description": "Axum's query extraction rejection for malformed query parameters, not a history reply."},
+    "403": {"schema_ref": "caduceus.staff.receipt.v1", "description": "The command gate refused or its carapace was not readable."},
+    "503": {"schema_ref": "caduceus.staff.receipt.v1", "description": "An unsupported tier, raw inflate/UTF-8 error or SQLite read error is mapped to the gate's firstMissingSignal (normally caduceus-operation-failed). A worker join failure reports caduceus-blocking-task-join-failed. No partial history reply is emitted."}
+  },
+  "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
+}

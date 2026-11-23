@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://git.home.arpa/HOMESERVERSLTD/harmonia/schema/harmonia.module.ladder.v1.schema.json",
+  "schema": "harmonia.module.ladder.v1",
   "title": "harmonia.module.ladder.v1",
   "description": "Alkahest-permissive schema for current Harmonia manifests: unknown top-level fields are skipped, never fatal, per the estate's growing-schema law -- this is what lets a future field (hotfix, quark, whatever comes next) exist without breaking every existing reader. Per-tool ladder args stay strict (additionalProperties:false in each ladderArgs_* definition) because that check catches real drift against the registered tool contract, a different and still-wanted concern from top-level manifest growth. Compatibility properties retain observed declaration drift.",
   "type": "object",

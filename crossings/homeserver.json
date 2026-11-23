@@ -209,22 +209,6 @@
       "verify"
     ],
     [
-      "keyman",
-      "admin-password"
-    ],
-    [
-      "keyman",
-      "create-key"
-    ],
-    [
-      "keyman",
-      "key-status"
-    ],
-    [
-      "keyman",
-      "update-key"
-    ],
-    [
       "linker",
       "browse"
     ],
@@ -527,18 +511,6 @@
       [
         "exousia",
         "reset-default"
-      ],
-      [
-        "keyman",
-        "admin-password"
-      ],
-      [
-        "keyman",
-        "create-key"
-      ],
-      [
-        "keyman",
-        "update-key"
       ],
       [
         "linker",
