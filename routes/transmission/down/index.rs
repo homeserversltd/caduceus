@@ -47,10 +47,12 @@ async fn down_route(
             }
         }
     } else if !crate::routes::leaf_schema::bound(&receipt, "transmission/down") {
-        return Err(crate::gate::service_unavailable(
-            COMMAND,
-            "caduceus-schema-desync",
-        ));
+        // The receipt answers whole with the door's verdict beside; mutation_status
+        // reads the doorSignal as 503, and a non-object receipt has no true ok.
+        if let Some(out) = receipt.as_object_mut() {
+            out.entry("doorSignal")
+                .or_insert_with(|| Value::String("caduceus-schema-desync".into()));
+        }
     }
 
     Ok((crate::gate::mutation_status(&receipt), Json(receipt)))
