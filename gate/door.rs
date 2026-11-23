@@ -463,7 +463,11 @@ pub(crate) fn declared_receipt_change(schema: Option<&str>, stop: Option<&str>, 
                 .is_some_and(|fields| fields.iter().any(|field| field.as_str() == Some(*name)))
         });
         if declared && seat.get("fields").and_then(|fields| fields.get(*name))
-            .and_then(|field| field.get("type")).and_then(Value::as_str) == Some("boolean") {
+            .and_then(|field| field.get("type")).is_some_and(|kind| {
+                kind.as_str() == Some("boolean") || kind.as_array().is_some_and(|types| {
+                    types.iter().any(|entry| entry.as_str() == Some("boolean"))
+                })
+            }) {
             receipt.get(*name).and_then(Value::as_bool)
         } else {
             None
