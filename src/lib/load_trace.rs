@@ -48,6 +48,7 @@ pub struct Invocation {
 
 tokio::task_local! {
     static ACTIVE_CONTEXT: ContextHandle;
+    static HTTP_REQUEST_TARGET: (String, axum::http::Method);
 }
 
 thread_local! {
@@ -225,20 +226,25 @@ fn state_from_headers(headers: &HeaderMap) -> Option<ContextHandle> {
 }
 
 pub async fn http_boundary(request: Request<Body>, next: Next) -> Response<Body> {
-    let Some(context) = state_from_headers(request.headers()) else {
-        return next.run(request).await;
-    };
-    let echo_id = context
-        .lock()
-        .ok()
-        .and_then(|state| state.echo_id.clone());
-    let mut response = ACTIVE_CONTEXT
-        .scope(context, async move { next.run(request).await })
-        .await;
-    if let Some(value) = echo_id {
-        response.headers_mut().insert(CORRELATION_HEADER, value);
-    }
-    response
+    let target = (request.uri().path().to_owned(), request.method().clone());
+    HTTP_REQUEST_TARGET
+        .scope(target, async move {
+            let Some(context) = state_from_headers(request.headers()) else {
+                return next.run(request).await;
+            };
+            let echo_id = context
+                .lock()
+                .ok()
+                .and_then(|state| state.echo_id.clone());
+            let mut response = ACTIVE_CONTEXT
+                .scope(context, async move { next.run(request).await })
+                .await;
+            if let Some(value) = echo_id {
+                response.headers_mut().insert(CORRELATION_HEADER, value);
+            }
+            response
+        })
+        .await
 }
 
 pub fn current() -> Option<ContextHandle> {
@@ -702,6 +708,29 @@ pub struct ApiErrorBodyFields<'a> {
     pub first_missing_signal: &'a str,
 }
 
+/// Return (noun, verb) for the door that refused, or the command outside HTTP.
+pub fn refusal_stop(fallback_command: &str) -> (String, String) {
+    if let Ok(stop) = HTTP_REQUEST_TARGET.try_with(|(path, _)| {
+        let door = path
+            .strip_prefix("/api/v1/")
+            .or_else(|| path.strip_prefix('/'))
+            .unwrap_or(path);
+        let (noun, verb) = door.rsplit_once('/').unwrap_or((door, ""));
+        (noun.to_owned(), verb.to_owned())
+    }) {
+        return stop;
+    }
+    let parts: Vec<_> = fallback_command
+        .split([' ', '/'])
+        .filter(|part| !part.is_empty())
+        .collect();
+    match parts.as_slice() {
+        [] => (String::new(), String::new()),
+        [noun] => ((*noun).to_owned(), String::new()),
+        [noun @ .., verb] => (noun.join("/"), (*verb).to_owned()),
+    }
+}
+
 pub fn serialize_api_error<S>(
     fields: ApiErrorBodyFields<'_>,
     serializer: S,
@@ -709,16 +738,12 @@ pub fn serialize_api_error<S>(
 where
     S: Serializer,
 {
-    let parts: Vec<_> = fields
-        .command
-        .split([' ', '/'])
-        .filter(|part| !part.is_empty())
-        .collect();
-    let (noun, verb) = match parts.as_slice() {
-        [] => (String::new(), None),
-        [noun] => ((*noun).to_owned(), None),
-        [noun @ .., verb] => (noun.join("/"), Some(*verb)),
-    };
+    let (noun, verb) = refusal_stop(fields.command);
+    let observed = HTTP_REQUEST_TARGET
+        .try_with(|(path, method)| {
+            json!({"command": fields.command, "path": path, "method": method.as_str()})
+        })
+        .unwrap_or_else(|_| json!({"command": fields.command}));
     let context = response_context();
     let mut state = serializer.serialize_struct(
         "ApiErrorBody",
@@ -727,7 +752,7 @@ where
     state.serialize_field("schema", "caduceus.staff.receipt.v1")?;
     state.serialize_field("ok", &fields.ok)?;
     state.serialize_field("stop", &json!({"noun": noun, "verb": verb}))?;
-    state.serialize_field("observed", &json!({"command": fields.command}))?;
+    state.serialize_field("observed", &observed)?;
     state.serialize_field("could_change_to", &Value::Null)?;
     state.serialize_field("attempt", &Value::Null)?;
     state.serialize_field(
