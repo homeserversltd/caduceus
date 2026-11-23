@@ -1235,7 +1235,9 @@ fn main() {
             modules.push_str(&format!("    router = crate::gate::door::register(router, selected_declaration({}).expect(\"selected declaration\"));\n", rust_string(namespace)));
         }
     }
-    modules.push_str("    router\n}\n");
+    modules.push_str(
+        "    router.fallback(crate::gate::door::route_not_found)\n        .method_not_allowed_fallback(crate::gate::door::method_not_allowed)\n}\n",
+    );
     fs::write(Path::new(&out_dir).join("selected_leaves.rs"), modules)
         .expect("generated selected leaves writable");
     // The enumerable registry is the sole source of valid Rust serve primitives.

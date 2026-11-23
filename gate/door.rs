@@ -3,7 +3,7 @@
 
 use axum::{
     body::{to_bytes, Body},
-    http::{header::CONTENT_TYPE, HeaderMap, Method, Request, StatusCode},
+    http::{header::CONTENT_TYPE, HeaderMap, Method, Request, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::{any, delete, get, head, on, patch, post, put, MethodFilter},
     Json, Router,
@@ -163,32 +163,33 @@ async fn handle_request(
     let command = first_command(&declaration).unwrap_or_default();
     let mutation_allowed = declaration.get("mutation_allowed").and_then(Value::as_bool).unwrap_or(true);
     let (parts, body) = request.into_parts();
+    let method = &parts.method;
     let request_id = request_id(&parts.headers);
 
-    if parts.method.as_str() != expected_method.as_str()
-        && !(expected_method == "GET" && parts.method == Method::HEAD)
+    if method.as_str() != expected_method.as_str()
+        && !(expected_method == "GET" && method == Method::HEAD)
     {
         let failure = DoorFailure::new(StatusCode::METHOD_NOT_ALLOWED, "caduceus-http-method-not-allowed");
-        return finish_failure(&declaration, &request_id, started, mutation_allowed, &command, failure);
+        return finish_failure(namespace, method, &command, "method", failure);
     }
 
     if command.is_empty() {
         let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-generic-command-missing");
-        return finish_failure(&declaration, &request_id, started, mutation_allowed, &command, failure);
+        return finish_failure(namespace, method, &command, "command", failure);
     }
     if let Err(signal) = crate::gate::admittance::check_declared_admittance(&declaration) {
         let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, signal);
-        return finish_failure(&declaration, &request_id, started, mutation_allowed, &command, failure);
+        return finish_failure(namespace, method, &command, "admittance", failure);
     }
     match crate::shared::policy::allows_command(&command) {
         Ok(true) => {}
         Ok(false) => {
             let failure = DoorFailure::new(StatusCode::FORBIDDEN, "caduceus-public-action-not-allowed");
-            return finish_failure(&declaration, &request_id, started, mutation_allowed, &command, failure);
+            return finish_failure(namespace, method, &command, "policy", failure);
         }
         Err(_) => {
             let failure = DoorFailure::new(StatusCode::FORBIDDEN, "caduceus-carapace-desync");
-            return finish_failure(&declaration, &request_id, started, mutation_allowed, &command, failure);
+            return finish_failure(namespace, method, &command, "policy", failure);
         }
     }
 
@@ -197,25 +198,29 @@ async fn handle_request(
             || crate::routes::leaf_schema::shared_seat_absent(schema) => Some(schema.to_owned()),
         Some(_) => {
             let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-schema-desync");
-            return finish_failure(&declaration, &request_id, started, mutation_allowed, &command, failure);
+            return finish_failure(namespace, method, &command, "receipt-schema", failure);
         }
         None => None,
     };
     let payload = match read_payload(parts.headers, body, &declaration).await {
         Ok(payload) => payload,
         Err(failure) => {
-            return finish_failure(&declaration, &request_id, started, mutation_allowed, &command, failure);
+            return finish_failure(namespace, method, &command, "payload", failure);
         }
     };
 
     let permit = if mutation_allowed {
         let Some(slot) = mutation_slot(namespace) else {
-            return error_response(StatusCode::SERVICE_UNAVAILABLE, &command, "caduceus-generic-slot-missing");
+            let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-generic-slot-missing");
+            return finish_failure(namespace, method, &command, "mutation-slot", failure);
         };
         match slot.try_acquire_owned() {
             Ok(permit) => Some(permit),
             // No mutation has started: the rejected concurrent request is a non-event.
-            Err(_) => return error_response(StatusCode::SERVICE_UNAVAILABLE, &command, "caduceus-generic-mutation-busy"),
+            Err(_) => {
+                let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-generic-mutation-busy");
+                return finish_failure(namespace, method, &command, "mutation-permit", failure);
+            }
         }
     } else { None };
     // This independent task owns the complete invocation and deed. Dropping the
@@ -224,6 +229,7 @@ async fn handle_request(
     let task_command = command.clone();
     let task_namespace = namespace.to_owned();
     let task_request_id = request_id.clone();
+    let task_method = method.clone();
     let task = tokio::spawn(async move {
         let _permit = permit;
         let mut deed = DeedGuard {
@@ -265,7 +271,10 @@ async fn handle_request(
                     );
                     response
                 } else {
-                    error_response(failure.status, &task_command, &failure.signal)
+                    error_response(
+                        failure.status, &task_namespace, &task_method, &task_command,
+                        &failure.signal, None,
+                    )
                 }
             }
         };
@@ -282,7 +291,10 @@ async fn handle_request(
             // The spawned task is detached from the client and normally writes
             // before it returns. A join failure is surfaced without retaining a
             // receipt or creating a second deed that could duplicate its write.
-            error_response(StatusCode::SERVICE_UNAVAILABLE, &command, "caduceus-generic-task-join-failed")
+            error_response(
+                StatusCode::SERVICE_UNAVAILABLE, namespace, method, &command,
+                "caduceus-generic-task-join-failed", None,
+            )
         }
     }
 }
@@ -535,25 +547,70 @@ fn receipt_signal(receipt: &Value) -> Option<&str> {
         .or_else(|| receipt.get("signal").and_then(Value::as_str).filter(|signal| !signal.is_empty()))
 }
 
-fn error_response(status: StatusCode, command: &str, signal: &str) -> Response {
-    (status, Json(json!({
-        "schema": "caduceus.api.error.v1",
+fn refusal_receipt(signal: &str, observed: Value, could_change_to: Value, attempt: Value) -> Value {
+    json!({
+        "schema": "caduceus.staff.receipt.v1",
         "ok": false,
-        "command": command,
+        "observed": observed,
+        "could_change_to": could_change_to,
+        "attempt": attempt,
+        "final_receipt": {"ok": false, "firstMissingSignal": signal},
         "firstMissingSignal": signal,
-    }))).into_response()
+    })
+}
+
+fn error_response(
+    status: StatusCode,
+    namespace: &str,
+    method: &Method,
+    command: &str,
+    signal: &str,
+    stopped_at: Option<&str>,
+) -> Response {
+    let (noun, verb) = namespace.rsplit_once('/').unwrap_or((namespace, ""));
+    let attempt = match stopped_at {
+        Some(step) => json!({"attempted": false, "step": step}),
+        None => json!({"attempted": null}),
+    };
+    let mut receipt = refusal_receipt(
+        signal,
+        json!({"route": format!("/api/v1/{namespace}"), "method": method.as_str()}),
+        Value::Null,
+        attempt,
+    );
+    receipt["stop"] = json!({"noun": noun, "verb": verb});
+    receipt["command"] = json!(command);
+    (status, Json(receipt)).into_response()
 }
 
 fn finish_failure(
-    _declaration: &Value,
-    _request_id: &str,
-    _started: Instant,
-    _mutation_allowed: bool,
+    namespace: &str,
+    method: &Method,
     command: &str,
+    step: &str,
     failure: DoorFailure,
 ) -> Response {
     // Refusal before dispatch cannot have changed state and leaves no deed.
-    error_response(failure.status, command, &failure.signal)
+    error_response(failure.status, namespace, method, command, &failure.signal, Some(step))
+}
+
+fn routing_refusal(status: StatusCode, signal: &str, method: Method, uri: Uri) -> Response {
+    // No stop was selected. Observe the path, not its query or request body.
+    let receipt = refusal_receipt(
+        signal,
+        json!({"path": uri.path(), "method": method.as_str()}),
+        json!({"doors": crate::routes::SELECTED_DISCOVERY}),
+        json!({"attempted": false}),
+    );
+    (status, Json(receipt)).into_response()
+}
+
+pub(crate) async fn route_not_found(method: Method, uri: Uri) -> Response {
+    routing_refusal(StatusCode::NOT_FOUND, "caduceus-http-route-not-found", method, uri)
+}
+
+pub(crate) async fn method_not_allowed(method: Method, uri: Uri) -> Response {
+    routing_refusal(StatusCode::METHOD_NOT_ALLOWED, "caduceus-http-method-not-allowed", method, uri)
 }
 
 fn request_id(_headers: &HeaderMap) -> String {
