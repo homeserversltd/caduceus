@@ -28,6 +28,12 @@
     },
     "unknown_fields_preserved": true
   },
+  "payload": {
+    "optional": true,
+    "fields": "command-specific fields declared by its route template (routes/<namespace>/index.json) and its stop",
+    "absent": "empty object (primitive)",
+    "unknown_fields_preserved": true
+  },
   "origin_of_intent": {
     "near": "acts on this machine alone, no further data needed",
     "far": [
