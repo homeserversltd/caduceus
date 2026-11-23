@@ -153,6 +153,11 @@ pub fn enable(raw: &[u8]) -> Result<Value, String> {
     // An enabled legacy row with the same declared content is not a new registration.
     let declared_changed = prior.as_ref().is_some_and(|prior| prior != &envelope);
     let changed=tx.execute("INSERT INTO pid2_registrations(routine_id,enabled,envelope,registered_at) VALUES(?1,1,?2,?3) ON CONFLICT(routine_id) DO UPDATE SET enabled=1,envelope=excluded.envelope,registered_at=excluded.registered_at WHERE enabled<>1 OR ?4", params![id, projected.as_bytes(), now(), declared_changed]).map_err(|e| e.to_string())?;
+    // On explicit re-enable, normalize a legacy row without changing its
+    // registration time or waking the solver for an unchanged routine.
+    if changed == 0 && previous.as_deref().is_some_and(|raw| raw != projected.as_bytes()) {
+        tx.execute("UPDATE pid2_registrations SET envelope=?2 WHERE routine_id=?1", params![id, projected.as_bytes()]).map_err(|e| e.to_string())?;
+    }
     let mut removed_routes=0;
     if declared_changed {
         tx.execute("DELETE FROM pid2_lines WHERE routine_id=?1 AND state<>'Observed'",[id]).map_err(|e|e.to_string())?;
