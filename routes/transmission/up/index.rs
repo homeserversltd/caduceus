@@ -92,12 +92,17 @@ async fn up_route(
             if let Some(rows) = rows { out.insert("steps".into(), Value::Array(rows.clone())); }
         }
     } else if !crate::routes::leaf_schema::bound(&receipt, "transmission/up") {
-        // The receipt answers whole with the door's verdict beside; mutation_status
-        // reads the doorSignal as 503, and a non-object receipt has no true ok.
-        if let Some(out) = receipt.as_object_mut() {
-            out.entry("doorSignal")
-                .or_insert_with(|| Value::String("caduceus-schema-desync".into()));
-        }
+        // A receipt answers whole with the door's verdict beside, which
+        // mutation_status reads as 503; an answer that is not an object is no
+        // receipt, so the door keeps naming the desync itself.
+        let Some(out) = receipt.as_object_mut() else {
+            return Err(crate::gate::service_unavailable(
+                COMMAND,
+                "caduceus-schema-desync",
+            ));
+        };
+        out.entry("doorSignal")
+            .or_insert_with(|| Value::String("caduceus-schema-desync".into()));
     }
 
     Ok((crate::gate::mutation_status(&receipt), Json(receipt)))
