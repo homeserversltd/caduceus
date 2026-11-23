@@ -336,11 +336,15 @@ fn display_mutation_error(
 
 pub fn read_json(family: &str) -> Result<Value, String> {
     fields(family).ok_or_else(|| "caduceus-settings-family-invalid".to_string())?;
-    let receipt = cross_settings(&format!("settings/{family}/read"), &json!({}))?;
+    let mut receipt = cross_settings(&format!("settings/{family}/read"), &json!({}))?;
     let values = receipt
-        .get("values")
-        .and_then(Value::as_object)
+        .get_mut("values")
+        .and_then(Value::as_object_mut)
         .ok_or_else(|| "caduceus-settings-read-values-missing".to_string())?;
+    if family == "datetime" {
+        // Drop the retired value until every body runs the new staff.
+        values.remove("date_format");
+    }
     let allowed = fields(family).unwrap();
     if values
         .keys()
