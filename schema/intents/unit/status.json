@@ -1,0 +1,49 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "unit/status",
+  "payload": {
+    "fields": {
+      "unit": {
+        "type": "string",
+        "meaning": "The systemd unit whose state is read. Its whole name must match the pattern.",
+        "pattern": "^[A-Za-z0-9_:][A-Za-z0-9_.:-]*(?:@[A-Za-z0-9_:][A-Za-z0-9_.:-]*)?\\.(?:service|target|mount|path)$",
+        "maxLength": 255
+      },
+      "scope": {"type": "string", "meaning": "Use the system manager or the owner's user manager.", "enum": ["system", "owner"]}
+    },
+    "required": ["unit", "scope"]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "action": {"type": "string", "const": "status", "meaning": "The requested observation verb."},
+    "unit": {"meaning": "The supplied unit, including invalid values, or null when absent or unread."},
+    "scope": {"meaning": "The supplied scope, including invalid values, or null when absent or unread."},
+    "command": {"type": "null", "meaning": "Status probes with systemctl show and does not dispatch a separate command for the requested verb."},
+    "returncode": {"type": ["integer", "null"], "meaning": "The follow-up show exit status, or null when not available."},
+    "observed": {
+      "meaning": "The initial systemctl show properties; an unread property is null.",
+      "fields": {
+        "load_state": {"type": ["string", "null"]},
+        "active_state": {"type": ["string", "null"]},
+        "sub_state": {"type": ["string", "null"]},
+        "unit_file_state": {"type": ["string", "null"]}
+      }
+    },
+    "readback": {
+      "meaning": "The follow-up systemctl show properties, or the initial observation if no follow-up ran.",
+      "fields": {
+        "load_state": {"type": ["string", "null"]},
+        "active_state": {"type": ["string", "null"]},
+        "sub_state": {"type": ["string", "null"]},
+        "unit_file_state": {"type": ["string", "null"]}
+      }
+    },
+    "mutation_performed": {"type": "boolean", "const": false, "meaning": "Status does not perform a mutation."},
+    "first_missing_signal": {
+      "type": "string",
+      "meaning": "The stop's outcome token, with none on success.",
+      "enum": ["invalid-envelope", "invalid-unit", "invalid-scope", "hermes-scope-not-permitted", "unit-not-found", "unit-load-state-read-failed", "unit-not-loaded", "unit-readback-failed", "unit-readback-not-loaded", "none"]
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "unit/restart",
+  "payload": {
+    "fields": {
+      "unit": {
+        "type": "string",
+        "meaning": "The systemd unit to restart. Its whole name must match the pattern.",
+        "pattern": "^[A-Za-z0-9_:][A-Za-z0-9_.:-]*(?:@[A-Za-z0-9_:][A-Za-z0-9_.:-]*)?\\.(?:service|target|mount|path)$",
+        "maxLength": 255
+      },
+      "scope": {"type": "string", "meaning": "Use the system manager or the named user's manager. hermes is permitted only for hermes-dashboard.service.", "enum": ["system", "owner", "hermes"]},
+      "deadline_seconds": {"type": "number", "meaning": "Timeout in seconds for the restart command, not its state probes.", "minimum": 1, "maximum": 600, "default": 30},
+      "dry-run": {"type": "boolean", "meaning": "When true, return the planned argument vector after input validation, without probing or restarting the unit.", "default": false}
+    },
+    "required": ["unit", "scope"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "dry-run": true,
+  "returns": {
+    "action": {"type": "string", "const": "restart", "meaning": "The requested systemctl verb."},
+    "unit": {"meaning": "The supplied unit, including invalid values, or null when absent or unread."},
+    "scope": {"meaning": "The supplied scope, including invalid values, or null when absent or unread."},
+    "command": {"type": ["array", "null"], "items": {"type": "string"}, "meaning": "The planned or dispatched systemctl restart argument vector, or null when neither."},
+    "returncode": {"type": ["integer", "null"], "meaning": "The restart command's exit status, or null when not available, including dry-run."},
+    "observed": {
+      "meaning": "The initial systemctl show properties; an unread property is null.",
+      "fields": {
+        "load_state": {"type": ["string", "null"]},
+        "active_state": {"type": ["string", "null"]},
+        "sub_state": {"type": ["string", "null"]},
+        "unit_file_state": {"type": ["string", "null"]}
+      }
+    },
+    "readback": {
+      "meaning": "The follow-up systemctl show properties, or the initial observation if no follow-up ran.",
+      "fields": {
+        "load_state": {"type": ["string", "null"]},
+        "active_state": {"type": ["string", "null"]},
+        "sub_state": {"type": ["string", "null"]},
+        "unit_file_state": {"type": ["string", "null"]}
+      }
+    },
+    "mutation_performed": {"type": "boolean", "meaning": "True when restart was dispatched; false for a plan or a pre-dispatch refusal. Not confirmation of success."},
+    "first_missing_signal": {
+      "type": "string",
+      "meaning": "The stop's outcome token, with none on success.",
+      "enum": ["invalid-envelope", "invalid-dry-run", "invalid-deadline", "invalid-unit", "invalid-scope", "hermes-scope-not-permitted", "unit-not-found", "unit-load-state-read-failed", "unit-not-loaded", "unit-command-failed", "unit-readback-failed", "unit-readback-not-loaded", "none"]
+    }
+  }
+}
