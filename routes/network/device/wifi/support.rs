@@ -17,26 +17,27 @@ pub async fn execute(
     body: Value,
     declaration: &str,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let refusal_action = (!action.is_empty()).then_some(action);
     let Some(object) = body.as_object() else {
-        return refuse("wifi-body-not-object");
+        return refuse(refusal_action, "wifi-body-not-object");
     };
     if object.contains_key("action") {
-        return refuse("wifi-client-action-forbidden");
+        return refuse(refusal_action, "wifi-client-action-forbidden");
     };
     let plan = match build_plan(action, object, command) {
         Ok(v) => v,
-        Err(e) => return refuse(e),
+        Err(e) => return refuse(refusal_action, e),
     };
     let allowed = match crate::shared::policy::allows_command(command) {
         Ok(v) => v,
-        Err(_) => return refuse("caduceus-carapace-desync"),
+        Err(_) => return refuse(refusal_action, "caduceus-carapace-desync"),
     };
     if !allowed {
-        return refuse("caduceus-command-not-allowed");
+        return refuse(refusal_action, "caduceus-command-not-allowed");
     };
     let declaration_value: Value = match serde_json::from_str(declaration) {
         Ok(v) => v,
-        Err(_) => return refuse("wifi-route-declaration-invalid"),
+        Err(_) => return refuse(refusal_action, "wifi-route-declaration-invalid"),
     };
     let route = declaration_value
         .get("namespace")
@@ -63,7 +64,7 @@ pub async fn execute(
         false,
     ) {
         Ok(v) => v,
-        Err(e) => return refuse(e),
+        Err(e) => return refuse(refusal_action, e),
     };
     let mutation = matches!(&plan, Plan::Mutation(_, _));
     let mut stop_refusal = None;
@@ -84,24 +85,36 @@ pub async fn execute(
             .await
             .map_err(|(status, Json(body))| (status, Json(serde_json::json!(body))))?;
             match result {
-                Ok(receipt_payload) => {
+                Ok(mut receipt_payload) => {
                     let success = crate::gate::receipt_succeeded(&receipt_payload);
-                    let failure = if success {
-                        None
-                    } else {
-                        Some(
-                            receipt_payload
-                                .get("firstMissingSignal")
-                                .and_then(Value::as_str)
-                                .unwrap_or("wifi-band-failed")
-                                .to_string(),
-                        )
-                    };
-                    let result = success.then(|| json!({"action":action,"completed":true}));
-                    if !success {
-                        stop_refusal = Some(receipt_payload);
+                    if let Some(answer) = receipt_payload.as_object_mut().filter(|_| success) {
+                        // Check every door-owned key before adding any of them.
+                        let status = if ["route", "mutationPerformed", "planned", "result"]
+                            .into_iter()
+                            .any(|key| answer.contains_key(key))
+                        {
+                            // receipt_succeeded already establishes that doorSignal is absent.
+                            answer.insert(
+                                "doorSignal".into(),
+                                json!("caduceus-wifi-door-words-collision"),
+                            );
+                            StatusCode::SERVICE_UNAVAILABLE
+                        } else {
+                            answer.insert("route".into(), json!(route));
+                            answer.insert("mutationPerformed".into(), Value::Bool(true));
+                            answer.insert("planned".into(), Value::Bool(false));
+                            answer.insert("result".into(), json!({"action": action, "completed": true}));
+                            StatusCode::OK
+                        };
+                        return Ok((status, Json(receipt_payload)));
                     }
-                    (success, result, failure)
+                    let failure = receipt_payload
+                        .get("firstMissingSignal")
+                        .and_then(Value::as_str)
+                        .unwrap_or("wifi-band-failed")
+                        .to_string();
+                    stop_refusal = Some(receipt_payload);
+                    (false, None, Some(failure))
                 }
                 Err(error) => (false, None, Some(error)),
             }
@@ -400,11 +413,26 @@ fn append_static_ipv4_payload_fields(
     Ok(())
 }
 
-fn refuse(s: impl Into<String>) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+fn refuse(
+    action: Option<&str>,
+    s: impl Into<String>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let command = "network device wifi";
+    let signal = s.into();
+    let (noun, verb) = action.map_or(("network/device", "wifi"), |verb| ("network/device/wifi", verb));
     Err((
         StatusCode::FORBIDDEN,
-        Json(
-            json!({"schema":"caduceus.api.error.v1","ok":false,"command":"network device wifi","first_missing_signal":s.into()}),
-        ),
+        Json(json!({
+            "schema": "caduceus.staff.receipt.v1",
+            "ok": false,
+            "stop": {"noun": noun, "verb": verb},
+            "observed": {"command": command},
+            "could_change_to": null,
+            "attempt": {"attempted": false},
+            "final_receipt": {"ok": false, "firstMissingSignal": signal},
+            "firstMissingSignal": signal,
+            "first_missing_signal": signal,
+            "command": command,
+        })),
     ))
 }
