@@ -9,8 +9,13 @@ async fn device_list_route() -> Result<(StatusCode, Json<Value>), (StatusCode, J
 
 /// Canonical registration seam; legacy aliases remain hoisted to the same body.
 pub fn register(router: Router) -> Router {
-    router.route(
-        "/api/v1/network/device",
-        axum::routing::get(device_list_route),
-    )
+    router
+        .route(
+            "/api/v1/network/device/list",
+            axum::routing::get(device_list_route),
+        )
+        .route(
+            "/api/v1/network/device",
+            axum::routing::get(device_list_route),
+        )
 }
