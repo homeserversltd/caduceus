@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "role": "Caduceus PID-2 schedule registration",
   "authority": {"owner": "caduceus", "path": "schema/caduceus.pid2.schedule.v1.json"},
-  "evolution": {"law": "additive-only", "unknown_fields_preserved": true, "missing_field_semantics": "Absent optional fields mean null; only the frozen kernel is required."},
+  "evolution": {"law": "additive-only", "unknown_fields_preserved": true, "missing_field_semantics": "Absent optional fields mean null; only the frozen kernel is required.", "storage_semantics": "Unknown fields are preserved in passage. The PID 2 registration store and its readbacks keep only seat-declared fields, including declared open objects whole."},
   "required": ["schema", "intent_id", "transition", "version", "timestamp"],
   "fields": {
     "schema": {"type": "string", "const": "caduceus.pid2.schedule.v1"},

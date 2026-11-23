@@ -4,23 +4,53 @@ use std::sync::OnceLock;
 
 pub(super) fn routine_seat() -> Result<&'static Value, &'static str> {
     static SEAT: OnceLock<Value> = OnceLock::new();
-    if let Some(seat) = SEAT.get() {
+    public_seat(
+        &SEAT,
+        super::SCHEMA,
+        [
+            "pid2-routine-seat-absent",
+            "pid2-routine-seat-invalid",
+            "pid2-routine-seat-foreign",
+            "pid2-routine-seat-fields-invalid",
+        ],
+    )
+}
+
+pub(super) fn schedule_seat(schema: &str) -> Result<&'static Value, &'static str> {
+    static SEAT: OnceLock<Value> = OnceLock::new();
+    public_seat(
+        &SEAT,
+        schema,
+        [
+            "pid2-schedule-seat-absent",
+            "pid2-schedule-seat-invalid",
+            "pid2-schedule-seat-foreign",
+            "pid2-schedule-seat-fields-invalid",
+        ],
+    )
+}
+
+fn public_seat(
+    cache: &'static OnceLock<Value>,
+    schema: &str,
+    [absent, invalid, foreign, fields_invalid]: [&'static str; 4],
+) -> Result<&'static Value, &'static str> {
+    if let Some(seat) = cache.get() {
         return Ok(seat);
     }
     let bytes = crate::shared::config::read_public_file(&format!(
-        "opt/caduceus/source/schema/{}.json",
-        super::SCHEMA
+        "opt/caduceus/source/schema/{schema}.json"
     ))
-    .map_err(|_| "pid2-routine-seat-absent")?;
-    let seat: Value = serde_json::from_str(&bytes).map_err(|_| "pid2-routine-seat-invalid")?;
-    if seat.get("schema").and_then(Value::as_str) != Some(super::SCHEMA) {
-        return Err("pid2-routine-seat-foreign");
+    .map_err(|_| absent)?;
+    let seat: Value = serde_json::from_str(&bytes).map_err(|_| invalid)?;
+    if seat.get("schema").and_then(Value::as_str) != Some(schema) {
+        return Err(foreign);
     }
     if !seat.get("fields").is_some_and(Value::is_object) {
-        return Err("pid2-routine-seat-fields-invalid");
+        return Err(fields_invalid);
     }
     // Cache only a usable seat; a later request can recover an absent file.
-    Ok(SEAT.get_or_init(|| seat))
+    Ok(cache.get_or_init(|| seat))
 }
 
 fn allows_container(seat: &Value, kind: &str) -> bool {
@@ -63,7 +93,11 @@ pub(super) fn stored(raw: &[u8], seat: &Value) -> Result<Value, String> {
 }
 
 pub(super) fn echo(raw: &[u8]) -> Result<(Value, String), String> {
-    let envelope = stored(raw, routine_seat()?)?;
+    echo_for(raw, routine_seat()?)
+}
+
+pub(super) fn echo_for(raw: &[u8], seat: &Value) -> Result<(Value, String), String> {
+    let envelope = stored(raw, seat)?;
     let raw_envelope = envelope.to_string();
     Ok((envelope, raw_envelope))
 }

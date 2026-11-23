@@ -96,12 +96,12 @@ pub fn status(id:&str) -> Result<Value,String> {
         "SELECT enabled,envelope,frequency,time,weekday,band,action,max_seconds,registered_at,updated_at,last_fired_slot FROM pid2_schedules WHERE schedule_id=?1",[id],
         |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?,r.get(10)?))).optional().map_err(|e|e.to_string())?;
     let Some((enabled,raw,frequency,time,weekday,band,action,max_seconds,registered_at,updated_at,last_fired_slot))=row else {return Ok(json!({"schedule":null,"next_fire":null,"last_fire":null,"baseline":null}));};
-    let envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+    let (envelope,raw_envelope)=super::declared::echo_for(&raw,super::declared::schedule_seat(SCHEMA)?)?;
     let cal=if frequency.is_empty() {None} else {Some(cal_from_row(frequency.clone(),time.clone(),weekday.clone()))};
     let next=if enabled {cal.as_ref().and_then(|cal|next_slot(cal,super::now())).and_then(|v|chrono::DateTime::from_timestamp(v,0)).map(|v|v.with_timezone(&Local).to_rfc3339())} else {None};
     let fire=if super::table_exists(&db,"pid2_fires")? {db.query_row("SELECT fire_id,trigger,state,queued_at,started_at,finished_at,duration_ms,first_missing_signal,rsync_exit_code,final_file_count,final_total_bytes FROM pid2_fires WHERE schedule_id=?1",[id],fire_json).optional().map_err(|e|e.to_string())?} else {None};
     let baseline=if super::table_exists(&db,"pid2_sync_baselines")? {db.query_row("SELECT file_count,total_bytes,updated_at,fire_id FROM pid2_sync_baselines WHERE schedule_id=?1",[id],|r|Ok(json!({"fileCount":r.get::<_,i64>(0)?,"totalBytes":r.get::<_,i64>(1)?,"updated_at":r.get::<_,i64>(2)?,"fire_id":r.get::<_,String>(3)?}))).optional().map_err(|e|e.to_string())?} else {None};
-    Ok(json!({"schedule":{"schedule_id":id,"enabled":enabled,"calendar":cal.as_ref().map(|_|json!({"frequency":frequency,"time":time,"weekday":weekday})),"frequency":cal.as_ref().map(|_|frequency),"time":cal.as_ref().map(|_|time),"weekday":weekday,"band":band,"action":action,"max_seconds":max_seconds,"registered_at":registered_at,"updated_at":updated_at,"last_fired_slot":last_fired_slot,"envelope":envelope,"raw_envelope":String::from_utf8(raw).map_err(|e|e.to_string())?},"next_fire":next,"last_fire":fire,"baseline":baseline}))
+    Ok(json!({"schedule":{"schedule_id":id,"enabled":enabled,"calendar":cal.as_ref().map(|_|json!({"frequency":frequency,"time":time,"weekday":weekday})),"frequency":cal.as_ref().map(|_|frequency),"time":cal.as_ref().map(|_|time),"weekday":weekday,"band":band,"action":action,"max_seconds":max_seconds,"registered_at":registered_at,"updated_at":updated_at,"last_fired_slot":last_fired_slot,"envelope":envelope,"raw_envelope":raw_envelope},"next_fire":next,"last_fire":fire,"baseline":baseline}))
 }
 pub fn list() -> Result<Value,String> {
     let Some(db)=super::read_db()? else {return Ok(json!({"schedules":[]}));};
@@ -116,29 +116,43 @@ pub fn list() -> Result<Value,String> {
 pub fn register(raw:&[u8]) -> Result<Value,String> {
     let envelope:Value=serde_json::from_slice(raw).map_err(|e|format!("pid2-schedule-json-invalid: {e}"))?;
     if envelope.get("schema").and_then(Value::as_str)!=Some(SCHEMA) {return Err("pid2-schedule-schema-desync".into());}
-    let seat=crate::routes::leaf_schema::declaration(SCHEMA).ok_or("pid2-schedule-schema-seat-missing")?;
+    let seat=super::declared::schedule_seat(SCHEMA)?;
     for key in seat.get("required").and_then(Value::as_array).ok_or("pid2-schedule-schema-kernel-missing")? {
         let name=key.as_str().ok_or("pid2-schedule-schema-kernel-invalid")?;
         if envelope.get(name).and_then(Value::as_str).filter(|value|!value.is_empty()).is_none() {return Err(format!("pid2-schedule-kernel-unusable: {name}"));}
     }
     let spec=envelope.get("schedule").ok_or("pid2-schedule-unusable")?;
-    let id=spec.get("schedule_id").and_then(Value::as_str).filter(|s|!s.is_empty()).ok_or("pid2-schedule-id-unusable")?;
+    let id=spec.get("schedule_id").and_then(Value::as_str).filter(|s|!s.is_empty()).ok_or("pid2-schedule-id-unusable")?.to_owned();
     let enabled=enabled_value(spec.get("enabled"));
     // Empty frequency/time are an internal marker, compatible with existing
     // NOT NULL databases and impossible for a valid calendar.
     let cal=match spec.get("calendar") {None|Some(Value::Null)=>None,Some(value)=>Some(calendar(value)?)};
     let job=spec.get("job").unwrap_or(&Value::Null);
-    let band=job.get("band").and_then(Value::as_str).filter(|s|!s.is_empty()).ok_or("pid2-schedule-band-unusable")?;
-    let action=job.get("action").and_then(Value::as_str).filter(|s|!s.is_empty()).ok_or("pid2-schedule-action-unusable")?;
+    let band=job.get("band").and_then(Value::as_str).filter(|s|!s.is_empty()).ok_or("pid2-schedule-band-unusable")?.to_owned();
+    let action=job.get("action").and_then(Value::as_str).filter(|s|!s.is_empty()).ok_or("pid2-schedule-action-unusable")?.to_owned();
     let max=match job.get("max_seconds") {None|Some(Value::Null)=>21600,Some(value)=>value.as_u64().ok_or("pid2-schedule-deadline-unusable")?};
     if !(1..=86400).contains(&max) {return Err("pid2-schedule-deadline-unusable".into());}
     let now=super::now(); let slot=cal.as_ref().and_then(|cal|previous_slot(cal,now));
     let cal=cal.unwrap_or(Calendar{frequency:String::new(),time:String::new(),weekday:None});
-    let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
+    let envelope=super::declared::project(envelope,seat);
+    let encoded=envelope.to_string();
+    let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
     super::tables(&db)?;
-    let changed=db.execute("INSERT INTO pid2_schedules(schedule_id,enabled,envelope,frequency,time,weekday,band,action,max_seconds,registered_at,updated_at,last_fired_slot) VALUES(?1,COALESCE(?11,1),?2,?3,?4,?5,?6,?7,?8,?9,?9,?10) ON CONFLICT(schedule_id) DO UPDATE SET enabled=COALESCE(?11,pid2_schedules.enabled),envelope=excluded.envelope,frequency=excluded.frequency,time=excluded.time,weekday=excluded.weekday,band=excluded.band,action=excluded.action,max_seconds=excluded.max_seconds,updated_at=excluded.updated_at WHERE pid2_schedules.envelope IS NOT excluded.envelope OR pid2_schedules.frequency IS NOT excluded.frequency OR pid2_schedules.time IS NOT excluded.time OR pid2_schedules.weekday IS NOT excluded.weekday OR pid2_schedules.band IS NOT excluded.band OR pid2_schedules.action IS NOT excluded.action OR pid2_schedules.max_seconds IS NOT excluded.max_seconds OR (?11 IS NOT NULL AND pid2_schedules.enabled IS NOT ?11)",params![id,raw,cal.frequency,cal.time,cal.weekday,band,action,max as i64,now,slot,enabled]).map_err(|e|e.to_string())?;
-    drop(db); if changed!=0 {super::events::notify_schedule()?;super::solver::deed("schedule-register",id,"success",None);}
-    Ok(json!({"ok":true,"readback":status(id)?}))
+    let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+    let previous:Option<Vec<u8>>=tx.query_row("SELECT envelope FROM pid2_schedules WHERE schedule_id=?1",[&id],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+    let prior=previous.as_deref().map(|raw|super::declared::stored(raw,seat)).transpose()?;
+    let declared_changed=prior.as_ref().is_some_and(|prior|prior!=&envelope);
+    let changed=tx.execute("INSERT INTO pid2_schedules(schedule_id,enabled,envelope,frequency,time,weekday,band,action,max_seconds,registered_at,updated_at,last_fired_slot)
+        VALUES(?1,COALESCE(?11,1),?2,?3,?4,?5,?6,?7,?8,?9,?9,?10)
+        ON CONFLICT(schedule_id) DO UPDATE SET enabled=COALESCE(?11,pid2_schedules.enabled),envelope=excluded.envelope,frequency=excluded.frequency,time=excluded.time,weekday=excluded.weekday,band=excluded.band,action=excluded.action,max_seconds=excluded.max_seconds,updated_at=excluded.updated_at
+        WHERE ?12 OR pid2_schedules.frequency IS NOT excluded.frequency OR pid2_schedules.time IS NOT excluded.time OR pid2_schedules.weekday IS NOT excluded.weekday OR pid2_schedules.band IS NOT excluded.band OR pid2_schedules.action IS NOT excluded.action OR pid2_schedules.max_seconds IS NOT excluded.max_seconds OR (?11 IS NOT NULL AND pid2_schedules.enabled IS NOT ?11)",params![id,encoded.as_bytes(),cal.frequency,cal.time,cal.weekday,band,action,max as i64,now,slot,enabled,declared_changed]).map_err(|e|e.to_string())?;
+    // Re-registering unchanged declared content may only normalize the bytes.
+    if changed==0 && previous.as_deref().is_some_and(|raw|raw!=encoded.as_bytes()) {
+        tx.execute("UPDATE pid2_schedules SET envelope=?2 WHERE schedule_id=?1",params![id,encoded.as_bytes()]).map_err(|e|e.to_string())?;
+    }
+    tx.commit().map_err(|e|e.to_string())?;
+    drop(db); if changed!=0 {super::events::notify_schedule()?;super::solver::deed("schedule-register",&id,"success",None);}
+    Ok(json!({"ok":true,"readback":status(&id)?}))
 }
 
 pub fn set_enabled(id:&str,enabled:bool,missing_noop:bool) -> Result<Value,String> {
@@ -150,6 +164,7 @@ pub fn set_enabled(id:&str,enabled:bool,missing_noop:bool) -> Result<Value,Strin
     Ok(json!({"ok":true,"changed":changed!=0,"readback":status(id)?}))
 }
 pub fn update(id:&str,patch:&Value) -> Result<Value,String> {
+    let seat=super::declared::schedule_seat(SCHEMA)?;
     let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?; super::tables(&db)?;
     let tx=db.transaction().map_err(|e|e.to_string())?;
     let row:Option<(Vec<u8>,String,String,Option<String>,bool)>=tx.query_row("SELECT envelope,frequency,time,weekday,enabled FROM pid2_schedules WHERE schedule_id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional().map_err(|e|e.to_string())?;
@@ -170,9 +185,16 @@ pub fn update(id:&str,patch:&Value) -> Result<Value,String> {
         let target=target.as_object_mut().ok_or("pid2-schedule-calendar-unusable")?;
         target.insert("frequency".into(),json!(cal.frequency));target.insert("time".into(),json!(cal.time));target.insert("weekday".into(),json!(cal.weekday));
     }
-    let encoded=serde_json::to_vec(&envelope).map_err(|e|e.to_string())?;
+    let encoded=super::declared::project(envelope,seat).to_string();
     let first_slot=if frequency.is_empty() && !cal.frequency.is_empty() {previous_slot(&cal,super::now())} else {None};
-    let changed=tx.execute("UPDATE pid2_schedules SET envelope=?2,frequency=?3,time=?4,weekday=?5,enabled=?6,updated_at=?7,last_fired_slot=CASE WHEN frequency='' AND ?3<>'' THEN ?8 ELSE last_fired_slot END WHERE schedule_id=?1 AND (frequency IS NOT ?3 OR time IS NOT ?4 OR weekday IS NOT ?5 OR enabled IS NOT ?6)",params![id,encoded,cal.frequency,cal.time,cal.weekday,enabled,super::now(),first_slot]).map_err(|e|e.to_string())?;
+    let changed=tx.execute("UPDATE pid2_schedules SET envelope=?2,frequency=?3,time=?4,weekday=?5,enabled=?6,updated_at=?7,last_fired_slot=CASE WHEN frequency='' AND ?3<>'' THEN ?8 ELSE last_fired_slot END WHERE schedule_id=?1 AND (frequency IS NOT ?3 OR time IS NOT ?4 OR weekday IS NOT ?5 OR enabled IS NOT ?6)",params![id,encoded.as_bytes(),cal.frequency,cal.time,cal.weekday,enabled,super::now(),first_slot]).map_err(|e|e.to_string())?;
+    if changed==0 {
+        // A no-op calendar patch leaves the declared values as they were.
+        let stored=super::declared::stored(&raw,seat)?.to_string();
+        if raw!=stored.as_bytes() {
+            tx.execute("UPDATE pid2_schedules SET envelope=?2 WHERE schedule_id=?1",params![id,stored.as_bytes()]).map_err(|e|e.to_string())?;
+        }
+    }
     tx.commit().map_err(|e|e.to_string())?;drop(db);
     if changed!=0 {super::events::notify_schedule()?;super::solver::deed("schedule-update",id,"success",None);}
     Ok(json!({"ok":true,"readback":status(id)?}))
