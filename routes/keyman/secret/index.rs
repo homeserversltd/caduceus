@@ -168,7 +168,7 @@ async fn invoke(value: Secret, input: Secret) -> Result<(StatusCode, Secret), &'
         command
     };
     let mut child = command
-        .args(["keyman", "secret", "put"])
+        .arg(STOP)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
