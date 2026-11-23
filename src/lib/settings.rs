@@ -525,20 +525,47 @@ impl MutationReply {
     }
 }
 
+fn protected_mutation_request(body: &Value) -> bool {
+    // Use the same carrier locations as the staff, including a gate-redacted PIN.
+    // Presence alone governs the echo; never inspect the credential value.
+    [Some(body), body.get("payload")]
+        .into_iter()
+        .flatten()
+        .any(|room| {
+            [Some(room), room.get("flags"), room.pointer("/flags/exousia")]
+                .into_iter()
+                .flatten()
+                .any(|carrier| ["pin", "oldPin", "newPin"].iter().any(|key| carrier.get(*key).is_some()))
+        })
+}
+
+fn validation_refusal(family: &str, body: &Value, signal: String, protected: bool) -> MutationReply {
+    let receipt = if protected {
+        // There is no stop receipt yet. Do not copy the caller's names into
+        // the local observation or the diagnostic suffix of this new receipt.
+        let reason = signal.split_once(':').map_or(signal.as_str(), |(reason, _)| reason);
+        mutation_refusal(family, &Value::Null, "validate", reason.to_owned())
+    } else {
+        mutation_refusal(family, body, "validate", signal)
+    };
+    MutationReply::ValidationRefusal(receipt)
+}
+
 pub(crate) async fn mutate_http(family: &'static str, body: Value) -> HttpReply {
     let command = mutate_command(family).expect("registered settings family has a mutate command");
     admit(&command)?;
-    crate::gate::blocking_task(&command, move || mutate_answer(family, body))
+    let protected = protected_mutation_request(&body);
+    crate::gate::blocking_task(&command, move || mutate_answer(family, body, protected))
         .await?
         .map(|reply| (reply.status(), Json(reply.into_value())))
         .map_err(|error| crate::gate::api_error_signal(&command, &error))
 }
 
 pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
-    mutate_answer(family, body).map(MutationReply::into_value)
+    mutate_answer(family, body, false).map(MutationReply::into_value)
 }
 
-fn mutate_answer(family: &str, body: Value) -> Result<MutationReply, String> {
+fn mutate_answer(family: &str, body: Value, protected: bool) -> Result<MutationReply, String> {
     let dry_run = body.get("dry-run").cloned();
     let validate = || -> Result<BTreeMap<String, Value>, String> {
     let values = validated_fields(family, body.clone())?;
@@ -573,19 +600,15 @@ fn mutate_answer(family: &str, body: Value) -> Result<MutationReply, String> {
     };
     let values = match validate() {
         Ok(values) => values,
-        Err(signal) => {
-            return Ok(MutationReply::ValidationRefusal(mutation_refusal(
-                family, &body, "validate", signal,
-            )));
-        }
+        Err(signal) => return Ok(validation_refusal(family, &body, signal, protected)),
     };
     if dry_run.as_ref().is_some_and(|value| !bounded_value(value)) {
-        return Ok(MutationReply::ValidationRefusal(mutation_refusal(
+        return Ok(validation_refusal(
             family,
             &body,
-            "validate",
             "caduceus-settings-value-invalid:dry-run".into(),
-        )));
+            protected,
+        ));
     }
     let writes_display_config = dry_run.is_none() && family == "display"
         && ["resolution", "refresh_rate"]
