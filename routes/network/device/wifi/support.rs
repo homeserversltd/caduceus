@@ -17,6 +17,7 @@ pub async fn execute(
     body: Value,
     declaration: &str,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let refusal_action = (!action.is_empty()).then_some(action);
     let Some(object) = body.as_object() else {
         return refuse(command, "wifi-body-not-object");
     };
