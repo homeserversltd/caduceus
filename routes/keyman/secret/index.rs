@@ -234,6 +234,7 @@ fn refusal(status: StatusCode, signal: &'static str) -> Response {
     };
     let reply = json!({
         "schema": "caduceus.staff.receipt.v1",
+        "stop": {"noun": "keyman/secret", "verb": "post"},
         "ok": false,
         "firstMissingSignal": signal,
         "observed": null,
