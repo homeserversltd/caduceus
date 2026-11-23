@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.portals.v2",
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "role": "PortalEntry registry over the appliance config portals block",
   "authority": {"owner": "caduceus", "path": "schema/caduceus.portals.v2.json"},
   "evolution": {
@@ -18,7 +18,7 @@
   "forms": {
     "entry": {
       "required": ["name"],
-      "optional": ["description", "services", "type", "port", "localURL", "remoteURL", "native"],
+      "optional": ["description", "services", "type", "port", "localURL", "remoteURL", "native", "health"],
       "fields": {
         "name": {"type": "string", "minLength": 1, "description": "The path key is this name lowercased with every run of non-alphanumeric characters folded to one hyphen"},
         "description": {"type": "string", "default": ""},
@@ -27,7 +27,8 @@
         "port": {"type": ["integer", "null"], "minimum": 0, "maximum": 65535},
         "localURL": {"type": "string", "default": "", "description": "Empty for an entry without a local link; otherwise a root-relative path or an http/https URL without embedded credentials"},
         "remoteURL": {"type": ["string", "null"], "description": "Optional remote link, with the same URL semantics as localURL"},
-        "native": {"type": "boolean", "description": "Derived from the appliance birth record; never stored"}
+        "native": {"type": "boolean", "description": "Derived from the appliance birth record; never stored"},
+        "health": {"type": "string", "description": "Optional http:// or https:// URL with a host and no credentials. The services collector probes it only when services is empty; absent means no probe."}
       }
     }
   },

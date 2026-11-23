@@ -11,7 +11,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     io::{self, Read, Write},
-    net::{Ipv4Addr, SocketAddr, TcpStream},
+    net::{Ipv4Addr, SocketAddr, TcpStream, ToSocketAddrs},
     os::{
         fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
         unix::{ffi::OsStrExt, net::UnixStream},
@@ -19,7 +19,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex, RwLock,
+        mpsc, Arc, Mutex, RwLock,
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -1705,11 +1705,16 @@ fn parse_dns_response(message: &[u8], expected_id: u16, question_name: &str) -> 
     })
 }
 
-#[derive(Clone)]
-struct PortalDraft {
-    name: String,
-    units: Vec<String>,
-    invalid: bool,
+enum PortalDraft {
+    Systemd {
+        name: String,
+        units: Vec<String>,
+        invalid: bool,
+    },
+    Health {
+        name: String,
+        url: Option<url::Url>,
+    },
 }
 
 #[cfg(not(leaf_portals))]
@@ -1749,7 +1754,10 @@ fn collect_services() -> ServicesObservation {
 }
 
 fn socket_row(name: String, port: u16, path: &str) -> PortalObservation {
-    let up = socket_responds(port, path);
+    socket_status_row(name, socket_responds(port, path))
+}
+
+fn socket_status_row(name: String, up: bool) -> PortalObservation {
     PortalObservation {
         name,
         units: Vec::new(),
@@ -1758,40 +1766,153 @@ fn socket_row(name: String, port: u16, path: &str) -> PortalObservation {
     }
 }
 
-// Bound the whole knock, including a slow status line, not each individual read.
 fn socket_responds(port: u16, path: &str) -> bool {
-    fn knock(port: u16, path: &str) -> Option<bool> {
-        if path.bytes().any(|b| b <= b' ' || b == 127) { return None; }
-        let deadline = Instant::now() + super::MODEL_LANE_TIMEOUT;
-        let remaining = || deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero());
-        let mut stream = TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), remaining()?).ok()?;
-        let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
-        let mut pending = request.as_bytes();
-        while !pending.is_empty() {
-            stream.set_write_timeout(Some(remaining()?)).ok()?;
-            let written = stream.write(pending).ok()?;
-            if written == 0 { return None; }
-            pending = &pending[written..];
-        }
-        let mut line = Vec::new();
-        while line.len() < 1024 {
-            stream.set_read_timeout(Some(remaining()?)).ok()?;
-            let mut byte = [0u8; 1];
-            stream.read_exact(&mut byte).ok()?;
-            line.push(byte[0]);
-            if line.ends_with(b"\r\n") {
-                let text = std::str::from_utf8(&line[..line.len()-2]).ok()?;
-                let mut parts = text.splitn(3, ' ');
-                let version = parts.next()?;
-                let code = parts.next()?;
-                if !matches!(version, "HTTP/1.0" | "HTTP/1.1") || code.len() != 3 || !code.bytes().all(|b| b.is_ascii_digit()) { return None; }
-                let code: u16 = code.parse().ok()?;
-                return Some((100..500).contains(&code));
-            }
-        }
-        None
+    if path.bytes().any(|b| b <= b' ' || b == 127) {
+        return false;
     }
-    knock(port, path).unwrap_or(false)
+    let deadline = Instant::now() + super::MODEL_LANE_TIMEOUT;
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    knock_remaining(deadline)
+        .and_then(|time| TcpStream::connect_timeout(&address, time).ok())
+        .and_then(|stream| http_socket_status(stream, "127.0.0.1", path, deadline))
+        .unwrap_or(false)
+}
+
+fn knock_remaining(deadline: Instant) -> Option<Duration> {
+    deadline
+        .checked_duration_since(Instant::now())
+        .filter(|time| !time.is_zero())
+}
+
+// One request, and only its status line. All I/O spends the same deadline.
+fn http_socket_status(mut stream: TcpStream, host: &str, path: &str, deadline: Instant) -> Option<bool> {
+    let request = format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+    let mut pending = request.as_bytes();
+    while !pending.is_empty() {
+        stream.set_write_timeout(Some(knock_remaining(deadline)?)).ok()?;
+        let written = stream.write(pending).ok()?;
+        if written == 0 {
+            return None;
+        }
+        pending = &pending[written..];
+    }
+    let mut line = Vec::new();
+    while line.len() < 1024 {
+        stream.set_read_timeout(Some(knock_remaining(deadline)?)).ok()?;
+        let mut byte = [0u8; 1];
+        match stream.read(&mut byte) {
+            Ok(1) => line.push(byte[0]),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            _ => return None,
+        }
+        if line.ends_with(b"\r\n") {
+            let text = std::str::from_utf8(&line[..line.len() - 2]).ok()?;
+            let mut parts = text.splitn(3, ' ');
+            let version = parts.next()?;
+            let code = parts.next()?;
+            if !matches!(version, "HTTP/1.0" | "HTTP/1.1")
+                || code.len() != 3
+                || !code.bytes().all(|b| b.is_ascii_digit())
+            {
+                return None;
+            }
+            let code: u16 = code.parse().ok()?;
+            return Some((100..500).contains(&code));
+        }
+    }
+    None
+}
+
+fn parse_portal_health(value: &Value) -> Option<url::Url> {
+    let raw = value.as_str()?;
+    if raw
+        .chars()
+        .any(|ch| ch.is_control() || ch.is_whitespace() || ch == '\\')
+    {
+        return None;
+    }
+    // Do not let URL normalization repair a missing authority or erase empty userinfo.
+    let (_, rest) = raw.split_once("://")?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+    let url = url::Url::parse(raw).ok()?;
+    (matches!(url.scheme(), "http" | "https") && url.has_host()).then_some(url)
+}
+
+fn resolve_portal_health(
+    host: &str,
+    port: u16,
+    deadline: Instant,
+) -> Option<std::vec::IntoIter<SocketAddr>> {
+    // An NSS lookup cannot be cancelled. Do not pile up new threads for a name
+    // still resolving from an earlier knock, and never join one on the collector.
+    static RESOLVING: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+    struct Resolution(String);
+    impl Drop for Resolution {
+        fn drop(&mut self) {
+            RESOLVING
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&self.0);
+        }
+    }
+
+    let mut resolving = RESOLVING.try_lock().ok()?;
+    if !resolving.insert(host.to_owned()) {
+        return None;
+    }
+    drop(resolving);
+    let resolution = Resolution(host.to_owned());
+    let (send, receive) = mpsc::channel();
+    thread::Builder::new()
+        .name("caduceus-health-dns".to_owned())
+        .spawn(move || {
+            let addresses = (resolution.0.as_str(), port).to_socket_addrs();
+            drop(resolution);
+            let _ = send.send(addresses);
+        })
+        .ok()?;
+    receive.recv_timeout(knock_remaining(deadline)?).ok()?.ok()
+}
+
+fn connect_portal_health(url: &url::Url, deadline: Instant) -> Option<TcpStream> {
+    let port = url.port_or_known_default()?;
+    let address = match url.host()? {
+        url::Host::Ipv4(ip) => SocketAddr::from((ip, port)),
+        url::Host::Ipv6(ip) => SocketAddr::from((ip, port)),
+        url::Host::Domain(host) => {
+            for address in resolve_portal_health(host, port, deadline)? {
+                if let Ok(stream) = TcpStream::connect_timeout(&address, knock_remaining(deadline)?) {
+                    return Some(stream);
+                }
+            }
+            return None;
+        }
+    };
+    TcpStream::connect_timeout(&address, knock_remaining(deadline)?).ok()
+}
+
+fn portal_health_row(name: String, url: Option<url::Url>) -> PortalObservation {
+    let Some(url) = url else {
+        return PortalObservation {
+            name,
+            units: Vec::new(),
+            status: "unknown".to_owned(),
+            first_missing_signal: named_signal("caduceus-stats-services-health-invalid"),
+        };
+    };
+    let deadline = Instant::now() + super::MODEL_LANE_TIMEOUT;
+    let up = connect_portal_health(&url, deadline).is_some_and(|stream| {
+        if url.scheme() == "https" {
+            return true; // TCP reachability only, no TLS or HTTP bytes.
+        }
+        let host = &url[url::Position::BeforeHost..url::Position::AfterPort];
+        let path = &url[url::Position::BeforePath..url::Position::AfterQuery];
+        http_socket_status(stream, host, path, deadline).unwrap_or(false)
+    });
+    socket_status_row(name, up && knock_remaining(deadline).is_some())
 }
 
 fn collect_portal_services(shown: &Value) -> ServicesObservation {
@@ -1834,7 +1955,7 @@ fn collect_portal_services(shown: &Value) -> ServicesObservation {
             });
             continue;
         };
-        if services.is_empty() {
+        if services.is_empty() && !portal.contains_key("health") {
             continue;
         }
         let name = portal
@@ -1844,6 +1965,13 @@ fn collect_portal_services(shown: &Value) -> ServicesObservation {
             .filter(|name| !name.is_empty() && name.len() <= 160)
             .map(str::to_owned)
             .unwrap_or_else(|| "unnamed portal".to_owned());
+        if services.is_empty() {
+            drafts.push(PortalDraft::Health {
+                name,
+                url: portal.get("health").and_then(parse_portal_health),
+            });
+            continue;
+        }
         let mut units = BTreeSet::new();
         let mut invalid = false;
         for service in services {
@@ -1881,7 +2009,7 @@ fn collect_portal_services(shown: &Value) -> ServicesObservation {
         if invalid && config_signal.is_none() {
             config_signal = named_signal("caduceus-stats-services-config-entry-invalid");
         }
-        drafts.push(PortalDraft {
+        drafts.push(PortalDraft::Systemd {
             name,
             units: units.into_iter().collect(),
             invalid,
@@ -1907,7 +2035,17 @@ fn collect_portal_services(shown: &Value) -> ServicesObservation {
     unique_units.insert("tailscaled.service".to_owned());
     if unique_units.len() > 256 {
         unit_subscription::configure(BTreeSet::new());
-        return ServicesObservation::unavailable("caduceus-stats-services-unit-limit-exceeded");
+        let rows = drafts
+            .into_iter()
+            .filter_map(|draft| match draft {
+                PortalDraft::Health { name, url } => Some(portal_health_row(name, url)),
+                PortalDraft::Systemd { .. } => None,
+            })
+            .collect();
+        return ServicesObservation {
+            rows,
+            ..ServicesObservation::unavailable("caduceus-stats-services-unit-limit-exceeded")
+        };
     }
     unit_subscription::configure(unique_units.clone());
     let states: BTreeMap<String, UnitObservation> = unique_units.iter().filter_map(|unit|
@@ -1917,7 +2055,10 @@ fn collect_portal_services(shown: &Value) -> ServicesObservation {
     let mut units = BTreeMap::new();
     let mut first_missing_signal = config_signal.or(command_signal.clone());
     for draft in &drafts {
-        for unit in &draft.units {
+        let PortalDraft::Systemd { units: unit_names, .. } = draft else {
+            continue;
+        };
+        for unit in unit_names {
             let observation = states.get(unit).cloned().unwrap_or_else(|| {
                 UnitObservation {
                     active_state: None,
@@ -1945,16 +2086,19 @@ fn collect_portal_services(shown: &Value) -> ServicesObservation {
     let rows = drafts
         .into_iter()
         .map(|draft| {
-            let missing = draft.units.iter().any(|unit| {
+            let (name, unit_names, invalid) = match draft {
+                PortalDraft::Systemd { name, units, invalid } => (name, units, invalid),
+                PortalDraft::Health { name, url } => return portal_health_row(name, url),
+            };
+            let missing = unit_names.iter().any(|unit| {
                 units
                     .get(unit)
                     .map_or(true, |state| state.active_state.is_none())
             });
-            let status = if draft.invalid || missing {
+            let status = if invalid || missing {
                 "unknown"
             } else {
-                let active = draft
-                    .units
+                let active = unit_names
                     .iter()
                     .filter(|unit| {
                         units
@@ -1963,13 +2107,13 @@ fn collect_portal_services(shown: &Value) -> ServicesObservation {
                             == Some("active")
                     })
                     .count();
-                let down = draft.units.iter().any(|unit| {
+                let down = unit_names.iter().any(|unit| {
                     units
                         .get(unit)
                         .and_then(|state| state.active_state.as_deref())
                         != Some("active")
                 });
-                if active == draft.units.len() && !draft.units.is_empty() {
+                if active == unit_names.len() && !unit_names.is_empty() {
                     "up"
                 } else if active > 0 && down {
                     "partial"
@@ -1977,7 +2121,7 @@ fn collect_portal_services(shown: &Value) -> ServicesObservation {
                     "down"
                 }
             };
-            let signal = if draft.invalid {
+            let signal = if invalid {
                 named_signal("caduceus-stats-services-config-entry-invalid")
             } else if missing {
                 Some(command_signal.clone().unwrap_or_else(|| {
@@ -1987,8 +2131,8 @@ fn collect_portal_services(shown: &Value) -> ServicesObservation {
                 None
             };
             PortalObservation {
-                name: draft.name,
-                units: draft.units,
+                name,
+                units: unit_names,
                 status: status.to_owned(),
                 first_missing_signal: signal,
             }
