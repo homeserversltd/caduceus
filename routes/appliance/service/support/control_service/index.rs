@@ -111,20 +111,26 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
     Ok(receipt)
 }
 
-fn chord_stage<'a>(chord: &'a Value, id: &str) -> Option<&'a Value> {
+fn chord_row<'a>(chord: &'a Value, id: &str) -> Option<&'a Value> {
     chord
         .get("stages")?
         .as_array()?
         .iter()
-        .find(|stage| stage.get("stage_id").and_then(Value::as_str) == Some(id))?
-        .get("receipt")
+        .find(|stage| stage.get("stage_id").and_then(Value::as_str) == Some(id))
+}
+
+fn chord_stage<'a>(chord: &'a Value, id: &str) -> Option<&'a Value> {
+    chord_row(chord, id)?.get("receipt")
 }
 
 fn missing_signal(value: &Value) -> Option<&str> {
     ["doorSignal", "firstMissingSignal", "error"]
         .into_iter()
         .filter_map(|key| value.get(key).and_then(Value::as_str))
-        .find(|signal| !signal.trim().is_empty() && *signal != "none")
+        .find(|signal| {
+            let word = signal.trim();
+            !word.is_empty() && !word.eq_ignore_ascii_case("none")
+        })
 }
 
 fn cross_transmission_chord((band, timeout): (&str, Duration)) -> (Value, Option<String>) {
@@ -139,31 +145,37 @@ fn cross_transmission_chord((band, timeout): (&str, Duration)) -> (Value, Option
     let Some(receipt) = crossing.get_mut("receiptPayload").map(Value::take) else {
         return (Value::Null, Some("caduceus-snake-receipt-missing".into()));
     };
-    let failed_stage = receipt.get("failedStage").and_then(Value::as_str);
-    let no_signal = if band == TRANSMISSION_UP.0 {
-        TRANSMISSION_START_NOT_ON
+    let aggregate = aggregate_bound(&receipt, band);
+    // Like the direct door, recognize the existing down stop as well as
+    // an aggregate bound to that crossing. Up must supply an onness stage.
+    let complete = if aggregate {
+        receipt.get("failedStage").is_some_and(Value::is_null)
     } else {
-        "caduceus-agathodaimon-refused"
+        band == TRANSMISSION_DOWN.0
     };
-    let failure = if aggregate_bound(&receipt, band) {
-        if receipt_succeeded(&crossing) && receipt_succeeded(&receipt) && failed_stage.is_none() {
-            None
-        } else {
-            Some(
-                failed_stage
-                    .and_then(|id| chord_stage(&receipt, id))
-                    .and_then(missing_signal)
-                    .or_else(|| missing_signal(&receipt))
-                    .or_else(|| missing_signal(&crossing))
-                    .or(failed_stage)
-                    .unwrap_or(no_signal),
-            )
-        }
-    } else if bound(&receipt, band) && !receipt_succeeded(&receipt) {
-        // The staff front door can refuse before a chord produces an aggregate.
-        Some(missing_signal(&receipt).unwrap_or(no_signal))
-    } else {
+    let failure = if !aggregate && !bound(&receipt, band) {
         Some("caduceus-schema-desync")
+    } else if complete && receipt_succeeded(&crossing) && receipt_succeeded(&receipt) {
+        None
+    } else {
+        let no_signal = if band == TRANSMISSION_UP.0 {
+            TRANSMISSION_START_NOT_ON
+        } else {
+            "caduceus-agathodaimon-refused"
+        };
+        let stage_signal = receipt
+            .get("failedStage")
+            .and_then(Value::as_str)
+            .filter(|_| aggregate)
+            .and_then(|id| chord_row(&receipt, id))
+            .and_then(|row| {
+                missing_signal(row).or_else(|| row.get("receipt").and_then(missing_signal))
+            });
+        Some(
+            stage_signal
+                .or_else(|| missing_signal(&receipt))
+                .unwrap_or(no_signal),
+        )
     };
     let failure = failure.map(str::to_owned);
     (receipt, failure)
