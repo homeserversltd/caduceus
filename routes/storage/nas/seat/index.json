@@ -1,0 +1,14 @@
+{
+  "namespace": "storage/nas/seat",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "storage/nas/seat", "verb": ["nas", "seat"]}],
+  "commands": ["storage nas seat"],
+  "needs": ["nas"],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/nas/seat",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true
+}
