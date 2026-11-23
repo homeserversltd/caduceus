@@ -1,5 +1,11 @@
 use crate::shared::config;
 use serde_json::{json, Value};
+use std::time::Duration;
+
+// The budgets of routes/transmission/{up,down}, not the unit-band timeout.
+const TRANSMISSION_UP: (&str, Duration) = ("transmission/up", Duration::from_secs(600));
+const TRANSMISSION_DOWN: (&str, Duration) = ("transmission/down", Duration::from_secs(180));
+const TRANSMISSION_START_NOT_ON: &str = "caduceus-transmission-start-not-on";
 
 pub fn execute_registered_service(service: &str, action: &str) -> Result<Value, String> {
     execute_service_with_mode(json!({
@@ -36,6 +42,18 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
     let normalized = normalize_systemd_service(service);
     if systemd_service != normalized || !allowed.iter().any(|item| item == &normalized) {
         return Err("caduceus-portal-service-not-allowed".to_string());
+    }
+
+    if crate::routes::profile_routes::ACTIVE_PROFILE == "homeserver"
+        && normalized == "transmissionVPN.service"
+        && matches!(action, "start" | "stop" | "restart")
+    {
+        return Ok(execute_transmission_service(
+            &metadata,
+            service,
+            action,
+            systemd_service,
+        ));
     }
 
     let payload = json!({"service": service});
@@ -91,6 +109,125 @@ fn execute_service_with_mode(metadata: Value) -> Result<Value, String> {
         }
     }
     Ok(receipt)
+}
+
+fn chord_stage<'a>(chord: &'a Value, id: &str) -> Option<&'a Value> {
+    chord
+        .get("stages")?
+        .as_array()?
+        .iter()
+        .find(|stage| stage.get("stage_id").and_then(Value::as_str) == Some(id))?
+        .get("receipt")
+}
+
+fn missing_signal(value: &Value) -> Option<&str> {
+    ["doorSignal", "firstMissingSignal", "error"]
+        .into_iter()
+        .filter_map(|key| value.get(key).and_then(Value::as_str))
+        .find(|signal| !signal.trim().is_empty() && *signal != "none")
+}
+
+fn cross_transmission_chord((band, timeout): (&str, Duration)) -> (Value, Option<String>) {
+    use crate::gate::{receipt_succeeded, snake::crossing_path_with_timeout};
+    use crate::routes::leaf_schema::{aggregate_bound, bound};
+
+    // The direct doors use a null payload when no chord arguments are supplied.
+    let mut crossing = match crossing_path_with_timeout(band, &Value::Null, timeout) {
+        Ok(crossing) => crossing,
+        Err(signal) => return (Value::Null, Some(signal)),
+    };
+    let Some(receipt) = crossing.get_mut("receiptPayload").map(Value::take) else {
+        return (Value::Null, Some("caduceus-snake-receipt-missing".into()));
+    };
+    let failed_stage = receipt.get("failedStage").and_then(Value::as_str);
+    let no_signal = if band == TRANSMISSION_UP.0 {
+        TRANSMISSION_START_NOT_ON
+    } else {
+        "caduceus-agathodaimon-refused"
+    };
+    let failure = if aggregate_bound(&receipt, band) {
+        if receipt_succeeded(&crossing) && receipt_succeeded(&receipt) && failed_stage.is_none() {
+            None
+        } else {
+            Some(
+                failed_stage
+                    .and_then(|id| chord_stage(&receipt, id))
+                    .and_then(missing_signal)
+                    .or_else(|| missing_signal(&receipt))
+                    .or_else(|| missing_signal(&crossing))
+                    .or(failed_stage)
+                    .unwrap_or(no_signal),
+            )
+        }
+    } else if bound(&receipt, band) && !receipt_succeeded(&receipt) {
+        // The staff front door can refuse before a chord produces an aggregate.
+        Some(missing_signal(&receipt).unwrap_or(no_signal))
+    } else {
+        Some("caduceus-schema-desync")
+    };
+    let failure = failure.map(str::to_owned);
+    (receipt, failure)
+}
+
+fn execute_transmission_service(
+    metadata: &Value,
+    service: &str,
+    action: &str,
+    systemd_service: &str,
+) -> Value {
+    let mut chords = Vec::new();
+    let mut chord = if action == "start" {
+        TRANSMISSION_UP
+    } else {
+        TRANSMISSION_DOWN
+    };
+    let (mut receipt, mut failure) = cross_transmission_chord(chord);
+    if action == "restart" && failure.is_none() {
+        chords.push(receipt);
+        chord = TRANSMISSION_UP;
+        (receipt, failure) = cross_transmission_chord(chord);
+    }
+
+    let execution = chord.0;
+    // An unbound answer still rides whole, but cannot supply this unit's readback.
+    let up_receipt = (execution == TRANSMISSION_UP.0
+        && crate::routes::leaf_schema::aggregate_bound(&receipt, execution))
+    .then_some(&receipt);
+    let on = up_receipt
+        .and_then(|up| chord_stage(up, "onness"))
+        .and_then(|stage| stage.get("on"))
+        .and_then(Value::as_bool)
+        == Some(true);
+    if execution == TRANSMISSION_UP.0 && !on && failure.is_none() {
+        failure = Some(TRANSMISSION_START_NOT_ON.into());
+    }
+    let ok = failure.is_none();
+    let signal = failure.as_deref().unwrap_or("none");
+    let native_start = up_receipt.and_then(|up| chord_stage(up, "native-start"));
+    let active = native_start
+        .and_then(|stage| stage.pointer("/readback/active_state"))
+        .and_then(Value::as_str)
+        .map(|state| matches!(state, "active" | "reloading"));
+    let projection = json!({
+        "schema": "caduceus.staff.portal_service.v1",
+        "ok": ok,
+        "accepted": true,
+        "classification": "portal-service",
+        "service": service,
+        "action": action,
+        "systemdService": systemd_service,
+        "success": ok,
+        "message": if ok { format!("Service {action} completed for {service}") } else { format!("Service {action} failed for {service}") },
+        "output": native_start.and_then(|stage| stage.get("output")).and_then(Value::as_str),
+        "active": active,
+        "enabled": native_start.and_then(|stage| stage.get("enabled")).and_then(Value::as_bool),
+        "mutationPerformed": ok,
+        "execution": execution,
+        "firstMissingSignal": signal,
+        "metadata": metadata
+    });
+    chords.push(receipt);
+    json!({"ok": ok, "firstMissingSignal": signal, "portalService": projection, "transmissionChords": chords})
 }
 
 pub fn normalize_systemd_service(service: &str) -> String {
