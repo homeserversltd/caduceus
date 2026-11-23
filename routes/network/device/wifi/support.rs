@@ -17,27 +17,26 @@ pub async fn execute(
     body: Value,
     declaration: &str,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    let refusal_action = (!action.is_empty()).then_some(action);
     let Some(object) = body.as_object() else {
-        return refuse(refusal_action, "wifi-body-not-object");
+        return refuse(command, "wifi-body-not-object");
     };
     if object.contains_key("action") {
-        return refuse(refusal_action, "wifi-client-action-forbidden");
+        return refuse(command, "wifi-client-action-forbidden");
     };
     let plan = match build_plan(action, object, command) {
         Ok(v) => v,
-        Err(e) => return refuse(refusal_action, e),
+        Err(e) => return refuse(command, e),
     };
     let allowed = match crate::shared::policy::allows_command(command) {
         Ok(v) => v,
-        Err(_) => return refuse(refusal_action, "caduceus-carapace-desync"),
+        Err(_) => return refuse(command, "caduceus-carapace-desync"),
     };
     if !allowed {
-        return refuse(refusal_action, "caduceus-command-not-allowed");
+        return refuse(command, "caduceus-command-not-allowed");
     };
     let declaration_value: Value = match serde_json::from_str(declaration) {
         Ok(v) => v,
-        Err(_) => return refuse(refusal_action, "wifi-route-declaration-invalid"),
+        Err(_) => return refuse(command, "wifi-route-declaration-invalid"),
     };
     let route = declaration_value
         .get("namespace")
@@ -64,7 +63,7 @@ pub async fn execute(
         false,
     ) {
         Ok(v) => v,
-        Err(e) => return refuse(refusal_action, e),
+        Err(e) => return refuse(command, e),
     };
     let mutation = matches!(&plan, Plan::Mutation(_, _));
     let mut stop_refusal = None;
@@ -414,12 +413,12 @@ fn append_static_ipv4_payload_fields(
 }
 
 fn refuse(
-    action: Option<&str>,
+    command: &str,
     s: impl Into<String>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    let command = "network device wifi";
     let signal = s.into();
-    let (noun, verb) = action.map_or(("network/device", "wifi"), |verb| ("network/device/wifi", verb));
+    let (noun, verb) = command.rsplit_once(' ').unwrap_or(("", command));
+    let noun = noun.replace(' ', "/");
     Err((
         StatusCode::FORBIDDEN,
         Json(json!({
