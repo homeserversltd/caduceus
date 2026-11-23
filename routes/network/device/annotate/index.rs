@@ -157,7 +157,6 @@ fn network_notes_write_error(signal: String) -> (StatusCode, Json<ApiErrorBody>)
     (
         status,
         Json(ApiErrorBody {
-            schema: "caduceus.api.error.v1",
             ok: false,
             command: "network notes write".to_string(),
             first_missing_signal: signal,

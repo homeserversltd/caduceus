@@ -26,7 +26,6 @@ fn not_found(signal: &'static str) -> Response {
     (
         StatusCode::NOT_FOUND,
         Json(crate::gate::ApiErrorBody {
-            schema: "caduceus.api.error.v1",
             ok: false,
             command: "docs".to_owned(),
             first_missing_signal: signal.to_owned(),
@@ -366,7 +365,6 @@ async fn seal(
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(crate::gate::ApiErrorBody {
-                schema: "caduceus.api.error.v1",
                 ok: false,
                 command: "docs".to_owned(),
                 first_missing_signal: "caduceus-docs-seal-schema-desync".to_owned(),

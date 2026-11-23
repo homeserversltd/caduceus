@@ -231,7 +231,6 @@ fn invalid_request(started: Instant, field: &str) -> ApiError {
     (
         StatusCode::BAD_REQUEST,
         Json(crate::gate::ApiErrorBody {
-            schema: "caduceus.api.error.v1",
             ok: false,
             command: COMMAND.to_string(),
             first_missing_signal: signal,

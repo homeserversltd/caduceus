@@ -26,7 +26,6 @@ pub(crate) async fn disk_census_route(
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ApiErrorBody {
-                schema: "caduceus.api.error.v1",
                 ok: false,
                 command: COMMAND.to_string(),
                 first_missing_signal: missing_signal(&err).to_string(),
@@ -56,7 +55,6 @@ pub(crate) async fn storage_categories_route(
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ApiErrorBody {
-                schema: "caduceus.api.error.v1",
                 ok: false,
                 command: COMMAND.to_string(),
                 first_missing_signal: err,
@@ -82,7 +80,6 @@ pub(crate) async fn storage_categories_scan_route(
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     Json(ApiErrorBody {
-                        schema: "caduceus.api.error.v1",
                         ok: false,
                         command: COMMAND.to_string(),
                         first_missing_signal: err,

@@ -177,7 +177,6 @@ async fn get(Path(id): Path<String>) -> Response {
         None => (
             StatusCode::NOT_FOUND,
             Json(crate::gate::ApiErrorBody {
-                schema: "caduceus.api.error.v1",
                 ok: false,
                 command: "schema".to_owned(),
                 first_missing_signal: "caduceus-schema-absent".to_owned(),

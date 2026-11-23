@@ -13,7 +13,6 @@ fn err(command: &str, e: String) -> (StatusCode, Json<ApiErrorBody>) {
         (
             StatusCode::BAD_REQUEST,
             Json(ApiErrorBody {
-                schema: "caduceus.api.error.v1",
                 ok: false,
                 command: command.into(),
                 first_missing_signal: e,

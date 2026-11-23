@@ -26,7 +26,6 @@ pub(crate) async fn route() -> Result<Json<BeamBody>, (StatusCode, Json<crate::g
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(crate::gate::ApiErrorBody {
-                schema: "caduceus.api.error.v1",
                 ok: false,
                 command: "beam".to_owned(),
                 first_missing_signal: signal.to_owned(),

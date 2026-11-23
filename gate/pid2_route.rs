@@ -50,15 +50,16 @@ pub(crate) fn call(namespace: &str, payload: Option<&Value>, keep: &[String], se
                 _ if status>=400=>return Ok(refused(status,"pid2-route-answer-invalid")),
                 _=>return Err("pid2-route-answer-invalid".into()),
             };
-            let api_error=answer.get("schema").and_then(Value::as_str)==Some("caduceus.api.error.v1");
             let ok=answer.get("ok").and_then(Value::as_bool);
+            // Door refusals carry the command; a stop's own ok-false receipt does not.
+            let door_refusal = ok == Some(false) && answer.get("command").and_then(Value::as_str).is_some();
             let signal=match answer.get("firstMissingSignal").and_then(Value::as_str) {
-                Some(value) if value.len()>256 && (api_error || status>=400) =>return Ok(refused(status,"pid2-route-signal-too-large")),
+                Some(value) if value.len()>256 && (door_refusal || status>=400) =>return Ok(refused(status,"pid2-route-signal-too-large")),
                 Some(value) if value.len()>256 =>return Err("pid2-route-signal-too-large".into()),
                 Some(value)=>Some(value.to_owned()),
                 None=>None,
             };
-            if api_error || (status>=400 && ok!=Some(false)) {
+            if door_refusal || (status>=400 && ok!=Some(false)) {
                 return Ok(refused(status,signal.as_deref().unwrap_or("pid2-route-refused")));
             }
             let fresh_until=answer.get("freshUntil").and_then(Value::as_f64);

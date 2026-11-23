@@ -697,7 +697,6 @@ pub fn outcome_for_result<T, E>(result: &Result<T, E>) -> bool {
 }
 
 pub struct ApiErrorBodyFields<'a> {
-    pub schema: &'a str,
     pub ok: bool,
     pub command: &'a str,
     pub first_missing_signal: &'a str,
@@ -710,15 +709,33 @@ pub fn serialize_api_error<S>(
 where
     S: Serializer,
 {
+    let parts: Vec<_> = fields
+        .command
+        .split([' ', '/'])
+        .filter(|part| !part.is_empty())
+        .collect();
+    let (noun, verb) = match parts.as_slice() {
+        [] => (String::new(), None),
+        [noun] => ((*noun).to_owned(), None),
+        [noun @ .., verb] => (noun.join("/"), Some(*verb)),
+    };
     let context = response_context();
     let mut state = serializer.serialize_struct(
         "ApiErrorBody",
-        if context.is_some() { 5 } else { 4 },
+        if context.is_some() { 10 } else { 9 },
     )?;
-    state.serialize_field("schema", fields.schema)?;
+    state.serialize_field("schema", "caduceus.staff.receipt.v1")?;
     state.serialize_field("ok", &fields.ok)?;
-    state.serialize_field("command", fields.command)?;
+    state.serialize_field("stop", &json!({"noun": noun, "verb": verb}))?;
+    state.serialize_field("observed", &json!({"command": fields.command}))?;
+    state.serialize_field("could_change_to", &Value::Null)?;
+    state.serialize_field("attempt", &Value::Null)?;
+    state.serialize_field(
+        "final_receipt",
+        &json!({"ok": fields.ok, "firstMissingSignal": fields.first_missing_signal}),
+    )?;
     state.serialize_field("firstMissingSignal", fields.first_missing_signal)?;
+    state.serialize_field("command", fields.command)?;
     if let Some(context) = context {
         state.serialize_field("load_context", &context)?;
     }

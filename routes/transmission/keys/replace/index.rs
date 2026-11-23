@@ -16,7 +16,6 @@ fn bad_request(
     (
         StatusCode::BAD_REQUEST,
         Json(crate::gate::ApiErrorBody {
-            schema: "caduceus.api.error.v1",
             ok: false,
             command: COMMAND.to_string(),
             first_missing_signal: signal.to_string(),

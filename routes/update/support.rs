@@ -78,7 +78,6 @@ pub(crate) async fn receipts_ledger_route(
                 Err(_) => Err((
                     StatusCode::SERVICE_UNAVAILABLE,
                     Json(ApiErrorBody {
-                        schema: "caduceus.api.error.v1",
                         ok: false,
                         command: "receipts ledger".to_string(),
                         first_missing_signal: "caduceus-harmonia-ledger-unreadable".to_string(),
@@ -90,7 +89,6 @@ pub(crate) async fn receipts_ledger_route(
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ApiErrorBody {
-                schema: "caduceus.api.error.v1",
                 ok: false,
                 command: "receipts ledger".to_string(),
                 first_missing_signal: "caduceus-carapace-desync".to_string(),

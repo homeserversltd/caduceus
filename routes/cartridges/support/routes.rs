@@ -21,7 +21,6 @@ fn cartridge_error(
     (
         StatusCode::from_u16(error.status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE),
         Json(ApiErrorBody {
-            schema: "caduceus.api.error.v1",
             ok: false,
             command: command.to_string(),
             first_missing_signal: error.signal.to_string(),
@@ -44,7 +43,6 @@ fn cartridges_mutation_admitted() -> Result<(), (StatusCode, Json<ApiErrorBody>)
         Err(_) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ApiErrorBody {
-                schema: "caduceus.api.error.v1",
                 ok: false,
                 command: "cartridges mutate".to_string(),
                 first_missing_signal: "caduceus-carapace-desync".to_string(),

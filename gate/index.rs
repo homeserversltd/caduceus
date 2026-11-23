@@ -48,7 +48,6 @@ pub mod snake;
 pub mod door;
 
 pub(crate) struct ApiErrorBody {
-    pub(crate) schema: &'static str,
     pub(crate) ok: bool,
     pub(crate) command: String,
     pub(crate) first_missing_signal: String,
@@ -61,7 +60,6 @@ impl Serialize for ApiErrorBody {
     {
         crate::shared::load_trace::serialize_api_error(
             crate::shared::load_trace::ApiErrorBodyFields {
-                schema: self.schema,
                 ok: self.ok,
                 command: &self.command,
                 first_missing_signal: &self.first_missing_signal,
@@ -118,7 +116,6 @@ pub(crate) fn api_error_signal(command: &str, signal: &str) -> (StatusCode, Json
     (
         StatusCode::FORBIDDEN,
         Json(ApiErrorBody {
-            schema: "caduceus.api.error.v1",
             ok: false,
             command: command.into(),
             first_missing_signal: signal.into(),
@@ -141,7 +138,6 @@ pub(crate) fn service_unavailable(command: &str, signal: &str) -> (StatusCode, J
     (
         StatusCode::SERVICE_UNAVAILABLE,
         Json(ApiErrorBody {
-            schema: "caduceus.api.error.v1",
             ok: false,
             command: command.into(),
             first_missing_signal: signal.into(),
@@ -987,7 +983,6 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
             return (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 Json(ApiErrorBody {
-                    schema: "caduceus.api.error.v1",
                     ok: false,
                     command: "administrative route gate".into(),
                     first_missing_signal: "caduceus-administrative-request-too-large".into(),

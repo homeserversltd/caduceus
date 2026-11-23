@@ -30,7 +30,6 @@ fn admit_document(
         (
             StatusCode::UNAUTHORIZED,
             ResponseJson(crate::gate::ApiErrorBody {
-                schema: "caduceus.api.error.v1",
                 ok: false,
                 command: COMMAND.into(),
                 first_missing_signal: signal,

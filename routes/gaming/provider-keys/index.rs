@@ -9,7 +9,6 @@ fn staff_refusal(command: &str, signal: String) -> (StatusCode, Json<crate::gate
     (
         StatusCode::SERVICE_UNAVAILABLE,
         Json(crate::gate::ApiErrorBody {
-            schema: "caduceus.api.error.v1",
             ok: false,
             command: command.to_string(),
             first_missing_signal: signal,
@@ -26,7 +25,6 @@ fn bad_request() -> (StatusCode, Json<crate::gate::ApiErrorBody>) {
     (
         StatusCode::BAD_REQUEST,
         Json(crate::gate::ApiErrorBody {
-            schema: "caduceus.api.error.v1",
             ok: false,
             command: "gaming provider-keys save".to_string(),
             first_missing_signal: "caduceus-games-provider-keys-empty".to_string(),

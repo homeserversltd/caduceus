@@ -82,7 +82,6 @@ async fn setup_route(
         (
             StatusCode::BAD_REQUEST,
             Json(crate::gate::ApiErrorBody {
-                schema: "caduceus.api.error.v1",
                 ok: false,
                 command: COMMAND.to_string(),
                 first_missing_signal: "caduceus-nas-setup-request-invalid".to_string(),

@@ -274,7 +274,6 @@ where
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(ApiErrorBody {
-                    schema: "caduceus.api.error.v1",
                     ok: false,
                     command: command.to_string(),
                     first_missing_signal: err,

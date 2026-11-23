@@ -181,7 +181,6 @@ fn error(
     (
         status,
         Json(crate::gate::ApiErrorBody {
-            schema: "caduceus.api.error.v1",
             ok: false,
             command: "ruyi".to_owned(),
             first_missing_signal: signal.to_owned(),

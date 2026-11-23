@@ -53,7 +53,6 @@ pub(crate) async fn network_read_route(
                 Err(error) => Err((
                     StatusCode::SERVICE_UNAVAILABLE,
                     Json(ApiErrorBody {
-                        schema: "caduceus.api.error.v1",
                         ok: false,
                         command: command.to_string(),
                         first_missing_signal: error,

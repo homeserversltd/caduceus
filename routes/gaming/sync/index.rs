@@ -8,7 +8,6 @@ fn staff_refusal(command: &str, signal: String) -> (StatusCode, Json<crate::gate
     (
         StatusCode::SERVICE_UNAVAILABLE,
         Json(crate::gate::ApiErrorBody {
-            schema: "caduceus.api.error.v1",
             ok: false,
             command: command.to_string(),
             first_missing_signal: signal,
