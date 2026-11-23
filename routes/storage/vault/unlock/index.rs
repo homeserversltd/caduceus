@@ -5,8 +5,6 @@ use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 
 const APPLIANCE_CONFIG: &str = "/etc/appliance/config.json";
-const POLICY_READ_RECEIPT_SCHEMA: &str = "caduceus.storage.vault.policy.read.v1";
-const POLICY_WRITE_RECEIPT_SCHEMA: &str = "caduceus.storage.vault.policy.write.v1";
 const CONFIG_MUTATION_SCHEMA: &str = "caduceus.household-config.mutation.v1";
 const AUTO_UNLOCK_CONFIG_PATH: &str = "global.mounts.vault.auto_unlock";
 const HOUSEHOLD_CONFIG_PATH: &str = "/etc/appliance/config.json";
@@ -208,8 +206,7 @@ fn read_policy(cfg: &VaultConfig) -> Result<Value, String> {
     let payload = json!({"mapper": &cfg.mapper});
     let receipt = crate::gate::snake::crossing_path_receipt("storage/vault/policy/read", &payload)
         .map_err(|_| "vault-policy-missing".to_string())?;
-    if (receipt.get("schema").and_then(Value::as_str) != Some(POLICY_READ_RECEIPT_SCHEMA)
-        && !crate::routes::leaf_schema::bound(&receipt, "storage/vault/policy/read"))
+    if !crate::routes::leaf_schema::bound(&receipt, "storage/vault/policy/read")
         || receipt.get("op").and_then(Value::as_str) != Some("read")
         || !crate::gate::receipt_succeeded(&receipt)
     {
@@ -476,25 +473,72 @@ pub fn unlock_json(password: Option<&str>) -> Value {
     }
 }
 pub fn auto_decrypt_json(enabled: bool) -> Value {
+    let no_stop = |signal: &str, observed: Value, attempted: bool, mut words: Value| {
+        words["schema"] = json!("caduceus.staff.receipt.v1");
+        words["ok"] = json!(false);
+        words["stop"] = json!({"noun": "storage/vault", "verb": "auto-decrypt"});
+        words["observed"] = observed;
+        words["could_change_to"] = Value::Null;
+        words["attempt"] = json!({"attempted": attempted});
+        words["final_receipt"] = json!({"ok": false, "firstMissingSignal": signal});
+        words["firstMissingSignal"] = json!(signal);
+        words
+    };
+    let unreadable_words = || {
+        json!({
+            "success": false,
+            "message": "Unable to update automatic vault decryption.",
+            "auto_decrypt_enabled": false,
+        })
+    };
     let cfg = match vault_config() {
         Ok(cfg) => cfg,
         Err(error) => {
             log_internal("auto-decrypt", &error);
-            return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":false});
+            return no_stop(
+                "vault-config-unreadable",
+                json!({"config_error": error}),
+                false,
+                unreadable_words(),
+            );
         }
     };
-    if !mounted(&cfg) {
+    let mount = mounted_read(&cfg);
+    if mount != Ok(true) {
         log_internal("auto-decrypt", "vault-must-be-mounted");
-        return json!({"success":false,"message":"The vault must be mounted first.","auto_decrypt_enabled":auto_enabled(&cfg)});
+        let observed = match mount {
+            Ok(mounted) => json!({"mounted": mounted}),
+            Err(error) => json!({"mounted": null, "mount_error": error}),
+        };
+        return no_stop(
+            "vault-must-be-mounted",
+            observed,
+            false,
+            json!({
+                "success": false,
+                "message": "The vault must be mounted first.",
+                "auto_decrypt_enabled": auto_enabled(&cfg),
+            }),
+        );
     }
-    let Ok(_policy) = read_policy(&cfg) else {
+    if let Err(error) = read_policy(&cfg) {
         log_internal("auto-decrypt", "vault-policy-invalid");
-        return json!({"success":false,"message":"Unable to update automatic vault decryption.","auto_decrypt_enabled":false});
-    };
+        return no_stop(
+            "vault-policy-invalid",
+            json!({"mounted": true, "policy_error": error}),
+            false,
+            unreadable_words(),
+        );
+    }
     let mut config_rollback = None;
     if let Err(error) = set_config_auto_unlock(enabled, &mut config_rollback) {
         log_internal("auto-decrypt", &error);
-        return auto_decrypt_failure(config_rollback);
+        return no_stop(
+            "vault-auto-decrypt-config-write-failed",
+            json!({"mounted": true, "policy_read": true, "auto_unlock_before": cfg.auto_unlock}),
+            false,
+            auto_decrypt_failure(config_rollback),
+        );
     }
     let unlock = if enabled {
         "crypttab_keyfile"
@@ -513,34 +557,63 @@ pub fn auto_decrypt_json(enabled: bool) -> Value {
             "unlock": "manual_passphrase",
         })
     };
-    let receipt = match crate::gate::snake::crossing_path_receipt("storage/vault/policy/write", &payload) {
-        Ok(receipt) => receipt,
-        Err(error) => {
-            log_internal("auto-decrypt", &error);
-            return auto_decrypt_failure(config_rollback);
-        }
+    let mut receipt =
+        match crate::gate::snake::crossing_path_receipt("storage/vault/policy/write", &payload) {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                log_internal("auto-decrypt", &error);
+                return no_stop(
+                    &error,
+                    json!({"mounted": true, "policy_read": true, "config_auto_unlock": enabled}),
+                    true,
+                    auto_decrypt_failure(config_rollback),
+                );
+            }
+        };
+    let bound = crate::routes::leaf_schema::bound(&receipt, "storage/vault/policy/write");
+    let matches_write = receipt.get("op").and_then(Value::as_str) == Some("write")
+        && receipt.get("unlock").and_then(Value::as_str) == Some(unlock);
+    let verdict = if receipt.get("ok").and_then(Value::as_bool) != Some(true) {
+        None
+    } else if !bound {
+        Some("caduceus-schema-desync")
+    } else if !matches_write {
+        Some("caduceus-vault-policy-write-mismatch")
+    } else {
+        None
     };
-    if (receipt.get("schema").and_then(Value::as_str) != Some(POLICY_WRITE_RECEIPT_SCHEMA)
-        && !crate::routes::leaf_schema::bound(&receipt, "storage/vault/policy/write"))
-        || receipt.get("op").and_then(Value::as_str) != Some("write")
-        || receipt.get("unlock").and_then(Value::as_str) != Some(unlock)
-        || !crate::gate::receipt_succeeded(&receipt)
-    {
+    let words = if bound && matches_write && crate::gate::receipt_succeeded(&receipt) {
+        json!({
+            "success": true,
+            "message": "vault-auto-decrypt-updated",
+            "auto_decrypt_enabled": enabled,
+            "auto_unlock": enabled,
+        })
+    } else {
         let signal = receipt
             .get("firstMissingSignal")
             .and_then(Value::as_str)
             .unwrap_or("vault-policy-write-refused");
         log_internal("auto-decrypt", signal);
-        let mut failure = auto_decrypt_failure(config_rollback);
-        failure["stopReceipt"] = receipt;
-        return failure;
+        auto_decrypt_failure(config_rollback)
+    };
+    if let Some(object) = receipt.as_object_mut() {
+        // Only add the projection after checking all of its reserved names.
+        // An earlier refusal keeps its signal, and a completed write isn't undone.
+        let collision = ["success", "message", "auto_decrypt_enabled", "auto_unlock"]
+            .into_iter()
+            .any(|key| object.contains_key(key));
+        if !collision {
+            if let Value::Object(words) = words {
+                object.extend(words);
+            }
+        }
+        let collision_signal = collision.then_some("caduceus-vault-auto-decrypt-door-words-collision");
+        if let Some(signal) = verdict.or(collision_signal) {
+            object.entry("doorSignal").or_insert_with(|| json!(signal));
+        }
     }
-    json!({
-        "success": true,
-        "message": "vault-auto-decrypt-updated",
-        "auto_decrypt_enabled": enabled,
-        "auto_unlock": enabled,
-    })
+    receipt
 }
 
 use axum::extract::Json as ExtractJson;
