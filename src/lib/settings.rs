@@ -5,6 +5,7 @@
 //! actuator. Successful mutations must return a receipt rooted in the shared
 //! Caduceus ledger.
 
+use axum::{http::StatusCode, Json};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -173,27 +174,22 @@ pub fn mutate_command(family: &str) -> Option<String> {
     fields(family).map(|_| format!("settings {family} mutate"))
 }
 
-fn cross_settings(path: &str, input: &Value) -> Result<Value, String> {
-    let value = crate::gate::snake::crossing_path_with_timeout(
-        path,
-        input,
-        Duration::from_secs(180),
-    )?;
-    if value.get("ok").and_then(Value::as_bool) == Some(true) {
-        Ok(value.get("receiptPayload").cloned().unwrap_or(value))
-    } else {
-        Err(value
-            .get("receiptPayload")
-            .and_then(|payload| {
-                payload
-                    .get("error")
-                    .or_else(|| payload.get("firstMissingSignal"))
-                    .and_then(Value::as_str)
-            })
-            .or_else(|| value.get("firstMissingSignal").and_then(Value::as_str))
-            .unwrap_or("caduceus-agathodaimon-refused")
-            .into())
-    }
+fn cross_settings(path: &str) -> Result<Value, String> {
+    // Reads send no caller payload; only the gate's trace may accompany the request.
+    crate::gate::snake::crossing_path_with_timeout(path, &json!({}), Duration::from_secs(180))
+}
+
+fn crossing_signal(value: &Value) -> &str {
+    value
+        .get("receiptPayload")
+        .and_then(|payload| {
+            payload
+                .get("error")
+                .or_else(|| payload.get("firstMissingSignal"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| value.get("firstMissingSignal").and_then(Value::as_str))
+        .unwrap_or("caduceus-agathodaimon-refused")
 }
 
 fn mutation_refusal(family: &str, body: &Value, step: &str, signal: String) -> Value {
@@ -335,22 +331,31 @@ fn display_mutation_error(
 }
 
 pub fn read_json(family: &str) -> Result<Value, String> {
-    fields(family).ok_or_else(|| "caduceus-settings-family-invalid".to_string())?;
-    let mut receipt = cross_settings(&format!("settings/{family}/read"), &json!({}))?;
-    let values = receipt
-        .get_mut("values")
-        .and_then(Value::as_object_mut)
-        .ok_or_else(|| "caduceus-settings-read-values-missing".to_string())?;
+    let allowed = fields(family).ok_or("caduceus-settings-family-invalid")?;
+    let crossing = cross_settings(&format!("settings/{family}/read"))?;
+    if crossing.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err(crossing_signal(&crossing).into());
+    }
+    let receipt = crossing.get("receiptPayload").unwrap_or(&crossing);
+    project_read(family, allowed, receipt).map_err(str::to_owned)
+}
+
+fn project_read(family: &str, allowed: &[&str], receipt: &Value) -> Result<Value, &'static str> {
+    let mut values = receipt
+        .get("values")
+        .and_then(Value::as_object)
+        .cloned()
+        .ok_or("caduceus-settings-read-values-missing")?;
     if family == "datetime" {
         // Drop the retired value until every body runs the new staff.
         values.remove("date_format");
     }
-    let allowed = fields(family).unwrap();
+
     if values
         .keys()
         .any(|field| !allowed.contains(&field.as_str()))
     {
-        return Err("caduceus-settings-read-field-not-allowed".to_string());
+        return Err("caduceus-settings-read-field-not-allowed");
     }
     let mut result =
         json!({"schema":"caduceus.settings.read.v1","ok":true,"family":family,"values":values,"firstMissingSignal":"none"});
@@ -397,7 +402,143 @@ pub fn read_json(family: &str) -> Result<Value, String> {
     Ok(result)
 }
 
+enum ReadRefusal {
+    Receipt(Value),
+    Crossing(String),
+}
+
+fn read_answer(family: &str) -> Result<Value, ReadRefusal> {
+    let allowed = fields(family)
+        .ok_or_else(|| ReadRefusal::Crossing("caduceus-settings-family-invalid".into()))?;
+    let path = format!("settings/{family}/read");
+    let crossing = cross_settings(&path).map_err(ReadRefusal::Crossing)?;
+    let crossing_ok = crossing.get("ok").and_then(Value::as_bool) == Some(true);
+    let receipt = crossing.get("receiptPayload");
+    if let Some((receipt, object)) = receipt.and_then(|value| value.as_object().map(|o| (value, o))) {
+        let ok = receipt.get("ok").and_then(Value::as_bool);
+        let door_signal = if !crossing_ok && ok != Some(false) {
+            Some(
+                crossing
+                    .get("firstMissingSignal")
+                    .and_then(Value::as_str)
+                    .filter(|signal| !signal.is_empty() && *signal != "none")
+                    .unwrap_or("caduceus-agathodaimon-refused"),
+            )
+        } else if !crate::routes::leaf_schema::bound(receipt, &path) {
+            Some("caduceus-schema-desync")
+        } else if ok.is_none() {
+            Some("caduceus-staff-invalid-receipt")
+        } else {
+            None
+        };
+        if door_signal.is_some() || !crate::gate::receipt_succeeded(receipt) {
+            let mut object = object.clone();
+            if let Some(signal) = door_signal {
+                object.entry("doorSignal").or_insert_with(|| json!(signal));
+            }
+            return Err(ReadRefusal::Receipt(Value::Object(object)));
+        }
+    } else if !crossing_ok {
+        return Err(ReadRefusal::Crossing(crossing_signal(&crossing).into()));
+    }
+
+    let receipt = receipt.unwrap_or(&crossing);
+    project_read(family, allowed, receipt).map_err(|signal| {
+        ReadRefusal::Receipt(json!({
+            "schema": "caduceus.staff.receipt.v1", "ok": false,
+            "stop": {"noun": format!("settings/{family}"), "verb": "read"},
+            "observed": {"family": family, "values": receipt.get("values")},
+            "could_change_to": null,
+            "attempt": {"attempted": true},
+            "final_receipt": {"ok": false, "firstMissingSignal": signal},
+            "firstMissingSignal": signal
+        }))
+    })
+}
+
+type GateRefusal = (StatusCode, Json<crate::gate::ApiErrorBody>);
+pub(crate) type HttpReply = Result<(StatusCode, Json<Value>), GateRefusal>;
+
+fn admit(command: &str) -> Result<(), GateRefusal> {
+    match crate::shared::policy::allows_command(command) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(crate::gate::api_error(command)),
+        Err(_) => Err(crate::gate::api_error_signal(command, "caduceus-carapace-desync")),
+    }
+}
+
+pub(crate) async fn read_http(family: &'static str) -> HttpReply {
+    use crate::shared::load_trace;
+
+    let command = read_command(family).expect("registered settings family has a read command");
+    admit(&command)?;
+    let context = load_trace::current();
+    let invocation = context.as_ref().map(load_trace::begin_invocation);
+    let result = crate::gate::blocking_task(&command, move || read_answer(family)).await;
+    if let (Some(context), Some(invocation)) = (context, invocation) {
+        let ok = result.as_ref().is_ok_and(load_trace::outcome_for_result);
+        load_trace::record_native_completion(&context, &command, invocation, ok);
+    }
+    match result? {
+        Ok(mut value) => {
+            load_trace::enrich_json(&mut value);
+            Ok((StatusCode::OK, Json(value)))
+        }
+        Err(ReadRefusal::Receipt(mut value)) => {
+            // Carry the gate's context beside the receipt, not into a staff-owned field.
+            if let (Some(context), Some(object)) =
+                (load_trace::response_context(), value.as_object_mut())
+            {
+                let field = if object.contains_key("load_context") {
+                    "caduceus_load_context"
+                } else {
+                    "load_context"
+                };
+                object.entry(field).or_insert(context);
+            }
+            Ok((StatusCode::SERVICE_UNAVAILABLE, Json(value)))
+        }
+        Err(ReadRefusal::Crossing(error)) => Err(crate::gate::service_unavailable(
+            &command,
+            crate::gate::missing_signal(&error),
+        )),
+    }
+}
+
+enum MutationReply {
+    ValidationRefusal(Value),
+    Answer(Value),
+}
+
+impl MutationReply {
+    fn into_value(self) -> Value {
+        match self {
+            Self::ValidationRefusal(value) | Self::Answer(value) => value,
+        }
+    }
+
+    fn status(&self) -> StatusCode {
+        match self {
+            Self::ValidationRefusal(_) => StatusCode::BAD_REQUEST,
+            Self::Answer(value) => crate::gate::mutation_status(value),
+        }
+    }
+}
+
+pub(crate) async fn mutate_http(family: &'static str, body: Value) -> HttpReply {
+    let command = mutate_command(family).expect("registered settings family has a mutate command");
+    admit(&command)?;
+    crate::gate::blocking_task(&command, move || mutate_answer(family, body))
+        .await?
+        .map(|reply| (reply.status(), Json(reply.into_value())))
+        .map_err(|error| crate::gate::api_error_signal(&command, &error))
+}
+
 pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
+    mutate_answer(family, body).map(MutationReply::into_value)
+}
+
+fn mutate_answer(family: &str, body: Value) -> Result<MutationReply, String> {
     let dry_run = body.get("dry-run").cloned();
     let validate = || -> Result<BTreeMap<String, Value>, String> {
     let values = validated_fields(family, body.clone())?;
@@ -432,10 +573,19 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
     };
     let values = match validate() {
         Ok(values) => values,
-        Err(signal) => return Ok(mutation_refusal(family, &body, "validate", signal)),
+        Err(signal) => {
+            return Ok(MutationReply::ValidationRefusal(mutation_refusal(
+                family, &body, "validate", signal,
+            )));
+        }
     };
     if dry_run.as_ref().is_some_and(|value| !bounded_value(value)) {
-        return Ok(mutation_refusal(family, &body, "validate", "caduceus-settings-value-invalid:dry-run".to_string()));
+        return Ok(MutationReply::ValidationRefusal(mutation_refusal(
+            family,
+            &body,
+            "validate",
+            "caduceus-settings-value-invalid:dry-run".into(),
+        )));
     }
     let writes_display_config = dry_run.is_none() && family == "display"
         && ["resolution", "refresh_rate"]
@@ -457,7 +607,12 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
                 rollbacks.push(rollback);
             }
             if let Err(error) = write {
-                return Ok(mutation_refusal(family, &body, "write-display-config", display_mutation_error(error, rollbacks)));
+                return Ok(MutationReply::Answer(mutation_refusal(
+                    family,
+                    &body,
+                    "write-display-config",
+                    display_mutation_error(error, rollbacks),
+                )));
             }
         }
     }
@@ -508,7 +663,7 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
         if let Some(signal) = signal {
             object.entry("doorSignal").or_insert_with(|| json!(signal));
         }
-        return Ok(receipt);
+        return Ok(MutationReply::Answer(receipt));
     }
     if writes_display_config {
         let display = crate::shared::config::show_json().and_then(|shown| {
@@ -530,14 +685,14 @@ pub fn mutate_json(family: &str, body: Value) -> Result<Value, String> {
                     }
                 };
                 receipt.as_object_mut().unwrap().entry("doorSignal").or_insert_with(|| json!(signal));
-                return Ok(receipt);
+                return Ok(MutationReply::Answer(receipt));
             }
         }
     }
     if discard_transient_receipt(&receipt) {
         receipt.as_object_mut().unwrap().entry("receiptDiscarded").or_insert(json!(true));
     }
-    Ok(receipt)
+    Ok(MutationReply::Answer(receipt))
 }
 
 pub fn command(family: &str, args: &[String]) -> i32 {
