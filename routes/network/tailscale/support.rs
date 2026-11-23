@@ -33,10 +33,6 @@ fn stop(action: &str) -> &'static str {
     }
 }
 
-fn stop_seat(action: &str) -> String {
-    format!("caduceus.network.tailscale.{action}.v1")
-}
-
 fn timeout(action: &str) -> Duration {
     match action {
         "up" => TIMEOUT_UP,
@@ -234,8 +230,7 @@ fn safe_receipt(crossing: &Value, action: &str, secret: Option<&str>) -> Option<
         && receipt.get("action").is_none()
         && staff_ok == Some(false)
         && crate::routes::leaf_schema::bound(receipt, stop(action));
-    if (receipt.get("schema").and_then(Value::as_str) != Some(stop_seat(action).as_str())
-        && !crate::routes::leaf_schema::bound(receipt, stop(action)))
+    if !crate::routes::leaf_schema::bound(receipt, stop(action))
         || (receipt_action != Some(action) && !unknown_action_refusal && !front_refusal)
     {
         return None;
