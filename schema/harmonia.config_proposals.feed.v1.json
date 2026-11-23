@@ -1,6 +1,6 @@
 {
   "schema": "harmonia.config_proposals.feed.v1",
-  "schema_version": "1.0.1",
+  "schema_version": "1.0.2",
   "role": "Harmonia configuration proposals feed and interactable receipts",
   "authority": {
     "owner": "caduceus",
@@ -109,6 +109,13 @@
             "null"
           ]
         },
+        "reference_changed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Committer date (git %cI) of the known-good file's newest commit in the body's engine-source, read once when the interactable was minted; absent when unknown."
+        },
         "mode": {
           "type": [
             "integer",
@@ -213,6 +220,7 @@
         "diff",
         "drift",
         "available_at",
+        "reference_changed_at",
         "mode",
         "owner",
         "group",
