@@ -1,0 +1,34 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/backblaze/snapshots",
+  "payload": {
+    "fields": {
+      "actuator": {"type": "string", "meaning": "Legacy selector; the standing stop reads it from the envelope top level, so callers mirror this payload field there.", "enum": ["backblaze-snapshots"]},
+      "metadata": {
+        "type": "object", "meaning": "Listing options; an empty object lists all configured buckets. The standing stop reads this at the envelope top level; the whole request is bounded at 16384 bytes.",
+        "fields": {
+          "bucket": {"type": ["string", "null"], "meaning": "List only this configured bucket; null or omission lists all configured buckets.", "pattern": "^(?![bB]2-)[A-Za-z0-9-]{6,63}$(?![\\s\\S])", "maxLength": 63}
+        }
+      }
+    },
+    "required": ["actuator", "metadata"]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "snapshots": {"type": "array", "meaning": "Projected restic snapshots across the selected buckets.", "items": {"type": "object", "fields": {
+      "id": {"type": "string", "meaning": "Restic snapshot ID."},
+      "time": {"type": "string", "meaning": "Snapshot time as returned by restic."},
+      "paths": {"type": "array", "items": {"type": "string"}, "meaning": "Snapshot paths, or an empty list if restic did not supply them."},
+      "tags": {"type": "array", "items": {"type": "string"}, "meaning": "Snapshot tags, or an empty list if restic did not supply them."},
+      "bucket": {"type": "string", "meaning": "Bucket containing the snapshot."}
+    }}},
+    "errors": {"type": "array", "meaning": "Bucket-level faults that do not fail the entire listing.", "items": {"type": "object", "fields": {
+      "bucket": {"type": ["string", "null"], "meaning": "Affected bucket, or null if the configured name is invalid."},
+      "step": {"type": "string", "meaning": "Failing bucket observation.", "enum": ["shape", "scratch", "skeleton", "keyman", "restic", "snapshots"]},
+      "reason": {"type": "string", "meaning": "Bucket-level refusal token.", "enum": ["bucket-invalid", "scratch-root-invalid", "skeleton-key-unavailable", "skeleton-key-empty", "restic-unavailable", "snapshots-unavailable", "snapshots-invalid", "keyman-non-root", "keyman-uninitialized-system", "keyman-missing-key", "keyman-malformed-key-file", "keyman-preflight-unobservable", "keyman-exchange-artifact-preexisting", "keyman-exchange-artifact-malformed", "keyman-exchange-artifact-raced", "keyman-exchange-cleanup-failed", "keyman-export-failed", "keyman-export-timeout", "keyman-keyman-export-lock-timeout", "keyman-export-unavailable", "keyman-exchange-mount-failed", "keyman-exchange-obliteration-failed"]}
+    }}},
+    "step": {"type": "string", "meaning": "Failing phase when the entire listing was refused.", "enum": ["shape", "config", "scratch", "items", "request"]},
+    "reason": {"type": "string", "meaning": "Top-level legacy refusal token, not firstMissingSignal.", "enum": ["actuator-envelope-invalid", "metadata-invalid", "request-too-large", "request-invalid", "request-unavailable", "request-deadline-exceeded", "config-unavailable", "config-invalid", "scratch-root-invalid", "bucket-invalid", "buckets-invalid", "bucket-not-configured", "bucket-row-duplicate", "bucket-prefix-invalid", "items-invalid", "item-path-invalid"]}
+  }
+}

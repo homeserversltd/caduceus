@@ -1,0 +1,26 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/backblaze/bucket-items/remove",
+  "payload": {
+    "fields": {
+      "bucket": {"type": "string", "meaning": "Configured bucket whose path list is edited.", "pattern": "^(?![bB]2-)[A-Za-z0-9-]{6,63}$(?![\\s\\S])", "maxLength": 63},
+      "path": {"type": "string", "meaning": "Absolute path whose exact matches are removed from the configured list; NUL, CR and LF are not permitted.", "pattern": "^/[^\\r\\n\\u0000]*$(?![\\s\\S])"},
+      "expected": {"type": "object", "meaning": "Optional stale-write guard. Compare the normalized full bucket row; ignore encrypted, default absent prefix/items/Forgejo settings, and normalize the skip list before comparison."}
+    },
+    "required": ["bucket", "path"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "step": {"type": "string", "meaning": "Failing Backblaze phase when the shared helper refused.", "enum": ["shape", "config", "scratch", "stale", "run", "status", "items", "request"]},
+    "reason": {"type": "string", "meaning": "Original helper refusal; it is also mapped to the stop-specific signal.", "enum": ["bucket-invalid", "bucket-not-configured", "bucket-row-duplicate", "bucket-prefix-invalid", "items-invalid", "item-path-invalid", "config-update-active", "config-unavailable", "config-invalid", "buckets-invalid", "config-write-failed", "scratch-root-invalid", "bucket-run-active", "systemd-unavailable", "bucket changed; refresh before saving", "forgejo-manager-invalid", "request-deadline-exceeded", "request-unavailable"]},
+    "durability": {"type": "string", "const": "unconfirmed", "meaning": "Replacement completed but the config directory sync could not be confirmed."},
+    "deed": {"type": "string", "const": "unwritten", "meaning": "The deed path raised while trying to report the outcome."},
+    "intent_id": {"meaning": "The envelope's intent_id as supplied; protected echoes project it to a scalar or an empty object."},
+    "raw_envelope": {"type": "string", "meaning": "Request text or the protected projection when a PIN was present."},
+    "stamps": {"type": "array", "meaning": "Prior request stamps followed by the stop's stamp."},
+    "staff": {"type": "object", "meaning": "The added verb, outcome and timestamp stamp."},
+    "load_context": {"meaning": "The carried trace context when requested and available."},
+    "firstMissingSignal": {"type": "string", "meaning": "Stop signal; none on success.", "enum": ["none", "backblaze-bucket-items-remove-envelope-invalid", "backblaze-bucket-items-remove-bucket-invalid", "backblaze-bucket-items-remove-bucket-not-configured", "backblaze-bucket-items-remove-path-invalid", "backblaze-bucket-items-remove-config-update-active", "backblaze-bucket-items-remove-bucket-run-active", "backblaze-bucket-items-remove-expected-mismatch", "backblaze-bucket-items-remove-unavailable"]}
+  }
+}

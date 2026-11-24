@@ -1,0 +1,40 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/backblaze-config",
+  "payload": {
+    "fields": {
+      "actuator": {"type": "string", "meaning": "Initial Backblaze configuration selector. A top-level legacy actuator, if present, takes precedence.", "enum": ["backblaze-config"]},
+      "metadata": {
+        "type": "object",
+        "meaning": "Initial Backblaze settings. Exactly these five keys are required. A top-level legacy metadata member, if present, takes precedence. The stop bounds the whole UTF-8 request at 16384 bytes.",
+        "fields": {
+          "keyId": {"type": "string", "meaning": "Backblaze key ID used to authorize and seed the bucket service. Stdin only; 1 to 511 UTF-8 bytes for seeding, with no NUL, LF, CR or double quote.", "minLength": 1, "maxLength": 511, "pattern": "^[^\"\\r\\n\\u0000]+$(?![\\s\\S])"},
+          "applicationKey": {"type": "string", "meaning": "Backblaze application key used to authorize and seed the bucket service. Stdin only; 1 to 511 UTF-8 bytes for seeding, with no NUL, LF, CR or double quote.", "minLength": 1, "maxLength": 511, "pattern": "^[^\"\\r\\n\\u0000]+$(?![\\s\\S])"},
+          "bucket": {"type": "string", "meaning": "Bucket saved in the initial config. Hyphens are replaced with underscores for the Keyman service name.", "pattern": "^[A-Za-z0-9_-]+$(?![\\s\\S])"},
+          "prefix": {"type": ["string", "null"], "meaning": "Bucket prefix; null omits it from saved configuration."},
+          "paths": {"type": "array", "meaning": "Nonempty list of absolute backup paths without NUL.", "minItems": 1, "items": {"type": "string", "pattern": "^/[^\\u0000]*$(?![\\s\\S])"}}
+        },
+        "required": ["keyId", "applicationKey", "bucket", "prefix", "paths"]
+      }
+    },
+    "required": ["actuator", "metadata"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "locked": {"type": "boolean", "const": true, "meaning": "On success the initial configuration is locked."},
+    "bucket": {"type": "string", "meaning": "The configured bucket, on success."},
+    "keyman_service": {"type": "string", "meaning": "The seeded service name, on success, not credential material."},
+    "mutationPerformed": {"type": "boolean", "meaning": "The stop reports true on completion, false on its own refusals; a later config-write failure does not undo a seed attempt."},
+    "step": {"type": "string", "meaning": "Failing phase, present only on the stop's refusal.", "enum": ["shape", "config", "locked", "verify", "seed_keyman", "write_config"]},
+    "reason": {
+      "type": "string",
+      "meaning": "Legacy refusal reason, not firstMissingSignal. In verify it can be arbitrary provider or I/O error text; read it with step. Config read, parse and write errors also carry diagnostics.",
+      "anyOf": [
+        {"enum": ["actuator must be backblaze-config", "invalid Backblaze staff envelope", "payload fields must be keyId, applicationKey, bucket, prefix, and paths", "keyId must be a non-empty string", "applicationKey must be a non-empty string", "bucket must be a non-empty string", "prefix must be a string or null", "paths must be a non-empty list of absolute paths", "bucket cannot be normalized to a Keyman service name", "request is too large", "request must be a JSON object", "request must be valid UTF-8 JSON", "appliance config must be a JSON object", "tabs must be a JSON object", "tabs.backblaze must be a JSON object", "configuration is locked after initial setup", "agathodaimon-keyman-root-required", "agathodaimon-keyman-unavailable", "agathodaimon-keyman-credential-invalid", "agathodaimon-keyman-seed-refused", "agathodaimon-keyman-receipt-invalid", "agathodaimon-keyman-uninitialized-system", "agathodaimon-keyman-malformed-key-file", "agathodaimon-keyman-preflight-unobservable", "agathodaimon-keyman-keyman-export-lock-timeout", "agathodaimon-keyman-exchange-mount-failed", "agathodaimon-keyman-exchange-obliteration-failed"]},
+        {"pattern": "^(?:unable to read appliance config: |invalid appliance config: |unable to write appliance config: )"},
+        {"type": "string", "meaning": "Unconstrained diagnostic on step verify."}
+      ]
+    }
+  }
+}

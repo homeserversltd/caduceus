@@ -1,0 +1,24 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/backblaze/status",
+  "payload": {
+    "fields": {
+      "actuator": {"type": "string", "meaning": "Legacy selector; the standing stop reads it from the envelope top level, so callers mirror this payload field there.", "enum": ["backblaze-status"]},
+      "metadata": {"type": "object", "meaning": "Required legacy object at the envelope top level, mirrored from the payload. It may be empty: this stop does not read any members. The whole request is bounded at 16384 bytes."}
+    },
+    "required": ["actuator", "metadata"]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "buckets": {"type": "array", "meaning": "One run-state row for each configured bucket.", "items": {"type": "object", "fields": {
+      "bucket": {"type": "string", "meaning": "Configured bucket name."},
+      "running": {"type": "boolean", "meaning": "The unit is running or in an in-flight activation, deactivation, or reload state."},
+      "last_run_at": {"type": ["integer", "null"], "meaning": "Integer seconds of the last observable finished run, or null."},
+      "last_run_ok": {"type": ["boolean", "null"], "meaning": "Whether systemd reported success for that run, or null when no result can be read."},
+      "connected": {"type": "null", "meaning": "Status does not check connection; this field is always null."}
+    }}},
+    "step": {"type": "string", "meaning": "Failing phase, present on the stop's refusal.", "enum": ["shape", "config", "scratch", "status", "request"]},
+    "reason": {"type": "string", "meaning": "Legacy refusal token, not firstMissingSignal.", "enum": ["actuator-envelope-invalid", "metadata-invalid", "request-too-large", "request-invalid", "request-unavailable", "request-deadline-exceeded", "config-unavailable", "config-invalid", "scratch-root-invalid", "bucket-invalid", "buckets-invalid", "systemd-unavailable"]}
+  }
+}

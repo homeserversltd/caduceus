@@ -1,0 +1,27 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/backblaze/bucket-verify",
+  "payload": {
+    "fields": {
+      "actuator": {"type": "string", "meaning": "Legacy selector; the standing stop reads it from the envelope top level, so callers mirror this payload field there.", "enum": ["backblaze-bucket-verify"]},
+      "metadata": {
+        "type": "object", "meaning": "Bucket to check using its stored credentials. The standing stop reads this at the envelope top level; the whole request is bounded at 16384 bytes.",
+        "fields": {
+          "bucket": {"type": "string", "meaning": "Configured bucket whose visibility is checked.", "pattern": "^(?![bB]2-)[A-Za-z0-9-]{6,63}$(?![\\s\\S])", "maxLength": 63}
+        },
+        "required": ["bucket"]
+      }
+    },
+    "required": ["actuator", "metadata"]
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "connected": {"type": "boolean", "meaning": "On a completed check, whether the bucket was visible; false also covers Backblaze 401/403."},
+    "step": {"type": "string", "meaning": "Failing phase, present on the stop's refusal.", "enum": ["shape", "config", "scratch", "items", "verify", "keyman", "request"]},
+    "reason": {
+      "type": "string", "meaning": "Legacy refusal token, not firstMissingSignal.",
+      "enum": ["actuator-envelope-invalid", "metadata-invalid", "request-too-large", "request-invalid", "request-unavailable", "request-deadline-exceeded", "config-unavailable", "config-invalid", "scratch-root-invalid", "scratch-live-authority-refused", "bucket-invalid", "buckets-invalid", "bucket-not-configured", "bucket-row-duplicate", "bucket-prefix-invalid", "items-invalid", "item-path-invalid", "b2-authorization-invalid", "b2-listing-invalid", "b2-check-unavailable", "keyman-credential-invalid", "keyman-non-root", "keyman-uninitialized-system", "keyman-missing-key", "keyman-malformed-key-file", "keyman-preflight-unobservable", "keyman-exchange-artifact-preexisting", "keyman-exchange-artifact-malformed", "keyman-exchange-artifact-raced", "keyman-exchange-cleanup-failed", "keyman-export-failed", "keyman-export-timeout", "keyman-keyman-export-lock-timeout", "keyman-export-unavailable", "keyman-exchange-mount-failed", "keyman-exchange-obliteration-failed"]
+    }
+  }
+}

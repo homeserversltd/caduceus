@@ -1,0 +1,35 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/backblaze/bucket-save",
+  "payload": {
+    "fields": {
+      "actuator": {"type": "string", "meaning": "Legacy selector; the standing stop reads it from the envelope top level, so callers mirror this payload field there.", "enum": ["backblaze-bucket-save"]},
+      "metadata": {
+        "type": "object", "meaning": "New items and Forgejo settings for one configured bucket. The standing stop reads this at the envelope top level; the whole request is bounded at 16384 bytes.",
+        "fields": {
+          "bucket": {"type": "string", "meaning": "Configured bucket whose settings are replaced.", "pattern": "^(?![bB]2-)[A-Za-z0-9-]{6,63}$(?![\\s\\S])", "maxLength": 63},
+          "items": {"type": "array", "meaning": "Replacement item list, possibly empty; only path is stored for each item.", "items": {"type": "object", "fields": {"path": {"type": "string", "meaning": "Absolute backup path without NUL, CR or LF.", "pattern": "^/[^\\r\\n\\u0000]*$(?![\\s\\S])"}}, "required": ["path"]}},
+          "managers": {"type": "object", "meaning": "Replacement Forgejo settings.", "fields": {"forgejo": {"type": "object", "meaning": "Forgejo settings stored on the bucket.", "fields": {
+            "localNas": {"type": "boolean", "meaning": "Retain the local NAS backup setting."},
+            "backblazeBackup": {"type": "boolean", "meaning": "Enable the bucket run's Forgejo worker for this bucket."},
+            "skip": {"type": "array", "meaning": "Deduplicated exclusion strings. After trim, each is a name or owner/name of ASCII letters, digits, underscore, dot or hyphen; no component is dot or dot-dot.", "items": {"type": "string"}, "default": []}
+          }, "required": ["localNas", "backblazeBackup"]}}, "required": ["forgejo"]},
+          "expected": {"type": "object", "meaning": "Optional stale-write guard. Compare the normalized full bucket row; ignore encrypted, default absent prefix/items/Forgejo settings, and normalize the skip list before comparison."}
+        },
+        "required": ["bucket", "items", "managers"]
+      }
+    },
+    "required": ["actuator", "metadata"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "durability": {"type": "string", "const": "unconfirmed", "meaning": "Replacement completed but the config directory sync could not be confirmed."},
+    "deed": {"type": "string", "const": "unwritten", "meaning": "The deed path raised while trying to report the outcome."},
+    "step": {"type": "string", "meaning": "Failing phase, present on the stop's refusal.", "enum": ["shape", "config", "scratch", "stale", "run", "status", "items", "skip", "request"]},
+    "reason": {
+      "type": "string", "meaning": "Legacy refusal token or fixed stale-row message, not firstMissingSignal.",
+      "enum": ["actuator-envelope-invalid", "metadata-invalid", "request-too-large", "request-invalid", "request-unavailable", "request-deadline-exceeded", "config-unavailable", "config-invalid", "config-update-active", "config-write-failed", "scratch-root-invalid", "bucket-invalid", "buckets-invalid", "bucket-not-configured", "bucket-row-duplicate", "bucket-prefix-invalid", "items-invalid", "item-path-invalid", "bucket changed; refresh before saving", "bucket-run-active", "systemd-unavailable", "forgejo-manager-invalid", "skip-entry-malformed"]
+    }
+  }
+}

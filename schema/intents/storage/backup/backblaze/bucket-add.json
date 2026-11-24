@@ -1,0 +1,32 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/backblaze/bucket-add",
+  "payload": {
+    "fields": {
+      "actuator": {"type": "string", "meaning": "Legacy selector; the standing stop reads it from the envelope top level, so callers mirror this payload field there.", "enum": ["backblaze-bucket-add"]},
+      "metadata": {
+        "type": "object",
+        "meaning": "New bucket and its credentials. The standing stop reads this at the envelope top level; the whole request is bounded at 16384 bytes.",
+        "fields": {
+          "bucket": {"type": "string", "meaning": "Bucket visible to the supplied key, not already configured and without a conflicting normalized service name.", "pattern": "^(?![bB]2-)[A-Za-z0-9-]{6,63}$(?![\\s\\S])", "maxLength": 63},
+          "keyId": {"type": "string", "meaning": "Backblaze key ID, stdin only; 1 to 511 UTF-8 bytes for Keyman, without NUL, LF, CR or double quote.", "minLength": 1, "maxLength": 511, "pattern": "^[^\"\\r\\n\\u0000]+$(?![\\s\\S])"},
+          "applicationKey": {"type": "string", "meaning": "Backblaze application key, stdin only; 1 to 511 UTF-8 bytes for Keyman, without NUL, LF, CR or double quote.", "minLength": 1, "maxLength": 511, "pattern": "^[^\"\\r\\n\\u0000]+$(?![\\s\\S])"}
+        },
+        "required": ["bucket", "keyId", "applicationKey"]
+      }
+    },
+    "required": ["actuator", "metadata"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "keyman_service": {"type": "string", "meaning": "Name of the seeded service on success, not credential material."},
+    "durability": {"type": "string", "const": "unconfirmed", "meaning": "Replacement completed but the config directory sync could not be confirmed."},
+    "deed": {"type": "string", "const": "unwritten", "meaning": "The deed path raised while trying to report the outcome."},
+    "step": {"type": "string", "meaning": "Failing phase, present on the stop's refusal.", "enum": ["shape", "config", "scratch", "verify", "keyman", "request"]},
+    "reason": {
+      "type": "string", "meaning": "Legacy refusal token, not firstMissingSignal.",
+      "enum": ["actuator-envelope-invalid", "metadata-invalid", "request-too-large", "request-invalid", "request-unavailable", "request-deadline-exceeded", "request-deadline-after-keyman-seed-attempt", "config-unavailable", "config-invalid", "config-update-active", "config-write-failed", "scratch-root-invalid", "scratch-live-authority-refused", "bucket-invalid", "buckets-invalid", "bucket-already-exists", "bucket-not-visible-to-key", "keyman-service-collision", "credential-invalid", "b2-authorization-invalid", "b2-listing-invalid", "b2-check-unavailable", "keyman-non-root", "keyman-uninitialized-system", "keyman-malformed-key-file", "keyman-preflight-unobservable", "keyman-keyman-export-lock-timeout", "keyman-exchange-mount-failed", "keyman-exchange-obliteration-failed", "keyman-seed-refused", "keyman-seed-deadline-may-have-committed-retry-replace", "keyman-seed-unavailable"]
+    }
+  }
+}

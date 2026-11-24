@@ -1,0 +1,36 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/ledger",
+  "payload": {
+    "fields": {
+      "before": {"type": ["integer", "null"], "meaning": "Nonnegative byte cursor into the ledger; null starts at the end. Read directly from a nonempty payload unless payload.metadata is present.", "minimum": 0, "default": null},
+      "limit": {"type": "integer", "meaning": "Maximum rows in a newest-first page. Read directly from a nonempty payload unless payload.metadata is present.", "minimum": 1, "maximum": 200, "default": 50},
+      "metadata": {"type": ["object", "null"], "meaning": "Optional wrapper taking precedence over direct fields. A legacy top-level metadata object is used when the payload is absent or empty. Null supplies default options.", "fields": {
+        "before": {"type": ["integer", "null"], "meaning": "Nonnegative byte cursor; null starts at the end.", "minimum": 0, "default": null},
+        "limit": {"type": "integer", "meaning": "Maximum rows in the page.", "minimum": 1, "maximum": 200, "default": 50}
+      }}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "rows": {"type": "array", "meaning": "Projected backup deeds, newest first, or an empty array on a shaped refusal. On the pinned source the normal reader reaches a missing helper before producing rows.", "items": {"type": "object", "fields": {
+      "at": {"type": ["string", "null"], "meaning": "UTC timestamp in seconds when the row has the accepted form."},
+      "job": {"type": "string", "meaning": "Drive or offsite backup family.", "enum": ["drives", "offsite"]},
+      "verb": {"type": "string", "meaning": "Deed verb, limited to lowercase letters, digits or hyphens.", "pattern": "^[a-z0-9-]{1,128}$(?![\\s\\S])", "maxLength": 128},
+      "target": {"type": ["string", "null"], "meaning": "NAS sync or a valid Backblaze bucket; an invalid offsite target becomes null."},
+      "outcome": {"type": ["string", "null"], "meaning": "Recognized deed outcome, or null for an unrecognized value.", "enum": ["ok", "failed", "refused", "interrupted", null]},
+      "duration_ms": {"type": ["integer", "null"], "meaning": "Nonnegative elapsed milliseconds, or null for an invalid value.", "minimum": 0},
+      "signal": {"type": ["string", "null"], "meaning": "The source deed's signal, when it has the accepted token form.", "pattern": "^[A-Za-z0-9._+-]{1,128}$(?![\\s\\S])", "maxLength": 128},
+      "added_bytes": {"type": "integer", "meaning": "Added bytes when supplied as a nonnegative integer.", "minimum": 0},
+      "total_bytes": {"type": "integer", "meaning": "Total bytes when supplied as a nonnegative integer.", "minimum": 0}
+    }}},
+    "next": {"type": ["integer", "null"], "meaning": "Byte cursor for an older page, or null at the end or on a shaped refusal.", "minimum": 0},
+    "exceptionType": {"type": "string", "meaning": "The front door names AttributeError when the pinned stop calls the missing shared.log_path helper."},
+    "firstMissingSignal": {
+      "type": "string", "meaning": "Named stop outcome or the front door's uncaught-exception signal. Direct invocation on malformed JSON can additionally return the decoder's unbounded ValueError text; the slash-path front door refuses malformed JSON before it reaches this stop.",
+      "enum": ["none", "request-invalid", "metadata-invalid", "before-invalid", "limit-invalid", "backup-ledger-unavailable", "agathodaimon-stop-raised"]
+    }
+  }
+}

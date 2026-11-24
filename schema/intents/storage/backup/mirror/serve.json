@@ -1,0 +1,11 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/mirror/serve",
+  "payload": {"fields": {}, "required": []},
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "const": false, "meaning": "JSON is a refusal written to stderr. This stdin-stream stop execs a restricted read-only rsync sender on success; stdout is the rsync byte stream, not a receipt."},
+    "firstMissingSignal": {"type": "string", "meaning": "Native stderr refusal token. Stdin starts with a single UTF-8 sender command line, at most 4096 bytes before LF, within 30 seconds; source-file removal is forbidden.", "enum": ["mirror-serve-root-required", "mirror-serve-scratch-invalid", "mirror-serve-lock-invalid", "mirror-serve-lock-busy", "mirror-serve-source-not-mounted", "mirror-serve-command-timeout", "mirror-serve-command-incomplete", "mirror-serve-command-too-long", "mirror-serve-command-invalid", "mirror-serve-sender-required", "mirror-serve-source-removal-refused", "mirror-serve-system-error"]}
+  }
+}

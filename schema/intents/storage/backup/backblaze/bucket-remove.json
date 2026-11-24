@@ -1,0 +1,30 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/backblaze/bucket-remove",
+  "payload": {
+    "fields": {
+      "actuator": {"type": "string", "meaning": "Legacy selector; the standing stop reads it from the envelope top level, so callers mirror this payload field there.", "enum": ["backblaze-bucket-remove"]},
+      "metadata": {
+        "type": "object",
+        "meaning": "Bucket removal request. The standing stop reads this at the envelope top level; the whole request is bounded at 16384 bytes.",
+        "fields": {
+          "bucket": {"type": "string", "meaning": "Configured bucket to remove, after releasing any finished run unit. Under the Backblaze scratch seam it must also start with scratch-.", "pattern": "^(?![bB]2-)[A-Za-z0-9-]{6,63}$(?![\\s\\S])", "maxLength": 63},
+          "expected": {"type": "object", "meaning": "Optional stale-write guard. Compare the normalized full bucket row; ignore encrypted, default absent prefix/items/Forgejo settings, and normalize the skip list before comparison."}
+        },
+        "required": ["bucket"]
+      }
+    },
+    "required": ["actuator", "metadata"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "durability": {"type": "string", "const": "unconfirmed", "meaning": "Replacement completed but the config directory sync could not be confirmed."},
+    "deed": {"type": "string", "const": "unwritten", "meaning": "The deed path raised while trying to report the outcome."},
+    "step": {"type": "string", "meaning": "Failing phase, present on the stop's refusal.", "enum": ["shape", "config", "scratch", "stale", "run", "status", "items", "request"]},
+    "reason": {
+      "type": "string", "meaning": "Legacy refusal token or fixed stale-row message, not firstMissingSignal.",
+      "enum": ["actuator-envelope-invalid", "metadata-invalid", "request-too-large", "request-invalid", "request-unavailable", "request-deadline-exceeded", "config-unavailable", "config-invalid", "config-update-active", "config-write-failed", "scratch-root-invalid", "scratch-unit-name-required", "bucket-invalid", "buckets-invalid", "bucket-not-configured", "bucket-row-duplicate", "bucket-prefix-invalid", "items-invalid", "item-path-invalid", "bucket changed; refresh before saving", "bucket-run-active", "systemd-unavailable", "finished-unit-stop-failed", "finished-unit-reset-failed", "finished-unit-release-failed"]
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/backblaze/bucket-run",
+  "payload": {
+    "fields": {
+      "actuator": {"type": "string", "meaning": "Legacy top-level selector. backblaze-bucket-run returns after dispatch; bucket-run waits for the worker and is admitted only with transition storage/backup/backblaze/bucket-run. The standing stop reads the top-level mirror of this payload field.", "enum": ["backblaze-bucket-run", "bucket-run"]},
+      "metadata": {
+        "type": "object", "meaning": "Bucket run request. The standing stop reads this at the envelope top level; the whole request is bounded at 16384 bytes.",
+        "fields": {
+          "bucket": {"type": "string", "meaning": "Configured bucket to run. Under the Backblaze scratch seam it must also start with scratch-.", "pattern": "^(?![bB]2-)[A-Za-z0-9-]{6,63}$(?![\\s\\S])", "maxLength": 63}
+        },
+        "required": ["bucket"]
+      }
+    },
+    "required": ["actuator", "metadata"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "status": {"type": "string", "const": "accepted", "meaning": "The non-scheduled run was dispatched; this is not confirmation the backup finished."},
+    "unit": {"type": "string", "meaning": "Transient unit name on acceptance of a non-scheduled run."},
+    "deed": {"type": "string", "const": "unwritten", "meaning": "The deed path raised while trying to report the failure."},
+    "step": {"type": "string", "meaning": "Failing phase from the stop or its declared scheduled worker.", "enum": ["shape", "config", "scratch", "items", "skip", "run", "status", "request", "skeleton", "keyman", "restic", "restic-init", "rekey", "restic-unlock", "files", "forgejo", "deed"]},
+    "reason": {
+      "type": "string", "meaning": "Legacy refusal reason, not firstMissingSignal; includes a scheduled worker's corroborated failure or signal number (positive and below signal.NSIG).",
+      "anyOf": [
+        {"enum": ["actuator-envelope-invalid", "metadata-invalid", "request-too-large", "request-invalid", "request-unavailable", "request-deadline-exceeded", "config-unavailable", "config-invalid", "config-update-active", "scratch-root-invalid", "scratch-unit-name-required", "bucket-invalid", "buckets-invalid", "bucket-not-configured", "bucket-row-duplicate", "bucket-prefix-invalid", "items-invalid", "item-path-invalid", "forgejo-manager-invalid", "skip-entry-malformed", "root-required", "bucket-run-active", "systemd-unavailable", "finished-unit-stop-failed", "finished-unit-reset-failed", "finished-unit-release-failed", "bucket-launch-refused", "bucket-launch-peer-invalid", "bucket-launch-unavailable", "worker-outcome-unavailable", "run-internal-failure", "skeleton-key-unavailable", "skeleton-key-empty", "keyman-non-root", "keyman-uninitialized-system", "keyman-missing-key", "keyman-malformed-key-file", "keyman-preflight-unobservable", "keyman-exchange-artifact-preexisting", "keyman-exchange-artifact-malformed", "keyman-exchange-artifact-raced", "keyman-exchange-cleanup-failed", "keyman-export-failed", "keyman-export-timeout", "keyman-keyman-export-lock-timeout", "keyman-export-unavailable", "keyman-exchange-mount-failed", "keyman-exchange-obliteration-failed", "restic-unavailable", "restic-init-failed", "restic-repository-unavailable", "legacy-key-unavailable", "legacy-password-refused", "restic-rekey-failed", "restic-unlock-failed", "files-backup-failed", "scratch-live-forgejo-refused", "forgejo-backup-failed", "deed-write-failed"]},
+        {"pattern": "^worker-signal-[1-9][0-9]*$(?![\\s\\S])"}
+      ]
+    }
+  }
+}
