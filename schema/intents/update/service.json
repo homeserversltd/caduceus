@@ -5,7 +5,7 @@
     "fields": {
       "action": {
         "type": "string",
-        "meaning": "Read the current timer with status, or request enable --now (on) or disable --now (off), with readback.",
+        "meaning": "Read from the staff envelope payload (or the bare JSON object in the legacy form), not argv. status reads the timer; on and off request enable --now and disable --now with readback.",
         "enum": [
           "on",
           "off",

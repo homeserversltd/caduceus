@@ -70,6 +70,11 @@
         "agathodaimon-config-write-refused",
         "agathodaimon-stop-raised"
       ]
+    },
+    "stderr": {
+      "type": "string",
+      "meaning": "Fixed diagnostic printed beside the JSON refusal for extra argv or an internal error.",
+      "enum": ["one exousia verb is required", "exousia internal failure"]
     }
   }
 }

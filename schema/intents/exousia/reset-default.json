@@ -41,7 +41,6 @@
         "agathodaimon-config-factory-unavailable",
         "agathodaimon-config-factory-unreadable",
         "agathodaimon-config-factory-malformed",
-        "exousia-pin-invalid",
         "agathodaimon-staff-root-required",
         "agathodaimon-scratch-root-invalid",
         "agathodaimon-skeleton-unavailable",
@@ -56,6 +55,16 @@
         "agathodaimon-config-concurrent-update",
         "agathodaimon-config-write-refused",
         "agathodaimon-stop-raised"
+      ]
+    },
+    "stderr": {
+      "type": "string",
+      "meaning": "Fixed diagnostic printed beside the JSON refusal on selected paths.",
+      "enum": [
+        "one exousia verb is required",
+        "exousia reset refused",
+        "exousia reset returned invalid status",
+        "exousia reset returned invalid public state"
       ]
     }
   }
