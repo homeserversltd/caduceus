@@ -14,7 +14,6 @@ use tokio::{
 const STOP: &str = "keyman/secret/put";
 const VALUE_LIMIT: usize = 511;
 const ABOUT_LIMIT: usize = 200;
-const STDIN_CAPACITY: usize = 4096;
 const STDOUT_LIMIT: usize = 64 * 1024;
 const REQUEST_INVALID: &str = "keyman-secret-request-invalid";
 const NAME_INVALID: &str = "keyman-secret-name-invalid";
@@ -73,21 +72,34 @@ fn request(mut body: Value) -> Result<(Secret, Secret), &'static str> {
         })
         .ok_or(VALUE_INVALID)?;
 
+    let payload = json!({"name": name, "about": about});
+    let envelope = crate::gate::snake::crossing_envelope(STOP, &payload);
+    let (mut envelope, raw) = crate::gate::snake::prepare_envelope(&envelope)
+        .map_err(|_| REQUEST_INVALID)?;
+    let fields = envelope.as_object_mut().ok_or(REQUEST_INVALID)?;
+    let payload = fields.remove("payload").ok_or(REQUEST_INVALID)?;
+    let payload = payload.as_object().ok_or(REQUEST_INVALID)?;
     #[derive(serde::Serialize)]
-    struct StaffRequest<'a> {
-        name: &'a str,
-        about: Option<&'a str>,
+    struct Payload<'a> {
+        #[serde(flatten)]
+        fields: &'a serde_json::Map<String, Value>,
         value: &'a str,
     }
-    // The stream stop reads raw JSON, not the staff envelope. Even with six
-    // bytes per escaped value byte, the validated fields fit without growing stdin.
-    let mut input = Secret(Vec::with_capacity(STDIN_CAPACITY));
-    let payload = StaffRequest {
-        name,
-        about,
+    #[derive(serde::Serialize)]
+    struct Envelope<'a> {
+        #[serde(flatten)]
+        fields: &'a serde_json::Map<String, Value>,
+        payload: Payload<'a>,
+    }
+    // raw already includes name and about. Reserve six bytes per value byte
+    // plus the value key and JSON punctuation before writing any secret.
+    let mut input = Secret(Vec::with_capacity(raw.len() + value.0.len() * 6 + 13));
+    let payload = Payload {
+        fields: payload,
         value: std::str::from_utf8(&value.0).map_err(|_| VALUE_INVALID)?,
     };
-    serde_json::to_writer(&mut input.0, &payload).map_err(|_| REQUEST_INVALID)?;
+    serde_json::to_writer(&mut input.0, &Envelope { fields, payload })
+        .map_err(|_| REQUEST_INVALID)?;
     Ok((value, input))
 }
 

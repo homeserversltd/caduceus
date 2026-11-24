@@ -3,7 +3,7 @@
   "intent": "hermes/dashboard-login",
   "payload": {
     "fields": {
-      "password": {"type": "string", "minLength": 12, "maxLength": 256, "meaning": "New dashboard password on stdin only; must be printable and may not contain NUL, CR or LF. A JSON stdin object can supply it in payload or as a flat field; plain text stdin is also accepted. The whole stdin request is limited to 65536 characters."}
+      "password": {"type": "string", "secret": true, "minLength": 12, "maxLength": 256, "meaning": "Secret dashboard password on stdin in the whole staff envelope payload or a flat JSON object (the reader primitive); input is bounded to 65536 bytes."}
     },
     "required": ["password"]
   },
@@ -20,6 +20,6 @@
     "final": {"type": "object", "fields": {"ok": {"type": "boolean"}, "signal": {"type": "string"}, "mutationPerformed": {"type": "boolean"}}, "meaning": "Stop verdict and whether the config write completed, even if a later operation failed."},
     "timestamp": {"type": "string", "meaning": "UTC timestamp from the receipt emitter."},
     "host": {"type": "string", "meaning": "Hostname from the receipt emitter."},
-    "firstMissingSignal": {"type": "string", "enum": ["none", "hermes-password-stdin-required", "hermes-request-too-large", "hermes-input-invalid", "hermes-password-invalid", "hermes-unit-observation-failed", "hermes-config-write-failed", "hermes-unit-restart-failed", "hermes-unit-identity-unchanged", "hermes-operation-failed", "hermes-ledger-unavailable"], "meaning": "The raw stream stop's outcome; nested restart signals stay within restart."}
+    "firstMissingSignal": {"type": "string", "enum": ["none", "hermes-request-too-large", "hermes-input-invalid", "hermes-password-invalid", "hermes-unit-observation-failed", "hermes-config-write-failed", "hermes-unit-restart-failed", "hermes-unit-identity-unchanged", "hermes-operation-failed", "hermes-ledger-unavailable"], "meaning": "The stop outcome, including reader refusals in the hermes prefix; nested restart signals stay within restart."}
   }
 }

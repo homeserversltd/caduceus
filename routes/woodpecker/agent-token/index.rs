@@ -37,13 +37,25 @@ fn request(mut body: Value) -> Result<(Secret, Secret), &'static str> {
     if secret.0.is_empty() || secret.0.len() > TOKEN_LIMIT || secret.0.contains(&0) {
         return Err("woodpecker-agent-token-request-invalid");
     }
-    let mut input = Secret(Vec::new());
-    // The staff verb accepts one JSON object on stdin, not an argv value.
+    let envelope = crate::gate::snake::crossing_envelope("woodpecker/agent-token", &json!({}));
+    let (mut envelope, raw) = crate::gate::snake::prepare_envelope(&envelope)
+        .map_err(|_| "woodpecker-agent-token-request-invalid")?;
+    let fields = envelope.as_object_mut().ok_or("woodpecker-agent-token-request-invalid")?;
+    fields.remove("payload");
     let token = std::str::from_utf8(&secret.0)
         .map_err(|_| "woodpecker-agent-token-request-invalid")?;
     #[derive(serde::Serialize)]
-    struct StaffRequest<'a> { token: &'a str }
-    serde_json::to_writer(&mut input.0, &StaffRequest { token })
+    struct Payload<'a> { token: &'a str }
+    #[derive(serde::Serialize)]
+    struct Envelope<'a> {
+        #[serde(flatten)]
+        fields: &'a serde_json::Map<String, Value>,
+        payload: Payload<'a>,
+    }
+    // raw already includes an empty payload. Six bytes per secret byte and
+    // the field-name allowance cover every JSON escape before the first write.
+    let mut input = Secret(Vec::with_capacity(raw.len() + secret.0.len() * 6 + 13));
+    serde_json::to_writer(&mut input.0, &Envelope { fields, payload: Payload { token } })
         .map_err(|_| "woodpecker-agent-token-request-invalid")?;
     Ok((secret, input))
 }

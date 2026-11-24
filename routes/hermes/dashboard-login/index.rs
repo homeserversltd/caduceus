@@ -36,13 +36,25 @@ fn request(mut body: Value) -> Result<(Secret, Secret), &'static str> {
     if secret.0.is_empty() || secret.0.len() > LIMIT || secret.0.contains(&0) {
         return Err("hermes-dashboard-login-request-invalid");
     }
-    let mut input = Secret(Vec::new());
-    // The staff verb accepts one JSON object on stdin, not an argv value.
+    let envelope = crate::gate::snake::crossing_envelope("hermes/dashboard-login", &json!({}));
+    let (mut envelope, raw) = crate::gate::snake::prepare_envelope(&envelope)
+        .map_err(|_| "hermes-dashboard-login-request-invalid")?;
+    let fields = envelope.as_object_mut().ok_or("hermes-dashboard-login-request-invalid")?;
+    fields.remove("payload");
     let password = std::str::from_utf8(&secret.0)
         .map_err(|_| "hermes-dashboard-login-request-invalid")?;
     #[derive(serde::Serialize)]
-    struct StaffRequest<'a> { password: &'a str }
-    serde_json::to_writer(&mut input.0, &StaffRequest { password })
+    struct Payload<'a> { password: &'a str }
+    #[derive(serde::Serialize)]
+    struct Envelope<'a> {
+        #[serde(flatten)]
+        fields: &'a serde_json::Map<String, Value>,
+        payload: Payload<'a>,
+    }
+    // raw already includes an empty payload. Six bytes per secret byte and
+    // the field-name allowance cover every JSON escape before the first write.
+    let mut input = Secret(Vec::with_capacity(raw.len() + secret.0.len() * 6 + 16));
+    serde_json::to_writer(&mut input.0, &Envelope { fields, payload: Payload { password } })
         .map_err(|_| "hermes-dashboard-login-request-invalid")?;
     Ok((secret, input))
 }
