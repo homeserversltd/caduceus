@@ -1,0 +1,79 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/nas-sync/schedule/disable",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "state": {
+      "type": "string",
+      "meaning": "Observed result on success.",
+      "const": "schedule-disabled"
+    },
+    "steps": {
+      "type": "array",
+      "meaning": "Ordered observations and actions; readback fields vary by step. Timer state before and after; an absent timer is a no-op.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Name of the observed stage."
+          },
+          "ok": {
+            "type": "boolean",
+            "meaning": "Whether the stage passed."
+          },
+          "readback": {
+            "type": "object",
+            "meaning": "Facts specific to this stage."
+          }
+        }
+      }
+    },
+    "failedStep": {
+      "type": "string",
+      "meaning": "First reported failed phase."
+    },
+    "returnCode": {
+      "type": "integer",
+      "meaning": "Failed tool exit status, when known."
+    },
+    "deedLogSignal": {
+      "type": "string",
+      "meaning": "Deed logging error, when reported.",
+      "const": "agathodaimon-nas-deed-log-unavailable"
+    },
+    "mutationOutcome": {
+      "type": "string",
+      "meaning": "Operation reported success before a deed logging error.",
+      "const": "completed-deed-unrecorded"
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome signal emitted by the stop; none denotes no missing signal.",
+      "enum": [
+        "agathodaimon-nas-command-group-unreaped",
+        "agathodaimon-nas-command-timeout",
+        "agathodaimon-nas-command-unavailable",
+        "agathodaimon-nas-deed-log-unavailable",
+        "agathodaimon-nas-request-invalid",
+        "agathodaimon-nas-root-required",
+        "agathodaimon-nas-schedule-unobservable",
+        "agathodaimon-nas-scratch-path-escape",
+        "agathodaimon-nas-scratch-root-invalid",
+        "agathodaimon-nas-scratch-root-unreadable",
+        "none",
+        "schedule-update-command-failed:-f",
+        "schedule-update-command-failed:daemon-reload",
+        "schedule-update-command-failed:disable",
+        "schedule-update-readback-mismatch",
+        "systemctl-readback-failed:is-enabled",
+        "systemctl-readback-failed:show"
+      ]
+    }
+  }
+}

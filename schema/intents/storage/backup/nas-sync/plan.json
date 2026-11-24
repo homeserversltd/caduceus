@@ -1,0 +1,253 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/nas-sync/plan",
+  "payload": {
+    "fields": {
+      "baseline": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "meaning": "Last good source census for shrink checks and the deletion cap. Omit or send null for a cold start; an object must supply both counts.",
+        "default": null,
+        "fields": {
+          "fileCount": {
+            "type": "integer",
+            "meaning": "Last good source file count.",
+            "minimum": 0
+          },
+          "totalBytes": {
+            "type": "integer",
+            "meaning": "Last good source size in bytes.",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "fileCount",
+          "totalBytes"
+        ]
+      },
+      "accept-shrink": {
+        "type": "boolean",
+        "meaning": "Bypass the source shrink check only. Mount, backing-device, kernel-log and deletion-cap checks still apply.",
+        "default": false
+      }
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "action": {
+      "type": "string",
+      "meaning": "The underlying NAS operation.",
+      "const": "sync"
+    },
+    "outcome": {
+      "type": "string",
+      "meaning": "Sync or plan outcome.",
+      "enum": [
+        "ok",
+        "refused",
+        "failed"
+      ]
+    },
+    "planned": {
+      "type": "boolean",
+      "meaning": "True when an rsync plan was formed without running rsync."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "This stop never dispatches rsync.",
+      "const": false
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Specific reason for a failure or refusal, or null on a successful operation."
+    },
+    "checks": {
+      "type": "array",
+      "meaning": "Checks reached, in order, with a name, boolean ok and check-specific facts.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "name": {
+            "type": "string",
+            "meaning": "Name of the evaluated check."
+          },
+          "ok": {
+            "type": "boolean",
+            "meaning": "Whether the check passed."
+          }
+        }
+      }
+    },
+    "sourcePath": {
+      "type": "string",
+      "meaning": "Primary NAS source mountpoint.",
+      "const": "/mnt/nas"
+    },
+    "destinationPath": {
+      "type": "string",
+      "meaning": "Backup NAS destination mountpoint.",
+      "const": "/mnt/nas_backup"
+    },
+    "sourceDevice": {
+      "type": "string",
+      "meaning": "Observed source block device."
+    },
+    "destinationDevice": {
+      "type": "string",
+      "meaning": "Observed destination block device."
+    },
+    "backupPartlabel": {
+      "type": "string",
+      "meaning": "Observed destination device partition label."
+    },
+    "coldStart": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "meaning": "True if there is no prior baseline, null if not evaluated."
+    },
+    "currentFileCount": {
+      "type": "integer",
+      "meaning": "Source file count measured before sync."
+    },
+    "currentTotalBytes": {
+      "type": "integer",
+      "meaning": "Source byte count measured before sync."
+    },
+    "priorState": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Normalized last-good counts used for comparison, or null for a cold start.",
+      "fields": {
+        "fileCount": {
+          "type": "integer",
+          "meaning": "Last good source file count.",
+          "minimum": 0
+        },
+        "totalBytes": {
+          "type": "integer",
+          "meaning": "Last good source size in bytes.",
+          "minimum": 0
+        }
+      }
+    },
+    "notice": {
+      "type": "string",
+      "meaning": "Cold-start notice."
+    },
+    "shrinkOverride": {
+      "type": "string",
+      "meaning": "Identifies the acknowledged shrink override.",
+      "const": "metadata.acceptShrink"
+    },
+    "overrideNotice": {
+      "type": "string",
+      "meaning": "Explanation of what the shrink override did and did not bypass."
+    },
+    "rsyncArgv": {
+      "type": "array",
+      "meaning": "Rsync argument vector assembled from the evaluated source, target and deletion cap.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "maxDelete": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "meaning": "Computed rsync deletion cap, null before calculation."
+    },
+    "maxDeleteBasis": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "File count used to calculate the deletion cap.",
+      "enum": [
+        "cold-start-current-file-count",
+        "last-good-file-count",
+        null
+      ]
+    },
+    "rsyncExitCode": {
+      "type": "null",
+      "meaning": "Rsync exit status when the tool ran and returned; null otherwise."
+    },
+    "rsyncStats": {
+      "type": "null",
+      "meaning": "Bounded rsync statistics keyed by label, null if the tool did not return."
+    },
+    "exitCode": {
+      "type": "integer",
+      "meaning": "Reported command or internal failure status, when explicitly set.",
+      "const": 1
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome signal. The enum lists literal results; the alternatives carry the stop’s actual tool errors, paths.",
+      "anyOf": [
+        {
+          "enum": [
+            "agathodaimon-nas-baseline-invalid",
+            "agathodaimon-nas-planned-invalid",
+            "agathodaimon-nas-request-invalid",
+            "backup-partlabel-denied:homeserver-boot",
+            "backup-partlabel-denied:homeserver-boot-efi",
+            "backup-partlabel-denied:homeserver-deploy",
+            "backup-partlabel-denied:homeserver-root",
+            "backup-partlabel-denied:homeserver-swap",
+            "backup-partlabel-denied:homeserver-vault",
+            "backup-target-is-root",
+            "current-boot-kernel-error-names-backing-drive",
+            "current-boot-kernel-log-unevaluable",
+            "mount-source-not-block-device:/mnt/nas",
+            "mount-source-not-block-device:/mnt/nas_backup",
+            "mountpoint-output-malformed:/mnt/nas",
+            "mountpoint-output-malformed:/mnt/nas_backup",
+            "mountpoint-unevaluable:/mnt/nas",
+            "mountpoint-unevaluable:/mnt/nas_backup",
+            "none",
+            "not-a-real-mountpoint:/mnt/nas",
+            "not-a-real-mountpoint:/mnt/nas_backup",
+            "required-tool-missing:/usr/bin/findmnt",
+            "required-tool-missing:/usr/bin/journalctl",
+            "required-tool-missing:/usr/bin/lsblk",
+            "single-instance-lock-contended",
+            "single-instance-lock-invalid",
+            "source-and-destination-share-backing-device",
+            "source-shrink-refused:byte-count-shrank-more-than-10-percent",
+            "source-shrink-refused:byte-count-shrank-more-than-10-percent,file-count-shrank-more-than-20-percent",
+            "source-shrink-refused:file-count-shrank-more-than-20-percent",
+            "source-unreadable:/mnt/nas"
+          ]
+        },
+        {
+          "pattern": "^command-unavailable:/usr/bin/(?:findmnt|lsblk|journalctl):[\\s\\S]{1,512}(?![\\s\\S])"
+        },
+        {
+          "pattern": "^(?:device-alias-unresolvable|backing-device-unevaluable|backing-device-output-malformed|backing-device-root-unevaluable|backup-partlabel-unevaluable):/dev/[\\s\\S]*(?![\\s\\S])"
+        },
+        {
+          "pattern": "^source-directory-unreadable:/mnt/nas(?:/[\\s\\S]+)?(?![\\s\\S])"
+        },
+        {
+          "pattern": "^source-entry-unreadable:/mnt/nas/[\\s\\S]+(?![\\s\\S])"
+        },
+        {
+          "pattern": "^(?:agathodaimon-nas-unexpected|single-instance-lock-unavailable|unexpected-sync-failure):[\\s\\S]{1,512}(?![\\s\\S])"
+        }
+      ]
+    }
+  }
+}

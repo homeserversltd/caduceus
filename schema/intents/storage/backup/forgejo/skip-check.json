@@ -1,0 +1,45 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/forgejo/skip-check",
+  "payload": {
+    "fields": {
+      "name": {
+        "type": "string",
+        "meaning": "One owner or owner/repository name. Leading and trailing whitespace is stripped, and matching uses the lower-case name. Dot and dot-dot components are refused.",
+        "pattern": "^[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?:[A-Za-z0-9_.-]*[A-Za-z0-9_-][A-Za-z0-9_.-]*|\\.{3,})(?:/(?:[A-Za-z0-9_.-]*[A-Za-z0-9_-][A-Za-z0-9_.-]*|\\.{3,}))?[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?![\\s\\S])"
+      }
+    },
+    "required": [
+      "name"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Normalized name when available, the supplied string on a shape refusal, or null if none was read."
+    },
+    "matches": {
+      "type": "boolean",
+      "meaning": "Whether the local Forgejo database contains the requested owner or repository; false on a refusal."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome signal emitted by the stop; none denotes no missing signal.",
+      "enum": [
+        "app-ini-unavailable",
+        "forgejo-skip-check-database-unavailable",
+        "forgejo-skip-check-request-invalid",
+        "forgejo-skip-check-root-required",
+        "none",
+        "postgres-configuration-unsupported",
+        "postgres-host-not-local",
+        "skip-entry-malformed"
+      ]
+    }
+  }
+}

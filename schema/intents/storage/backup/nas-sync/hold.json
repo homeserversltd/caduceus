@@ -1,0 +1,86 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/nas-sync/hold",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "state": {
+      "type": "string",
+      "meaning": "Observed result on success.",
+      "const": "sync-held"
+    },
+    "steps": {
+      "type": "array",
+      "meaning": "Ordered observations and actions; readback fields vary by step. Holder state, unit command result, lock ownership and availability, and cleanup if needed.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Name of the observed stage."
+          },
+          "ok": {
+            "type": "boolean",
+            "meaning": "Whether the stage passed."
+          },
+          "readback": {
+            "type": "object",
+            "meaning": "Facts specific to this stage."
+          }
+        }
+      }
+    },
+    "failedStep": {
+      "type": "string",
+      "meaning": "First reported failed phase."
+    },
+    "returnCode": {
+      "type": "integer",
+      "meaning": "Failed tool exit status, when known."
+    },
+    "deedLogSignal": {
+      "type": "string",
+      "meaning": "Deed logging error, when reported.",
+      "const": "agathodaimon-nas-deed-log-unavailable"
+    },
+    "mutationOutcome": {
+      "type": "string",
+      "meaning": "Operation reported success before a deed logging error.",
+      "const": "completed-deed-unrecorded"
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome signal emitted by the stop; none denotes no missing signal.",
+      "enum": [
+        "agathodaimon-nas-command-group-unreaped",
+        "agathodaimon-nas-command-timeout",
+        "agathodaimon-nas-command-unavailable",
+        "agathodaimon-nas-deed-log-unavailable",
+        "agathodaimon-nas-drive-operation-running",
+        "agathodaimon-nas-request-invalid",
+        "agathodaimon-nas-root-required",
+        "agathodaimon-nas-scratch-path-escape",
+        "agathodaimon-nas-scratch-root-invalid",
+        "agathodaimon-nas-scratch-root-unreadable",
+        "agathodaimon-nas-sync-hold-already-active",
+        "agathodaimon-nas-sync-holder-cleanup-failed",
+        "agathodaimon-nas-sync-holder-unobservable",
+        "agathodaimon-nas-sync-lock-invalid",
+        "agathodaimon-nas-sync-lock-readback-mismatch",
+        "agathodaimon-nas-sync-lock-unavailable",
+        "agathodaimon-nas-sync-lock-unobservable",
+        "none",
+        "sync-hold-refused-running"
+      ]
+    },
+    "holdId": {
+      "type": "string",
+      "meaning": "Ownership marker read back from the transient lock-holder unit; a release can name this marker.",
+      "pattern": "^agathodaimon-nas-sync-hold-[0-9a-f]{32}(?![\\s\\S])"
+    }
+  }
+}

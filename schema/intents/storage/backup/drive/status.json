@@ -1,0 +1,29 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/drive/status",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "state": {
+      "type": "string",
+      "meaning": "HomeServer pairing state; unknown is returned for HTTP 401.",
+      "enum": [
+        "pending",
+        "accepted",
+        "unknown"
+      ]
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Pairing lookup failure; omitted when the lookup answers a state.",
+      "enum": [
+        "backup-drive-not-asked",
+        "backup-drive-status-failed"
+      ]
+    }
+  }
+}

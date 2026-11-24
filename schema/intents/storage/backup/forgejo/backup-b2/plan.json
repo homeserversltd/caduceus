@@ -1,0 +1,106 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/forgejo/backup-b2/plan",
+  "payload": {
+    "fields": {
+      "bucket": {
+        "type": "string",
+        "meaning": "Configured Backblaze bucket whose Forgejo backup is enabled; 6 to 63 ASCII letters, digits or hyphens, with no case-insensitive b2- prefix.",
+        "pattern": "^(?![bB]2-)[A-Za-z0-9-]{6,63}(?![\\s\\S])",
+        "minLength": 6,
+        "maxLength": 63
+      }
+    },
+    "required": [
+      "bucket"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "plan": {
+      "type": "object",
+      "meaning": "Inventory-based proposal; it does not start the worker.",
+      "fields": {
+        "included": {
+          "type": "integer",
+          "meaning": "Repository count included."
+        },
+        "excluded": {
+          "type": "integer",
+          "meaning": "Repository count excluded."
+        },
+        "excludedNames": {
+          "type": "array",
+          "meaning": "Excluded owner/repository names.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "excludedAttachments": {
+          "type": "integer",
+          "meaning": "Attachment UUID count selected for exclusion."
+        },
+        "excludedAttachmentsPresent": {
+          "type": "integer",
+          "meaning": "Selected attachment files observed present."
+        },
+        "excludedLfs": {
+          "type": "integer",
+          "meaning": "LFS objects excluded because no included repository referenced them."
+        },
+        "sharedLfsKept": {
+          "type": "integer",
+          "meaning": "Shared LFS objects kept."
+        },
+        "repo": {
+          "type": "string",
+          "meaning": "Restic repository address for the configured bucket and prefix."
+        }
+      }
+    },
+    "step": {
+      "type": "string",
+      "meaning": "Phase that refused, when named."
+    },
+    "reason": {
+      "type": "string",
+      "meaning": "Unprefixed refusal reason, when named."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome signal emitted by the stop; none denotes no missing signal.",
+      "enum": [
+        "forgejo-backup-b2-plan-app-ini-unavailable",
+        "forgejo-backup-b2-plan-attachment-stat-unavailable",
+        "forgejo-backup-b2-plan-attachments-storage-not-local",
+        "forgejo-backup-b2-plan-backblaze-backup-disabled",
+        "forgejo-backup-b2-plan-bucket-invalid",
+        "forgejo-backup-b2-plan-bucket-not-configured",
+        "forgejo-backup-b2-plan-bucket-prefix-invalid",
+        "forgejo-backup-b2-plan-bucket-row-duplicate",
+        "forgejo-backup-b2-plan-buckets-invalid",
+        "forgejo-backup-b2-plan-cache-overlaps-backup-source",
+        "forgejo-backup-b2-plan-config-invalid",
+        "forgejo-backup-b2-plan-envelope-invalid",
+        "forgejo-backup-b2-plan-forgejo-attachment-invalid",
+        "forgejo-backup-b2-plan-forgejo-inventory-invalid",
+        "forgejo-backup-b2-plan-forgejo-inventory-unavailable",
+        "forgejo-backup-b2-plan-forgejo-lfs-inventory-invalid",
+        "forgejo-backup-b2-plan-forgejo-manager-invalid",
+        "forgejo-backup-b2-plan-item-path-invalid",
+        "forgejo-backup-b2-plan-items-invalid",
+        "forgejo-backup-b2-plan-lfs-storage-not-local",
+        "forgejo-backup-b2-plan-path-invalid",
+        "forgejo-backup-b2-plan-path-variable-unsupported",
+        "forgejo-backup-b2-plan-postgres-configuration-unsupported",
+        "forgejo-backup-b2-plan-postgres-host-not-local",
+        "forgejo-backup-b2-plan-repo-archive-storage-not-local",
+        "forgejo-backup-b2-plan-request-deadline-exceeded",
+        "forgejo-backup-b2-plan-scratch-root-invalid",
+        "forgejo-backup-b2-plan-skip-entry-malformed",
+        "none"
+      ]
+    }
+  }
+}

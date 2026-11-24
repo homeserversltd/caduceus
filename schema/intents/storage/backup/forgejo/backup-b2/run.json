@@ -1,0 +1,66 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/forgejo/backup-b2/run",
+  "payload": {
+    "fields": {
+      "bucket": {
+        "type": "string",
+        "meaning": "Configured Backblaze bucket whose Forgejo backup is enabled; 6 to 63 ASCII letters, digits or hyphens, with no case-insensitive b2- prefix.",
+        "pattern": "^(?![bB]2-)[A-Za-z0-9-]{6,63}(?![\\s\\S])",
+        "minLength": 6,
+        "maxLength": 63
+      }
+    },
+    "required": [
+      "bucket"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "status": {
+      "type": "string",
+      "meaning": "The transient worker was accepted; this does not assert a completed backup.",
+      "const": "accepted"
+    },
+    "unit": {
+      "type": "string",
+      "meaning": "Name of the accepted transient worker unit."
+    },
+    "step": {
+      "type": "string",
+      "meaning": "Phase that refused, when named."
+    },
+    "reason": {
+      "type": "string",
+      "meaning": "Unprefixed refusal reason, when named."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome signal emitted by the stop; none denotes no missing signal.",
+      "enum": [
+        "forgejo-backup-b2-run-backblaze-backup-disabled",
+        "forgejo-backup-b2-run-backup-already-active",
+        "forgejo-backup-b2-run-backup-launch-refused",
+        "forgejo-backup-b2-run-bucket-invalid",
+        "forgejo-backup-b2-run-bucket-not-configured",
+        "forgejo-backup-b2-run-bucket-prefix-invalid",
+        "forgejo-backup-b2-run-bucket-row-duplicate",
+        "forgejo-backup-b2-run-buckets-invalid",
+        "forgejo-backup-b2-run-config-invalid",
+        "forgejo-backup-b2-run-config-lock-unavailable",
+        "forgejo-backup-b2-run-envelope-invalid",
+        "forgejo-backup-b2-run-forgejo-manager-invalid",
+        "forgejo-backup-b2-run-item-path-invalid",
+        "forgejo-backup-b2-run-items-invalid",
+        "forgejo-backup-b2-run-request-deadline-exceeded",
+        "forgejo-backup-b2-run-root-required",
+        "forgejo-backup-b2-run-scratch-overrides-plan-only",
+        "forgejo-backup-b2-run-skip-entry-malformed",
+        "forgejo-backup-b2-run-systemd-state-unavailable",
+        "forgejo-backup-b2-run-systemd-unavailable",
+        "none"
+      ]
+    }
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/nas-sync/release",
+  "payload": {
+    "fields": {
+      "hold_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional ownership marker of the hold to release; null or omission means no marker match is required.",
+        "pattern": "^agathodaimon-nas-sync-hold-[0-9a-f]{32}(?![\\s\\S])",
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "state": {
+      "type": "string",
+      "meaning": "Observed result on success.",
+      "const": "sync-released"
+    },
+    "steps": {
+      "type": "array",
+      "meaning": "Ordered observations and actions; readback fields vary by step. Holder state, stop result and lock availability.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Name of the observed stage."
+          },
+          "ok": {
+            "type": "boolean",
+            "meaning": "Whether the stage passed."
+          },
+          "readback": {
+            "type": "object",
+            "meaning": "Facts specific to this stage."
+          }
+        }
+      }
+    },
+    "failedStep": {
+      "type": "string",
+      "meaning": "First reported failed phase."
+    },
+    "returnCode": {
+      "type": "integer",
+      "meaning": "Failed tool exit status, when known."
+    },
+    "deedLogSignal": {
+      "type": "string",
+      "meaning": "Deed logging error, when reported.",
+      "const": "agathodaimon-nas-deed-log-unavailable"
+    },
+    "mutationOutcome": {
+      "type": "string",
+      "meaning": "Operation reported success before a deed logging error.",
+      "const": "completed-deed-unrecorded"
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome signal emitted by the stop; none denotes no missing signal.",
+      "enum": [
+        "agathodaimon-nas-command-group-unreaped",
+        "agathodaimon-nas-command-timeout",
+        "agathodaimon-nas-command-unavailable",
+        "agathodaimon-nas-deed-log-unavailable",
+        "agathodaimon-nas-drive-operation-running",
+        "agathodaimon-nas-request-invalid",
+        "agathodaimon-nas-root-required",
+        "agathodaimon-nas-scratch-path-escape",
+        "agathodaimon-nas-scratch-root-invalid",
+        "agathodaimon-nas-scratch-root-unreadable",
+        "agathodaimon-nas-sync-hold-not-owned",
+        "agathodaimon-nas-sync-holder-unobservable",
+        "agathodaimon-nas-sync-lock-invalid",
+        "agathodaimon-nas-sync-lock-readback-mismatch",
+        "agathodaimon-nas-sync-lock-unavailable",
+        "agathodaimon-nas-sync-lock-unobservable",
+        "agathodaimon-nas-sync-release-failed",
+        "none",
+        "sync-hold-refused-running"
+      ]
+    }
+  }
+}

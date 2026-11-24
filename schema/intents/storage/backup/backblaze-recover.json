@@ -1,0 +1,116 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/backblaze-recover",
+  "payload": {
+    "fields": {
+      "actuator": {
+        "type": "string",
+        "meaning": "Selects the legacy Backblaze configuration operation. A top-level actuator takes precedence over the payload member.",
+        "enum": [
+          "backblaze-config"
+        ]
+      },
+      "metadata": {
+        "type": "object",
+        "meaning": "Exactly these five initial configuration fields. A top-level metadata member takes precedence over this payload member.",
+        "required": [
+          "keyId",
+          "applicationKey",
+          "bucket",
+          "prefix",
+          "paths"
+        ],
+        "additionalProperties": false,
+        "fields": {
+          "keyId": {
+            "type": "string",
+            "meaning": "Backblaze account key ID. Keyman intake accepts at most 511 UTF-8 bytes and excludes NUL, LF, CR and double quote.",
+            "minLength": 1,
+            "maxLength": 511,
+            "pattern": "^[^\\u0000\\r\\n\"]+(?![\\s\\S])"
+          },
+          "applicationKey": {
+            "type": "string",
+            "meaning": "Backblaze application key. Keyman intake accepts at most 511 UTF-8 bytes and excludes NUL, LF, CR and double quote.",
+            "minLength": 1,
+            "maxLength": 511,
+            "pattern": "^[^\\u0000\\r\\n\"]+(?![\\s\\S])"
+          },
+          "bucket": {
+            "type": "string",
+            "meaning": "Bucket name. Replacing hyphens with underscores must leave an ASCII Keyman service name.",
+            "pattern": "^[A-Za-z0-9_-]+(?![\\s\\S])"
+          },
+          "prefix": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Repository prefix; null leaves the prefix out of the saved configuration."
+          },
+          "paths": {
+            "type": "array",
+            "meaning": "Nonempty list of absolute source paths, without NUL.",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^/[^\\u0000]*(?![\\s\\S])"
+            }
+          }
+        }
+      }
+    },
+    "required": [
+      "actuator",
+      "metadata"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "locked": {
+      "type": "boolean",
+      "meaning": "The configuration was saved and locked.",
+      "const": true
+    },
+    "bucket": {
+      "type": "string",
+      "meaning": "Bucket saved and locked."
+    },
+    "keyman_service": {
+      "type": "string",
+      "meaning": "Keyman service name derived from the bucket."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "The helper reports true after writing the configuration and false on a refusal; a late refusal does not prove that no prior Keyman act occurred."
+    },
+    "step": {
+      "type": "string",
+      "meaning": "Phase named on failure.",
+      "enum": [
+        "shape",
+        "config",
+        "locked",
+        "verify",
+        "seed_keyman",
+        "write_config"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "meaning": "Refusal diagnostic, not firstMissingSignal. It can contain configuration I/O diagnostics, remote verification text, or a Keyman signal.",
+      "examples": [
+        "actuator must be backblaze-config",
+        "invalid Backblaze staff envelope",
+        "payload fields must be keyId, applicationKey, bucket, prefix, and paths",
+        "configuration is locked after initial setup",
+        "agathodaimon-keyman-root-required",
+        "agathodaimon-keyman-unavailable",
+        "agathodaimon-keyman-credential-invalid",
+        "agathodaimon-keyman-seed-refused",
+        "agathodaimon-keyman-receipt-invalid"
+      ]
+    }
+  }
+}

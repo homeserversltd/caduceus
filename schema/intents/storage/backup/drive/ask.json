@@ -1,0 +1,41 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/drive/ask",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "state": {
+      "type": "string",
+      "meaning": "Pairing state returned by the HomeServer on a successful request.",
+      "enum": [
+        "pending",
+        "accepted"
+      ]
+    },
+    "homeserver": {
+      "type": "object",
+      "meaning": "Gateway contacted for the pairing request.",
+      "fields": {
+        "ipv4": {
+          "type": "string",
+          "meaning": "IPv4 address selected for the HomeServer."
+        },
+        "port": {
+          "type": "integer",
+          "meaning": "TCP port selected for the HomeServer."
+        }
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Pairing request failed; omitted on success.",
+      "enum": [
+        "backup-drive-ask-failed"
+      ]
+    }
+  }
+}
