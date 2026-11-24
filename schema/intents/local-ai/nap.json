@@ -9,7 +9,8 @@
       "user_id": {
         "type": ["string", "null"],
         "meaning": "Memory scope override; nonblank after trimming. If omitted, retain any argv override; explicit null selects the owning account’s configured scope.",
-        "minLength": 1
+        "minLength": 1,
+        "pattern": "[^\\u0009-\\u000D\\u001C-\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]"
       }
     },
     "required": []

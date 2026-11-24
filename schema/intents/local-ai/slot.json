@@ -35,6 +35,7 @@
     "exit_code": {"type": "integer", "meaning": "Exit code from the apply action."},
     "state_exit_code": {"type": "integer", "meaning": "Exit code from the readback after apply."},
     "mutationPerformed": {"type": "boolean", "meaning": "Whether apply was attempted. An empty run returns false; a populated run hands control to the engine."},
+    "exceptionType": {"type": "string", "meaning": "Exception class if the front door catches an exception outside the stop's own handler."},
     "firstMissingSignal": {
       "type": "string",
       "meaning": "Observation failures carry the caught exception class; a foreign reread of the envelope seat names the encountered id. Successful apply reports none; an empty run omits this field.",
@@ -42,6 +43,7 @@
         {
           "enum": [
             "JSON object required",
+            "agathodaimon-stop-raised",
             "foreign envelope schema",
             "invalid JSON",
             "local-ai-command-output-limit",

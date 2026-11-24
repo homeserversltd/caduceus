@@ -68,6 +68,7 @@
     "formula": {"type": "string", "meaning": "Block accounting formula."},
     "kv_estimate": {"type": "string", "meaning": "KV storage estimate and model-dimension assumptions."},
     "mutationPerformed": {"type": "boolean", "meaning": "This stop only reads. Where present, no mutation was performed.", "const": false},
+    "exceptionType": {"type": "string", "meaning": "Exception class if the front door catches an exception outside the stop's own handler."},
     "firstMissingSignal": {
       "type": "string",
       "meaning": "Observation failures carry the caught exception class; a foreign reread of the envelope seat names the encountered id. Success omits this field.",
@@ -75,6 +76,7 @@
         {
           "enum": [
             "JSON object required",
+            "agathodaimon-stop-raised",
             "foreign envelope schema",
             "invalid JSON",
             "local-ai-config-size-limit",

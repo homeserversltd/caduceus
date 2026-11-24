@@ -28,6 +28,7 @@
     "state": {"type": "string", "meaning": "On only when memory is selected and the worker drive is mounted.", "enum": ["on", "off"]},
     "reason": {"type": ["string", "null"], "meaning": "Status reason, not a stop refusal, or null when on.", "enum": ["not-chosen", "drive_required", null]},
     "mutationPerformed": {"type": "boolean", "meaning": "This stop only reads. Where present, no mutation was performed.", "const": false},
+    "exceptionType": {"type": "string", "meaning": "Exception class if the front door catches an exception outside the stop's own handler."},
     "firstMissingSignal": {
       "type": "string",
       "meaning": "Observation failures carry the caught exception class; a foreign reread of the envelope seat names the encountered id. Success omits this field.",
@@ -35,6 +36,7 @@
         {
           "enum": [
             "JSON object required",
+            "agathodaimon-stop-raised",
             "foreign envelope schema",
             "invalid JSON",
             "local-ai-config-size-limit",
