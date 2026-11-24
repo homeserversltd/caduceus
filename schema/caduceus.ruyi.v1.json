@@ -382,6 +382,23 @@
     "discovered_via": {
       "type": "string",
       "const": "lease-sweep"
+    },
+    "thing": {
+      "type": "string"
+    },
+    "answers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "fields": {
+          "mac": {"type": "string"},
+          "hostname": {"type": "string"},
+          "proven": {"type": "boolean"},
+          "signal": {"type": ["string", "null"]},
+          "answer": {"type": ["object", "null"]}
+        },
+        "required": ["mac", "hostname", "proven", "signal", "answer"]
+      }
     }
   },
   "field_types": {
@@ -417,7 +434,9 @@
     "trust": "array",
     "dns_unresolved": "array",
     "removed": "string",
-    "discovered_via": "string"
+    "discovered_via": "string",
+    "thing": "string",
+    "answers": "array"
   },
   "required": [
     "schema"
@@ -441,6 +460,10 @@
     "stats_signal"
   ],
   "forms": {
+    "road": {
+      "required": ["schema", "ok", "service", "seat", "thing", "answers"],
+      "optional": []
+    },
     "row": {
       "required": [
         "schema",
