@@ -25,6 +25,7 @@
     "hestiaSites": {"type": "array", "items": {"type": "object", "fields": {"name": {"type": "string"}, "port": {"type": "integer", "minimum": 1, "maximum": 65535}, "leaf": {"type": "string", "meaning": "Certificate disposition: standing, pending, kept or re-issued."}}}, "meaning": "Hestia HTTPS sites and their leaf state when inventoried."},
     "changedFiles": {"type": "array", "items": {"type": "string"}, "meaning": "Sorted public paths that changed, or remain mismatched after rollback."},
     "attemptedFiles": {"type": "array", "items": {"type": "string"}, "meaning": "Sorted public paths attempted, excluding key filenames."},
+    "attempted": {"type": "array", "items": {"type": "string"}, "const": [], "meaning": "The converged no-op also returns an empty attempted list."},
     "backupPath": {"type": ["string", "null"], "meaning": "Completed backup directory, or null before a backup was made."},
     "subjectAltNames": {"type": "array", "items": {"type": "string"}, "meaning": "Planned certificate DNS identities when inventoried."},
     "nginxAliases": {"type": "object", "meaning": "Rewritten nginx regular file paths mapped to lists of their aliases."},

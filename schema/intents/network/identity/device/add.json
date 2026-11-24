@@ -14,7 +14,8 @@
         "pattern": "^[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*[A-Za-z0-9\\u212a](?:[A-Za-z0-9\\u212a-]{0,61}[A-Za-z0-9\\u212a])?\\.*[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?![\\s\\S])"
       },
       "ip": {"type": ["string", "null"], "meaning": "Requested IPv4 address, or explicit null for the observer to keep or select an address. The reference requires the key even when its value is null."},
-      "move": {"type": "boolean", "meaning": "Whether the DNS name may move to the selected address. Forwarded to the observer and name writer."}
+      "move": {"type": "boolean", "meaning": "Whether the DNS name may move to the selected address. Forwarded to the observer and name writer."},
+      "adopt": {"type": "boolean", "default": false, "meaning": "The walker forwards this optional payload member to the name stage when it runs. If true, that stage requires an adoptable existing DNS name at the selected address rather than creating or moving the name."}
     },
     "required": ["mac", "hostname", "ip", "move"]
   },
@@ -64,7 +65,8 @@
         "hw_address must be a string", "ip_address must be a string", "hostname must be a string", "identity-lock-unavailable:network-identity-claim", "reservation with this MAC address already exists", "dhcp-no-free-reserved-address", "no subnet4 configuration found", "target is not a regular file", "dhcp-readback-mismatch",
         "no JSON object found in DHCP config", "invalid DHCP configuration structure", "caduceus-leases-unavailable:door-reported-failure", "caduceus-leases-malformed:envelope-must-be-object", "caduceus-leases-malformed:payload-must-be-object", "caduceus-leases-malformed:ok-signal-missing", "caduceus-leases-malformed:result-must-be-list", "caduceus-leases-malformed:row-must-be-object", "caduceus-leases-malformed:missing-mac", "caduceus-leases-malformed:missing-ip",
         "dhcp-neighbour-probe-failed", "dhcp-ping-probe-failed", "dhcp-reservation-held-elsewhere", "dhcp-ip-inside-pool", "dhcp-ip-outside-reserved-range", "dhcp-ip-taken", "dhcp-ip-answered-probe", "dhcp-no-silent-address",
-        "dns-input-invalid", "dns-hostname-malformed", "dns-ipv4-malformed", "dns-owned-record-malformed", "dns-alias-owner-conflict", "dns-device-projection-incomplete", "dns-name-owned-elsewhere", "dns-alias-target-unresolved", "dns-observed-record-collision", "dns-cname-a-owner-conflict", "dns-gateway-apex-address-mismatch", "dns-live-query-tool-missing", "dns-neighbor-not-regular", "dns-ownership-markers-invalid"
+        "dns-input-invalid", "dns-hostname-malformed", "dns-ipv4-malformed", "dns-owned-record-malformed", "dns-alias-owner-conflict", "dns-device-projection-incomplete", "dns-name-owned-elsewhere", "dns-alias-target-unresolved", "dns-observed-record-collision", "dns-cname-a-owner-conflict", "dns-gateway-apex-address-mismatch", "dns-live-query-tool-missing", "dns-neighbor-not-regular", "dns-ownership-markers-invalid",
+        "dns-adopt-shipped-inventory-unavailable", "dns-adopt-not-adoptable", "dns-adopt-not-cleanly-squared", "dns-adopt-multiple-addresses", "dns-adopt-address-mismatch", "dns-adopt-source-moved"
       ]
     }
   }
