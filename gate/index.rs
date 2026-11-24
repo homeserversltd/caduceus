@@ -554,13 +554,29 @@ fn declared_http_route(method: &str, path: &str) -> Option<Value> {
         candidate = name.rsplit_once('/').map(|(parent, _)| parent);
     }
     // Generic leaves may choose an explicit path unrelated to their namespace.
-    // Scan only their compile-selected declarations; hand-authored route lookup
-    // above retains its prior matching behavior.
+    // A hand-written leaf can also declare administrative operations at sibling
+    // paths. Look only at compile-selected leaves and only at explicit admin
+    // operations here; a read on a shared path keeps its existing classification.
     for name in crate::routes::SELECTED_LEAF_MODULES {
         let Some(source) = crate::routes::selected_declaration(name) else { continue; };
         let Ok(value) = serde_json::from_str::<Value>(source) else { continue; };
         if generic_http_route_matches(name, &value, method, path) {
             return Some(value);
+        }
+        if let Some(operation) = value
+            .get("operations")
+            .and_then(Value::as_array)
+            .and_then(|operations| {
+                operations.iter().find(|operation| {
+                    operation["administrative"].as_bool() == Some(true)
+                        && operation["method"].as_str() == Some(method)
+                        && operation["path"]
+                            .as_str()
+                            .is_some_and(|pattern| generic_path_matches(pattern, path))
+                })
+            })
+        {
+            return Some(operation.clone());
         }
     }
     None
