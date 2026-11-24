@@ -5,6 +5,7 @@
     "fields": {
       "args": {
         "type": "array",
+        "minItems": 2,
         "items": {"type": "string"},
         "meaning": "Argument vector for refresh, the only action. Supply at least one repeatable --domain: desktop-entry-database, kde-kservice or wofi-drun. Each domain may be suffixed with :optional, =optional or ? and may appear only once after suffix removal. --user selects a local account and defaults to owner."
       }
