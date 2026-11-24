@@ -220,7 +220,7 @@ fn record_deed(ok: bool, signal: &str, first_missing_field: Option<&str>, starte
     }
 }
 
-fn unavailable(started: Instant, signal: &'static str) -> ApiError {
+fn unavailable(started: Instant, signal: &str) -> ApiError {
     record_deed(false, signal, None, started);
     crate::gate::service_unavailable(COMMAND, signal)
 }
@@ -283,8 +283,19 @@ async fn post_route(headers: HeaderMap, body: Result<Json<Value>, JsonRejection>
         Err(field) => return Err(invalid_request(started, &field)),
     };
 
+    crate::gate::blocking_task(COMMAND, move || {
+        update_settings(started, seat, vpn_updates, rescan_update)
+    }).await?
+}
+
+fn update_settings(
+    started: Instant,
+    seat: &Value,
+    vpn_updates: Map<String, Value>,
+    rescan_update: Option<Value>,
+) -> ApiResponse {
     let guard = crate::shared::config::transaction_lock()
-        .map_err(|_| unavailable(started, "caduceus-config-lock-poisoned"))?;
+        .map_err(|error| unavailable(started, &error))?;
     let shown = crate::shared::config::show_json()
         .map_err(|_| unavailable(started, "caduceus-household-config-unavailable"))?;
     let before = shown

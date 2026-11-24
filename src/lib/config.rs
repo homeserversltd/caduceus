@@ -601,11 +601,31 @@ fn caduceus_group_id() -> Result<libc::gid_t, String> {
     }
 }
 
+/// The directory fd drops before the in-process mutex, releasing the flock first.
+pub struct TransactionGuard {
+    _directory: fs::File,
+    _mutex: std::sync::MutexGuard<'static, ()>,
+}
+
 /// Shared with paired Xenia transactions. Acquire before reading either document;
 /// callers must release it before network I/O and must not call mutate while held.
-pub fn transaction_lock() -> Result<std::sync::MutexGuard<'static, ()>, String> {
+pub fn transaction_lock() -> Result<TransactionGuard, String> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    LOCK.lock().map_err(|_| "caduceus-config-lock-poisoned".to_owned())
+    let mutex = LOCK.lock().map_err(|_| "caduceus-household-config-lock-unavailable".to_owned())?;
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(paths::path("/etc/appliance"))
+        .map_err(|_| "caduceus-household-config-lock-unavailable".to_owned())?;
+    loop {
+        if unsafe { libc::flock(directory.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            break;
+        }
+        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+            return Err("caduceus-household-config-lock-unavailable".to_owned());
+        }
+    }
+    Ok(TransactionGuard { _directory: directory, _mutex: mutex })
 }
 
 fn mutate(op: &str, target: &str, update: Value) -> Result<Value, String> {
