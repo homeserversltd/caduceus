@@ -19,7 +19,7 @@
   "mutation_allowed": true,
   "returns": {
     "changed": {"type": "boolean", "meaning": "Reported on success; whether the file replacement recorded a change."},
-    "receiptPath": {"type": "string", "meaning": "Path of the successful run.json written by the settings receipt writer."},
+    "receiptPath": {"type": "string", "meaning": "Optional legacy receipt-file path from older staff; absent when staff writes no receipt file."},
     "receipt": {"type": "object", "meaning": "Settings metadata with ok, changed, kind, requested fields, backups and commands; present once the settings receipt is finished."},
     "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Explicitly false on early intake or field refusal; not emitted by the finished settings receipt."},
     "firstMissingSignal": {

@@ -14,7 +14,7 @@
     "stderr": {"type": "string", "meaning": "Usage or raw file, path and I/O diagnostics. The stop has no firstMissingSignal field.", "anyOf": [{"enum": ["usage: staff-path --check|--apply", "caduceus-staff-site-packages-not-unique-or-absent", "caduceus-receipt-write-failed"]}, {"pattern": "^(?:birth-debt: existing staff path file absent: |staff path target is (?:a symlink|not a regular file): )"}, {"type": "string", "meaning": "Host file and encoding error text."}]},
     "run.json": {
       "type": "object",
-      "meaning": "Apply's existing on-disk receipt under its run id, independent of the raw stdout readback.",
+      "meaning": "Legacy receipt shape, retained for compatibility; the stop writes no run file. It answers a raw word and sends one hyalos deed when changed or failed, none when kept or dry-run.",
       "fields": {
         "kernel": {"type": "string", "const": "caduceus.staff.v1", "meaning": "Request family recorded as provenance."},
         "routine": {"type": "string", "const": "agathodaimon.python.staff-path", "meaning": "Writer identity."},
@@ -27,7 +27,7 @@
         "could_change": {"type": "object", "meaning": "Expected state and selected path."},
         "attempt": {"type": "object", "meaning": "Attempted marker and ordered observation and write steps."},
         "final": {"type": "object", "meaning": "Readback state and convergence, with a blocker when readback fails."},
-        "run_id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "meaning": "Fresh run identifier, also the parent directory name."},
+        "run_id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "meaning": "Legacy receipt run identifier; the stop no longer creates a run directory."},
         "timestamp": {"type": "string", "meaning": "UTC ISO 8601 timestamp with a Z suffix from the shared emitter."},
         "host": {"type": "string", "meaning": "Hostname from the shared emitter."},
         "load_context": {"meaning": "Optional active load-trace context carried by the shared emitter."},

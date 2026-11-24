@@ -25,7 +25,7 @@
   "returns": {
     "changed": {"type": "boolean", "meaning": "Whether the override changed on success; false for an unchanged request or a wrapped failure."},
     "mutationPerformed": {"type": "boolean", "meaning": "False for no-ops and early refusals, equal to changed on success; on a failed rollback it can be true when the file had changed."},
-    "receiptPath": {"type": "string", "meaning": "Path of the successful run.json, absent on a no-op."},
+    "receiptPath": {"type": "string", "meaning": "Optional legacy receipt-file path from older staff; absent when staff writes no receipt file."},
     "receipt": {"type": "object", "meaning": "Settings metadata with ok, changed, kind, requested fields, backups and commands, including Sway reload when attempted."},
     "firstMissingSignal": {
       "type": "string",

@@ -24,7 +24,7 @@
       "type": "object",
       "meaning": "Settings act metadata: ok, changed, kind, fields, backups and commands. A failure retains metadata about what ran, even after compensation."
     },
-    "receiptPath": {"type": "string", "meaning": "Path of the saved settings run.json on success."},
+    "receiptPath": {"type": "string", "meaning": "Optional legacy receipt-file path from older staff; absent when staff writes no receipt file."},
     "mutationPerformed": {"type": "boolean", "meaning": "Whether the stop reports a performed mutation."},
     "dryRun": {
       "type": "boolean",

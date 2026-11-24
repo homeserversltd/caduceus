@@ -56,7 +56,7 @@
     },
     "receiptPath": {
       "type": "string",
-      "meaning": "Path to the settings receipt written on a successful non-preview run."
+      "meaning": "Optional legacy receipt-file path from older staff; absent when staff writes no receipt file."
     },
     "receipt": {
       "type": "object",

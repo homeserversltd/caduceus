@@ -21,7 +21,7 @@
     },
     "receiptPath": {
       "type": "string",
-      "meaning": "Path to the native settings run.json written on a successful receipt path."
+      "meaning": "Optional legacy receipt-file path from older staff; absent when staff writes no receipt file."
     },
     "receipt": {
       "type": [
