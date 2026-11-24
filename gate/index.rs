@@ -982,14 +982,6 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
     }
 
     let started = Instant::now();
-    if declaration.is_some_and(|declaration| declaration["administrative"].as_bool() == Some(true))
-    {
-        // New declared deeds fail closed if the PIN switch cannot be read.
-        if let Err(signal) = attendance::pin_mode_read() {
-            record_admission_refusal(&method, &path, &signal, started);
-            return api_error_signal("administrative route gate", &signal).into_response();
-        }
-    }
     let (mut parts, body) = request.into_parts();
     let bytes = match to_bytes(body, ADMINISTRATIVE_REQUEST_BODY_MAX_BYTES).await {
         Ok(bytes) => bytes,
