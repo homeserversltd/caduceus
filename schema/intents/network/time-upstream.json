@@ -36,7 +36,7 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "The listed fixed outcomes, including warnings on a successful pools fallback. The stop also passes through envelope diagnostics with a variable suffix: missing envelope kernel keys: <names> and foreign seat <schema>: <identity>.",
+      "meaning": "Includes warnings on a successful pools fallback and the missing-key messages for the seated five-field kernel. A foreign installed seat is refused by the front door before the stop; the underlying reader's foreign-seat diagnostic includes that seat's identity.",
       "enum": [
         "JSON object required",
         "agathodaimon-time-upstream-gateway-missing",
@@ -46,6 +46,21 @@
         "agathodaimon-time-upstream-write-failed",
         "foreign envelope schema",
         "invalid JSON",
+        "missing envelope kernel keys: intent_id",
+        "missing envelope kernel keys: transition",
+        "missing envelope kernel keys: version",
+        "missing envelope kernel keys: timestamp",
+        "missing envelope kernel keys: intent_id,transition",
+        "missing envelope kernel keys: intent_id,version",
+        "missing envelope kernel keys: intent_id,timestamp",
+        "missing envelope kernel keys: transition,version",
+        "missing envelope kernel keys: transition,timestamp",
+        "missing envelope kernel keys: version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version",
+        "missing envelope kernel keys: intent_id,transition,timestamp",
+        "missing envelope kernel keys: intent_id,version,timestamp",
+        "missing envelope kernel keys: transition,version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version,timestamp",
         "none"
       ]
     }
