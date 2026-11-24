@@ -119,7 +119,7 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "A shared reader refusal, or an escaping exception stamped by the front door. Success omits this field; an invalid UTF-8 settings file can also supply its decoding diagnostic.",
+      "meaning": "A shared reader refusal or a caught decoding diagnostic from a settings file or text tool output. Other escaping exceptions are named by the front door. Success omits this field.",
       "enum": [
         "invalid JSON",
         "JSON object required",
@@ -140,6 +140,9 @@
         "missing envelope kernel keys: transition,version,timestamp",
         "missing envelope kernel keys: intent_id,transition,version,timestamp",
         "agathodaimon-stop-raised"
+      ],
+      "patterns": [
+        "^'[^'\\r\\n]+' codec can't decode (?:byte 0x[0-9a-f]{2} in position [0-9]+|bytes in position [0-9]+-[0-9]+): [^\\r\\n]+$"
       ]
     }
   }

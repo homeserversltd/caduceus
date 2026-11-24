@@ -102,7 +102,7 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "Fixed outcome tokens and open families for echoed input keys, exception classes and composite rollback failures; preflight can also forward exception text. Success omits this top-level field.",
+      "meaning": "Fixed outcome tokens and open families for echoed input keys, exception classes and composite rollback failures. Preflight and receipt setup can pass through decoder, OS and owner lookup diagnostics verbatim; these are not stable refusal tokens. Success omits this top-level field.",
       "enum": [
         "invalid JSON",
         "JSON object required",
@@ -156,7 +156,11 @@
       "patterns": [
         "^unknown-field:[\\s\\S]*$",
         "^settings-energy-failed:[A-Za-z_][A-Za-z_0-9]*$",
-        "^rollback-failed:[a-zA-Z0-9_.:-]+$"
+        "^rollback-failed:[a-zA-Z0-9_.:-]+$",
+        "^'[^'\\r\\n]+' codec can't decode (?:byte 0x[0-9a-f]{2} in position [0-9]+|bytes in position [0-9]+-[0-9]+): [^\\r\\n]+$",
+        "^\\[Errno [0-9]+\\] [\\s\\S]+$",
+        "^\"getpwnam\\(\\): name not found: 'owner'\"$",
+        "^'getgrgid\\(\\): gid not found: [0-9]+'$"
       ]
     }
   }

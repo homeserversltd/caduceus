@@ -99,8 +99,7 @@
                   "type": "string",
                   "meaning": "Unit queried.",
                   "enum": [
-                    "smbd.service",
-                    "nmbd.service"
+                    "smbd.service"
                   ]
                 },
                 "active": {
@@ -154,7 +153,6 @@
                   "type": "string",
                   "meaning": "Unit queried.",
                   "enum": [
-                    "smbd.service",
                     "nmbd.service"
                   ]
                 },
