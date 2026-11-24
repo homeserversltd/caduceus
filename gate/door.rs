@@ -37,6 +37,7 @@ struct DoorReply {
     body: Value,
     receipt: Value,
     changed: Option<bool>,
+    is_chord: bool,
 }
 
 struct DeedGuard {
@@ -162,26 +163,26 @@ async fn handle_request(
         && !(expected_method == "GET" && method == Method::HEAD)
     {
         let failure = DoorFailure::new(StatusCode::METHOD_NOT_ALLOWED, "caduceus-http-method-not-allowed");
-        return finish_failure(namespace, method, &command, "method", failure, &mut deed);
+        return finish_failure(namespace, method, &command, "method", failure);
     }
 
     if command.is_empty() {
         let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-generic-command-missing");
-        return finish_failure(namespace, method, &command, "command", failure, &mut deed);
+        return finish_failure(namespace, method, &command, "command", failure);
     }
     if let Err(signal) = crate::gate::admittance::check_declared_admittance(&declaration) {
         let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, signal);
-        return finish_failure(namespace, method, &command, "admittance", failure, &mut deed);
+        return finish_failure(namespace, method, &command, "admittance", failure);
     }
     match crate::shared::policy::allows_command(&command) {
         Ok(true) => {}
         Ok(false) => {
             let failure = DoorFailure::new(StatusCode::FORBIDDEN, "caduceus-public-action-not-allowed");
-            return finish_failure(namespace, method, &command, "policy", failure, &mut deed);
+            return finish_failure(namespace, method, &command, "policy", failure);
         }
         Err(_) => {
             let failure = DoorFailure::new(StatusCode::FORBIDDEN, "caduceus-carapace-desync");
-            return finish_failure(namespace, method, &command, "policy", failure, &mut deed);
+            return finish_failure(namespace, method, &command, "policy", failure);
         }
     }
 
@@ -190,14 +191,14 @@ async fn handle_request(
             || crate::routes::leaf_schema::shared_seat_absent(schema) => Some(schema.to_owned()),
         Some(_) => {
             let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-schema-desync");
-            return finish_failure(namespace, method, &command, "receipt-schema", failure, &mut deed);
+            return finish_failure(namespace, method, &command, "receipt-schema", failure);
         }
         None => None,
     };
     let payload = match read_payload(parts.headers, body, &declaration).await {
         Ok(payload) => payload,
         Err(failure) => {
-            return finish_failure(namespace, method, &command, "payload", failure, &mut deed);
+            return finish_failure(namespace, method, &command, "payload", failure);
         }
     };
 
@@ -217,7 +218,7 @@ async fn handle_request(
                 let ok = reply.receipt.get("ok").and_then(Value::as_bool) == Some(true);
                 let signal = receipt_signal(&reply.receipt).filter(|signal| ok || *signal != "none")
                     .unwrap_or(if ok { "none" } else { "caduceus-generic-actuator-refused" });
-                if !ok || reply.changed == Some(true) {
+                if reply.is_chord && (!ok || reply.changed == Some(true)) {
                     deed.record(
                         if ok { "success" } else { "refused" },
                         signal,
@@ -227,7 +228,8 @@ async fn handle_request(
                 (reply.status, Json(reply.body)).into_response()
             }
             Err(failure) => {
-                deed.record("refused", &failure.signal, failure.witness.as_ref());
+                if failure.no_change { deed.recorded = true; }
+                else { deed.record("refused", &failure.signal, failure.witness.as_ref()); }
                 if let Some(witness) = failure.witness {
                     let mut response = (failure.status, Json(witness)).into_response();
                     response.headers_mut().insert(
@@ -405,7 +407,7 @@ async fn dispatch(
         })?;
     let status = status_from_declaration(declaration, &receipt)
         .unwrap_or_else(|| crate::gate::mutation_status(&receipt));
-    Ok(DoorReply { status, body, receipt, changed })
+    Ok(DoorReply { status, body, receipt, changed, is_chord })
 }
 
 // Only a boolean declared by the expected public seat can establish a no-op.
@@ -557,9 +559,7 @@ fn finish_failure(
     command: &str,
     step: &str,
     failure: DoorFailure,
-    deed: &mut DeedGuard,
 ) -> Response {
-    deed.record("refused", &failure.signal, failure.witness.as_ref());
     error_response(failure.status, namespace, method, command, &failure.signal, Some(step))
 }
 
