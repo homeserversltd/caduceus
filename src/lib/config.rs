@@ -404,32 +404,8 @@ fn remove_legacy_household_config_receipts() -> Result<(), String> {
     Ok(())
 }
 
-fn write_household_config_receipt(
-    op: &str,
-    run_id: &str,
-    duration_ms: u64,
-) -> Result<(), String> {
-    let latest = json!({
-        "runId": run_id,
-        "who": "caduceus",
-        "verb": op,
-        "target": "household-config",
-        "outcome": "success",
-        "ok": true,
-        "durationMs": duration_ms,
-        "signal": "none"
-    });
-    let mut bytes = serde_json::to_vec(&latest)
-        .map_err(|_| "caduceus-household-config-receipt-failed".to_string())?;
-    bytes.push(b'\n');
-    let path = paths::path("/var/lib/caduceus/receipts/latest/household-config.json");
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|_| "caduceus-household-config-receipt-failed".to_string())?;
-    }
-    atomic_write_owned(&path, &bytes, 0o640)
-        .map_err(|_| "caduceus-household-config-receipt-failed".to_string())?;
-    remove_legacy_household_config_receipts()?;
+fn write_household_config_receipt(op: &str, run_id: &str, duration_ms: u64) {
+    let _ = remove_legacy_household_config_receipts();
     if let Err(error) = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
         "organ": "caduceus",
         "kind": "household-config",
@@ -452,7 +428,6 @@ fn write_household_config_receipt(
             "hyalos-deed-failed household-config/{op}: {signal}"
         );
     }
-    Ok(())
 }
 
 /// A narrow rollback token for one dotted JSON set. It records only the old
@@ -731,7 +706,7 @@ fn mutate_with_rollback(
         "firstMissingSignal": "none",
     });
     let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-    write_household_config_receipt(op, &stamp, duration_ms)?;
+    write_household_config_receipt(op, &stamp, duration_ms);
     Ok(receipt)
 }
 
