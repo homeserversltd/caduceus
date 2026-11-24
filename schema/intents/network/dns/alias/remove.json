@@ -1,0 +1,135 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/dns/alias/remove",
+  "payload": {
+    "fields": {
+      "label": {
+        "type": "string",
+        "meaning": "The DNS alias label under home.arpa; home is reserved. It is trimmed, lowercased, and stripped of trailing dots before matching [a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])? (1–63 characters after normalization)."
+      },
+      "hostname": {
+        "type": "string",
+        "meaning": "The DNS host label under home.arpa. The label home names the apex. It is trimmed, lowercased, and stripped of trailing dots before matching [a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])? (1–63 characters after normalization)."
+      }
+    },
+    "required": [
+      "label",
+      "hostname"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "actuator": {
+      "type": "string",
+      "meaning": "Staff actuator identifier.",
+      "const": "network.dns.alias.remove"
+    },
+    "action": {
+      "type": "string",
+      "meaning": "Owned alias operation.",
+      "const": "alias-remove"
+    },
+    "state": {
+      "type": "string",
+      "meaning": "The write applied or was already satisfied.",
+      "enum": [
+        "applied",
+        "noop"
+      ]
+    },
+    "alias": {
+      "type": "string",
+      "meaning": "Fully qualified alias owner."
+    },
+    "verification": {
+      "type": "object",
+      "meaning": "Validation, reload and DNS query checks for the owned-name projection.",
+      "fields": {
+        "config_valid": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "meaning": "Staged configuration passed validation; null on device create’s early no-op."
+        },
+        "reload_outcome": {
+          "type": "string",
+          "meaning": "Reload result.",
+          "enum": [
+            "not-needed-idempotent",
+            "reloaded"
+          ]
+        },
+        "live_query_readback": {
+          "type": "array",
+          "meaning": "Queries made against the local resolver.",
+          "items": {
+            "type": "object",
+            "meaning": "A live query observation.",
+            "fields": {
+              "type": {
+                "type": "string",
+                "meaning": "DNS record type.",
+                "enum": [
+                  "A",
+                  "PTR"
+                ]
+              },
+              "owner": {
+                "type": "string",
+                "meaning": "Fully qualified owner queried."
+              },
+              "output": {
+                "type": "string",
+                "meaning": "Query stdout."
+              },
+              "readback_attempts": {
+                "type": "integer",
+                "meaning": "Number of attempts for this observation.",
+                "minimum": 1,
+                "maximum": 5
+              }
+            }
+          }
+        },
+        "mutationPerformed": {
+          "type": "boolean",
+          "meaning": "Whether the owned-name transaction changed bytes or metadata."
+        }
+      }
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "Whether the stop reports a mutation."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class named by the front door when the stop raises instead of answering."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop outcome; none names an unblocked result. The envelope reader names missing kernel fields in seat order (the single missing timestamp is listed). The stop can also carry an owned-include read or OS diagnostic, or a serialized compensation object with config_valid, reload_outcome, live_query_readback, mutationPerformed, first_failing_boundary, candidate (restored or restore-failed) and, on failed restoration, rollback_error. Those variable strings are not fixed enum values. Config-read failures may carry a dynamic dns-root-config-unreadable: or dns-config-unreadable: message with path and error text. An exception that escapes the stop is named by the front door, with its exception type.",
+      "enum": [
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: timestamp",
+        "dns-alias-label-malformed",
+        "dns-input-invalid",
+        "dns-hostname-malformed",
+        "dns-owned-record-malformed",
+        "dns-ownership-markers-invalid",
+        "dns-neighbor-not-regular",
+        "dns-live-query-tool-missing",
+        "dns-alias-owner-conflict",
+        "dns-alias-target-unresolved",
+        "dns-observed-record-collision",
+        "dns-gateway-apex-address-mismatch",
+        "identity-lock-unavailable:network-identity-claim",
+        "agathodaimon-stop-raised",
+        "none"
+      ]
+    }
+  }
+}

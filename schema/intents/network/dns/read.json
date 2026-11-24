@@ -1,0 +1,244 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/dns/read",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "actuator": {
+      "type": "string",
+      "meaning": "Staff actuator identifier.",
+      "const": "network.dns.read"
+    },
+    "action": {
+      "type": "string",
+      "meaning": "DNS local-data read.",
+      "const": "read"
+    },
+    "result": {
+      "type": "object",
+      "meaning": "Observed local-data inventory, grouped by device name and alias.",
+      "fields": {
+        "include": {
+          "type": "string",
+          "meaning": "Path of the dedicated owned-record include."
+        },
+        "exists": {
+          "type": "boolean",
+          "meaning": "Whether that include is a file."
+        },
+        "devices": {
+          "type": "array",
+          "meaning": "Observed device projections.",
+          "items": {
+            "type": "object",
+            "meaning": "A device’s configured DNS rows.",
+            "fields": {
+              "name": {
+                "type": "string",
+                "meaning": "Canonical name as read from Unbound records."
+              },
+              "a": {
+                "type": "array",
+                "meaning": "Sorted unique A data.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "ptr": {
+                "type": "array",
+                "meaning": "Sorted unique PTR owners.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "a_records": {
+                "type": "array",
+                "meaning": "A rows with source details.",
+                "items": {
+                  "type": "object",
+                  "meaning": "An A row.",
+                  "fields": {
+                    "address": {
+                      "type": "string",
+                      "meaning": "Record data."
+                    },
+                    "provenance": {
+                      "type": "string",
+                      "meaning": "Whether the source record belongs to the marked owned include.",
+                      "enum": [
+                        "owned",
+                        "legacy"
+                      ]
+                    },
+                    "where": {
+                      "type": "string",
+                      "meaning": "Source classification.",
+                      "enum": [
+                        "owned",
+                        "known-good",
+                        "old-staff-file",
+                        "hand-written"
+                      ]
+                    },
+                    "source": {
+                      "type": "string",
+                      "meaning": "Path of the file that supplied the record."
+                    },
+                    "line_number": {
+                      "type": "integer",
+                      "meaning": "One-based source line number.",
+                      "minimum": 1
+                    }
+                  }
+                }
+              },
+              "ptr_records": {
+                "type": "array",
+                "meaning": "PTR rows with source details.",
+                "items": {
+                  "type": "object",
+                  "meaning": "A PTR row.",
+                  "fields": {
+                    "name": {
+                      "type": "string",
+                      "meaning": "Reverse owner."
+                    },
+                    "provenance": {
+                      "type": "string",
+                      "meaning": "Whether the source record belongs to the marked owned include.",
+                      "enum": [
+                        "owned",
+                        "legacy"
+                      ]
+                    },
+                    "where": {
+                      "type": "string",
+                      "meaning": "Source classification.",
+                      "enum": [
+                        "owned",
+                        "known-good",
+                        "old-staff-file",
+                        "hand-written"
+                      ]
+                    },
+                    "source": {
+                      "type": "string",
+                      "meaning": "Path of the file that supplied the record."
+                    },
+                    "line_number": {
+                      "type": "integer",
+                      "meaning": "One-based source line number.",
+                      "minimum": 1
+                    }
+                  }
+                }
+              },
+              "provenance": {
+                "type": "array",
+                "meaning": "Sorted unique source ownership classes of the device’s rows.",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "owned",
+                    "legacy"
+                  ]
+                }
+              },
+              "adoptable": {
+                "type": "boolean",
+                "meaning": "Whether the shipped inventory is available and every local row qualifies for adoption."
+              }
+            }
+          }
+        },
+        "aliases": {
+          "type": "array",
+          "meaning": "Observed CNAME or marked A aliases.",
+          "items": {
+            "type": "object",
+            "meaning": "An alias row.",
+            "fields": {
+              "name": {
+                "type": "string",
+                "meaning": "Alias owner."
+              },
+              "target": {
+                "type": "string",
+                "meaning": "Canonical target or recorded alias target."
+              },
+              "provenance": {
+                "type": "string",
+                "meaning": "Whether the source record belongs to the marked owned include.",
+                "enum": [
+                  "owned",
+                  "legacy"
+                ]
+              },
+              "where": {
+                "type": "string",
+                "meaning": "Source classification.",
+                "enum": [
+                  "alias",
+                  "known-good",
+                  "old-staff-file",
+                  "hand-written"
+                ]
+              },
+              "source": {
+                "type": "string",
+                "meaning": "Path of the file that supplied the record."
+              },
+              "line_number": {
+                "type": "integer",
+                "meaning": "One-based source line number.",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "shipped_profile": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "The profile whose staged inventory was consulted, or null if it could not be read."
+        },
+        "mutationPerformed": {
+          "type": "boolean",
+          "meaning": "This read does not mutate.",
+          "const": false
+        },
+        "firstMissingSignal": {
+          "type": "string",
+          "meaning": "The inventory was read.",
+          "const": "none"
+        }
+      }
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "This read does not mutate.",
+      "const": false
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class named by the front door when the stop raises instead of answering."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop outcome; none names an unblocked result. The envelope reader names missing kernel fields in seat order (the single missing timestamp is listed). Config-read failures may carry a dynamic dns-root-config-unreadable: or dns-config-unreadable: message with path and error text. An exception that escapes the stop is named by the front door, with its exception type.",
+      "enum": [
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: timestamp",
+        "agathodaimon-stop-raised",
+        "none"
+      ]
+    }
+  }
+}

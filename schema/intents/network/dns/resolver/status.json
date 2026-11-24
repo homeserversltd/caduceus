@@ -1,0 +1,103 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/dns/resolver/status",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "action": {
+      "type": "string",
+      "meaning": "Resolver control operation.",
+      "const": "status"
+    },
+    "adblockEnabled": {
+      "type": "boolean",
+      "meaning": "Whether the blocklist include is uncommented."
+    },
+    "upstreams": {
+      "type": "array",
+      "meaning": "Forward addresses as written, including any port and TLS name.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dnsOverTls": {
+      "type": "boolean",
+      "meaning": "Whether the forward zone enables TLS (including the SSL directive spelling)."
+    },
+    "blocklistDomainCount": {
+      "type": "integer",
+      "meaning": "Count of local-zone lines in the blocklist file.",
+      "minimum": 0
+    },
+    "blocklistLastUpdate": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "meaning": "Build time from the blocklist header, or file time if unavailable, in epoch seconds."
+    },
+    "blocklistCheckedAt": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "meaning": "Blocklist file modification time in epoch seconds."
+    },
+    "blocklistSources": {
+      "type": "array",
+      "meaning": "Configured blocklist sources, or an empty list when none are returned.",
+      "items": {
+        "type": "object",
+        "meaning": "A source entry.",
+        "fields": {
+          "url": {
+            "type": "string",
+            "meaning": "Configured HTTPS URL."
+          }
+        }
+      },
+      "maxItems": 16
+    },
+    "blocklistSourcesSignal": {
+      "type": "string",
+      "meaning": "Result of reading the configured sources.",
+      "enum": [
+        "none",
+        "blocklist-config-unreadable"
+      ]
+    },
+    "unboundActive": {
+      "type": "boolean",
+      "meaning": "Whether the systemctl is-active check succeeded."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "This read does not mutate.",
+      "const": false
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class named by the front door when the stop raises instead of answering."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop outcome; none names an unblocked result. The envelope reader names missing kernel fields in seat order (the single missing timestamp is listed). An exception that escapes the stop is named by the front door, with its exception type.",
+      "enum": [
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: timestamp",
+        "resolver-config-unreadable",
+        "resolver-blocklist-include-ambiguous",
+        "resolver-forward-zone-ambiguous",
+        "resolver-service-status-unavailable",
+        "agathodaimon-stop-raised",
+        "none"
+      ]
+    }
+  }
+}

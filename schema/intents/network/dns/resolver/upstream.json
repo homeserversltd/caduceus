@@ -1,0 +1,97 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/dns/resolver/upstream",
+  "payload": {
+    "fields": {
+      "preset": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Choose one named preset with custom omitted or null; omit or use null when supplying custom addresses.",
+        "enum": [
+          "quad9",
+          "cloudflare",
+          "cloudflare-family",
+          "google",
+          null
+        ]
+      },
+      "custom": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "meaning": "Supply one to eight IPv4 or IPv6 address strings with preset omitted or null. Unspecified, multicast, loopback and link-local addresses are refused. Omit or use null for a preset.",
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1,
+        "maxItems": 8
+      },
+      "dot": {
+        "type": "boolean",
+        "meaning": "Enable DNS over TLS on port 853. A preset supplies its TLS authentication name; custom addresses do not."
+      }
+    },
+    "required": [
+      "dot"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "action": {
+      "type": "string",
+      "meaning": "Resolver control operation.",
+      "const": "upstream"
+    },
+    "upstreams": {
+      "type": "array",
+      "meaning": "Canonical selected IP addresses, without port or TLS name.",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "maxItems": 8
+    },
+    "dnsOverTls": {
+      "type": "boolean",
+      "meaning": "Requested DNS-over-TLS state."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "Whether the stop reports a mutation."
+    },
+    "reload": {
+      "type": "string",
+      "meaning": "Success reports reloaded, including when the candidate was unchanged.",
+      "const": "reloaded"
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class named by the front door when the stop raises instead of answering."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop outcome; none names an unblocked result. The envelope reader names missing kernel fields in seat order (the single missing timestamp is listed). An exception that escapes the stop is named by the front door, with its exception type.",
+      "enum": [
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: timestamp",
+        "resolver-upstream-input-invalid",
+        "resolver-dot-invalid",
+        "resolver-upstream-preset-invalid",
+        "resolver-upstream-address-invalid",
+        "resolver-upstream-address-refused",
+        "resolver-config-unreadable",
+        "resolver-forward-zone-ambiguous",
+        "resolver-command-unavailable",
+        "resolver-command-failed",
+        "agathodaimon-stop-raised",
+        "none"
+      ]
+    }
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/dns/blocklist/verify",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "outcome": {
+      "type": "string",
+      "meaning": "Blocklist result.",
+      "enum": [
+        "current",
+        "stale"
+      ]
+    },
+    "domainCount": {
+      "type": "integer",
+      "meaning": "Observed or built blocked-domain count.",
+      "minimum": 0
+    },
+    "sources": {
+      "type": "array",
+      "meaning": "Configured blocklist sources, or an empty list when none are returned.",
+      "items": {
+        "type": "object",
+        "meaning": "A source entry.",
+        "fields": {
+          "url": {
+            "type": "string",
+            "meaning": "Configured HTTPS URL."
+          }
+        }
+      },
+      "maxItems": 16
+    },
+    "firstFailingSource": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Hostname of the failing source if identified; otherwise null."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Whether configuration bytes changed; for source add/remove this specifically describes the stored source list."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "This read does not mutate.",
+      "const": false
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class named by the front door when the stop raises instead of answering."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop outcome; none names an unblocked result. The envelope reader names missing kernel fields in seat order (the single missing timestamp is listed). An exception that escapes the stop is named by the front door, with its exception type.",
+      "enum": [
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: timestamp",
+        "blocklist-stale",
+        "agathodaimon-stop-raised",
+        "none"
+      ]
+    }
+  }
+}
