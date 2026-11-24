@@ -1,0 +1,23 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/dhcp/remove-reservation",
+  "payload": {
+    "fields": {
+      "identifier": {"type": "string", "meaning": "Match the stored hardware address case-insensitively without separator normalization, or match the stored IP exactly. No match is a successful no-op."}
+    },
+    "required": ["identifier"]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "result": {"type": "boolean", "meaning": "Whether at least one matching reservation was removed."},
+    "changed": {"type": "boolean", "meaning": "Whether the Kea configuration was changed; present on success."},
+    "mutationPerformed": {"type": "boolean", "meaning": "On refusal, the manager's write observation, or false if it never ran."},
+    "exceptionType": {"type": "string", "meaning": "Exception class if the shared front door had to report an unhandled exception."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed outcomes are listed below; none means success. The stop also returns failed to read config <path>: <error>, invalid JSON in DHCP config: <error>, and writer or command errors with an optional restore failed suffix.",
+      "enum": ["none", "invalid-envelope", "identifier must be a string", "identity-lock-unavailable:network-identity-claim", "no JSON object found in DHCP config", "invalid DHCP configuration structure", "target is not a regular file", "dhcp-readback-mismatch", "agathodaimon-stop-raised"]
+    }
+  }
+}

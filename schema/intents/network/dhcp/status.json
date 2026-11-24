@@ -1,0 +1,33 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/dhcp/status",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "result": {
+      "type": "object",
+      "meaning": "Readback of service state and configuration validation; an inactive service or invalid configuration can be a successful observation.",
+      "fields": {
+        "service": {
+          "type": "object",
+          "meaning": "Kea service activity.",
+          "fields": {
+            "name": {"type": "string", "const": "kea-dhcp4-server", "meaning": "Unit checked."},
+            "active": {"type": "boolean", "meaning": "Whether systemctl is-active exited zero and returned active."},
+            "status": {"type": "string", "enum": ["active", "inactive"], "meaning": "Activity derived from the same probe."}
+          }
+        },
+        "config_valid": {"type": "boolean", "meaning": "Whether kea-dhcp4 -t exited zero."},
+        "details": {"type": "string", "meaning": "Stripped concatenation of systemctl status stdout and stderr."}
+      }
+    },
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Present on a stop refusal; no mutation occurred."},
+    "exceptionType": {"type": "string", "meaning": "Exception class if the shared front door had to report an unhandled exception."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed outcomes are listed below; none means the observation completed. The stop also returns command failed: <argv>: <error> when a command cannot run.",
+      "enum": ["none", "invalid-envelope", "kea-executable-unavailable:kea-dhcp4", "agathodaimon-stop-raised"]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/dhcp/validate",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "result": {"type": "boolean", "meaning": "Whether kea-dhcp4 -t exited zero. A nonzero tool exit returns false as a successful observation, not a stop refusal."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Present on a stop refusal; no mutation occurred."},
+    "exceptionType": {"type": "string", "meaning": "Exception class if the shared front door had to report an unhandled exception."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed outcomes are listed below; none means the validation command returned. The stop also returns command failed: <argv>: <error> when the command cannot run.",
+      "enum": ["none", "invalid-envelope", "kea-executable-unavailable:kea-dhcp4", "agathodaimon-stop-raised"]
+    }
+  }
+}

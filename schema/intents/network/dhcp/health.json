@@ -1,0 +1,25 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/dhcp/health",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "result": {
+      "type": "object",
+      "meaning": "Successful observation of a readable configuration and a successful service activity check.",
+      "fields": {
+        "config_readable": {"type": "boolean", "const": true, "meaning": "Kea configuration parsed with the expected structure."},
+        "service_answering": {"type": "boolean", "const": true, "meaning": "systemctl is-active exited zero."},
+        "service": {"type": "string", "const": "kea-dhcp4-server", "meaning": "The service checked."}
+      }
+    },
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Present on a stop refusal; no mutation occurred."},
+    "exceptionType": {"type": "string", "meaning": "Exception class if the shared front door had to report an unhandled exception."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed outcomes are listed below; none means success. The stop also returns failed to read config <path>: <error>, invalid JSON in DHCP config: <error> and command failed: <argv>: <error>.",
+      "enum": ["none", "invalid-envelope", "no JSON object found in DHCP config", "invalid DHCP configuration structure", "Kea DHCP service is not active", "agathodaimon-stop-raised"]
+    }
+  }
+}

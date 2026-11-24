@@ -1,0 +1,27 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/dhcp/config",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "result": {
+      "type": "object",
+      "meaning": "The parsed Kea configuration. Only the Dhcp4 object and its subnet4 array are shape-checked here; everything else is carried as read.",
+      "fields": {
+        "Dhcp4": {
+          "type": "object",
+          "meaning": "The Kea DHCPv4 configuration section.",
+          "fields": {"subnet4": {"type": "array", "meaning": "The configured subnet entries as read."}}
+        }
+      }
+    },
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Present on a stop refusal; no mutation occurred."},
+    "exceptionType": {"type": "string", "meaning": "Exception class if the shared front door had to report an unhandled exception."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed outcomes are listed below; none means success. The stop also returns failed to read config <path>: <error> and invalid JSON in DHCP config: <error>.",
+      "enum": ["none", "invalid-envelope", "no JSON object found in DHCP config", "invalid DHCP configuration structure", "agathodaimon-stop-raised"]
+    }
+  }
+}

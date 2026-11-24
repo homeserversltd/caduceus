@@ -1,0 +1,72 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/dhcp/add-reservation",
+  "payload": {
+    "fields": {
+      "hw_address": {
+        "type": "string",
+        "meaning": "Reservation MAC address. The stop strips surrounding whitespace, lowercases it and replaces hyphens with colons before matching or storing it.",
+        "pattern": "^[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?![\\s\\S])"
+      },
+      "ip_address": {
+        "type": ["string", "null"],
+        "meaning": "For a new reservation, an explicit address must be an unused IPv4 address in the configured reserved range, outside the dynamic pool. Null or omitted keeps an existing reservation or uses the next free reserved address. Exact replay of an existing address is checked before address validation.",
+        "default": null
+      },
+      "hostname": {
+        "type": ["string", "null"],
+        "meaning": "Hostname stored as supplied when nonempty on creation. With an explicit address on creation, the stop validates the trimmed, lowercased label without trailing periods for its DNS exclusion. Automatic allocation and an existing reservation do not take that validation path.",
+        "default": null
+      }
+    },
+    "required": ["hw_address"]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "result": {
+      "type": "object",
+      "meaning": "The new reservation, or the existing projection when kept.",
+      "fields": {
+        "hw-address": {"type": "string", "meaning": "Normalized MAC address."},
+        "ip-address": {"type": "string", "meaning": "The assigned or existing address."},
+        "hostname": {"type": "string", "meaning": "Stored hostname if returned; an existing reservation without a name projects an empty string."},
+        "created": {"type": "string", "meaning": "Normalized MAC of a newly written reservation; absent when nothing changed."}
+      }
+    },
+    "changed": {"type": "boolean", "meaning": "Whether the Kea configuration was changed; present on success."},
+    "mutationPerformed": {"type": "boolean", "meaning": "On refusal, the manager's write observation, or false if it never ran."},
+    "exceptionType": {"type": "string", "meaning": "Exception class if the shared front door had to report an unhandled exception."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed outcomes are listed below; none means success. The stop also returns open diagnostic text: invalid MAC address: <input>; IP address is outside the reserved range (<start> - <end>); failed to read config <path>: <error>; invalid JSON in DHCP config: <error>; caduceus-leases-unavailable:<transport, decoding, or upstream detail>; dns-root-config-unreadable: <path>; dns-config-unreadable: <path>: <error>; raw DNS file errors; and writer or command errors with an optional restore failed suffix.",
+      "enum": [
+        "none",
+        "invalid-envelope",
+        "hw_address must be a string",
+        "ip_address must be a string",
+        "hostname must be a string",
+        "identity-lock-unavailable:network-identity-claim",
+        "reservation with this MAC address already exists",
+        "dhcp-ip-inside-pool",
+        "dhcp-no-free-reserved-address",
+        "dns-hostname-malformed",
+        "dhcp-ip-taken",
+        "no subnet4 configuration found",
+        "no JSON object found in DHCP config",
+        "invalid DHCP configuration structure",
+        "caduceus-leases-unavailable:door-reported-failure",
+        "caduceus-leases-malformed:envelope-must-be-object",
+        "caduceus-leases-malformed:payload-must-be-object",
+        "caduceus-leases-malformed:ok-signal-missing",
+        "caduceus-leases-malformed:result-must-be-list",
+        "caduceus-leases-malformed:row-must-be-object",
+        "caduceus-leases-malformed:missing-mac",
+        "caduceus-leases-malformed:missing-ip",
+        "target is not a regular file",
+        "dhcp-readback-mismatch",
+        "agathodaimon-stop-raised"
+      ]
+    }
+  }
+}
