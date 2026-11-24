@@ -3,8 +3,7 @@
   "intent": "owner-group",
   "payload": {
     "fields": {
-      "action": {"type": "string", "enum": ["check", "observe", "apply"], "meaning": "Check owner membership (observe is an alias of check), or add owner to the existing group if needed. If absent or falsey, use the verb from transition unless a positional action was supplied."},
-      "args": {"type": "array", "items": {"type": "string", "enum": ["check", "observe", "apply"]}, "maxItems": 1, "meaning": "Optional positional action vector forwarded by the front door; a single element takes precedence over payload.action."}
+      "action": {"type": "string", "enum": ["check", "observe", "apply"], "meaning": "Select the act from payload.action or, if absent or falsey, the transition's verb. check observes owner membership, observe aliases check, and apply adds owner to the existing group if needed. A nonempty argument vector forwarded to the stop is refused with owner-group-action-invalid, even when payload.action is supplied."}
     },
     "required": []
   },

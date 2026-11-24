@@ -3,10 +3,10 @@
   "intent": "portals/service-control",
   "payload": {
     "fields": {
-      "actuator": {"type": "string", "enum": ["service-control-doors"], "meaning": "Required actuator discriminator; a legacy top-level value takes precedence over payload."},
+      "actuator": {"type": "string", "enum": ["service-control-doors"], "meaning": "Required actuator discriminator. After the shared reader accepts the request, a top-level actuator key wins by presence, even if null or invalid; only if the key is absent is actuator read from an object-valued payload."},
       "metadata": {
         "type": "object",
-        "meaning": "Action and its parameters. A legacy top-level metadata object takes precedence. The complete UTF-8 stdin object is limited to 65536 bytes.",
+        "meaning": "Action and its parameters. After the shared reader accepts the request, a top-level metadata key wins by presence, even if null or not an object; only if the key is absent is metadata read from an object-valued payload. The objects are not merged. The shared reader accepts at most 65536 UTF-8 bytes on the stop's stdin and validates the staff schema and required kernel when a schema key is present; a legacy flat object may omit schema.",
         "fields": {
           "action": {"type": "string", "enum": ["ssh-password-authentication-status", "ssh-password-authentication-toggle", "ssh-service-status", "samba-service-status", "ssh-service-toggle", "samba-service-toggle", "portal-service", "system-restart", "system-shutdown", "website-hard-reset"], "meaning": "Select the service observation, toggle, portal service operation, power act or delayed website restart."},
           "dryRun": {"type": "boolean", "default": false, "meaning": "Plan rather than dispatch an effect. Some plans still read unit state. The three fixed status actions always return planned false; this is the legacy metadata flag, not the front door's dry-run field."},

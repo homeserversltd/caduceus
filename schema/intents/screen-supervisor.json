@@ -3,8 +3,7 @@
   "intent": "screen-supervisor",
   "payload": {
     "fields": {
-      "action": {"type": "string", "enum": ["run"], "meaning": "Run the session's long-running screen supervisor. If absent or falsey, use the verb from transition unless a positional action was supplied."},
-      "args": {"type": "array", "items": {"type": "string", "enum": ["run"]}, "maxItems": 1, "meaning": "Optional positional action vector forwarded by the front door; a single element takes precedence over payload.action."}
+      "action": {"type": "string", "enum": ["run"], "meaning": "Select run from payload.action or, if absent or falsey, the transition's verb to start the session's long-running screen supervisor. A nonempty argument vector forwarded to the stop is refused with screen-supervisor-action-invalid, even when payload.action is supplied."}
     },
     "required": []
   },
