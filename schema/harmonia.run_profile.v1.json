@@ -1,6 +1,6 @@
 {
   "schema": "harmonia.run_profile.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "role": "Harmonia profile run receipt",
   "authority": {"owner": "caduceus", "path": "schema/harmonia.run_profile.v1.json"},
   "evolution": {"law": "additive-only", "missing_field_semantics": "Absent optional fields mean null", "unknown_fields_preserved": true},
@@ -43,7 +43,7 @@
       "set": {"type": ["object", "null"], "properties": {"caduceus": {"type": ["string", "null"]}, "sbin": {"type": ["string", "null"]}, "face": {"type": ["string", "null"]}}},
       "diff": {"type": ["object", "null"], "properties": {"caduceus": {"type": ["boolean", "null"]}, "sbin": {"type": ["boolean", "null"]}, "face": {"type": ["boolean", "null"]}}}
     }},
-    "attempt": {"type": ["array", "null"], "items": {"type": "object", "properties": {"module": {"type": "string"}, "step": {"type": ["string", "null"]}, "ok": {"type": ["boolean", "null"]}, "changed": {"type": ["boolean", "null"]}, "signal": {"type": ["string", "null"]}}}},
+    "attempt": {"type": ["array", "null"], "items": {"type": "object", "properties": {"module": {"type": "string"}, "step": {"type": ["string", "null"]}, "ok": {"type": ["boolean", "null"]}, "changed": {"type": ["boolean", "null"]}, "signal": {"type": ["string", "null"]}, "stop": {"type": ["object", "null"], "properties": {"noun": {"type": "string"}, "verb": {"type": "string"}}}, "intent_id": {"type": ["string", "null"]}}}},
     "final_receipt": {"type": ["object", "null"], "properties": {
       "ok": {"type": ["boolean", "null"]}, "converged": {"type": ["boolean", "null"]},
       "promoted": {"type": ["array", "null"], "items": {"type": "string"}}, "set_digest": {"type": ["string", "null"]},
