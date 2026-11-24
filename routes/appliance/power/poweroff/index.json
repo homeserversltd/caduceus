@@ -5,7 +5,7 @@
   "serve": [{"snake": "appliance/power/poweroff"}],
   "commands": ["staff intent"],
   "needs": ["all"],
-  "profiles": ["homeserver"],
+  "profiles": ["homeserver", "homesi", "hometv", "specula"],
   "http_method": "POST",
   "http_path": "/api/v1/appliance/power/poweroff",
   "body": "optional",

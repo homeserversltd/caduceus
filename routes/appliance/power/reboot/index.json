@@ -5,7 +5,7 @@
   "serve": [{"snake": "appliance/power/reboot"}],
   "commands": ["staff intent"],
   "needs": ["all"],
-  "profiles": ["homeserver"],
+  "profiles": ["homeserver", "homesi", "hometv", "specula"],
   "http_method": "POST",
   "http_path": "/api/v1/appliance/power/reboot",
   "body": "optional",

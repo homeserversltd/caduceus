@@ -6,6 +6,8 @@
     "access/pin/mode",
     "appliance/claim",
     "appliance/model-lanes/pulse",
+    "appliance/power/poweroff",
+    "appliance/power/reboot",
     "appliance/report",
     "appliance/stats",
     "appliance/stats/history",
