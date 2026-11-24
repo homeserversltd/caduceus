@@ -41,6 +41,7 @@
             "type": "string",
             "description": "Pending requests only in the list; an admitted first name disappears, not another pending request"
           },
+          "hidden": {"type": "boolean"},
           "title": {
             "type": "string"
           },
@@ -100,6 +101,7 @@
     "forwarded": {"type": ["boolean", "null"], "description": "A peer returned the gateway's post receipt."},
     "id": {"type": ["string", "null"]},
     "state": {"type": ["string", "null"]},
+    "hidden": {"type": "boolean"},
     "staff": {"type": ["object", "null"], "additionalProperties": true},
     "gateway": {
       "type": [
@@ -162,6 +164,8 @@
     }
   },
   "forms": {
+    "hide": {"required": []},
+    "unhide": {"required": []},
     "post": {"required": ["notification"], "description": "Pinless LAN post; a peer forwards once to the gateway."},
     "forward": {"required": ["notification"], "description": "Pinless gateway-only forward; no roster admission."},
     "action": {"required": [], "description": "Action fields as an object; gateway attendance is required."},
@@ -186,6 +190,8 @@
     }
   },
   "http": {
+    "hide": {"method":"POST", "path":"/api/v1/notifications/{id}/hide", "admin_mode_required":false, "mutation_allowed":true},
+    "unhide": {"method":"POST", "path":"/api/v1/notifications/{id}/unhide", "admin_mode_required":false, "mutation_allowed":true},
     "post": {"method":"POST", "path":"/api/v1/notifications", "admin_mode_required":false, "mutation_allowed":true},
     "forward": {"method":"POST", "path":"/api/v1/notifications/forward", "admin_mode_required":false, "mutation_allowed":true},
     "action": {"method":"POST", "path":"/api/v1/notifications/{id}/{verb}", "admin_mode_required":true, "mutation_allowed":true},
@@ -208,6 +214,7 @@
     }
   },
   "signals": [
+    "notification-kind-retired",
     "link-up-name-invalid",
     "link-up-name-taken",
     "link-up-admin-required",
