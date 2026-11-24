@@ -9,8 +9,8 @@
         "meaning": "New bucket and its credentials. The standing stop reads this at the envelope top level; the whole request is bounded at 16384 bytes.",
         "fields": {
           "bucket": {"type": "string", "meaning": "Bucket visible to the supplied key, not already configured and without a conflicting normalized service name.", "pattern": "^(?![bB]2-)[A-Za-z0-9-]{6,63}$(?![\\s\\S])", "maxLength": 63},
-          "keyId": {"type": "string", "meaning": "Backblaze key ID, stdin only; 1 to 511 UTF-8 bytes for Keyman, without NUL, LF, CR or double quote.", "minLength": 1, "maxLength": 511, "pattern": "^[^\"\\r\\n\\u0000]+$(?![\\s\\S])"},
-          "applicationKey": {"type": "string", "meaning": "Backblaze application key, stdin only; 1 to 511 UTF-8 bytes for Keyman, without NUL, LF, CR or double quote.", "minLength": 1, "maxLength": 511, "pattern": "^[^\"\\r\\n\\u0000]+$(?![\\s\\S])"}
+          "keyId": {"type": "string", "meaning": "Backblaze key ID, stdin only; its UTF-8 encoding must be 1 to 511 bytes for Keyman, without NUL, LF, CR or double quote.", "minLength": 1, "pattern": "^[^\"\\r\\n\\u0000]+$(?![\\s\\S])"},
+          "applicationKey": {"type": "string", "meaning": "Backblaze application key, stdin only; its UTF-8 encoding must be 1 to 511 bytes for Keyman, without NUL, LF, CR or double quote.", "minLength": 1, "pattern": "^[^\"\\r\\n\\u0000]+$(?![\\s\\S])"}
         },
         "required": ["bucket", "keyId", "applicationKey"]
       }

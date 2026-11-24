@@ -17,6 +17,7 @@
     "durability": {"type": "string", "const": "unconfirmed", "meaning": "Replacement completed but the config directory sync could not be confirmed."},
     "deed": {"type": "string", "const": "unwritten", "meaning": "The deed path raised while trying to report the outcome."},
     "intent_id": {"meaning": "The envelope's intent_id as supplied; protected echoes project it to a scalar or an empty object."},
+    "envelope": {"type": "object", "meaning": "The attached request envelope. Protected echoes project declared fields; an absent or array-valued stamps member gains the stop's stamp."},
     "raw_envelope": {"type": "string", "meaning": "Request text or the protected projection when a PIN was present."},
     "stamps": {"type": "array", "meaning": "Prior request stamps followed by the stop's stamp."},
     "staff": {"type": "object", "meaning": "The added verb, outcome and timestamp stamp."},
