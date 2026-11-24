@@ -208,7 +208,7 @@ pub fn status(band: Option<&str>) -> Value {
     }
     body
 }
-fn prepare_envelope(outer_envelope: &Value) -> Result<(Value, String), String> {
+pub(crate) fn prepare_envelope(outer_envelope: &Value) -> Result<(Value, String), String> {
     let mut forwarded = outer_envelope.clone();
     if let Some(context) = crate::shared::load_trace::current() {
         crate::shared::load_trace::attach_to_envelope(&mut forwarded, &context, None);
@@ -224,6 +224,12 @@ fn prepare_envelope(outer_envelope: &Value) -> Result<(Value, String), String> {
     });
     let outer = crate::protocol::Envelope::parse(forwarded)?;
     let forwarded = outer.into_raw();
+    // The absent-seat primitive is an intake rule; we still send a full kernel.
+    for field in ["intent_id", "transition"] {
+        if forwarded.get(field).is_none() {
+            return Err(format!("protocol-kernel-field-missing:{field}"));
+        }
+    }
     let raw = serde_json::to_string(&forwarded)
         .map_err(|_| "caduceus-snake-envelope-invalid".to_string())?;
     Ok((forwarded, raw))

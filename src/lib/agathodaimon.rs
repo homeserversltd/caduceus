@@ -165,6 +165,22 @@ fn args(input: &Value) -> impl Iterator<Item = &str> {
         .filter_map(Value::as_str)
 }
 
+fn stdin_envelope(noun: &str, verb: &str, input: &Value) -> Value {
+    if input.get("schema").is_some_and(|schema| !schema.is_null()) {
+        return input.clone();
+    }
+    let mut envelope = crate::gate::snake::crossing_envelope(&format!("{noun}/{verb}"), input);
+    if (noun, verb) == ("network", "linker") {
+        // The retained Linker adapter reads its operation and arguments at the top level.
+        if let (Some(fields), Some(input)) = (envelope.as_object_mut(), input.as_object()) {
+            for (key, value) in input {
+                fields.entry(key.clone()).or_insert_with(|| value.clone());
+            }
+        }
+    }
+    envelope
+}
+
 fn run_command(
     mut command: Command,
     noun: &str,
@@ -175,8 +191,26 @@ fn run_command(
     preserve_staff_receipt: bool,
 ) -> Result<Value, Value> {
     let started = std::time::Instant::now();
+    let raw = if write_input {
+        let envelope = stdin_envelope(noun, verb, input);
+        let (_, raw) = crate::gate::snake::prepare_envelope(&envelope).map_err(|signal| {
+            failure(
+                noun,
+                verb,
+                "stdin",
+                None,
+                "",
+                &signal,
+                elapsed_ms(&started),
+                record_failure,
+            )
+        })?;
+        Some(raw)
+    } else {
+        None
+    };
     let mut child = command
-        .stdin(if write_input {
+        .stdin(if raw.is_some() {
             Stdio::piped()
         } else {
             Stdio::null()
@@ -196,19 +230,7 @@ fn run_command(
                 record_failure,
             )
         })?;
-    if write_input {
-        let payload = serde_json::to_vec(input).map_err(|err| {
-            failure(
-                noun,
-                verb,
-                "stdin",
-                None,
-                &err.to_string(),
-                "caduceus-agathodaimon-cli-input-serialization-failed",
-                elapsed_ms(&started),
-                record_failure,
-            )
-        })?;
+    if let Some(raw) = raw {
         let mut stdin = child.stdin.take().ok_or_else(|| {
             failure(
                 noun,
@@ -221,7 +243,7 @@ fn run_command(
                 record_failure,
             )
         })?;
-        if let Err(err) = stdin.write_all(&payload) {
+        if let Err(err) = stdin.write_all(raw.as_bytes()) {
             return Err(failure(
                 noun,
                 verb,
