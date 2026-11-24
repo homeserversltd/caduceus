@@ -1,0 +1,360 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas/setup",
+  "payload": {
+    "fields": {
+      "device": {
+        "type": "string",
+        "meaning": "Whole disk or loop device to set up, named by a single /dev basename; the device is reobserved before a mutation.",
+        "pattern": "^/dev/(?!\\.{1,2}$(?![\\s\\S]))[A-Za-z0-9._-]{1,128}$(?![\\s\\S])",
+        "maxLength": 133
+      },
+      "role": {
+        "type": "string",
+        "meaning": "Selected NAS role.",
+        "enum": [
+          "primary",
+          "backup"
+        ]
+      }
+    },
+    "required": [
+      "device",
+      "role"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "serve": [
+    {
+      "stage_id": "plan",
+      "snake": "storage/nas/setup/plan",
+      "arguments": {
+        "device": {
+          "$ref": "request.payload.device"
+        },
+        "role": {
+          "$ref": "request.payload.role"
+        }
+      }
+    },
+    {
+      "stage_id": "key-create",
+      "snake": "storage/nas/setup/key-create",
+      "arguments": {
+        "device": {
+          "$ref": "request.payload.device"
+        },
+        "role": {
+          "$ref": "request.payload.role"
+        }
+      }
+    },
+    {
+      "stage_id": "format",
+      "snake": "storage/nas/setup/format",
+      "arguments": {
+        "device": {
+          "$ref": "request.payload.device"
+        },
+        "role": {
+          "$ref": "request.payload.role"
+        }
+      }
+    },
+    {
+      "stage_id": "seat",
+      "snake": "storage/nas/setup/seat",
+      "arguments": {
+        "device": {
+          "$ref": "request.payload.device"
+        },
+        "role": {
+          "$ref": "request.payload.role"
+        },
+        "createdPartitionIdentity": {
+          "$ref": "stages.format.receipt.createdPartitionIdentity"
+        }
+      }
+    }
+  ],
+  "rescue": [
+    {
+      "stage_id": "rollback",
+      "snake": "storage/nas/setup/rollback",
+      "on_refusal_of": [
+        "key-create",
+        "format",
+        "seat"
+      ],
+      "arguments": {
+        "device": {
+          "$ref": "request.payload.device"
+        },
+        "role": {
+          "$ref": "request.payload.role"
+        },
+        "createdKeyIdentity": {
+          "$ref": "stages.key-create.receipt.createdKeyIdentity"
+        },
+        "formatOk": {
+          "$ref": "stages.format.receipt.ok"
+        },
+        "diskMutationAttempted": {
+          "$ref": "stages.format.receipt.diskMutationAttempted"
+        },
+        "createdPartitionIdentity": {
+          "$ref": "stages.format.receipt.createdPartitionIdentity"
+        },
+        "deviceIdentity": {
+          "$ref": "stages.format.receipt.deviceIdentity"
+        },
+        "diskCleanVerified": {
+          "$ref": "stages.format.receipt.diskCleanVerified"
+        },
+        "seatMutationAttempted": {
+          "$ref": "stages.seat.receipt.mutationAttempted"
+        },
+        "seatRolledBack": {
+          "$ref": "stages.seat.receipt.rolledBack"
+        }
+      }
+    }
+  ],
+  "returns": {
+    "routine_id": {
+      "type": "string",
+      "meaning": "Path of the invoked arpeggio."
+    },
+    "request": {
+      "type": "string",
+      "meaning": "Redacted JSON serialization of the input envelope."
+    },
+    "stages": {
+      "type": "array",
+      "meaning": "Ordered stage rows, with the receipt of each invoked stage.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "stage_id": {
+            "type": "string",
+            "meaning": "Declared stage identifier."
+          },
+          "transition": {
+            "type": "string",
+            "meaning": "Invoked snake path."
+          },
+          "outcome": {
+            "type": "string",
+            "meaning": "Whether the stage completed, refused, or was skipped."
+          },
+          "arguments": {
+            "type": "object",
+            "meaning": "Resolved per-stage arguments after redaction."
+          },
+          "receipt": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "meaning": "The stage receipt with the echoed envelope and raw envelope removed."
+          },
+          "firstMissingSignal": {
+            "type": "string",
+            "meaning": "Interruption signal when the walker interrupted this stage."
+          }
+        }
+      }
+    },
+    "failedStage": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "First required stage that refused, or null if no stage was named."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Known change result. Omitted when the walker cannot determine it."
+    },
+    "firstMissingField": {
+      "type": "string",
+      "meaning": "Stage id whose dry-run declaration is missing, when that preflight refuses."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "First blocking walker or stage outcome; none means no missing signal was reported.",
+      "enum": [
+        "agathodaimon-envelope-invocation-failed",
+        "agathodaimon-nas-attach-aborted",
+        "agathodaimon-nas-attach-not-transaction-owned",
+        "agathodaimon-nas-block-census-failed",
+        "agathodaimon-nas-block-census-invalid",
+        "agathodaimon-nas-block-device-required",
+        "agathodaimon-nas-block-graph-empty",
+        "agathodaimon-nas-block-graph-identity-mismatch",
+        "agathodaimon-nas-block-graph-incomplete",
+        "agathodaimon-nas-block-graph-invalid",
+        "agathodaimon-nas-block-graph-unavailable",
+        "agathodaimon-nas-block-holders-invalid",
+        "agathodaimon-nas-block-holders-unreadable",
+        "agathodaimon-nas-block-identity-unobserved",
+        "agathodaimon-nas-command-failed",
+        "agathodaimon-nas-command-group-unreaped",
+        "agathodaimon-nas-command-timeout",
+        "agathodaimon-nas-command-unavailable",
+        "agathodaimon-nas-config-absent",
+        "agathodaimon-nas-config-application-invalid",
+        "agathodaimon-nas-config-applications-invalid",
+        "agathodaimon-nas-config-base-invalid",
+        "agathodaimon-nas-config-group-invalid",
+        "agathodaimon-nas-config-group-unknown",
+        "agathodaimon-nas-config-included-invalid",
+        "agathodaimon-nas-config-invalid",
+        "agathodaimon-nas-config-mode-invalid",
+        "agathodaimon-nas-config-path-invalid",
+        "agathodaimon-nas-config-path-outside-base",
+        "agathodaimon-nas-config-path-outside-mount",
+        "agathodaimon-nas-config-paths-invalid",
+        "agathodaimon-nas-config-permission-invalid",
+        "agathodaimon-nas-config-unreadable",
+        "agathodaimon-nas-config-user-invalid",
+        "agathodaimon-nas-config-user-unknown",
+        "agathodaimon-nas-deed-log-unavailable",
+        "agathodaimon-nas-device-changed-before-erasure",
+        "agathodaimon-nas-device-identity-mismatch",
+        "agathodaimon-nas-device-invalid",
+        "agathodaimon-nas-device-mounted",
+        "agathodaimon-nas-device-not-in-block-census",
+        "agathodaimon-nas-device-unobservable",
+        "agathodaimon-nas-directory-create-failed",
+        "agathodaimon-nas-drive-operation-running",
+        "agathodaimon-nas-envelope-invalid",
+        "agathodaimon-nas-envelope-kernel-missing",
+        "agathodaimon-nas-envelope-schema-foreign",
+        "agathodaimon-nas-format-aborted",
+        "agathodaimon-nas-holder-invalid",
+        "agathodaimon-nas-holder-unobservable",
+        "agathodaimon-nas-key-already-exists",
+        "agathodaimon-nas-key-conflict",
+        "agathodaimon-nas-key-create-aborted",
+        "agathodaimon-nas-key-create-failed",
+        "agathodaimon-nas-key-export-failed",
+        "agathodaimon-nas-key-export-invalid",
+        "agathodaimon-nas-key-export-lock-timeout",
+        "agathodaimon-nas-key-export-missing",
+        "agathodaimon-nas-key-raced",
+        "agathodaimon-nas-key-record-changed",
+        "agathodaimon-nas-key-unobservable",
+        "agathodaimon-nas-key-unreadable",
+        "agathodaimon-nas-keyman-exchange-cleanup-failed",
+        "agathodaimon-nas-keyman-exchange-mount-failed",
+        "agathodaimon-nas-keyman-exchange-obliteration-failed",
+        "agathodaimon-nas-keyman-exchange-preexisting",
+        "agathodaimon-nas-keyman-exchange-raced",
+        "agathodaimon-nas-keyman-malformed-key-file",
+        "agathodaimon-nas-keyman-missing-key",
+        "agathodaimon-nas-keyman-preflight-unobservable",
+        "agathodaimon-nas-keyman-service-invalid",
+        "agathodaimon-nas-keyman-unavailable",
+        "agathodaimon-nas-keyman-uninitialized-system",
+        "agathodaimon-nas-luks-readback-failed",
+        "agathodaimon-nas-luks-readback-missing",
+        "agathodaimon-nas-luks-required",
+        "agathodaimon-nas-luks-version-mismatch",
+        "agathodaimon-nas-mapper-backing-mismatch",
+        "agathodaimon-nas-mapper-backing-unobservable",
+        "agathodaimon-nas-mapper-close-failed",
+        "agathodaimon-nas-mapper-conflict",
+        "agathodaimon-nas-mapper-invalid",
+        "agathodaimon-nas-mapper-not-block",
+        "agathodaimon-nas-mapper-open-failed",
+        "agathodaimon-nas-mapper-readback-failed",
+        "agathodaimon-nas-mapper-unobservable",
+        "agathodaimon-nas-mount-ambiguous",
+        "agathodaimon-nas-mount-census-empty",
+        "agathodaimon-nas-mount-census-invalid",
+        "agathodaimon-nas-mount-census-unavailable",
+        "agathodaimon-nas-mount-readback-mismatch",
+        "agathodaimon-nas-mount-start-failed",
+        "agathodaimon-nas-mounted-root-invalid",
+        "agathodaimon-nas-mounted-root-unreadable",
+        "agathodaimon-nas-mounted-state-mismatch",
+        "agathodaimon-nas-mountpoint-busy",
+        "agathodaimon-nas-mountpoint-in-use",
+        "agathodaimon-nas-mountpoint-not-directory",
+        "agathodaimon-nas-mountpoint-not-empty",
+        "agathodaimon-nas-mountpoint-readback-failed",
+        "agathodaimon-nas-mountpoint-unavailable",
+        "agathodaimon-nas-mountpoint-unreadable",
+        "agathodaimon-nas-open-aborted",
+        "agathodaimon-nas-partition-held-by-foreign-device",
+        "agathodaimon-nas-partition-holder-ambiguous",
+        "agathodaimon-nas-partition-readback-mismatch",
+        "agathodaimon-nas-partition-readback-missing",
+        "agathodaimon-nas-partition-type-mismatch",
+        "agathodaimon-nas-partition-unavailable",
+        "agathodaimon-nas-partlabel-absent",
+        "agathodaimon-nas-partlabel-already-taken",
+        "agathodaimon-nas-partlabel-failed",
+        "agathodaimon-nas-partlabel-missing-or-mismatch",
+        "agathodaimon-nas-partlabel-unobservable",
+        "agathodaimon-nas-path-escape",
+        "agathodaimon-nas-path-kind-refused",
+        "agathodaimon-nas-permission-change-failed",
+        "agathodaimon-nas-permission-readback-mismatch",
+        "agathodaimon-nas-plan-aborted",
+        "agathodaimon-nas-portal-layout-attachment-guard-failed",
+        "agathodaimon-nas-portal-layout-group-absent",
+        "agathodaimon-nas-portal-layout-group-unreadable",
+        "agathodaimon-nas-portal-layout-readback-mismatch",
+        "agathodaimon-nas-portal-layout-role-invalid",
+        "agathodaimon-nas-portal-layout-row-failed",
+        "agathodaimon-nas-portal-layout-row-invalid",
+        "agathodaimon-nas-portal-layout-user-unreadable",
+        "agathodaimon-nas-preactive-service-stopped",
+        "agathodaimon-nas-protected-mount-unobserved",
+        "agathodaimon-nas-readback-invalid",
+        "agathodaimon-nas-request-invalid",
+        "agathodaimon-nas-role-invalid",
+        "agathodaimon-nas-root-mount-unobserved",
+        "agathodaimon-nas-root-required",
+        "agathodaimon-nas-runtime-path-invalid",
+        "agathodaimon-nas-scratch-path-escape",
+        "agathodaimon-nas-scratch-root-invalid",
+        "agathodaimon-nas-scratch-root-unreadable",
+        "agathodaimon-nas-scratch-stat-fixture-invalid",
+        "agathodaimon-nas-service-census-failed",
+        "agathodaimon-nas-service-census-invalid",
+        "agathodaimon-nas-service-state-settle-timeout",
+        "agathodaimon-nas-service-state-unreadable",
+        "agathodaimon-nas-service-unit-unreadable",
+        "agathodaimon-nas-setup-seat-aborted",
+        "agathodaimon-nas-share-rebuild-failed",
+        "agathodaimon-nas-sync-lock-invalid",
+        "agathodaimon-nas-sync-lock-unavailable",
+        "agathodaimon-nas-system-device-refused",
+        "agathodaimon-nas-transaction-lock-unavailable",
+        "agathodaimon-nas-udev-settle-failed",
+        "agathodaimon-nas-udev-trigger-failed",
+        "agathodaimon-nas-vault-not-mounted",
+        "agathodaimon-nas-vault-source-not-block",
+        "agathodaimon-nas-whole-disk-required",
+        "agathodaimon-nas-xfs-format-failed",
+        "agathodaimon-stop-raised",
+        "chord-deed-log-unavailable",
+        "chord-dry-run-undeclared-stage",
+        "chord-interrupted",
+        "chord-ref-unresolved",
+        "chord-secret-carrier-refused",
+        "chord-stage-invalid",
+        "chord-stage-invocation-failed",
+        "chord-stage-receipt-invalid",
+        "chord-stage-receipt-schema-mismatch",
+        "chord-stage-refused",
+        "none",
+        "sync-hold-refused-running"
+      ]
+    }
+  }
+}

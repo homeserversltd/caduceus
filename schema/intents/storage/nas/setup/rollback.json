@@ -1,0 +1,310 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas/setup/rollback",
+  "payload": {
+    "fields": {
+      "device": {
+        "type": "string",
+        "meaning": "Whole disk or loop device to set up, named by a single /dev basename; the device is reobserved before a mutation.",
+        "pattern": "^/dev/(?!\\.{1,2}$(?![\\s\\S]))[A-Za-z0-9._-]{1,128}$(?![\\s\\S])",
+        "maxLength": 133
+      },
+      "role": {
+        "type": "string",
+        "meaning": "Selected NAS role.",
+        "enum": [
+          "primary",
+          "backup"
+        ]
+      },
+      "createdKeyIdentity": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "meaning": "Metadata identity of the key record created by the key-create stage; no key material.",
+        "fields": {
+          "dev": {
+            "type": "integer",
+            "meaning": "Device of the key record.",
+            "minimum": 0
+          },
+          "ino": {
+            "type": "integer",
+            "meaning": "Inode of the key record.",
+            "minimum": 0
+          },
+          "uid": {
+            "type": "integer",
+            "meaning": "UID of the key record.",
+            "minimum": 0
+          },
+          "mode": {
+            "type": "integer",
+            "meaning": "Permission mode of the key record.",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "dev",
+          "ino",
+          "uid",
+          "mode"
+        ]
+      },
+      "formatOk": {
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "meaning": "Format stage verdict. True requires both disk identities for disk cleanup; null means no verdict."
+      },
+      "diskMutationAttempted": {
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "meaning": "Format stage witness of a possible disk mutation; false can establish safe key cleanup."
+      },
+      "diskCleanVerified": {
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "meaning": "Format rollback verified the disk clean; true can establish safe key cleanup."
+      },
+      "seatMutationAttempted": {
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "meaning": "Seat stage witness of mapper-open or mount attempts."
+      },
+      "seatRolledBack": {
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "meaning": "Seat stage cleanup verdict. If seat ran and did not report no attempt, true is required before cleanup."
+      },
+      "deviceIdentity": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Whole-device major:minor witness from format. Needed with its partition identity for disk cleanup.",
+        "pattern": "^[0-9]+:[0-9]+$(?![\\s\\S])"
+      },
+      "createdPartitionIdentity": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "New partition major:minor witness from format. Needed with the whole-device identity for disk cleanup.",
+        "pattern": "^[0-9]+:[0-9]+$(?![\\s\\S])"
+      }
+    },
+    "required": [
+      "device",
+      "role"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "role": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Selected NAS role, or null when it was not available."
+    },
+    "device": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Requested device after validation."
+    },
+    "steps": {
+      "type": "array",
+      "meaning": "Ordered observations and actions. The readback keys depend on the step.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Name assigned by the stop."
+          },
+          "ok": {
+            "type": "boolean",
+            "meaning": "Whether this step passed."
+          },
+          "readback": {
+            "type": "object",
+            "meaning": "Step-specific observations."
+          }
+        }
+      }
+    },
+    "failedStep": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Phase that stopped the operation, if named."
+    },
+    "rollbackSteps": {
+      "type": "array",
+      "meaning": "Ordered cleanup observations and actions. The readback keys depend on the cleanup step.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Name assigned by the stop."
+          },
+          "ok": {
+            "type": "boolean",
+            "meaning": "Whether this step passed."
+          },
+          "readback": {
+            "type": "object",
+            "meaning": "Step-specific observations."
+          }
+        }
+      }
+    },
+    "servicesStarted": {
+      "type": "array",
+      "meaning": "Names of services observed started by this operation.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "servicesNotRunning": {
+      "type": "array",
+      "meaning": "Latest observed inactive or failed states of dependent services.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "services": {
+      "type": "array",
+      "meaning": "Observed NAS-dependent units and their enablement, activity and mount dependency.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "excludedServices": {
+      "type": "array",
+      "meaning": "Legacy unit names omitted from the dependent-service census.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "attachmentReadback": {
+      "type": "object",
+      "meaning": "Independent mapper and mount observations taken before any cleanup."
+    },
+    "attachmentConflict": {
+      "type": "string",
+      "meaning": "Attachment observation that prevented cleanup.",
+      "enum": [
+        "mapper-unobservable",
+        "mapper",
+        "mountpoint-unobservable",
+        "mountpoint"
+      ]
+    },
+    "diskRetained": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Reason the disk was retained.",
+      "enum": [
+        null,
+        "seat-rollback-incomplete",
+        "format-identity-missing-or-invalid",
+        "format-refused",
+        "format-unrun"
+      ]
+    },
+    "keyRetained": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Reason the key record was retained.",
+      "enum": [
+        null,
+        "seat-rollback-incomplete",
+        "createdKeyIdentity-null",
+        "createdKeyIdentity-invalid",
+        "disk-clean-unverified"
+      ]
+    },
+    "firstMissingField": {
+      "type": "string",
+      "meaning": "Name of an invalid boolean or null stage witness.",
+      "enum": [
+        "formatOk",
+        "diskMutationAttempted",
+        "diskCleanVerified",
+        "seatMutationAttempted",
+        "seatRolledBack"
+      ]
+    },
+    "deedLogSignal": {
+      "type": "string",
+      "meaning": "The deed could not be recorded.",
+      "const": "agathodaimon-nas-deed-log-unavailable"
+    },
+    "mutationOutcome": {
+      "type": "string",
+      "meaning": "The NAS operation completed but recording its deed failed.",
+      "const": "completed-deed-unrecorded"
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none means the stop reported no missing signal.",
+      "enum": [
+        "agathodaimon-nas-command-group-unreaped",
+        "agathodaimon-nas-command-timeout",
+        "agathodaimon-nas-command-unavailable",
+        "agathodaimon-nas-deed-log-unavailable",
+        "agathodaimon-nas-device-invalid",
+        "agathodaimon-nas-drive-operation-running",
+        "agathodaimon-nas-envelope-invalid",
+        "agathodaimon-nas-envelope-kernel-missing",
+        "agathodaimon-nas-envelope-schema-foreign",
+        "agathodaimon-nas-key-unobservable",
+        "agathodaimon-nas-request-invalid",
+        "agathodaimon-nas-role-invalid",
+        "agathodaimon-nas-root-required",
+        "agathodaimon-nas-runtime-path-invalid",
+        "agathodaimon-nas-scratch-path-escape",
+        "agathodaimon-nas-scratch-root-invalid",
+        "agathodaimon-nas-scratch-root-unreadable",
+        "agathodaimon-nas-service-census-failed",
+        "agathodaimon-nas-service-census-invalid",
+        "agathodaimon-nas-service-state-settle-timeout",
+        "agathodaimon-nas-service-state-unreadable",
+        "agathodaimon-nas-service-unit-unreadable",
+        "agathodaimon-nas-setup-rescue-aborted",
+        "agathodaimon-nas-setup-rescue-attachment-present",
+        "agathodaimon-nas-setup-rescue-attachment-unobservable",
+        "agathodaimon-nas-setup-rescue-incomplete",
+        "agathodaimon-nas-setup-rescue-key-cleanup-incomplete",
+        "agathodaimon-nas-setup-rescue-seat-rollback-incomplete",
+        "agathodaimon-nas-setup-rescue-witness-missing",
+        "agathodaimon-nas-sync-lock-invalid",
+        "agathodaimon-nas-sync-lock-unavailable",
+        "agathodaimon-nas-transaction-lock-unavailable",
+        "none",
+        "sync-hold-refused-running"
+      ]
+    }
+  }
+}

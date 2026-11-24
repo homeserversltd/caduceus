@@ -1,0 +1,76 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas/list",
+  "payload": {
+    "fields": {
+      "path": {
+        "type": "string",
+        "meaning": "Normalized path relative to the attached primary NAS. Empty means the mount root. No leading slash, NUL, empty components, or dot components.",
+        "pattern": "^(?!/)(?![\\s\\S]*\\u0000)(?![\\s\\S]*(?:^|/)\\.{1,2}(?:/|(?![\\s\\S])))(?:[^/]+(?:/[^/]+)*)?(?![\\s\\S])",
+        "default": ""
+      }
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "path": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Requested relative path, or null if not a string or unread."
+    },
+    "folders": {
+      "type": "array",
+      "meaning": "Up to 500 sorted visible directory names on the same filesystem.",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 500
+    },
+    "truncated": {
+      "type": "boolean",
+      "meaning": "Whether more than 500 directory names matched."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none means the stop reported no missing signal.",
+      "enum": [
+        "agathodaimon-nas-block-device-required",
+        "agathodaimon-nas-block-graph-empty",
+        "agathodaimon-nas-block-graph-identity-mismatch",
+        "agathodaimon-nas-block-graph-incomplete",
+        "agathodaimon-nas-block-graph-invalid",
+        "agathodaimon-nas-block-graph-unavailable",
+        "agathodaimon-nas-block-identity-unobserved",
+        "agathodaimon-nas-device-unobservable",
+        "agathodaimon-nas-list-cross-device",
+        "agathodaimon-nas-list-mount-absent",
+        "agathodaimon-nas-list-mount-mismatch",
+        "agathodaimon-nas-list-path-invalid",
+        "agathodaimon-nas-list-path-unavailable",
+        "agathodaimon-nas-list-symlink",
+        "agathodaimon-nas-list-unavailable",
+        "agathodaimon-nas-mount-ambiguous",
+        "agathodaimon-nas-mount-census-empty",
+        "agathodaimon-nas-mount-census-invalid",
+        "agathodaimon-nas-mount-census-unavailable",
+        "agathodaimon-nas-partition-unavailable",
+        "agathodaimon-nas-partlabel-absent",
+        "agathodaimon-nas-partlabel-missing-or-mismatch",
+        "agathodaimon-nas-partlabel-unobservable",
+        "agathodaimon-nas-readback-invalid",
+        "agathodaimon-nas-request-invalid",
+        "agathodaimon-nas-root-required",
+        "agathodaimon-nas-runtime-path-invalid",
+        "agathodaimon-nas-scratch-path-escape",
+        "agathodaimon-nas-scratch-root-invalid",
+        "agathodaimon-nas-scratch-root-unreadable",
+        "agathodaimon-nas-scratch-stat-fixture-invalid",
+        "none"
+      ]
+    }
+  }
+}

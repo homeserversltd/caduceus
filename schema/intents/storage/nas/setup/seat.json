@@ -1,0 +1,319 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas/setup/seat",
+  "payload": {
+    "fields": {
+      "device": {
+        "type": "string",
+        "meaning": "Whole disk or loop device to set up, named by a single /dev basename; the device is reobserved before a mutation.",
+        "pattern": "^/dev/(?!\\.{1,2}$(?![\\s\\S]))[A-Za-z0-9._-]{1,128}$(?![\\s\\S])",
+        "maxLength": 133
+      },
+      "role": {
+        "type": "string",
+        "meaning": "Selected NAS role.",
+        "enum": [
+          "primary",
+          "backup"
+        ]
+      },
+      "createdPartitionIdentity": {
+        "type": "string",
+        "meaning": "Major:minor identity returned by the format stage for the newly created partition.",
+        "pattern": "^[0-9]+:[0-9]+$(?![\\s\\S])"
+      }
+    },
+    "required": [
+      "device",
+      "role",
+      "createdPartitionIdentity"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "role": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Selected NAS role, or null when it was not available."
+    },
+    "partlabel": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Role PARTLABEL, when observed."
+    },
+    "partition": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Partition path, when observed."
+    },
+    "mapper": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Mapper name, when observed."
+    },
+    "mountpoint": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Role mountpoint, when supplied."
+    },
+    "device": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Requested whole device, or null before request validation."
+    },
+    "steps": {
+      "type": "array",
+      "meaning": "Ordered observations and actions. The readback keys depend on the step.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Name assigned by the stop."
+          },
+          "ok": {
+            "type": "boolean",
+            "meaning": "Whether this step passed."
+          },
+          "readback": {
+            "type": "object",
+            "meaning": "Step-specific observations."
+          }
+        }
+      }
+    },
+    "failedStep": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Phase that stopped the operation, if named."
+    },
+    "returnCode": {
+      "type": "integer",
+      "meaning": "Exit status of the failed host command, when known."
+    },
+    "servicesStarted": {
+      "type": "array",
+      "meaning": "Names of services observed started by this operation.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "servicesNotRunning": {
+      "type": "array",
+      "meaning": "Latest observed inactive or failed states of dependent services.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "rolledBack": {
+      "type": "boolean",
+      "meaning": "Whether at least one rollback step ran and every such step passed."
+    },
+    "rollbackSteps": {
+      "type": "array",
+      "meaning": "Ordered cleanup observations and actions. The readback keys depend on the cleanup step.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Name assigned by the stop."
+          },
+          "ok": {
+            "type": "boolean",
+            "meaning": "Whether this step passed."
+          },
+          "readback": {
+            "type": "object",
+            "meaning": "Step-specific observations."
+          }
+        }
+      }
+    },
+    "services": {
+      "type": "array",
+      "meaning": "Observed NAS-dependent units and their enablement, activity and mount dependency.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "excludedServices": {
+      "type": "array",
+      "meaning": "Legacy unit names omitted from the dependent-service census.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "createdPartitionIdentity": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Major:minor identity returned by the format stage for the newly created partition.",
+      "pattern": "^[0-9]+:[0-9]+$(?![\\s\\S])"
+    },
+    "mutationAttempted": {
+      "type": "boolean",
+      "meaning": "Whether the stage reached mapper-open or mount work."
+    },
+    "firstMissingField": {
+      "type": "string",
+      "meaning": "The missing or invalid format partition witness.",
+      "const": "createdPartitionIdentity"
+    },
+    "unitStatesBefore": {
+      "type": "object",
+      "meaning": "Pre-operation unit observations when supplied by attachment."
+    },
+    "deedLogSignal": {
+      "type": "string",
+      "meaning": "The deed could not be recorded.",
+      "const": "agathodaimon-nas-deed-log-unavailable"
+    },
+    "mutationOutcome": {
+      "type": "string",
+      "meaning": "The NAS operation completed but recording its deed failed.",
+      "const": "completed-deed-unrecorded"
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none means the stop reported no missing signal.",
+      "enum": [
+        "agathodaimon-nas-attach-aborted",
+        "agathodaimon-nas-attach-not-transaction-owned",
+        "agathodaimon-nas-block-census-failed",
+        "agathodaimon-nas-block-census-invalid",
+        "agathodaimon-nas-block-device-required",
+        "agathodaimon-nas-block-graph-empty",
+        "agathodaimon-nas-block-graph-identity-mismatch",
+        "agathodaimon-nas-block-graph-incomplete",
+        "agathodaimon-nas-block-graph-invalid",
+        "agathodaimon-nas-block-graph-unavailable",
+        "agathodaimon-nas-block-holders-invalid",
+        "agathodaimon-nas-block-holders-unreadable",
+        "agathodaimon-nas-block-identity-unobserved",
+        "agathodaimon-nas-command-group-unreaped",
+        "agathodaimon-nas-command-timeout",
+        "agathodaimon-nas-command-unavailable",
+        "agathodaimon-nas-config-absent",
+        "agathodaimon-nas-config-application-invalid",
+        "agathodaimon-nas-config-applications-invalid",
+        "agathodaimon-nas-config-base-invalid",
+        "agathodaimon-nas-config-group-invalid",
+        "agathodaimon-nas-config-group-unknown",
+        "agathodaimon-nas-config-included-invalid",
+        "agathodaimon-nas-config-invalid",
+        "agathodaimon-nas-config-mode-invalid",
+        "agathodaimon-nas-config-path-invalid",
+        "agathodaimon-nas-config-path-outside-base",
+        "agathodaimon-nas-config-path-outside-mount",
+        "agathodaimon-nas-config-paths-invalid",
+        "agathodaimon-nas-config-permission-invalid",
+        "agathodaimon-nas-config-unreadable",
+        "agathodaimon-nas-config-user-invalid",
+        "agathodaimon-nas-config-user-unknown",
+        "agathodaimon-nas-deed-log-unavailable",
+        "agathodaimon-nas-device-identity-mismatch",
+        "agathodaimon-nas-device-invalid",
+        "agathodaimon-nas-device-not-in-block-census",
+        "agathodaimon-nas-device-unobservable",
+        "agathodaimon-nas-directory-create-failed",
+        "agathodaimon-nas-drive-operation-running",
+        "agathodaimon-nas-envelope-invalid",
+        "agathodaimon-nas-envelope-kernel-missing",
+        "agathodaimon-nas-envelope-schema-foreign",
+        "agathodaimon-nas-holder-invalid",
+        "agathodaimon-nas-holder-unobservable",
+        "agathodaimon-nas-key-export-failed",
+        "agathodaimon-nas-key-export-lock-timeout",
+        "agathodaimon-nas-key-export-missing",
+        "agathodaimon-nas-key-unobservable",
+        "agathodaimon-nas-luks-required",
+        "agathodaimon-nas-mapper-backing-mismatch",
+        "agathodaimon-nas-mapper-backing-unobservable",
+        "agathodaimon-nas-mapper-conflict",
+        "agathodaimon-nas-mapper-invalid",
+        "agathodaimon-nas-mapper-not-block",
+        "agathodaimon-nas-mapper-open-failed",
+        "agathodaimon-nas-mapper-readback-failed",
+        "agathodaimon-nas-mount-ambiguous",
+        "agathodaimon-nas-mount-census-empty",
+        "agathodaimon-nas-mount-census-invalid",
+        "agathodaimon-nas-mount-census-unavailable",
+        "agathodaimon-nas-mount-readback-mismatch",
+        "agathodaimon-nas-mount-start-failed",
+        "agathodaimon-nas-mounted-root-invalid",
+        "agathodaimon-nas-mounted-root-unreadable",
+        "agathodaimon-nas-mounted-state-mismatch",
+        "agathodaimon-nas-mountpoint-busy",
+        "agathodaimon-nas-mountpoint-not-directory",
+        "agathodaimon-nas-mountpoint-not-empty",
+        "agathodaimon-nas-mountpoint-readback-failed",
+        "agathodaimon-nas-open-aborted",
+        "agathodaimon-nas-partition-held-by-foreign-device",
+        "agathodaimon-nas-partition-holder-ambiguous",
+        "agathodaimon-nas-partition-readback-mismatch",
+        "agathodaimon-nas-partition-readback-missing",
+        "agathodaimon-nas-partition-unavailable",
+        "agathodaimon-nas-partlabel-absent",
+        "agathodaimon-nas-partlabel-missing-or-mismatch",
+        "agathodaimon-nas-partlabel-unobservable",
+        "agathodaimon-nas-path-escape",
+        "agathodaimon-nas-path-kind-refused",
+        "agathodaimon-nas-permission-change-failed",
+        "agathodaimon-nas-permission-readback-mismatch",
+        "agathodaimon-nas-portal-layout-attachment-guard-failed",
+        "agathodaimon-nas-portal-layout-group-absent",
+        "agathodaimon-nas-portal-layout-group-unreadable",
+        "agathodaimon-nas-portal-layout-readback-mismatch",
+        "agathodaimon-nas-portal-layout-role-invalid",
+        "agathodaimon-nas-portal-layout-row-failed",
+        "agathodaimon-nas-portal-layout-row-invalid",
+        "agathodaimon-nas-portal-layout-user-unreadable",
+        "agathodaimon-nas-preactive-service-stopped",
+        "agathodaimon-nas-protected-mount-unobserved",
+        "agathodaimon-nas-readback-invalid",
+        "agathodaimon-nas-request-invalid",
+        "agathodaimon-nas-role-invalid",
+        "agathodaimon-nas-root-mount-unobserved",
+        "agathodaimon-nas-root-required",
+        "agathodaimon-nas-runtime-path-invalid",
+        "agathodaimon-nas-scratch-path-escape",
+        "agathodaimon-nas-scratch-root-invalid",
+        "agathodaimon-nas-scratch-root-unreadable",
+        "agathodaimon-nas-scratch-stat-fixture-invalid",
+        "agathodaimon-nas-service-census-failed",
+        "agathodaimon-nas-service-census-invalid",
+        "agathodaimon-nas-service-state-settle-timeout",
+        "agathodaimon-nas-service-state-unreadable",
+        "agathodaimon-nas-service-unit-unreadable",
+        "agathodaimon-nas-setup-seat-aborted",
+        "agathodaimon-nas-share-rebuild-failed",
+        "agathodaimon-nas-sync-lock-invalid",
+        "agathodaimon-nas-sync-lock-unavailable",
+        "agathodaimon-nas-system-device-refused",
+        "agathodaimon-nas-transaction-lock-unavailable",
+        "agathodaimon-nas-vault-not-mounted",
+        "agathodaimon-nas-vault-source-not-block",
+        "agathodaimon-nas-whole-disk-required",
+        "none",
+        "sync-hold-refused-running"
+      ]
+    }
+  }
+}

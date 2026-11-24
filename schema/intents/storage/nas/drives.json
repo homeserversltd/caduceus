@@ -1,0 +1,111 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas/drives",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "drives": {
+      "type": "array",
+      "meaning": "Main and backup drive observations, in that order; may be partial on refusal.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "role": {
+            "type": "string",
+            "meaning": "Display name of the role.",
+            "enum": [
+              "main",
+              "backup"
+            ]
+          },
+          "partlabel": {
+            "type": "string",
+            "meaning": "Role PARTLABEL."
+          },
+          "present": {
+            "type": "boolean",
+            "meaning": "Whether a drive bearing the role label was found."
+          },
+          "mountpoint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Mountpoint, or null if not mounted."
+          },
+          "mounted": {
+            "type": "boolean",
+            "meaning": "Whether the mount belongs to the role partition."
+          },
+          "model": {
+            "meaning": "Model as supplied by lsblk, or null when unobserved."
+          },
+          "sizeBytes": {
+            "meaning": "Size in bytes as supplied by lsblk, or null when unobserved."
+          },
+          "transport": {
+            "meaning": "Transport as supplied by lsblk, or null when unobserved."
+          },
+          "usedBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "meaning": "Used bytes from the mounted role, or null if unread."
+          },
+          "freeBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "meaning": "Available bytes from the mounted role, or null if unread."
+          },
+          "health": {
+            "type": "string",
+            "meaning": "SMART health observation.",
+            "enum": [
+              "passed",
+              "failed",
+              "unknown"
+            ]
+          },
+          "readErrors": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "meaning": "Sysfs ioerr_cnt decoded as hexadecimal when readable."
+          }
+        }
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none means the stop reported no missing signal.",
+      "enum": [
+        "agathodaimon-nas-command-group-unreaped",
+        "agathodaimon-nas-command-timeout",
+        "agathodaimon-nas-command-unavailable",
+        "agathodaimon-nas-drive-census-failed",
+        "agathodaimon-nas-drive-census-invalid",
+        "agathodaimon-nas-mount-ambiguous",
+        "agathodaimon-nas-mount-census-empty",
+        "agathodaimon-nas-mount-census-invalid",
+        "agathodaimon-nas-mount-census-unavailable",
+        "agathodaimon-nas-partlabel-duplicate",
+        "agathodaimon-nas-request-invalid",
+        "agathodaimon-nas-root-required",
+        "agathodaimon-nas-runtime-path-invalid",
+        "agathodaimon-nas-scratch-path-escape",
+        "agathodaimon-nas-scratch-root-invalid",
+        "agathodaimon-nas-scratch-root-unreadable",
+        "agathodaimon-nas-space-unavailable",
+        "none"
+      ]
+    }
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas/key/probe",
+  "payload": {
+    "fields": {
+      "key_role": {
+        "type": "string",
+        "meaning": "Role whose key is tested against the supplied partition.",
+        "enum": [
+          "primary",
+          "backup"
+        ]
+      },
+      "partition": {
+        "type": "string",
+        "meaning": "Normalized /dev path resolving to a block device whose identity is present in the NAS PARTLABEL census.",
+        "pattern": "^/dev/(?![\\s\\S]*\\u0000)(?!\\.{1,2}(?:/|(?![\\s\\S])))(?![\\s\\S]*/\\.{1,2}(?:/|(?![\\s\\S])))[^/]+(?:/[^/]+)*(?![\\s\\S])"
+      }
+    },
+    "required": [
+      "key_role",
+      "partition"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "key_role": {
+      "meaning": "The supplied key role, including invalid values on refusal, or null if absent."
+    },
+    "partition": {
+      "meaning": "The supplied partition path, including invalid values on refusal, or null if absent."
+    },
+    "state": {
+      "type": "string",
+      "meaning": "Test-passphrase result when the command returned.",
+      "enum": [
+        "key-matched",
+        "key-mismatched",
+        "key-unobserved"
+      ]
+    },
+    "steps": {
+      "type": "array",
+      "meaning": "Ordered observations and actions. The readback keys depend on the step.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Name assigned by the stop."
+          },
+          "ok": {
+            "type": "boolean",
+            "meaning": "Whether this step passed."
+          },
+          "readback": {
+            "type": "object",
+            "meaning": "Step-specific observations."
+          }
+        }
+      }
+    },
+    "failedStep": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Phase that stopped the operation, if named."
+    },
+    "returnCode": {
+      "type": "integer",
+      "meaning": "Exit status of the failed host command, when known."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none means the stop reported no missing signal.",
+      "enum": [
+        "agathodaimon-nas-block-device-required",
+        "agathodaimon-nas-command-group-unreaped",
+        "agathodaimon-nas-command-timeout",
+        "agathodaimon-nas-command-unavailable",
+        "agathodaimon-nas-device-unobservable",
+        "agathodaimon-nas-drive-operation-running",
+        "agathodaimon-nas-key-export-failed",
+        "agathodaimon-nas-key-mismatched",
+        "agathodaimon-nas-key-probe-failed",
+        "agathodaimon-nas-key-unobservable",
+        "agathodaimon-nas-partition-identity-mismatch",
+        "agathodaimon-nas-partition-invalid",
+        "agathodaimon-nas-partlabel-duplicate",
+        "agathodaimon-nas-partlabel-invalid",
+        "agathodaimon-nas-partlabel-missing-or-mismatch",
+        "agathodaimon-nas-partlabel-unobservable",
+        "agathodaimon-nas-readback-invalid",
+        "agathodaimon-nas-request-invalid",
+        "agathodaimon-nas-role-invalid",
+        "agathodaimon-nas-root-required",
+        "agathodaimon-nas-runtime-path-invalid",
+        "agathodaimon-nas-scratch-path-escape",
+        "agathodaimon-nas-scratch-root-invalid",
+        "agathodaimon-nas-scratch-root-unreadable",
+        "agathodaimon-nas-scratch-stat-fixture-invalid",
+        "agathodaimon-nas-sync-lock-invalid",
+        "agathodaimon-nas-sync-lock-unavailable",
+        "none",
+        "sync-hold-refused-running"
+      ]
+    }
+  }
+}

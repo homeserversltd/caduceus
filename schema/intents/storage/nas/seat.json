@@ -1,0 +1,366 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas/seat",
+  "payload": {
+    "fields": {
+      "role": {
+        "type": "string",
+        "meaning": "Selected NAS role.",
+        "enum": [
+          "primary",
+          "backup"
+        ]
+      }
+    },
+    "required": [
+      "role"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "role": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Selected NAS role, or null when it was not available."
+    },
+    "partition": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Partition path, when observed."
+    },
+    "mapper": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Mapper name, when observed."
+    },
+    "mountpoint": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Role mountpoint, when supplied."
+    },
+    "applications": {
+      "type": "integer",
+      "meaning": "Number of configured NAS applications observed."
+    },
+    "steps": {
+      "type": "array",
+      "meaning": "Ordered observations and actions. The readback keys depend on the step.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Name assigned by the stop."
+          },
+          "ok": {
+            "type": "boolean",
+            "meaning": "Whether this step passed."
+          },
+          "readback": {
+            "type": "object",
+            "meaning": "Step-specific observations."
+          }
+        }
+      }
+    },
+    "failedStep": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Phase that stopped the operation, if named."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "Whether a directory or permissions change was performed."
+    },
+    "paths": {
+      "type": "array",
+      "meaning": "Configured and observed path, owner, group and mode, and whether they match.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "path": {
+            "type": "string",
+            "meaning": "Absolute role-relative target as a logical NAS path."
+          },
+          "configuredUser": {
+            "type": "string",
+            "meaning": "Configured user."
+          },
+          "configuredGroup": {
+            "type": "string",
+            "meaning": "Configured group."
+          },
+          "configuredMode": {
+            "type": "string",
+            "meaning": "Configured octal mode."
+          },
+          "includeIncludedPermissions": {
+            "type": "boolean",
+            "meaning": "Whether configured alternate owners and groups are accepted."
+          },
+          "exists": {
+            "type": "boolean",
+            "meaning": "Whether the entry exists."
+          },
+          "matches": {
+            "type": "boolean",
+            "meaning": "Whether observed permissions match the configured ones."
+          },
+          "application": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Configured application or null for a built-in layout entry."
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Observed entry kind, if present."
+          },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Observed owner, if present."
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Observed group, if present."
+          },
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Observed octal mode, if present."
+          }
+        }
+      }
+    },
+    "differences": {
+      "type": "array",
+      "meaning": "Observed paths whose permissions or presence differ from configuration.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "path": {
+            "type": "string",
+            "meaning": "Absolute role-relative target as a logical NAS path."
+          },
+          "configuredUser": {
+            "type": "string",
+            "meaning": "Configured user."
+          },
+          "configuredGroup": {
+            "type": "string",
+            "meaning": "Configured group."
+          },
+          "configuredMode": {
+            "type": "string",
+            "meaning": "Configured octal mode."
+          },
+          "includeIncludedPermissions": {
+            "type": "boolean",
+            "meaning": "Whether configured alternate owners and groups are accepted."
+          },
+          "exists": {
+            "type": "boolean",
+            "meaning": "Whether the entry exists."
+          },
+          "matches": {
+            "type": "boolean",
+            "meaning": "Whether observed permissions match the configured ones."
+          },
+          "application": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Configured application or null for a built-in layout entry."
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Observed entry kind, if present."
+          },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Observed owner, if present."
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Observed group, if present."
+          },
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Observed octal mode, if present."
+          }
+        }
+      }
+    },
+    "absent": {
+      "type": "array",
+      "meaning": "Configured application paths not present at observation.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "changedPaths": {
+      "type": "array",
+      "meaning": "Paths on which creation or a permission change was performed.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "failedPath": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Path associated with a failed permissions operation."
+    },
+    "errno": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "meaning": "OS error number for a failed permissions operation."
+    },
+    "could_change_to": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "When role is missing, names the selectable NAS roles.",
+      "fields": {
+        "role": {
+          "type": "array",
+          "meaning": "Allowed role names.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "backup"
+            ]
+          }
+        }
+      }
+    },
+    "deedLogSignal": {
+      "type": "string",
+      "meaning": "The deed could not be recorded.",
+      "const": "agathodaimon-nas-deed-log-unavailable"
+    },
+    "mutationOutcome": {
+      "type": "string",
+      "meaning": "The NAS operation completed but recording its deed failed.",
+      "const": "completed-deed-unrecorded"
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none means the stop reported no missing signal.",
+      "enum": [
+        "agathodaimon-nas-block-device-required",
+        "agathodaimon-nas-block-graph-incomplete",
+        "agathodaimon-nas-block-graph-invalid",
+        "agathodaimon-nas-block-holders-invalid",
+        "agathodaimon-nas-block-holders-unreadable",
+        "agathodaimon-nas-config-absent",
+        "agathodaimon-nas-config-application-invalid",
+        "agathodaimon-nas-config-applications-invalid",
+        "agathodaimon-nas-config-base-invalid",
+        "agathodaimon-nas-config-group-invalid",
+        "agathodaimon-nas-config-group-unknown",
+        "agathodaimon-nas-config-included-invalid",
+        "agathodaimon-nas-config-invalid",
+        "agathodaimon-nas-config-mode-invalid",
+        "agathodaimon-nas-config-path-invalid",
+        "agathodaimon-nas-config-path-outside-base",
+        "agathodaimon-nas-config-path-outside-mount",
+        "agathodaimon-nas-config-paths-invalid",
+        "agathodaimon-nas-config-permission-invalid",
+        "agathodaimon-nas-config-unreadable",
+        "agathodaimon-nas-config-user-invalid",
+        "agathodaimon-nas-config-user-unknown",
+        "agathodaimon-nas-deed-log-unavailable",
+        "agathodaimon-nas-device-unobservable",
+        "agathodaimon-nas-directory-create-failed",
+        "agathodaimon-nas-folders-filesystem-not-xfs",
+        "agathodaimon-nas-folders-mapper-mismatch",
+        "agathodaimon-nas-folders-mount-absent",
+        "agathodaimon-nas-holder-invalid",
+        "agathodaimon-nas-holder-unobservable",
+        "agathodaimon-nas-invalid-envelope",
+        "agathodaimon-nas-layout-unreadable",
+        "agathodaimon-nas-mapper-backing-mismatch",
+        "agathodaimon-nas-mapper-backing-unobservable",
+        "agathodaimon-nas-mapper-invalid",
+        "agathodaimon-nas-mapper-not-block",
+        "agathodaimon-nas-mapper-readback-failed",
+        "agathodaimon-nas-mount-ambiguous",
+        "agathodaimon-nas-mount-census-empty",
+        "agathodaimon-nas-mount-census-invalid",
+        "agathodaimon-nas-mount-census-unavailable",
+        "agathodaimon-nas-mount-readback-mismatch",
+        "agathodaimon-nas-mounted-root-invalid",
+        "agathodaimon-nas-mounted-root-unreadable",
+        "agathodaimon-nas-partition-holder-ambiguous",
+        "agathodaimon-nas-partition-unavailable",
+        "agathodaimon-nas-partlabel-absent",
+        "agathodaimon-nas-partlabel-missing-or-mismatch",
+        "agathodaimon-nas-partlabel-unobservable",
+        "agathodaimon-nas-path-escape",
+        "agathodaimon-nas-path-kind-refused",
+        "agathodaimon-nas-permission-change-failed",
+        "agathodaimon-nas-permission-readback-mismatch",
+        "agathodaimon-nas-portal-layout-group-absent",
+        "agathodaimon-nas-portal-layout-group-unreadable",
+        "agathodaimon-nas-portal-layout-readback-mismatch",
+        "agathodaimon-nas-portal-layout-role-invalid",
+        "agathodaimon-nas-portal-layout-row-failed",
+        "agathodaimon-nas-portal-layout-row-invalid",
+        "agathodaimon-nas-portal-layout-user-unreadable",
+        "agathodaimon-nas-readback-invalid",
+        "agathodaimon-nas-role-invalid",
+        "agathodaimon-nas-role-missing",
+        "agathodaimon-nas-root-required",
+        "agathodaimon-nas-runtime-path-invalid",
+        "agathodaimon-nas-scratch-path-escape",
+        "agathodaimon-nas-scratch-root-invalid",
+        "agathodaimon-nas-scratch-root-unreadable",
+        "agathodaimon-nas-scratch-stat-fixture-invalid",
+        "agathodaimon-nas-seat-aborted",
+        "none"
+      ]
+    }
+  }
+}

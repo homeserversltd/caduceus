@@ -1,0 +1,151 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas/role/observe",
+  "payload": {
+    "fields": {
+      "role": {
+        "type": "string",
+        "meaning": "Selected NAS role.",
+        "enum": [
+          "primary",
+          "backup"
+        ]
+      }
+    },
+    "required": [
+      "role"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "role": {
+      "meaning": "The supplied role, including invalid values on refusal, or null if absent."
+    },
+    "partlabel": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Role PARTLABEL, when observed."
+    },
+    "partition": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Partition path, when observed."
+    },
+    "mountpoint": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Role mountpoint, when supplied."
+    },
+    "deviceIdentity": {
+      "type": "string",
+      "meaning": "Major:minor identity of the resolved labelled partition."
+    },
+    "holders": {
+      "type": "array",
+      "meaning": "Observed mapper holders with name and major:minor identity.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "mapperOpen": {
+      "type": "boolean",
+      "meaning": "Whether the partition has any verified mapper holder."
+    },
+    "mounts": {
+      "type": "array",
+      "meaning": "Observed filesystem mounts on the partition or its holders.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "fstype": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Filesystem type when exactly one mount was found, otherwise null."
+    },
+    "state": {
+      "type": "string",
+      "meaning": "Observation succeeded.",
+      "const": "role-observed"
+    },
+    "steps": {
+      "type": "array",
+      "meaning": "Ordered observations and actions. The readback keys depend on the step.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Name assigned by the stop."
+          },
+          "ok": {
+            "type": "boolean",
+            "meaning": "Whether this step passed."
+          },
+          "readback": {
+            "type": "object",
+            "meaning": "Step-specific observations."
+          }
+        }
+      }
+    },
+    "failedStep": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Phase that stopped the operation, if named."
+    },
+    "returnCode": {
+      "type": "integer",
+      "meaning": "Exit status of the failed host command, when known."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none means the stop reported no missing signal.",
+      "enum": [
+        "agathodaimon-nas-block-device-required",
+        "agathodaimon-nas-block-graph-incomplete",
+        "agathodaimon-nas-block-graph-invalid",
+        "agathodaimon-nas-block-holders-invalid",
+        "agathodaimon-nas-block-holders-unreadable",
+        "agathodaimon-nas-command-group-unreaped",
+        "agathodaimon-nas-command-timeout",
+        "agathodaimon-nas-command-unavailable",
+        "agathodaimon-nas-device-unobservable",
+        "agathodaimon-nas-holder-backing-mismatch",
+        "agathodaimon-nas-holder-invalid",
+        "agathodaimon-nas-holder-unobservable",
+        "agathodaimon-nas-mapper-backing-unobservable",
+        "agathodaimon-nas-mount-census-empty",
+        "agathodaimon-nas-mount-census-invalid",
+        "agathodaimon-nas-mount-census-unavailable",
+        "agathodaimon-nas-partition-identity-mismatch",
+        "agathodaimon-nas-partition-unavailable",
+        "agathodaimon-nas-partlabel-absent",
+        "agathodaimon-nas-partlabel-duplicate",
+        "agathodaimon-nas-partlabel-missing-or-mismatch",
+        "agathodaimon-nas-partlabel-unobservable",
+        "agathodaimon-nas-readback-invalid",
+        "agathodaimon-nas-request-invalid",
+        "agathodaimon-nas-role-invalid",
+        "agathodaimon-nas-root-required",
+        "agathodaimon-nas-runtime-path-invalid",
+        "agathodaimon-nas-scratch-path-escape",
+        "agathodaimon-nas-scratch-root-invalid",
+        "agathodaimon-nas-scratch-root-unreadable",
+        "agathodaimon-nas-scratch-stat-fixture-invalid",
+        "none"
+      ]
+    }
+  }
+}

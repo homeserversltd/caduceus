@@ -1,0 +1,309 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas/role/swap",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "serve": [
+    {
+      "stage_id": "hold",
+      "snake": "storage/backup/nas-sync/hold"
+    },
+    {
+      "stage_id": "observe-primary",
+      "snake": "storage/nas/role/observe",
+      "arguments": {
+        "role": "primary"
+      }
+    },
+    {
+      "stage_id": "observe-backup",
+      "snake": "storage/nas/role/observe",
+      "arguments": {
+        "role": "backup"
+      }
+    },
+    {
+      "stage_id": "probe-primary-disk-backup-key",
+      "snake": "storage/nas/key/probe",
+      "arguments": {
+        "key_role": "backup",
+        "partition": {
+          "$ref": "stages.observe-primary.receipt.partition"
+        }
+      }
+    },
+    {
+      "stage_id": "probe-backup-disk-primary-key",
+      "snake": "storage/nas/key/probe",
+      "arguments": {
+        "key_role": "primary",
+        "partition": {
+          "$ref": "stages.observe-backup.receipt.partition"
+        }
+      }
+    },
+    {
+      "stage_id": "detach-backup",
+      "snake": "storage/nas/detach",
+      "arguments": {
+        "role": "backup"
+      },
+      "deadline_seconds": 180
+    },
+    {
+      "stage_id": "detach-primary",
+      "snake": "storage/nas/detach",
+      "arguments": {
+        "role": "primary"
+      },
+      "deadline_seconds": 180
+    },
+    {
+      "stage_id": "label-primary-to-tmp",
+      "snake": "storage/disk/partlabel/assign",
+      "arguments": {
+        "current_label": "homeserver-primary-nas",
+        "label": "homeserver-nas-swap-tmp"
+      }
+    },
+    {
+      "stage_id": "label-backup-to-primary",
+      "snake": "storage/disk/partlabel/assign",
+      "arguments": {
+        "current_label": "homeserver-backup-nas",
+        "label": "homeserver-primary-nas"
+      }
+    },
+    {
+      "stage_id": "label-tmp-to-backup",
+      "snake": "storage/disk/partlabel/assign",
+      "arguments": {
+        "current_label": "homeserver-nas-swap-tmp",
+        "label": "homeserver-backup-nas"
+      }
+    },
+    {
+      "stage_id": "attach-primary",
+      "snake": "storage/nas/attach",
+      "arguments": {
+        "role": "primary"
+      },
+      "deadline_seconds": 180
+    },
+    {
+      "stage_id": "attach-backup",
+      "snake": "storage/nas/attach",
+      "arguments": {
+        "role": "backup"
+      },
+      "deadline_seconds": 180
+    },
+    {
+      "stage_id": "observe-after-primary",
+      "snake": "storage/nas/role/observe",
+      "arguments": {
+        "role": "primary"
+      }
+    },
+    {
+      "stage_id": "observe-after-backup",
+      "snake": "storage/nas/role/observe",
+      "arguments": {
+        "role": "backup"
+      }
+    }
+  ],
+  "finally": [
+    {
+      "stage_id": "release",
+      "snake": "storage/backup/nas-sync/release",
+      "depends_on": [
+        "hold"
+      ],
+      "arguments": {
+        "hold_id": {
+          "$ref": "stages.hold.receipt.holdId"
+        }
+      }
+    }
+  ],
+  "returns": {
+    "routine_id": {
+      "type": "string",
+      "meaning": "Path of the invoked arpeggio."
+    },
+    "request": {
+      "type": "string",
+      "meaning": "Redacted JSON serialization of the input envelope."
+    },
+    "stages": {
+      "type": "array",
+      "meaning": "Ordered stage rows, with the receipt of each invoked stage.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "stage_id": {
+            "type": "string",
+            "meaning": "Declared stage identifier."
+          },
+          "transition": {
+            "type": "string",
+            "meaning": "Invoked snake path."
+          },
+          "outcome": {
+            "type": "string",
+            "meaning": "Whether the stage completed, refused, or was skipped."
+          },
+          "arguments": {
+            "type": "object",
+            "meaning": "Resolved per-stage arguments after redaction."
+          },
+          "receipt": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "meaning": "The stage receipt with the echoed envelope and raw envelope removed."
+          },
+          "firstMissingSignal": {
+            "type": "string",
+            "meaning": "Interruption signal when the walker interrupted this stage."
+          }
+        }
+      }
+    },
+    "failedStage": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "First required stage that refused, or null if no stage was named."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Known change result. Omitted when the walker cannot determine it."
+    },
+    "firstMissingField": {
+      "type": "string",
+      "meaning": "Stage id whose dry-run declaration is missing, when that preflight refuses."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "First blocking walker or stage outcome; none means no missing signal was reported.",
+      "enum": [
+        "agathodaimon-envelope-invocation-failed",
+        "agathodaimon-nas-attach-aborted",
+        "agathodaimon-nas-block-device-required",
+        "agathodaimon-nas-block-graph-empty",
+        "agathodaimon-nas-block-graph-identity-mismatch",
+        "agathodaimon-nas-block-graph-incomplete",
+        "agathodaimon-nas-block-graph-invalid",
+        "agathodaimon-nas-block-graph-unavailable",
+        "agathodaimon-nas-block-holders-invalid",
+        "agathodaimon-nas-block-holders-unreadable",
+        "agathodaimon-nas-block-identity-unobserved",
+        "agathodaimon-nas-command-group-unreaped",
+        "agathodaimon-nas-command-timeout",
+        "agathodaimon-nas-command-unavailable",
+        "agathodaimon-nas-deed-log-unavailable",
+        "agathodaimon-nas-detach-aborted",
+        "agathodaimon-nas-device-unobservable",
+        "agathodaimon-nas-drive-operation-running",
+        "agathodaimon-nas-envelope-kernel-missing",
+        "agathodaimon-nas-envelope-schema-foreign",
+        "agathodaimon-nas-holder-backing-mismatch",
+        "agathodaimon-nas-holder-invalid",
+        "agathodaimon-nas-holder-unobservable",
+        "agathodaimon-nas-key-export-failed",
+        "agathodaimon-nas-key-export-lock-timeout",
+        "agathodaimon-nas-key-export-missing",
+        "agathodaimon-nas-key-mismatched",
+        "agathodaimon-nas-key-probe-failed",
+        "agathodaimon-nas-key-unobservable",
+        "agathodaimon-nas-luks-required",
+        "agathodaimon-nas-mapper-backing-mismatch",
+        "agathodaimon-nas-mapper-backing-unobservable",
+        "agathodaimon-nas-mapper-busy",
+        "agathodaimon-nas-mapper-invalid",
+        "agathodaimon-nas-mapper-not-block",
+        "agathodaimon-nas-mapper-open-failed",
+        "agathodaimon-nas-mapper-readback-failed",
+        "agathodaimon-nas-mount-ambiguous",
+        "agathodaimon-nas-mount-busy",
+        "agathodaimon-nas-mount-census-empty",
+        "agathodaimon-nas-mount-census-invalid",
+        "agathodaimon-nas-mount-census-unavailable",
+        "agathodaimon-nas-mount-readback-mismatch",
+        "agathodaimon-nas-mount-start-failed",
+        "agathodaimon-nas-mounted-state-mismatch",
+        "agathodaimon-nas-mountpoint-busy",
+        "agathodaimon-nas-open-aborted",
+        "agathodaimon-nas-parent-identity-mismatch",
+        "agathodaimon-nas-partition-held",
+        "agathodaimon-nas-partition-held-by-foreign-device",
+        "agathodaimon-nas-partition-holder-ambiguous",
+        "agathodaimon-nas-partition-identity-mismatch",
+        "agathodaimon-nas-partition-invalid",
+        "agathodaimon-nas-partition-mounted",
+        "agathodaimon-nas-partition-number-invalid",
+        "agathodaimon-nas-partition-number-unobservable",
+        "agathodaimon-nas-partition-unavailable",
+        "agathodaimon-nas-partlabel-absent",
+        "agathodaimon-nas-partlabel-already-taken",
+        "agathodaimon-nas-partlabel-duplicate",
+        "agathodaimon-nas-partlabel-invalid",
+        "agathodaimon-nas-partlabel-missing-or-mismatch",
+        "agathodaimon-nas-partlabel-readback-mismatch",
+        "agathodaimon-nas-partlabel-unobservable",
+        "agathodaimon-nas-partlabel-write-failed",
+        "agathodaimon-nas-preactive-service-stopped",
+        "agathodaimon-nas-readback-invalid",
+        "agathodaimon-nas-request-invalid",
+        "agathodaimon-nas-role-invalid",
+        "agathodaimon-nas-root-required",
+        "agathodaimon-nas-runtime-path-invalid",
+        "agathodaimon-nas-scratch-path-escape",
+        "agathodaimon-nas-scratch-root-invalid",
+        "agathodaimon-nas-scratch-root-unreadable",
+        "agathodaimon-nas-scratch-stat-fixture-invalid",
+        "agathodaimon-nas-service-census-failed",
+        "agathodaimon-nas-service-census-invalid",
+        "agathodaimon-nas-service-state-settle-timeout",
+        "agathodaimon-nas-service-state-unreadable",
+        "agathodaimon-nas-service-stop-busy",
+        "agathodaimon-nas-service-stop-failed",
+        "agathodaimon-nas-service-unit-unreadable",
+        "agathodaimon-nas-share-rebuild-failed",
+        "agathodaimon-nas-sync-hold-already-active",
+        "agathodaimon-nas-sync-hold-not-owned",
+        "agathodaimon-nas-sync-holder-cleanup-failed",
+        "agathodaimon-nas-sync-holder-unobservable",
+        "agathodaimon-nas-sync-lock-invalid",
+        "agathodaimon-nas-sync-lock-readback-mismatch",
+        "agathodaimon-nas-sync-lock-unavailable",
+        "agathodaimon-nas-sync-lock-unobservable",
+        "agathodaimon-nas-sync-release-failed",
+        "agathodaimon-nas-udev-settle-failed",
+        "agathodaimon-nas-vault-not-mounted",
+        "agathodaimon-stop-raised",
+        "chord-deed-log-unavailable",
+        "chord-dry-run-undeclared-stage",
+        "chord-interrupted",
+        "chord-ref-unresolved",
+        "chord-secret-carrier-refused",
+        "chord-stage-deadline-exceeded",
+        "chord-stage-invalid",
+        "chord-stage-invocation-failed",
+        "chord-stage-receipt-invalid",
+        "chord-stage-receipt-schema-mismatch",
+        "chord-stage-refused",
+        "none",
+        "sync-hold-refused-running"
+      ]
+    }
+  }
+}

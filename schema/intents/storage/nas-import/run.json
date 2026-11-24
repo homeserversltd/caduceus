@@ -1,0 +1,160 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas-import/run",
+  "payload": {
+    "fields": {
+      "device": {
+        "type": "string",
+        "meaning": "Whole disk or loop device to import from, named by a single /dev basename.",
+        "pattern": "^/dev/(?!\\.{1,2}$(?![\\s\\S]))[A-Za-z0-9._-]+$(?![\\s\\S])"
+      }
+    },
+    "required": [
+      "device"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "changed": {
+      "type": "boolean",
+      "meaning": "The front-door receipt does not observe copy changes."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "The front-door receipt does not confirm a copy was performed."
+    },
+    "started": {
+      "type": "boolean",
+      "meaning": "Whether the detached import worker was accepted."
+    },
+    "unit": {
+      "type": "string",
+      "meaning": "Name of the detached transient worker unit."
+    },
+    "device": {
+      "type": "string",
+      "meaning": "Requested whole source device."
+    },
+    "partition": {
+      "type": "string",
+      "meaning": "Selected source data node; this can be the whole device."
+    },
+    "destination": {
+      "type": "string",
+      "meaning": "Planned destination on the primary NAS."
+    },
+    "label": {
+      "type": "string",
+      "meaning": "Sanitized source label used as the destination name prefix.",
+      "pattern": "^[A-Za-z0-9_-]{1,32}$",
+      "maxLength": 32
+    },
+    "steps": {
+      "type": "array",
+      "meaning": "Ordered observations and actions. The readback keys depend on the step.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Name assigned by the stop."
+          },
+          "ok": {
+            "type": "boolean",
+            "meaning": "Whether this step passed."
+          },
+          "readback": {
+            "type": "object",
+            "meaning": "Step-specific observations."
+          }
+        }
+      }
+    },
+    "failedStep": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Phase that stopped the operation, if named."
+    },
+    "returnCode": {
+      "type": "integer",
+      "meaning": "Exit status of the failed host command, when known."
+    },
+    "deedLogSignal": {
+      "type": "string",
+      "meaning": "The deed could not be recorded.",
+      "const": "agathodaimon-nas-deed-log-unavailable"
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none means the stop reported no missing signal.",
+      "enum": [
+        "agathodaimon-drive-block-census-failed",
+        "agathodaimon-drive-device-form-refused",
+        "agathodaimon-drive-device-identity-mismatch",
+        "agathodaimon-drive-device-not-in-block-census",
+        "agathodaimon-drive-disk-test-running",
+        "agathodaimon-drive-filesystem-unsupported",
+        "agathodaimon-drive-label-reserved",
+        "agathodaimon-drive-label-unobservable",
+        "agathodaimon-drive-locked-refused",
+        "agathodaimon-drive-mount-census-invalid",
+        "agathodaimon-drive-mount-census-unavailable",
+        "agathodaimon-drive-no-filesystem",
+        "agathodaimon-drive-partition-ambiguous",
+        "agathodaimon-drive-system-device-refused",
+        "agathodaimon-drive-whole-disk-required",
+        "agathodaimon-nas-block-device-required",
+        "agathodaimon-nas-block-graph-empty",
+        "agathodaimon-nas-block-graph-identity-mismatch",
+        "agathodaimon-nas-block-graph-incomplete",
+        "agathodaimon-nas-block-graph-invalid",
+        "agathodaimon-nas-block-graph-unavailable",
+        "agathodaimon-nas-block-identity-unobserved",
+        "agathodaimon-nas-command-group-unreaped",
+        "agathodaimon-nas-command-timeout",
+        "agathodaimon-nas-command-unavailable",
+        "agathodaimon-nas-device-mounted",
+        "agathodaimon-nas-device-unobservable",
+        "agathodaimon-nas-drive-operation-running",
+        "agathodaimon-nas-import-destination-exists",
+        "agathodaimon-nas-import-destination-not-directory",
+        "agathodaimon-nas-import-device-invalid",
+        "agathodaimon-nas-import-label-invalid",
+        "agathodaimon-nas-import-label-unavailable",
+        "agathodaimon-nas-import-launch-refused",
+        "agathodaimon-nas-import-plan-unavailable",
+        "agathodaimon-nas-import-resolver-unavailable",
+        "agathodaimon-nas-import-test-state-unavailable",
+        "agathodaimon-nas-mapper-backing-mismatch",
+        "agathodaimon-nas-mapper-backing-unobservable",
+        "agathodaimon-nas-mapper-invalid",
+        "agathodaimon-nas-mapper-not-block",
+        "agathodaimon-nas-mapper-readback-failed",
+        "agathodaimon-nas-mount-census-empty",
+        "agathodaimon-nas-mount-census-invalid",
+        "agathodaimon-nas-mount-census-unavailable",
+        "agathodaimon-nas-mounted-state-mismatch",
+        "agathodaimon-nas-not-attached",
+        "agathodaimon-nas-partition-unavailable",
+        "agathodaimon-nas-partlabel-absent",
+        "agathodaimon-nas-partlabel-missing-or-mismatch",
+        "agathodaimon-nas-partlabel-unobservable",
+        "agathodaimon-nas-readback-invalid",
+        "agathodaimon-nas-request-invalid",
+        "agathodaimon-nas-root-required",
+        "agathodaimon-nas-runtime-path-invalid",
+        "agathodaimon-nas-scratch-path-escape",
+        "agathodaimon-nas-scratch-root-invalid",
+        "agathodaimon-nas-scratch-root-unreadable",
+        "agathodaimon-nas-scratch-stat-fixture-invalid",
+        "agathodaimon-nas-sync-lock-invalid",
+        "agathodaimon-nas-sync-lock-unavailable",
+        "none",
+        "sync-hold-refused-running"
+      ]
+    }
+  }
+}
