@@ -1,0 +1,81 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/child-device/observed",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "action": {
+      "type": "string",
+      "meaning": "Operation executed by this stop.",
+      "const": "observed"
+    },
+    "message": {
+      "type": "string",
+      "meaning": "Human-readable outcome from the registry."
+    },
+    "devices": {
+      "type": "array",
+      "meaning": "Devices merged from Kea leases and the neighbor table, sorted by MAC.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "mac": {
+            "type": "string",
+            "meaning": "Device MAC in lowercase colon-separated form."
+          },
+          "ip": {
+            "type": "string",
+            "meaning": "IP address from the lease or neighbor entry."
+          },
+          "hostname": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Lease hostname if supplied, otherwise null."
+          },
+          "sources": {
+            "type": "array",
+            "meaning": "Sorted sources that observed the device.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "kea-lease",
+                "neighbor"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "count": {
+      "type": "integer",
+      "meaning": "Number of observed device rows."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Class of an unhandled exception reported by the staff front door, if any."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed outcomes are listed. Kea read errors also pass through as caduceus-leases-unavailable:<door signal or diagnostic text>; that suffix is not a closed enum.",
+      "enum": [
+        "none",
+        "child-device-envelope-invalid",
+        "caduceus-leases-malformed:envelope-must-be-object",
+        "caduceus-leases-malformed:missing-ip",
+        "caduceus-leases-malformed:missing-mac",
+        "caduceus-leases-malformed:ok-signal-missing",
+        "caduceus-leases-malformed:payload-must-be-object",
+        "caduceus-leases-malformed:result-must-be-list",
+        "caduceus-leases-malformed:row-must-be-object",
+        "caduceus-leases-unavailable:door-reported-failure",
+        "agathodaimon-stop-raised"
+      ]
+    }
+  }
+}

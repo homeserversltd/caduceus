@@ -1,0 +1,146 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/firewall/list",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "action": {
+      "type": "string",
+      "meaning": "The fixed action, or invalid before dispatch when the stop cannot read the envelope.",
+      "enum": [
+        "list",
+        "invalid"
+      ]
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Whether the stop reports a change, including effects not fully rolled back."
+    },
+    "message": {
+      "type": "string",
+      "meaning": "Human-readable outcome from the firewall actuator."
+    },
+    "revision": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Digest of the two owned files including presence, or null when no revision could be established.",
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "children": {
+      "type": "array",
+      "meaning": "Registered firewall children, sorted by MAC.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "mac": {
+            "type": "string",
+            "meaning": "Device MAC in lowercase colon-separated form."
+          },
+          "ip": {
+            "type": "string",
+            "meaning": "IPv4 address bound to the Kea reservation."
+          },
+          "hostnames": {
+            "type": "array",
+            "meaning": "Sorted exact allowed FQDNs with a trailing dot.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "revision": {
+            "type": "string",
+            "meaning": "Current digest shared by the registered rows and the top-level revision.",
+            "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+          },
+          "enforcement": {
+            "type": "string",
+            "meaning": "Whether enforcement is applied or the observed lease still differs from the reservation.",
+            "enum": [
+              "applied",
+              "pending-renewal"
+            ]
+          }
+        }
+      }
+    },
+    "rollback": {
+      "type": "string",
+      "meaning": "Present on a dispatch refusal; no transaction needed rollback.",
+      "const": "not-needed"
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Class of an unhandled exception reported by the staff front door, if any."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none means the stop completed. The stop rejects a raw envelope larger than 8192 UTF-8 bytes; a kernel omission names the missing seat keys in order.",
+      "enum": [
+        "none",
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: intent_id",
+        "missing envelope kernel keys: transition",
+        "missing envelope kernel keys: version",
+        "missing envelope kernel keys: timestamp",
+        "missing envelope kernel keys: intent_id,transition",
+        "missing envelope kernel keys: intent_id,version",
+        "missing envelope kernel keys: intent_id,timestamp",
+        "missing envelope kernel keys: transition,version",
+        "missing envelope kernel keys: transition,timestamp",
+        "missing envelope kernel keys: version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version",
+        "missing envelope kernel keys: intent_id,transition,timestamp",
+        "missing envelope kernel keys: intent_id,version,timestamp",
+        "missing envelope kernel keys: transition,version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version,timestamp",
+        "firewall-command-refused",
+        "firewall-command-unavailable",
+        "firewall-dhcp-binding-mismatch",
+        "firewall-dhcp-config-readback-unavailable",
+        "firewall-dhcp-lease-ambiguous",
+        "firewall-dhcp-leases-unavailable",
+        "firewall-dhcp-manager-unavailable",
+        "firewall-dhcp-reservation-invalid",
+        "firewall-dhcp-reservation-readback-unavailable",
+        "firewall-dhcp-router-ambiguous",
+        "firewall-dhcp-router-binding-mismatch",
+        "firewall-dhcp-router-invalid",
+        "firewall-dhcp-subnets-invalid",
+        "firewall-file-identity-changed",
+        "firewall-file-metadata-readback-failed",
+        "firewall-file-not-regular",
+        "firewall-file-open-refused",
+        "firewall-file-readback-failed",
+        "firewall-file-too-large",
+        "firewall-hostname-invalid",
+        "firewall-input-too-large",
+        "firewall-mac-invalid",
+        "firewall-nft-live-policy-mismatch",
+        "firewall-nft-live-readback-invalid",
+        "firewall-nft-live-rule-mismatch",
+        "firewall-nft-live-table-mismatch",
+        "firewall-nft-live-table-presence-mismatch",
+        "firewall-nft-owned-file-foreign-content",
+        "firewall-nft-owned-file-invalid",
+        "firewall-operation-failed",
+        "firewall-operation-unavailable",
+        "firewall-owned-policy-mismatch",
+        "firewall-unbound-live-readback-invalid",
+        "firewall-unbound-live-view-missing",
+        "firewall-unbound-live-zone-mismatch",
+        "firewall-unbound-owned-file-foreign-content",
+        "firewall-unbound-owned-file-invalid",
+        "firewall-unbound-policy-mismatch",
+        "agathodaimon-stop-raised"
+      ]
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/child-device/apply",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "action": {
+      "type": "string",
+      "meaning": "Operation executed by this stop.",
+      "const": "apply"
+    },
+    "message": {
+      "type": "string",
+      "meaning": "Human-readable outcome from the registry."
+    },
+    "registry": {
+      "type": "string",
+      "meaning": "Path of the registry read or written by this stop."
+    },
+    "mode": {
+      "type": "string",
+      "meaning": "Policy is rendered but not installed.",
+      "const": "render-only"
+    },
+    "enforcement": {
+      "type": "string",
+      "meaning": "Summary of the policy the rendered text describes, not an observation of live enforcement."
+    },
+    "generated": {
+      "type": "object",
+      "meaning": "Rendered policy text, never applied by this stop.",
+      "fields": {
+        "nftables": {
+          "type": "string",
+          "meaning": "Rendered nftables rule text."
+        },
+        "unbound": {
+          "type": "string",
+          "meaning": "Rendered Unbound policy text."
+        }
+      }
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Class of an unhandled exception reported by the staff front door, if any."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none means the stop completed.",
+      "enum": [
+        "none",
+        "child-device-envelope-invalid",
+        "child-device-host-invalid",
+        "child-device-mac-invalid",
+        "child-device-registry-invalid",
+        "child-device-registry-unreadable",
+        "agathodaimon-stop-raised"
+      ]
+    }
+  }
+}
