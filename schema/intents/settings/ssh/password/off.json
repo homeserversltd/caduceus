@@ -141,24 +141,7 @@
       "type": "string",
       "meaning": "The stop’s first outcome signal, when supplied.",
       "enum": [
-        "invalid JSON",
-        "JSON object required",
-        "foreign envelope schema",
-        "missing envelope kernel keys: intent_id",
-        "missing envelope kernel keys: transition",
-        "missing envelope kernel keys: version",
-        "missing envelope kernel keys: timestamp",
-        "missing envelope kernel keys: intent_id,transition",
-        "missing envelope kernel keys: intent_id,version",
-        "missing envelope kernel keys: intent_id,timestamp",
-        "missing envelope kernel keys: transition,version",
-        "missing envelope kernel keys: transition,timestamp",
-        "missing envelope kernel keys: version,timestamp",
-        "missing envelope kernel keys: intent_id,transition,version",
-        "missing envelope kernel keys: intent_id,transition,timestamp",
-        "missing envelope kernel keys: intent_id,version,timestamp",
-        "missing envelope kernel keys: transition,version,timestamp",
-        "missing envelope kernel keys: intent_id,transition,version,timestamp",
+        "agathodaimon-ssh-password-request-failed:EnvelopeError",
         "agathodaimon-stop-raised",
         "agathodaimon-ssh-exposure-scratch-config-outside-root",
         "agathodaimon-ssh-exposure-config-read-refused",
@@ -178,8 +161,7 @@
         "none"
       ],
       "patterns": [
-        "^agathodaimon-ssh-password-failed:[A-Za-z_][A-Za-z_0-9]*$",
-        "^agathodaimon-ssh-password-request-failed:[A-Za-z_][A-Za-z_0-9]*$"
+        "^agathodaimon-ssh-password-failed:[A-Za-z_][A-Za-z_0-9]*$"
       ]
     }
   }

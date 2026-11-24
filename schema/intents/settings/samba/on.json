@@ -35,6 +35,7 @@
       ],
       "meaning": "Action taken on loaded units; each step has unit, ok, returncode and the command outcome.",
       "fields": {
+        "attempted": {"type": "boolean", "meaning": "Whether there is at least one actuation step."},
         "command": {
           "type": "string",
           "meaning": "systemctl action sent with --now.",
@@ -46,6 +47,9 @@
           "items": {
             "type": "object",
             "fields": {
+              "unit": {"type": "string", "meaning": "The fixed unit acted on.", "enum": ["smbd.service", "nmbd.service", "wsdd2.service"]},
+              "ok": {"type": "boolean", "meaning": "Whether the actuation step succeeded."},
+              "returncode": {"type": ["integer", "null"], "meaning": "The command exit status, or null if it could not be launched."},
               "firstMissingSignal": {
                 "type": "string",
                 "meaning": "The stop’s first outcome signal, when supplied.",
