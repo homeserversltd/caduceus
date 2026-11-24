@@ -32,10 +32,10 @@
     "restoration": {"type": "object", "meaning": "Verified DHCP and DNS restoration after a compensated refusal."},
     "rollback_error": {"type": "string", "meaning": "Rollback diagnostic if restoring the preimages failed."},
     "mutationPerformed": {"type": "boolean", "meaning": "Whether the coordinator reached a recorded mutation; true also on compensated and failed rollback outcomes. Absent when the front door alone reports an exception."},
-    "exceptionType": {"type": "string", "meaning": "Front-door exception class, including KeyError on missing MAC or hostname, or nonboolean auto-ip."},
+    "exceptionType": {"type": "string", "meaning": "Exception class only when an uncaught error reaches the front door."},
     "first_failing_boundary": {
       "type": "string",
-      "meaning": "Coordinator detail; none on success. In addition to fixed causes, the stop carries DHCP and DNS helper diagnostics verbatim here, including config, lease, validation, command and writer errors with variable details. Missing MAC or hostname and nonboolean auto-ip instead escape as a front-door KeyError before this detail is printed."
+      "meaning": "Claim detail; none on success. Missing or nonstring MAC or hostname returns claim-mac-and-hostname-required; nonboolean auto-ip returns claim-auto-ip-must-be-boolean. Both are blocked with firstMissingSignal claim-failed. Coordinator and helper diagnostics, including values and paths, can also be carried verbatim here."
     },
     "firstMissingSignal": {
       "type": "string",

@@ -14,12 +14,12 @@
         "type": "object",
         "fields": {
           "mac": {"type": ["string", "null"], "meaning": "Normalized MAC, or null for a DNS-only row."},
-          "observed_lease": {"type": ["object", "null"], "meaning": "Observed lease with ip, hostname, last_activity and provenance, or null."},
-          "declared_reservation": {"type": ["object", "null"], "meaning": "Declared reservation with ip, hostname and provenance, or null."},
+          "observed_lease": {"type": ["object", "null"], "meaning": "Observed lease for the device, or null.", "fields": {"ip": {"type": "string"}, "hostname": {"type": "string"}, "last_activity": {"type": "string"}, "provenance": {"type": "string", "const": "observed"}}},
+          "declared_reservation": {"type": ["object", "null"], "meaning": "Declared reservation for the device, or null.", "fields": {"ip": {"type": "string"}, "hostname": {"type": "string"}, "provenance": {"type": "string", "const": "declared"}}},
           "dns_names": {"type": "array", "items": {"type": "string"}, "meaning": "Sorted distinct DNS names for the device addresses."},
-          "dns_name_records": {"type": "array", "items": {"type": "object"}, "meaning": "Name and provenance pairs matching device addresses."},
-          "claim_state": {"type": "string", "meaning": "Whether a reservation and its DNS name are joined, or the identity is partial or unclaimed."},
-          "mismatches": {"type": "array", "items": {"type": "string"}, "meaning": "Reservation/lease disagreement, reservation without DNS, or DNS without a reservation."}
+          "dns_name_records": {"type": "array", "items": {"type": "object", "fields": {"name": {"type": "string"}, "provenance": {"type": "string"}}}, "meaning": "Name and provenance pairs matching device addresses."},
+          "claim_state": {"type": "string", "enum": ["claimed", "partial"], "meaning": "Claimed when the reservation and a DNS name are joined; otherwise the emitted device or DNS-only row is partial."},
+          "mismatches": {"type": "array", "items": {"type": "string", "enum": ["reservation-ip-differs-from-observed-lease", "reservation-without-dns-record", "dns-record-without-reservation"]}, "meaning": "Reservation/lease disagreement, reservation without DNS, or a DNS-only row."}
         }
       }
     },
@@ -28,8 +28,11 @@
     "exceptionType": {"type": "string", "meaning": "Exception class when an uncaught roster error reaches the front door."},
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "None on success (spelled none). The helper preserves whole-token lease signals; caduceus-leases-unavailable:<signal> can additionally carry an upstream token. Non-token diagnostics are replaced by identity-device-list-failed:<ExceptionType>.",
-      "enum": ["none", "identity-device-list-failed:DhcpError", "identity-device-list-failed:DnsError", "identity-device-list-failed:EnvelopeError", "caduceus-leases-unavailable:door-reported-failure", "caduceus-leases-malformed:envelope-must-be-object", "caduceus-leases-malformed:payload-must-be-object", "caduceus-leases-malformed:ok-signal-missing", "caduceus-leases-malformed:result-must-be-list", "caduceus-leases-malformed:row-must-be-object", "caduceus-leases-malformed:missing-mac", "caduceus-leases-malformed:missing-ip", "agathodaimon-stop-raised"]
+      "meaning": "None on success (spelled none). Non-token helper diagnostics are replaced by identity-device-list-failed:<ExceptionType>.",
+      "anyOf": [
+        {"enum": ["none", "identity-device-list-failed:DhcpError", "identity-device-list-failed:DnsError", "identity-device-list-failed:EnvelopeError", "caduceus-leases-unavailable:door-reported-failure", "caduceus-leases-malformed:envelope-must-be-object", "caduceus-leases-malformed:payload-must-be-object", "caduceus-leases-malformed:ok-signal-missing", "caduceus-leases-malformed:result-must-be-list", "caduceus-leases-malformed:row-must-be-object", "caduceus-leases-malformed:missing-mac", "caduceus-leases-malformed:missing-ip", "agathodaimon-stop-raised"]},
+        {"pattern": "^caduceus-leases-unavailable:[a-z0-9._:-]*(?![\\s\\S])", "meaning": "A lease read's upstream detail is retained when the entire prefixed value is a token."}
+      ]
     }
   }
 }

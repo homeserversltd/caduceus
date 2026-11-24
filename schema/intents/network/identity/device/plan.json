@@ -38,12 +38,18 @@
     "exceptionType": {"type": "string", "meaning": "Exception class when the front door reports an uncaught planner error."},
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "First refusal from intake, observation, planning or settlement, or none. Raw exception text is open where the source interpolates missing kernel keys, MAC, DHCP paths or parse errors, lease failures, DNS paths, IP math, probe command or OS errors; the enum lists fixed outcomes and the single missing-timestamp control.",
-      "enum": [
-        "none", "identity-plan-input-invalid", "identity-did-not-take", "invalid JSON", "JSON object required", "foreign envelope schema", "missing envelope kernel keys: timestamp", "agathodaimon-stop-raised",
-        "no JSON object found in DHCP config", "invalid DHCP configuration structure", "caduceus-leases-unavailable:door-reported-failure", "caduceus-leases-malformed:envelope-must-be-object", "caduceus-leases-malformed:payload-must-be-object", "caduceus-leases-malformed:ok-signal-missing", "caduceus-leases-malformed:result-must-be-list", "caduceus-leases-malformed:row-must-be-object", "caduceus-leases-malformed:missing-mac", "caduceus-leases-malformed:missing-ip",
-        "dhcp-neighbour-probe-failed", "dhcp-ping-probe-failed", "dhcp-reservation-held-elsewhere", "dhcp-ip-inside-pool", "dhcp-ip-outside-reserved-range", "dhcp-ip-taken", "dhcp-ip-answered-probe", "dhcp-no-silent-address",
-        "dns-hostname-malformed", "dns-ipv4-malformed", "dns-owned-record-malformed", "dns-alias-owner-conflict", "dns-device-projection-incomplete", "dns-name-owned-elsewhere", "dns-alias-target-unresolved", "dns-observed-record-collision", "dns-cname-a-owner-conflict", "dns-gateway-apex-address-mismatch"
+      "meaning": "First refusal from intake, observation, planning or settlement, or none.",
+      "anyOf": [
+        {"enum": [
+          "none", "identity-plan-input-invalid", "identity-did-not-take", "invalid JSON", "JSON object required", "foreign envelope schema", "agathodaimon-stop-raised",
+          "missing envelope kernel keys: intent_id", "missing envelope kernel keys: transition", "missing envelope kernel keys: version", "missing envelope kernel keys: timestamp",
+          "missing envelope kernel keys: intent_id,transition", "missing envelope kernel keys: intent_id,version", "missing envelope kernel keys: intent_id,timestamp", "missing envelope kernel keys: transition,version", "missing envelope kernel keys: transition,timestamp", "missing envelope kernel keys: version,timestamp",
+          "missing envelope kernel keys: intent_id,transition,version", "missing envelope kernel keys: intent_id,transition,timestamp", "missing envelope kernel keys: intent_id,version,timestamp", "missing envelope kernel keys: transition,version,timestamp", "missing envelope kernel keys: intent_id,transition,version,timestamp",
+          "no JSON object found in DHCP config", "invalid DHCP configuration structure", "caduceus-leases-unavailable:door-reported-failure", "caduceus-leases-malformed:envelope-must-be-object", "caduceus-leases-malformed:payload-must-be-object", "caduceus-leases-malformed:ok-signal-missing", "caduceus-leases-malformed:result-must-be-list", "caduceus-leases-malformed:row-must-be-object", "caduceus-leases-malformed:missing-mac", "caduceus-leases-malformed:missing-ip",
+          "dhcp-neighbour-probe-failed", "dhcp-ping-probe-failed", "dhcp-reservation-held-elsewhere", "dhcp-ip-inside-pool", "dhcp-ip-outside-reserved-range", "dhcp-ip-taken", "dhcp-ip-answered-probe", "dhcp-no-silent-address",
+          "dns-hostname-malformed", "dns-ipv4-malformed", "dns-owned-record-malformed", "dns-alias-owner-conflict", "dns-device-projection-incomplete", "dns-name-owned-elsewhere", "dns-alias-target-unresolved", "dns-observed-record-collision", "dns-cname-a-owner-conflict", "dns-gateway-apex-address-mismatch"
+        ]},
+        {"type": "string", "meaning": "Open diagnostics: the planner passes raw exception messages through, including interpolated MACs, config or DNS paths, IP math and probe or OS failures, and upstream responses in caduceus-leases-unavailable:<detail>. The code does not bound these to a finite vocabulary."}
       ]
     }
   }
