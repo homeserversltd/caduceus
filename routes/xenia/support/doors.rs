@@ -75,7 +75,8 @@ fn finish(
         records_deed
     };
     if records_deed {
-        let ok = value["ok"] == true;
+        let ok = value["ok"] == true
+            && !(door == "run" && value.pointer("/receipt/ok").and_then(Value::as_bool) == Some(false));
         if let Err(error) = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
             "kind": "xenia",
             "organ": "caduceus",

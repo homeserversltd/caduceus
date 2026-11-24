@@ -1671,7 +1671,16 @@ async fn native_chord_run_steps(
                     ("stage-refused", receipt, Some("caduceus-schema-desync".to_owned()))
                 } else {
                     if !is_ring {
-                        state.changed = match (state.changed, crate::gate::door::declared_receipt_change(expected_schema.as_deref(), stage_stop, stage_stop, &receipt)) {
+                        let stage_changed = if crossed_snake.is_none() {
+                            // Native and Rust stages produce their own in-process receipts,
+                            // not a staff receipt bound to a snake stop.
+                            receipt.get("changed").and_then(Value::as_bool)
+                                .or_else(|| receipt.get("mutationPerformed").and_then(Value::as_bool))
+                                .or_else(|| receipt.get("mutation_performed").and_then(Value::as_bool))
+                        } else {
+                            crate::gate::door::declared_receipt_change(expected_schema.as_deref(), stage_stop, stage_stop, &receipt)
+                        };
+                        state.changed = match (state.changed, stage_changed) {
                             (Some(true), _) | (_, Some(true)) => Some(true),
                             (Some(false), Some(false)) => Some(false),
                             _ => None,
