@@ -12,7 +12,7 @@
     },
     "required": []
   },
-  "exousia": true,
+  "exousia": false,
   "mutation_allowed": false,
   "returns": {
     "path": {

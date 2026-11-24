@@ -22,7 +22,7 @@
       "partition"
     ]
   },
-  "exousia": true,
+  "exousia": false,
   "mutation_allowed": false,
   "returns": {
     "key_role": {

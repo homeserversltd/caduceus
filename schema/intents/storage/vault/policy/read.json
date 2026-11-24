@@ -7,7 +7,7 @@
     },
     "required": ["mapper"]
   },
-  "exousia": true,
+  "exousia": false,
   "mutation_allowed": false,
   "returns": {
     "op": {"type": "string", "const": "read", "meaning": "Operation fixed by this stop, not a request field."},
