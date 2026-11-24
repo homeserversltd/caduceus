@@ -30,8 +30,9 @@
   },
   "payload": {
     "optional": true,
-    "fields": "command-specific fields declared by its route template (routes/<namespace>/index.json) and its stop",
+    "fields": "command-specific fields declared by the intent's own seat (schema/intents/<noun…>/<verb>.json) once it stands; until then, by the route template (routes/<namespace>/index.json) and the stop",
     "absent": "empty object (primitive)",
+    "null": "explicit null is read exactly as absent: empty object (primitive)",
     "unknown_fields_preserved": true
   },
   "origin_of_intent": {
