@@ -13,6 +13,20 @@ fn forgejo_credentials() -> Result<(String, String)> {
     let payload =
         crate::gate::snake::crossing_path("storage/backup/forgejo/credential", &json!({}))
             .map_err(|_| missing())?;
+    if let Some(fields) = payload.as_object() {
+        if fields.get("ok").and_then(Value::as_bool) != Some(true) {
+            return Err(missing());
+        }
+        let field = |key: &str| {
+            fields
+                .get(key)
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| missing())
+        };
+        let (username, password) = (field("username")?, field("password")?);
+        return Ok((username.to_owned(), password.to_owned()));
+    }
     let text = payload.as_str().ok_or_else(|| missing())?;
     let mut username = None;
     let mut password = None;
@@ -67,6 +81,10 @@ fn https(url: &str, token: &str) -> Result<HttpsResponse> {
         || parsed.port().is_some_and(|port| port != 443)
         || !parsed.username().is_empty() || parsed.password().is_some() {
         return Err(observation("F", "source", "release-https-required"));
+    }
+    // A JSON string can contain bytes that cannot ride in one Authorization header.
+    if token.contains(['\r', '\n', '\0']) {
+        return Err(observation("F", "forge.credential", "forge-credential-unavailable"));
     }
     let escaped = token.replace('\\', "\\\\").replace('"', "\\\"");
     let mut child = Command::new("/usr/bin/curl")
