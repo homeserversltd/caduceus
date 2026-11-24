@@ -25,7 +25,8 @@
     "planned": {"type": "boolean", "meaning": "Whether the unit operation was only planned."},
     "commands": {"type": "array", "const": [["systemctl", "daemon-reload"]], "meaning": "Commands planned or attempted after a write."},
     "command": {"type": "array", "const": ["systemctl", "daemon-reload"], "meaning": "Command that failed."},
-    "stderr": {"type": "string", "meaning": "Argument diagnostics or raw serve refusal. Startup failure appends the exception text; serving has no finite success receipt.", "anyOf": [{"enum": ["crossing daemon requires root for the production socket"]}, {"pattern": "^crossing-daemon-start-failed: "}]},
+    "stdout": {"type": "string", "meaning": "Raw usage and options from argparse when help is requested. Serving has no finite success receipt."},
+    "stderr": {"type": "string", "meaning": "Argparse usage and argument-specific diagnostics or a raw serve refusal. Startup failure appends the exception text.", "anyOf": [{"pattern": "^[^\\r\\n]*agathodaimon-crossing-daemon"}, {"enum": ["crossing daemon requires root for the production socket"]}, {"pattern": "^crossing-daemon-start-failed: "}]},
     "error": {"type": "string", "meaning": "Management, unit path, or reload refusal; these are not firstMissingSignal fields.", "enum": ["owner-only-management", "unit-directory-refused", "unit-command-failed"]},
     "exceptionType": {"type": "string", "meaning": "Front-door projection when an uncaught unit effect fails."},
     "firstMissingSignal": {"type": "string", "meaning": "Invalid argument vector or uncaught unit failure.", "enum": ["agathodaimon-crossing-daemon-arguments-invalid", "agathodaimon-stop-raised"]}

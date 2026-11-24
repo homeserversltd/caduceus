@@ -12,6 +12,28 @@
   "returns": {
     "stdout": {"type": "string", "enum": ["/usr/local/sbin\n", "Different\n"], "meaning": "Raw observation line, not a JSON receipt; apply prints it only when it obtained final readback."},
     "stderr": {"type": "string", "meaning": "Usage or raw file, path and I/O diagnostics. The stop has no firstMissingSignal field.", "anyOf": [{"enum": ["usage: staff-path --check|--apply", "caduceus-staff-site-packages-not-unique-or-absent", "caduceus-receipt-write-failed"]}, {"pattern": "^(?:birth-debt: existing staff path file absent: |staff path target is (?:a symlink|not a regular file): )"}, {"type": "string", "meaning": "Host file and encoding error text."}]},
-    "run.json": {"type": "object", "meaning": "Apply's separate on-disk receipt, not stdout: kernel, routine, target, flags, ok, changed, touched_paths, observed, could_change, attempt, final and run_id."}
+    "run.json": {
+      "type": "object",
+      "meaning": "Apply's existing on-disk receipt under its run id, independent of the raw stdout readback.",
+      "fields": {
+        "kernel": {"type": "string", "const": "caduceus.staff.v1", "meaning": "Request family recorded as provenance."},
+        "routine": {"type": "string", "const": "agathodaimon.python.staff-path", "meaning": "Writer identity."},
+        "target": {"type": "object", "meaning": "Path selected by the virtualenv lookup, or null in path when selection failed."},
+        "flags": {"type": "object", "const": {"apply": true}, "meaning": "Apply invocation marker."},
+        "ok": {"type": "boolean", "meaning": "Converged with neither an initial nor a final blocker."},
+        "changed": {"type": "boolean", "meaning": "Whether truncation occurred before rewriting the existing import-path file."},
+        "touched_paths": {"type": "array", "items": {"type": "string"}, "meaning": "Path opened for writing, if any."},
+        "observed": {"type": "object", "meaning": "Initial state or null state with its blocker."},
+        "could_change": {"type": "object", "meaning": "Expected state and selected path."},
+        "attempt": {"type": "object", "meaning": "Attempted marker and ordered observation and write steps."},
+        "final": {"type": "object", "meaning": "Readback state and convergence, with a blocker when readback fails."},
+        "run_id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "meaning": "Fresh run identifier, also the parent directory name."},
+        "timestamp": {"type": "string", "meaning": "UTC ISO 8601 timestamp with a Z suffix from the shared emitter."},
+        "host": {"type": "string", "meaning": "Hostname from the shared emitter."},
+        "load_context": {"meaning": "Optional active load-trace context carried by the shared emitter."},
+        "trace_unavailable": {"meaning": "Optional diagnostic when a load trace could not be produced."},
+        "trace_incomplete": {"meaning": "Optional diagnostic when the load trace is incomplete."}
+      }
+    }
   }
 }
