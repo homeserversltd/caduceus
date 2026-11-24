@@ -1,0 +1,111 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "local-ai/library",
+  "payload": {
+    "fields": {
+      "args": {
+        "type": "array",
+        "meaning": "Optional empty argument vector consumed by the front door. The read stop refuses any forwarded argument.",
+        "maxItems": 0,
+        "items": {"type": "string"}
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "shelf": {"type": "string", "meaning": "Configured absolute model shelf path."},
+    "saves": {
+      "type": "array",
+      "meaning": "Sorted GGUF inventory excluding projectors; broken saves remain visible.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "file": {"type": "string", "meaning": "Shelf basename."},
+          "role": {"type": ["string", "null"], "meaning": "Inferred role, or null when not identified.", "enum": ["text-to-text", "embedding", "speech-to-text", "reranking", null]},
+          "bytes": {"type": ["integer", "null"], "meaning": "Model file size, or null when a failed save could not be sized."},
+          "mmproj": {"type": ["string", "null"], "meaning": "Paired projector name, or null; absent on a failed save."},
+          "mmproj_bytes": {"type": "integer", "meaning": "Paired projector bytes, zero without a projector."},
+          "file_bytes": {"type": "integer", "meaning": "Model plus paired projector bytes."},
+          "ctx": {"type": "integer", "meaning": "Context size used for the estimate."},
+          "kv_bytes_per_ctx": {"type": "integer", "meaning": "Estimated KV bytes per context token."},
+          "kv_bytes": {"type": "integer", "meaning": "Estimated KV bytes for the context size."},
+          "blocks": {"type": ["integer", "null"], "meaning": "Estimated whole GiB blocks rounded up, or null on a failed save."},
+          "architecture": {"meaning": "Selected GGUF architecture metadata as read, or null if not provided."},
+          "header_bytes": {"type": "integer", "meaning": "Number of header bytes consumed without reading tensor data."},
+          "selectable": {"type": "boolean", "meaning": "Whether the save is usable for selection."},
+          "firstMissingSignal": {
+            "type": "string",
+            "meaning": "Per-save signal; a broken save does not refuse the whole library.",
+            "enum": [
+              "local-ai-gguf-array-limit",
+              "local-ai-gguf-format",
+              "local-ai-gguf-header-bounds",
+              "local-ai-gguf-header-truncated",
+              "local-ai-gguf-metadata-limit",
+              "local-ai-gguf-string-limit",
+              "local-ai-gguf-tensor-dimensions",
+              "local-ai-gguf-unreadable",
+              "local-ai-gguf-value-type",
+              "local-ai-model-outside-shelf",
+              "local-ai-projector-is-not-a-save",
+              "local-ai-save-unreadable",
+              "local-ai-slot-ctx-invalid",
+              "local-ai-slot-file-invalid",
+              "local-ai-slot-lan-invalid",
+              "local-ai-slot-port-invalid",
+              "local-ai-slot-role-invalid",
+              "local-ai-speech-projector-ambiguous-or-missing",
+              "local-ai-speech-projector-invalid",
+              "none"
+            ]
+          }
+        }
+      }
+    },
+    "unavailable_saves": {"type": "integer", "meaning": "Number of saves that are not selectable."},
+    "formula": {"type": "string", "meaning": "Block accounting formula."},
+    "kv_estimate": {"type": "string", "meaning": "KV storage estimate and model-dimension assumptions."},
+    "mutationPerformed": {"type": "boolean", "meaning": "This stop only reads. Where present, no mutation was performed.", "const": false},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Observation failures carry the caught exception class; a foreign reread of the envelope seat names the encountered id. Success omits this field.",
+      "anyOf": [
+        {
+          "enum": [
+            "JSON object required",
+            "foreign envelope schema",
+            "invalid JSON",
+            "local-ai-config-size-limit",
+            "local-ai-config-unavailable",
+            "local-ai-config-unreadable",
+            "local-ai-foreign-schema",
+            "local-ai-missing-schema",
+            "local-ai-read-arguments-invalid",
+            "local-ai-shelf-invalid",
+            "local-ai-shelf-unavailable",
+            "local-ai-slots-invalid",
+            "missing envelope kernel keys: intent_id",
+            "missing envelope kernel keys: intent_id,timestamp",
+            "missing envelope kernel keys: intent_id,transition",
+            "missing envelope kernel keys: intent_id,transition,timestamp",
+            "missing envelope kernel keys: intent_id,transition,version",
+            "missing envelope kernel keys: intent_id,transition,version,timestamp",
+            "missing envelope kernel keys: intent_id,version",
+            "missing envelope kernel keys: intent_id,version,timestamp",
+            "missing envelope kernel keys: timestamp",
+            "missing envelope kernel keys: transition",
+            "missing envelope kernel keys: transition,timestamp",
+            "missing envelope kernel keys: transition,version",
+            "missing envelope kernel keys: transition,version,timestamp",
+            "missing envelope kernel keys: version",
+            "missing envelope kernel keys: version,timestamp"
+          ]
+        },
+        {"pattern": "^local-ai-observation-failed:[A-Za-z_][A-Za-z0-9_]*$(?![\\s\\S])"},
+        {"pattern": "^foreign seat caduceus\\.staff\\.v1: "}
+      ]
+    }
+  }
+}

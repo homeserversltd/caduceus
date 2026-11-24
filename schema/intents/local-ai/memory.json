@@ -1,0 +1,70 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "local-ai/memory",
+  "payload": {
+    "fields": {
+      "args": {
+        "type": "array",
+        "meaning": "Optional empty argument vector consumed by the front door. The read stop refuses any forwarded argument.",
+        "maxItems": 0,
+        "items": {"type": "string"}
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "edition": {"meaning": "Configured edition as stored, or null when absent. The successful status document at this revision has no ok field."},
+    "worker_drive_mounted": {"type": "boolean", "meaning": "Whether the worker-drive mountpoint exists in mountinfo."},
+    "card": {
+      "type": "object",
+      "meaning": "Configured edition-card information, not a live GPU probe.",
+      "fields": {
+        "vram_gib": {"type": ["integer", "null"], "meaning": "Configured integer capacity or null."},
+        "tier": {"type": ["string", "null"], "meaning": "Configured string tier or null."}
+      }
+    },
+    "state": {"type": "string", "meaning": "On only when memory is selected and the worker drive is mounted.", "enum": ["on", "off"]},
+    "reason": {"type": ["string", "null"], "meaning": "Status reason, not a stop refusal, or null when on.", "enum": ["not-chosen", "drive_required", null]},
+    "mutationPerformed": {"type": "boolean", "meaning": "This stop only reads. Where present, no mutation was performed.", "const": false},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Observation failures carry the caught exception class; a foreign reread of the envelope seat names the encountered id. Success omits this field.",
+      "anyOf": [
+        {
+          "enum": [
+            "JSON object required",
+            "foreign envelope schema",
+            "invalid JSON",
+            "local-ai-config-size-limit",
+            "local-ai-config-unavailable",
+            "local-ai-config-unreadable",
+            "local-ai-foreign-schema",
+            "local-ai-missing-schema",
+            "local-ai-read-arguments-invalid",
+            "local-ai-shelf-invalid",
+            "local-ai-slots-invalid",
+            "missing envelope kernel keys: intent_id",
+            "missing envelope kernel keys: intent_id,timestamp",
+            "missing envelope kernel keys: intent_id,transition",
+            "missing envelope kernel keys: intent_id,transition,timestamp",
+            "missing envelope kernel keys: intent_id,transition,version",
+            "missing envelope kernel keys: intent_id,transition,version,timestamp",
+            "missing envelope kernel keys: intent_id,version",
+            "missing envelope kernel keys: intent_id,version,timestamp",
+            "missing envelope kernel keys: timestamp",
+            "missing envelope kernel keys: transition",
+            "missing envelope kernel keys: transition,timestamp",
+            "missing envelope kernel keys: transition,version",
+            "missing envelope kernel keys: transition,version,timestamp",
+            "missing envelope kernel keys: version",
+            "missing envelope kernel keys: version,timestamp"
+          ]
+        },
+        {"pattern": "^local-ai-observation-failed:[A-Za-z_][A-Za-z0-9_]*$(?![\\s\\S])"},
+        {"pattern": "^foreign seat caduceus\\.staff\\.v1: "}
+      ]
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "local-ai/edition",
+  "payload": {
+    "fields": {
+      "args": {
+        "type": "array",
+        "meaning": "Exactly two strings as passed by the front door: check followed by memory (check eligibility) or none (always eligible). The stop does not write the edition.",
+        "minItems": 2,
+        "maxItems": 2,
+        "prefixItems": [{"type": "string", "const": "check"}, {"type": "string", "enum": ["memory", "none"]}]
+      }
+    },
+    "required": ["args"]
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "signal": {
+      "type": ["string", "null"],
+      "meaning": "Eligibility result: null when eligible, drive_required when the worker drive is absent or card-too-small when capacity is insufficient.",
+      "enum": [null, "drive_required", "card-too-small"]
+    },
+    "mutationPerformed": {"type": "boolean", "meaning": "This stop only reads. Where present, no mutation was performed.", "const": false},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Observation failures carry the caught exception class; a foreign reread of the envelope seat names the encountered id. Success omits this field.",
+      "anyOf": [
+        {
+          "enum": [
+            "JSON object required",
+            "foreign envelope schema",
+            "invalid JSON",
+            "local-ai-amd-gpu-type-unavailable",
+            "local-ai-apu-gtt-unreadable",
+            "local-ai-command-output-limit",
+            "local-ai-command-timeout",
+            "local-ai-config-size-limit",
+            "local-ai-config-unavailable",
+            "local-ai-config-unreadable",
+            "local-ai-edition-arguments-invalid",
+            "local-ai-foreign-schema",
+            "local-ai-missing-schema",
+            "local-ai-shelf-invalid",
+            "local-ai-slots-invalid",
+            "missing envelope kernel keys: intent_id",
+            "missing envelope kernel keys: intent_id,timestamp",
+            "missing envelope kernel keys: intent_id,transition",
+            "missing envelope kernel keys: intent_id,transition,timestamp",
+            "missing envelope kernel keys: intent_id,transition,version",
+            "missing envelope kernel keys: intent_id,transition,version,timestamp",
+            "missing envelope kernel keys: intent_id,version",
+            "missing envelope kernel keys: intent_id,version,timestamp",
+            "missing envelope kernel keys: timestamp",
+            "missing envelope kernel keys: transition",
+            "missing envelope kernel keys: transition,timestamp",
+            "missing envelope kernel keys: transition,version",
+            "missing envelope kernel keys: transition,version,timestamp",
+            "missing envelope kernel keys: version",
+            "missing envelope kernel keys: version,timestamp"
+          ]
+        },
+        {"pattern": "^local-ai-observation-failed:[A-Za-z_][A-Za-z0-9_]*$(?![\\s\\S])"},
+        {"pattern": "^foreign seat caduceus\\.staff\\.v1: "}
+      ]
+    }
+  }
+}

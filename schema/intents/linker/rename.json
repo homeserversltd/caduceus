@@ -1,0 +1,144 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "linker/rename",
+  "payload": {
+    "fields": {
+      "path": {
+        "type": "string",
+        "meaning": "Existing directory to rename in place, other than the root. Use a NAS-relative path or an absolute path within the NAS root; no parent components or symlinks. The whole request is limited to 1048576 UTF-8 bytes.",
+        "pattern": "^[^\\u0000]+$(?![\\s\\S])",
+        "minLength": 1
+      },
+      "new_name": {
+        "type": "string",
+        "meaning": "New single path component; neither dot nor dot-dot, and no slash, backslash or NUL.",
+        "minLength": 1,
+        "pattern": "^(?!\\.{1,2}(?![\\s\\S]))[^/\\\\\\u0000]+$(?![\\s\\S])"
+      }
+    },
+    "required": ["path", "new_name"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "exceptionType": {"type": "string", "meaning": "Exception class if the invocation raises outside the stop’s receipt handler."},
+    "backend": {"type": "string", "meaning": "The staff Linker implementation.", "const": "linker-staff-core"},
+    "operation": {"type": "string", "meaning": "The selected Linker operation.", "const": "rename"},
+    "planned": {"type": "boolean", "meaning": "The stop does not offer a planning return.", "const": false},
+    "changed": {"type": ["boolean", "null"], "meaning": "Listing or target identity change, or null when mutation readback is incomplete."},
+    "mutationPerformed": {"type": ["boolean", "null"], "meaning": "Same change readback as changed, not merely dispatch."},
+    "details": {
+      "type": ["object", "null"],
+      "meaning": "Operation-specific result; null before there is a result.",
+      "fields": {
+        "status": {"type": "string", "meaning": "Retained core result before the deed outcome is considered.", "enum": ["renamed", "failed", "refused"]},
+        "entries": {
+          "type": "array",
+          "meaning": "Directory entries sorted by name.",
+          "items": {
+            "type": "object",
+            "fields": {
+              "name": {"type": "string", "meaning": "Entry basename."},
+              "path": {"type": "string", "meaning": "Entry path."},
+              "is_dir": {"type": "boolean", "meaning": "Whether the entry is a directory."},
+              "is_hardlink": {"type": "boolean", "meaning": "Whether the entry is not a directory and has more than one link."},
+              "nlink": {"type": "integer", "meaning": "Link count from stat."}
+            }
+          }
+        }
+      }
+    },
+    "observed": {
+      "type": ["object", "null"],
+      "meaning": "Directory path read on success, and pre-operation listing for a mutation; null before observation.",
+      "fields": {
+        "path": {"type": "string", "meaning": "Observed path."},
+        "entries": {
+          "type": "array",
+          "meaning": "Directory entries sorted by name.",
+          "items": {
+            "type": "object",
+            "fields": {
+              "name": {"type": "string", "meaning": "Entry basename."},
+              "path": {"type": "string", "meaning": "Entry path."},
+              "is_dir": {"type": "boolean", "meaning": "Whether the entry is a directory."},
+              "is_hardlink": {"type": "boolean", "meaning": "Whether the entry is not a directory and has more than one link."},
+              "nlink": {"type": "integer", "meaning": "Link count from stat."}
+            }
+          }
+        }
+      }
+    },
+    "could-change": {"type": "array", "meaning": "The stop’s legacy action list: empty on a read; a mutation names its verb.", "items": {"type": "string"}},
+    "attempt": {
+      "type": ["object", "null"],
+      "meaning": "Whether the core was called, with operation-specific evidence; null on a preflight refusal.",
+      "fields": {
+        "performed": {"type": "boolean", "meaning": "Whether the stop attempted the mutation."},
+        "operation": {"type": "string", "meaning": "Operation when a mutation result is unknown.", "const": "rename"}
+      }
+    },
+    "final": {
+      "type": "object",
+      "meaning": "Legacy result snapshot: ok, and a failure signal or final directory entry count; also the final directory path for observed mutations.",
+      "fields": {
+        "ok": {"type": "boolean", "meaning": "Stop result before any later deed-write failure."},
+        "signal": {"type": "string", "meaning": "Legacy refusal signal."},
+        "entries": {"type": "integer", "meaning": "Entry count after observation."},
+        "path": {"type": "string", "meaning": "Directory read after the mutation."},
+        "state": {"type": "string", "meaning": "Outcome not observable.", "const": "unknown"}
+      }
+    },
+    "entries": {
+      "type": "array",
+      "meaning": "Directory entries sorted by name.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "name": {"type": "string", "meaning": "Entry basename."},
+          "path": {"type": "string", "meaning": "Entry path."},
+          "is_dir": {"type": "boolean", "meaning": "Whether the entry is a directory."},
+          "is_hardlink": {"type": "boolean", "meaning": "Whether the entry is not a directory and has more than one link."},
+          "nlink": {"type": "integer", "meaning": "Link count from stat."}
+        }
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s outcome token; none when no signal is missing.",
+      "enum": [
+        "agathodaimon-seat-foreign",
+        "agathodaimon-stop-raised",
+        "linker-argv-not-supported",
+        "linker-directory-unavailable",
+        "linker-envelope-kernel-missing",
+        "linker-envelope-schema-foreign",
+        "linker-field-required",
+        "linker-ledger-write-failed",
+        "linker-listing-unavailable",
+        "linker-listing-unobservable",
+        "linker-mutation-outcome-unknown",
+        "linker-name-invalid",
+        "linker-nas-root-unavailable",
+        "linker-path-invalid",
+        "linker-path-outside-root",
+        "linker-path-type-unsupported",
+        "linker-path-unavailable",
+        "linker-path-unobservable",
+        "linker-rename-directory-required",
+        "linker-rename-refused-or-failed",
+        "linker-request-json-invalid",
+        "linker-request-object-required",
+        "linker-request-too-large",
+        "linker-request-unreadable",
+        "linker-root-mutation-refused",
+        "linker-scratch-root-invalid",
+        "linker-source-type-unsupported",
+        "linker-source-unobservable",
+        "linker-staff-operation-failed",
+        "linker-symlink-unsupported",
+        "none"
+      ]
+    }
+  }
+}

@@ -1,0 +1,112 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "linker/hardlink-scan",
+  "payload": {
+    "fields": {
+      "path": {
+        "type": "string",
+        "meaning": "Directory to scan nonrecursively for hardlinks. Use a NAS-relative path or an absolute path within the NAS root; no parent components, and symlink targets must stay within the root. The whole request is limited to 1048576 UTF-8 bytes.",
+        "pattern": "^[^\\u0000]+$(?![\\s\\S])",
+        "minLength": 1
+      }
+    },
+    "required": ["path"]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "exceptionType": {"type": "string", "meaning": "Exception class if the invocation raises outside the stop’s receipt handler."},
+    "backend": {"type": "string", "meaning": "The staff Linker implementation.", "const": "linker-staff-core"},
+    "operation": {"type": "string", "meaning": "The selected Linker operation.", "const": "hardlink-scan"},
+    "planned": {"type": "boolean", "meaning": "The stop does not offer a planning return.", "const": false},
+    "changed": {"type": "boolean", "meaning": "This operation only reads.", "const": false},
+    "mutationPerformed": {"type": "boolean", "meaning": "This operation only reads.", "const": false},
+    "details": {
+      "type": ["object", "null"],
+      "meaning": "Operation-specific result; null before there is a result.",
+      "fields": {
+        "path": {"type": "string", "meaning": "Resolved directory that was read."},
+        "entries": {
+          "type": "array",
+          "meaning": "Directory entries sorted by name.",
+          "items": {
+            "type": "object",
+            "fields": {
+              "name": {"type": "string", "meaning": "Entry basename."},
+              "path": {"type": "string", "meaning": "Entry path."},
+              "is_dir": {"type": "boolean", "meaning": "Whether the entry is a directory."},
+              "is_hardlink": {"type": "boolean", "meaning": "Whether the entry is not a directory and has more than one link."},
+              "nlink": {"type": "integer", "meaning": "Link count from stat."}
+            }
+          }
+        }
+      }
+    },
+    "observed": {
+      "type": ["object", "null"],
+      "meaning": "Directory path read on success, and pre-operation listing for a mutation; null before observation.",
+      "fields": {"path": {"type": "string", "meaning": "Observed path."}, "entries": {"type": "integer", "meaning": "Initial entry count."}}
+    },
+    "could-change": {"type": "array", "meaning": "The stop’s legacy action list: empty on a read; a mutation names its verb.", "items": {"type": "string"}},
+    "attempt": {
+      "type": ["object", "null"],
+      "meaning": "Whether the core was called, with operation-specific evidence; null on a preflight refusal.",
+      "fields": {
+        "performed": {"type": "boolean", "meaning": "Whether the stop attempted the mutation."},
+        "backendCall": {"type": "string", "meaning": "Read helper used.", "const": "scan_hardlinks"}
+      }
+    },
+    "final": {
+      "type": "object",
+      "meaning": "Legacy result snapshot: ok, and a failure signal or final directory entry count; also the final directory path for observed mutations.",
+      "fields": {
+        "ok": {"type": "boolean", "meaning": "Stop result before any later deed-write failure."},
+        "signal": {"type": "string", "meaning": "Legacy refusal signal."},
+        "entries": {"type": "integer", "meaning": "Entry count after observation."}
+      }
+    },
+    "entries": {
+      "type": "array",
+      "meaning": "Directory entries sorted by name.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "name": {"type": "string", "meaning": "Entry basename."},
+          "path": {"type": "string", "meaning": "Entry path."},
+          "is_dir": {"type": "boolean", "meaning": "Whether the entry is a directory."},
+          "is_hardlink": {"type": "boolean", "meaning": "Whether the entry is not a directory and has more than one link."},
+          "nlink": {"type": "integer", "meaning": "Link count from stat."}
+        }
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s outcome token; none when no signal is missing.",
+      "enum": [
+        "agathodaimon-seat-foreign",
+        "agathodaimon-stop-raised",
+        "linker-argv-not-supported",
+        "linker-directory-unavailable",
+        "linker-envelope-kernel-missing",
+        "linker-envelope-schema-foreign",
+        "linker-field-required",
+        "linker-hardlink-scan-failed",
+        "linker-hardlink-scan-incomplete",
+        "linker-hardlink-scan-inconsistent",
+        "linker-listing-unavailable",
+        "linker-listing-unobservable",
+        "linker-nas-root-unavailable",
+        "linker-path-invalid",
+        "linker-path-outside-root",
+        "linker-path-unobservable",
+        "linker-request-json-invalid",
+        "linker-request-object-required",
+        "linker-request-too-large",
+        "linker-request-unreadable",
+        "linker-scratch-root-invalid",
+        "linker-staff-operation-failed",
+        "none"
+      ]
+    }
+  }
+}

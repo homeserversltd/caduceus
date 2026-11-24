@@ -1,0 +1,92 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "local-ai/nap",
+  "payload": {
+    "fields": {
+      "args": {"type": "array", "meaning": "Optional arguments passed by the front door to the nap parser; accepts --dry-run and --user-id with a value.", "items": {"type": "string"}},
+      "dry-run": {"type": "boolean", "meaning": "Front-door dry-run request, forwarded as --dry-run when true.", "default": false},
+      "dry_run": {"type": "boolean", "meaning": "Native nap payload flag. True or a true front-door flag selects a read-only pass.", "default": false},
+      "user_id": {
+        "type": ["string", "null"],
+        "meaning": "Memory scope override; nonblank after trimming. If omitted, retain any argv override; explicit null selects the owning account’s configured scope.",
+        "minLength": 1
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "dry-run": true,
+  "returns": {
+    "judged": {"type": "integer", "meaning": "Count of candidate memories judged."},
+    "folded": {"type": "integer", "meaning": "Count marked or proposed as duplicates."},
+    "stale": {"type": "integer", "meaning": "Count marked or proposed as contradicted."},
+    "gist": {"type": "integer", "meaning": "Count of gists written or proposed."},
+    "unresolved": {"type": "integer", "meaning": "Count of unresolved judgments; absent when no pass reply was obtained."},
+    "decision_failures": {"type": "object", "meaning": "Model-decision parse or shape failure counts by reason."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the child ran in dry mode; present in a completed child result."},
+    "marks": {
+      "type": "array",
+      "meaning": "Child fold/stale outcomes, including proposals in a dry run.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "older_id": {"meaning": "Older memory id as held by the store."},
+          "newer_id": {"meaning": "Newer memory id from history."},
+          "older_text": {"type": "string", "meaning": "Older memory excerpt.", "maxLength": 160},
+          "newer_text": {"type": "string", "meaning": "Newer memory excerpt.", "maxLength": 160},
+          "state": {"type": "string", "meaning": "Proposed or written mark.", "enum": ["folded", "stale"]},
+          "score": {"type": "number", "meaning": "Similarity score."}
+        }
+      }
+    },
+    "gists": {
+      "type": "array",
+      "meaning": "Gist proposals returned only by a dry child pass.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "text": {"type": "string", "meaning": "Proposed gist."},
+          "source_ids": {"type": "array", "meaning": "IDs of its source memories."},
+          "sources": {
+            "type": "array",
+            "meaning": "Source excerpts for up to the first three proposals.",
+            "items": {"type": "object", "fields": {"id": {"meaning": "Source memory id."}, "text": {"type": "string", "meaning": "Source excerpt.", "maxLength": 100}}}
+          }
+        }
+      }
+    },
+    "errorType": {"type": "string", "meaning": "Exception class from a failed child pass."},
+    "exceptionType": {"type": "string", "meaning": "Exception class if dispatch escapes to the front door."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Explicit false on the parser’s argument refusal; not a success count."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Refusals from the parser, dispatcher or child. A completed successful pass has no signal.",
+      "enum": [
+        "agathodaimon-local-ai-nap-arguments-invalid",
+        "agathodaimon-stop-raised",
+        "arguments-invalid",
+        "collection-absent",
+        "configuration-invalid",
+        "configuration-unsupported",
+        "decisions-incomplete",
+        "decisions-invalid",
+        "gist-response-invalid",
+        "gist-source-invalid",
+        "history-schema-unsupported",
+        "history-unavailable",
+        "model-not-local",
+        "model-response-invalid",
+        "nap-account-pass-unavailable",
+        "nap-arguments-invalid",
+        "nap-envelope-invalid",
+        "nap-pass-failed",
+        "native-config-unavailable",
+        "owner-write-refused",
+        "pass-already-running",
+        "store-not-local",
+        "user-scope-unavailable"
+      ]
+    }
+  }
+}

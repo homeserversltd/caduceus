@@ -1,0 +1,104 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "local-ai/slot",
+  "payload": {
+    "fields": {
+      "args": {
+        "type": ["array", "null"],
+        "meaning": "Non-null argv alternative to the named form. First word selects apply or run; second names the configured role slot. A non-null vector takes precedence over action, op and slot.",
+        "minItems": 2,
+        "maxItems": 2,
+        "prefixItems": [{"type": "string", "enum": ["apply", "run"]}, {"type": "string", "enum": ["brain", "embed", "ear", "rerank"]}]
+      },
+      "slot": {
+        "type": "string",
+        "meaning": "Required in the named form (when args is absent or null). Rerank requires a configured rerank slot.",
+        "enum": ["brain", "embed", "ear", "rerank"]
+      },
+      "action": {"type": "string", "meaning": "Primary operation in the named form. If absent, use op, then the final segment of transition.", "enum": ["apply", "run"]},
+      "op": {"type": "string", "meaning": "Fallback operation in the named form when action is absent.", "enum": ["apply", "run"]}
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "slot": {"type": "string", "meaning": "Selected role slot.", "enum": ["brain", "embed", "ear", "rerank"]},
+    "unit": {"type": "string", "meaning": "Systemd unit acted on by apply."},
+    "operation": {"type": "string", "meaning": "Apply stops an empty slot or restarts a populated slot.", "enum": ["stop", "restart"]},
+    "argv": {"type": "array", "meaning": "Argument vector dispatched by apply.", "items": {"type": "string"}},
+    "state": {
+      "type": ["object", "string"],
+      "meaning": "Systemctl show fields for apply, or the string empty from a run of an empty slot. A populated run execs the model engine and has no stop success object.",
+      "anyOf": [{"type": "object", "additionalProperties": {"type": "string"}}, {"const": "empty"}]
+    },
+    "exit_code": {"type": "integer", "meaning": "Exit code from the apply action."},
+    "state_exit_code": {"type": "integer", "meaning": "Exit code from the readback after apply."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Whether apply was attempted. An empty run returns false; a populated run hands control to the engine."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Observation failures carry the caught exception class; a foreign reread of the envelope seat names the encountered id. Successful apply reports none; an empty run omits this field.",
+      "anyOf": [
+        {
+          "enum": [
+            "JSON object required",
+            "foreign envelope schema",
+            "invalid JSON",
+            "local-ai-command-output-limit",
+            "local-ai-command-timeout",
+            "local-ai-config-size-limit",
+            "local-ai-config-unavailable",
+            "local-ai-config-unreadable",
+            "local-ai-foreign-schema",
+            "local-ai-gguf-array-limit",
+            "local-ai-gguf-format",
+            "local-ai-gguf-header-bounds",
+            "local-ai-gguf-header-truncated",
+            "local-ai-gguf-metadata-limit",
+            "local-ai-gguf-string-limit",
+            "local-ai-gguf-tensor-dimensions",
+            "local-ai-gguf-value-type",
+            "local-ai-missing-schema",
+            "local-ai-model-outside-shelf",
+            "local-ai-no-vulkan-gpu",
+            "local-ai-projector-is-not-a-save",
+            "local-ai-shelf-invalid",
+            "local-ai-slot-apply-state-refused",
+            "local-ai-slot-arguments-invalid",
+            "local-ai-slot-ctx-invalid",
+            "local-ai-slot-file-invalid",
+            "local-ai-slot-lan-invalid",
+            "local-ai-slot-model-role-mismatch",
+            "local-ai-slot-port-invalid",
+            "local-ai-slot-role-invalid",
+            "local-ai-slot-undeclared",
+            "local-ai-slot-unknown",
+            "local-ai-slots-invalid",
+            "local-ai-speech-projector-ambiguous-or-missing",
+            "local-ai-speech-projector-invalid",
+            "local-ai-vulkan-enumeration-failed",
+            "local-ai-vulkan-unavailable",
+            "missing envelope kernel keys: intent_id",
+            "missing envelope kernel keys: intent_id,timestamp",
+            "missing envelope kernel keys: intent_id,transition",
+            "missing envelope kernel keys: intent_id,transition,timestamp",
+            "missing envelope kernel keys: intent_id,transition,version",
+            "missing envelope kernel keys: intent_id,transition,version,timestamp",
+            "missing envelope kernel keys: intent_id,version",
+            "missing envelope kernel keys: intent_id,version,timestamp",
+            "missing envelope kernel keys: timestamp",
+            "missing envelope kernel keys: transition",
+            "missing envelope kernel keys: transition,timestamp",
+            "missing envelope kernel keys: transition,version",
+            "missing envelope kernel keys: transition,version,timestamp",
+            "missing envelope kernel keys: version",
+            "missing envelope kernel keys: version,timestamp",
+            "none"
+          ]
+        },
+        {"pattern": "^local-ai-observation-failed:[A-Za-z_][A-Za-z0-9_]*$(?![\\s\\S])"},
+        {"pattern": "^foreign seat caduceus\\.staff\\.v1: "}
+      ]
+    }
+  }
+}

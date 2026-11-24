@@ -1,0 +1,25 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "linker/tui",
+  "payload": {
+    "fields": {
+      "args": {
+        "type": "array",
+        "meaning": "Optional positional start directory via the front door, with an optional -- separator. When the directory is missing or empty, use the first existing configured start directory or the current directory.",
+        "maxItems": 2,
+        "items": {"type": "string"}
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "exceptionType": {"type": "string", "meaning": "Exception class if importing or running the terminal app raises at the front door."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The parser refusal or an invocation exception; a normal exit writes no JSON receipt.",
+      "enum": ["agathodaimon-linker-tui-arguments-invalid", "agathodaimon-stop-raised"]
+    }
+  }
+}
