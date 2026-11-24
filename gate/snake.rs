@@ -216,12 +216,14 @@ pub(crate) fn prepare_envelope(outer_envelope: &Value) -> Result<(Value, String)
     let fields = forwarded
         .as_object_mut()
         .ok_or_else(|| "protocol-envelope-not-object".to_string())?;
-    fields
-        .entry("version")
-        .or_insert_with(|| json!(env!("CARGO_PKG_VERSION")));
-    fields.entry("timestamp").or_insert_with(|| {
-        json!(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
-    });
+    let version = fields.entry("version").or_insert(Value::Null);
+    if version.is_null() {
+        *version = json!(env!("CARGO_PKG_VERSION"));
+    }
+    let timestamp = fields.entry("timestamp").or_insert(Value::Null);
+    if timestamp.is_null() {
+        *timestamp = json!(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+    }
     let outer = crate::protocol::Envelope::parse(forwarded)?;
     let forwarded = outer.into_raw();
     // The absent-seat primitive is an intake rule; we still send a full kernel.
