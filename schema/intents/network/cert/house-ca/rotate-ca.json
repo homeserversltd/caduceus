@@ -15,7 +15,7 @@
     "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
     "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
     "state_generation": {"type": "integer", "meaning": "Reported generation of the certificate state, or 0 when not available."},
-    "client_reinstall_required": {"type": "boolean", "meaning": "Whether clients must reinstall trust for the reported operation."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "True after a successful rotation; false on a refusal."},
     "message": {"type": "string", "meaning": "Instruction returned when confirmation is absent or false."},
     "ca_fingerprint_before": {"type": ["string", "null"], "meaning": "Fingerprint of the previous root, if any."},
     "ca_fingerprint": {"type": "string", "meaning": "SHA-256 fingerprint reported for the House CA certificate."},

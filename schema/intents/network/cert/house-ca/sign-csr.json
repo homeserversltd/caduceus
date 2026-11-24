@@ -5,8 +5,7 @@
     "fields": {
       "csrPem": {
         "type": "string",
-        "meaning": "PEM certificate signing request with subject and exactly the SANs of the appliance declaration. The limit is 65536 UTF-8 bytes, not Unicode characters. Private-key text and control characters other than newline and tab are refused.",
-        "maxLength": 65536
+        "meaning": "PEM certificate signing request with subject and exactly the SANs of the appliance declaration. At most 65536 UTF-8 bytes; there is no separate character limit. Private-key text and control characters other than newline and tab are refused."
       }
     },
     "required": ["csrPem"]
