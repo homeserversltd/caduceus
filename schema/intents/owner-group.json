@@ -1,0 +1,26 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "owner-group",
+  "payload": {
+    "fields": {
+      "action": {"type": "string", "enum": ["check", "observe", "apply"], "meaning": "Check owner membership (observe is an alias of check), or add owner to the existing group if needed. If absent or falsey, use the verb from transition unless a positional action was supplied."},
+      "args": {"type": "array", "items": {"type": "string", "enum": ["check", "observe", "apply"]}, "maxItems": 1, "meaning": "Optional positional action vector forwarded by the front door; a single element takes precedence over payload.action."}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "action": {"type": "string", "enum": ["check", "apply"], "meaning": "Selected action after alias normalization."},
+    "observed": {"type": ["string", "null"], "meaning": "The helper's observation on check; null when the helper made no stdout observation."},
+    "exceptionType": {"type": "string", "meaning": "An exception class named by the front door if the stop raises instead of returning."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop's outcome, a helper error class, or the envelope reader's literal diagnostic.",
+      "anyOf": [
+        {"enum": ["none", "owner-group-action-invalid", "owner-group-failed", "needs-membership", "owner-absent", "caduceus-group-absent", "root-required", "usermod-failed", "membership-not-current", "TimeoutExpired", "OSError", "PermissionError", "FileNotFoundError", "invalid JSON", "JSON object required", "foreign envelope schema", "agathodaimon-stop-raised"]},
+        {"pattern": "^missing envelope kernel keys: .+$", "meaning": "The actual omitted kernel names, joined by commas."}
+      ]
+    }
+  }
+}

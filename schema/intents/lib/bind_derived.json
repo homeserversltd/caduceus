@@ -1,0 +1,35 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "lib/bind_derived",
+  "payload": {
+    "fields": {
+      "args": {
+        "type": "array",
+        "items": {"type": "string", "enum": ["bind", "verify", "atomic-change-pin", "reset-default-pin"]},
+        "minItems": 1,
+        "maxItems": 1,
+        "meaning": "Select one command; if no string argument vector is supplied, use the last slash segment of transition. Verify and change still read their data from the legacy flat stdin object, not the intent payload: verify reads pin and publicKey, change reads oldPin and newPin. Those data fields are not accepted in payload."
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "operation": {"type": "string", "enum": ["bind", "verify", "atomic-change-pin", "reset-default-pin"], "meaning": "The selected operation when reported by the library."},
+    "posture": {"type": "string", "enum": ["DERIVED_BOUND", "UNBOUND", "STALE_DERIVED"], "meaning": "The status of the derived signer or of rebinding after a PIN change."},
+    "identity": {"type": "string", "pattern": "^[0-9a-f]{64}$", "meaning": "The public identity digest on successful binding or rebinding."},
+    "publicKey": {"type": "string", "pattern": "^[0-9a-f]{64}$", "meaning": "The derived signer's public key in lowercase hex on successful binding or rebinding."},
+    "epoch": {"type": "string", "pattern": "^[0-9a-f]{64}$", "meaning": "The public signer epoch on successful binding or rebinding."},
+    "derivation": {"type": "string", "meaning": "The library's derivation label, not private material."},
+    "verified": {"type": "boolean", "meaning": "The outcome of comparing the derived public key on verify, or false on a refused PIN change."},
+    "rotated": {"type": "boolean", "const": true, "meaning": "The PIN changed and its signer rebound."},
+    "reset": {"type": "boolean", "const": true, "meaning": "The PIN reset and its signer rebound."},
+    "exceptionType": {"type": "string", "meaning": "An exception class named by the front door if the legacy command did not return an object."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The command outcome, including redacted failures from sacred_credential; the front door names an uncaught exception separately from a library refusal.",
+      "enum": ["none", "agathodaimon-lib-bind-derived-arguments-invalid", "agathodaimon-derived-unbound", "agathodaimon-staff-root-required", "agathodaimon-scratch-root-invalid", "agathodaimon-skeleton-unavailable", "agathodaimon-skeleton-malformed", "agathodaimon-config-unavailable", "agathodaimon-config-unreadable", "agathodaimon-config-malformed", "agathodaimon-config-custody-unavailable", "agathodaimon-config-custody-invalid", "agathodaimon-config-concurrent-update", "agathodaimon-config-write-refused", "agathodaimon-config-factory-unavailable", "agathodaimon-config-factory-unreadable", "agathodaimon-config-factory-malformed", "exousia-pin-invalid", "exousia-pin-absent", "exousia-pin-malformed", "exousia-pin-wrong", "exousia-pin-new-missing", "agathodaimon-stop-raised"]
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "lib/crossing_daemon",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "firstMissingSignal": {"enum": ["unknown-path"], "meaning": "The front door cannot resolve this import-only module under lib; the daemon entrypoint is python/crossing-daemon."}
+  }
+}

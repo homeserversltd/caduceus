@@ -1,0 +1,25 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "unit/control",
+  "payload": {
+    "fields": {
+      "action": {"type": "string", "enum": ["start", "stop", "restart", "enable", "disable", "status"], "meaning": "The systemctl verb; status reads without dispatching a mutation."},
+      "unit": {"type": "string", "pattern": "^[A-Za-z0-9_:][A-Za-z0-9_.:-]*(?:@[A-Za-z0-9_:][A-Za-z0-9_.:-]*)?\\.(?:service|target|mount|path)$", "maxLength": 255, "meaning": "The whole systemd unit name."},
+      "scope": {"type": "string", "enum": ["system", "owner", "hermes"], "meaning": "Use the system manager or named user's manager. Scope hermes is admitted only for action restart on hermes-dashboard.service."}
+    },
+    "required": ["action", "unit", "scope"]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "action": {"meaning": "The supplied action, including an invalid value, or null when absent or unread."},
+    "unit": {"meaning": "The supplied unit, including an invalid value, or null when absent or unread."},
+    "scope": {"meaning": "The supplied scope, including an invalid value, or null when absent or unread."},
+    "command": {"type": ["array", "null"], "items": {"type": "string"}, "meaning": "The dispatched systemctl action, or null on status and pre-dispatch refusal."},
+    "returncode": {"type": ["integer", "null"], "meaning": "Exit status of the action, or of the follow-up show on status; null when unavailable."},
+    "observed": {"type": "object", "fields": {"load_state": {"type": ["string", "null"]}, "active_state": {"type": ["string", "null"]}, "sub_state": {"type": ["string", "null"]}, "unit_file_state": {"type": ["string", "null"]}}, "meaning": "Initial systemctl show properties; unread properties are null."},
+    "readback": {"type": "object", "fields": {"load_state": {"type": ["string", "null"]}, "active_state": {"type": ["string", "null"]}, "sub_state": {"type": ["string", "null"]}, "unit_file_state": {"type": ["string", "null"]}}, "meaning": "Follow-up systemctl show properties, or the initial ones if no follow-up ran."},
+    "mutation_performed": {"type": "boolean", "meaning": "Whether a dispatched verb should change the observed state; this is not confirmation of success."},
+    "first_missing_signal": {"type": "string", "enum": ["none", "invalid-envelope", "invalid-action", "invalid-unit", "invalid-scope", "hermes-scope-not-permitted", "unit-not-found", "unit-load-state-read-failed", "unit-not-loaded", "unit-active-state-read-failed", "unit-file-state-read-failed", "unit-command-failed", "unit-readback-failed", "unit-readback-not-loaded"], "meaning": "The stop's first named outcome; the helper's deadline is fixed at its default and is not an input here."}
+  }
+}

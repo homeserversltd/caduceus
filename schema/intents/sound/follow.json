@@ -1,0 +1,29 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "sound/follow",
+  "payload": {
+    "fields": {
+      "dry-run": {"type": "boolean", "default": false, "meaning": "Observe connector, card and sink state and report the target without setting the card profile or default sink."}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "dry-run": true,
+  "returns": {
+    "default_sink_after": {"type": ["string", "null"], "meaning": "Default sink observed after the attempt or plan, or null when not observed."},
+    "skipped": {"type": "string", "const": "hdmi-disconnected", "meaning": "No HDMI connector was connected; no change was needed."},
+    "observed": {"type": ["object", "null"], "meaning": "Connector statuses, initial card profile, configured sink and initial default sink, when read."},
+    "could_change_to": {"type": ["object", "null"], "meaning": "Selected card, HDMI profile, sink and source of the selection when available."},
+    "attempt": {"type": ["object", "null"], "meaning": "Dry-run flag, optional card-change wait with its own signal, and attempts to set the profile and sink."},
+    "final_receipt": {"type": "object", "meaning": "Completion verdict, optional skip or refusal, and profile/sink readback on success."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Present on a refused response; success omits it. The optional card-change wait has its own nested signal, and an invalid canonical dry-run value is intercepted by the front door.",
+      "anyOf": [
+        {"enum": ["sound-follow-dry-run-invalid", "agathodaimon-dry-run-invalid", "sound-command-timeout", "sound-command-unavailable", "pactl-default-sink-read-failed", "pactl-cards-read-failed", "pactl-cards-json-invalid", "pactl-sinks-read-failed", "pactl-sinks-json-invalid", "wireplumber-configured-sink-read-failed", "wireplumber-configured-sink-metadata-invalid", "hdmi-connector-status-unavailable", "hdmi-connector-not-found", "hdmi-connector-status-invalid", "hdmi-stereo-card-not-found", "hdmi-stereo-profile-not-found", "hdmi-stereo-card-not-found-after-wait", "hdmi-stereo-profile-not-found-after-wait", "hdmi-stereo-profile-unavailable-after-wait", "hdmi-stereo-profile-unavailable", "hdmi-stereo-card-identity-missing", "pactl-set-card-profile-failed", "hdmi-card-profile-readback-missing", "hdmi-card-profile-readback-mismatch", "hdmi-sink-not-found", "pactl-set-default-sink-failed", "default-sink-readback-mismatch", "sound-follow-failed", "sound-follow-request-invalid", "invalid JSON", "JSON object required", "foreign envelope schema"]},
+        {"pattern": "^missing envelope kernel keys: .+$", "meaning": "The actual omitted kernel names, joined by commas."}
+      ]
+    }
+  }
+}

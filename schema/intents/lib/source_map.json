@@ -1,0 +1,33 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "lib/source_map",
+  "payload": {
+    "fields": {
+      "args": {"type": "array", "items": {"type": "string", "enum": ["reseed"]}, "minItems": 1, "maxItems": 1, "meaning": "Select reseed; if no string argument vector is supplied, the last slash segment of transition must be reseed. The candidate is read from the staged source-map file, not supplied in the request."}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "certificatePath": {"type": "string", "meaning": "Device-logical profile certificate path."},
+    "sourceMapPath": {"type": "string", "meaning": "Device-logical staged source map path."},
+    "writer": {"type": "string", "const": "agathodaimon.lib.source_map", "meaning": "The writer named on source-map receipts."},
+    "components": {"type": "array", "items": {"type": "string"}, "meaning": "Sorted component names of the validated staged map."},
+    "sourcesWerePresent": {"type": "boolean", "meaning": "The profile already had a top-level sources member."},
+    "preservedNonSourcesBytes": {"type": "boolean", "const": true, "meaning": "The splice preserves all non-sources bytes."},
+    "beforeSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "meaning": "SHA-256 of the original certificate."},
+    "afterSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "meaning": "SHA-256 of the candidate certificate, not an independent readback on write failure."},
+    "mode": {"type": "string", "const": "0444", "meaning": "Mode used for atomic replacement, not a mode check on a no-op."},
+    "owner": {"type": "string", "enum": ["root:root", "unprivileged-test"], "meaning": "Ownership label for the writer's effective identity."},
+    "exceptionType": {"type": "string", "meaning": "The front door's exception class if an exception escapes the stop."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Named validation outcomes, or the verbatim OS or JSON decoder detail appended by reseed; the dynamic branch is not a closed enum.",
+      "anyOf": [
+        {"enum": ["none", "agathodaimon-lib-source-map-arguments-invalid", "agathodaimon-stop-raised", "agathodaimon-source-map-reseed-source-map-key-invalid", "agathodaimon-source-map-reseed-source-map-credential-material-forbidden", "agathodaimon-source-map-reseed-source-map-git-url-required", "agathodaimon-source-map-reseed-source-map-git-url-invalid", "agathodaimon-source-map-reseed-source-map-local-checkout-path-invalid", "agathodaimon-source-map-reseed-source-map-required", "agathodaimon-source-map-reseed-source-map-component-invalid", "agathodaimon-source-map-reseed-source-map-entry-invalid", "agathodaimon-source-map-reseed-source-map-ref-required", "agathodaimon-source-map-reseed-source-map-candidates-required", "agathodaimon-source-map-reseed-source-map-candidate-invalid", "agathodaimon-source-map-reseed-source-map-selector-required", "agathodaimon-source-map-reseed-source-map-candidate-kind-invalid", "agathodaimon-source-map-reseed-certificate-json-invalid", "agathodaimon-source-map-reseed-certificate-must-be-object", "agathodaimon-source-map-reseed-certificate-schema-invalid", "agathodaimon-source-map-reseed-certificate-sources-duplicate"]},
+        {"pattern": "^agathodaimon-source-map-reseed-[\\s\\S]+$", "meaning": "Reading or parsing the candidate appends exception text; a write failure uses the write-failed: prefix followed by OS detail."}
+      ]
+    }
+  }
+}

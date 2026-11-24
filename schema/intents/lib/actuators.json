@@ -1,0 +1,11 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "lib/actuators",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "path": {"type": "string", "meaning": "The shelf-relative path of this import-only actuator registry; it has no command entrypoint."},
+    "firstMissingSignal": {"enum": ["agathodaimon-stop-has-no-act"], "meaning": "The front door's refusal; registry function parameters and results are not an intent."}
+  }
+}

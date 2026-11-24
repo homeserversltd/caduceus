@@ -1,0 +1,24 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "hermes/dashboard-login",
+  "payload": {
+    "fields": {
+      "password": {"type": "string", "minLength": 12, "maxLength": 256, "meaning": "New dashboard password on stdin only; must be printable and may not contain NUL, CR or LF. A JSON stdin object can supply it in payload or as a flat field; plain text stdin is also accepted. The whole stdin request is limited to 65536 characters."}
+    },
+    "required": ["password"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "file": {"type": ["string", "null"], "meaning": "Written dashboard configuration path, or null before a successful write."},
+    "argv": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}, "meaning": "Writer command vectors only; no stdin values."},
+    "restart": {"type": ["object", "string", "null"], "meaning": "Nested unit restart receipt, skipped in scratch, or null before restart."},
+    "restarted": {"type": "boolean", "meaning": "The restart succeeded and both service identity observations changed."},
+    "before": {"type": "object", "fields": {"MainPID": {"type": "string"}, "ActiveEnterTimestamp": {"type": "string"}}, "meaning": "Service identity observed before writing outside scratch."},
+    "after": {"type": "object", "fields": {"MainPID": {"type": "string"}, "ActiveEnterTimestamp": {"type": "string"}}, "meaning": "Service identity observed after restart outside scratch."},
+    "final": {"type": "object", "fields": {"ok": {"type": "boolean"}, "signal": {"type": "string"}, "mutationPerformed": {"type": "boolean"}}, "meaning": "Stop verdict and whether the config write completed, even if a later operation failed."},
+    "timestamp": {"type": "string", "meaning": "UTC timestamp from the receipt emitter."},
+    "host": {"type": "string", "meaning": "Hostname from the receipt emitter."},
+    "firstMissingSignal": {"type": "string", "enum": ["none", "hermes-password-stdin-required", "hermes-request-too-large", "hermes-input-invalid", "hermes-password-invalid", "hermes-unit-observation-failed", "hermes-config-write-failed", "hermes-unit-restart-failed", "hermes-unit-identity-unchanged", "hermes-operation-failed", "hermes-ledger-unavailable"], "meaning": "The raw stream stop's outcome; nested restart signals stay within restart."}
+  }
+}

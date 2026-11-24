@@ -1,0 +1,38 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "portals/service-control",
+  "payload": {
+    "fields": {
+      "actuator": {"type": "string", "enum": ["service-control-doors"], "meaning": "Required actuator discriminator; a legacy top-level value takes precedence over payload."},
+      "metadata": {
+        "type": "object",
+        "meaning": "Action and its parameters. A legacy top-level metadata object takes precedence. The complete UTF-8 stdin object is limited to 65536 bytes.",
+        "fields": {
+          "action": {"type": "string", "enum": ["ssh-password-authentication-status", "ssh-password-authentication-toggle", "ssh-service-status", "samba-service-status", "ssh-service-toggle", "samba-service-toggle", "portal-service", "system-restart", "system-shutdown", "website-hard-reset"], "meaning": "Select the service observation, toggle, portal service operation, power act or delayed website restart."},
+          "dryRun": {"type": "boolean", "default": false, "meaning": "Plan rather than dispatch an effect. Some plans still read unit state. The three fixed status actions always return planned false; this is the legacy metadata flag, not the front door's dry-run field."},
+          "enabled": {"type": "boolean", "meaning": "Required for the SSH password-authentication toggle, SSH service toggle and Samba service toggle."},
+          "systemdService": {"type": "string", "pattern": "^[A-Za-z0-9@_.-]+\\.service$", "meaning": "Required for portal-service unless the fallback service field supplies the name. Takes precedence if present."},
+          "service": {"type": "string", "pattern": "^[A-Za-z0-9@_.-]+\\.service$", "meaning": "Fallback systemd service name for portal-service when systemdService is absent."},
+          "serviceAction": {"type": "string", "enum": ["start", "stop", "restart", "status", "enable", "disable"], "meaning": "Required for portal-service; status reads only."}
+        },
+        "required": ["action"]
+      }
+    },
+    "required": ["actuator", "metadata"]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "action": {"type": "string", "meaning": "The selected metadata action, or unknown on a normalized refusal."},
+    "planned": {"type": "boolean", "meaning": "The stop returned a plan, or its portal status annotated with the requested flag."},
+    "commands": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}, "meaning": "Observed or planned command vectors as returned by the action."},
+    "passwordAuthentication": {"type": "string", "enum": ["yes", "no"], "meaning": "The effective SSH password-authentication setting returned by status."},
+    "enabled": {"type": "boolean", "meaning": "The reported SSH password setting or the requested toggle state."},
+    "services": {"type": "array", "items": {"type": "object", "fields": {"unit": {"type": "string"}, "present": {"type": "boolean"}, "active": {"type": "boolean"}, "enabled": {"type": "boolean"}, "activeState": {"type": "string"}, "enabledState": {"type": "string"}, "loadState": {"type": "string"}}}, "meaning": "SSH or Samba unit state observations."},
+    "service": {"type": "object", "fields": {"unit": {"type": "string"}, "present": {"type": "boolean"}, "active": {"type": "boolean"}, "enabled": {"type": "boolean"}, "activeState": {"type": "string"}, "enabledState": {"type": "string"}, "loadState": {"type": "string"}}, "meaning": "The portal unit state before status/plan or after apply."},
+    "serviceAction": {"type": "string", "enum": ["start", "stop", "restart", "status", "enable", "disable"], "meaning": "The portal unit verb."},
+    "delayedSeconds": {"type": "integer", "const": 2, "meaning": "Systemd-run activation delay for the website reset."},
+    "exceptionType": {"type": "string", "meaning": "An exception class named by the front door if the stop raises instead of returning."},
+    "firstMissingSignal": {"type": "string", "enum": ["none", "agathodaimon-service-enabled-required", "agathodaimon-service-ssh-config-read-refused", "agathodaimon-service-ssh-password-authentication-missing", "agathodaimon-service-ssh-password-authentication-line-ambiguous", "agathodaimon-service-ssh-password-authentication-write-refused", "agathodaimon-service-ssh-config-invalid", "agathodaimon-service-ssh-reload-refused", "agathodaimon-service-unit-missing", "agathodaimon-service-control-refused", "agathodaimon-service-portal-unit-invalid", "agathodaimon-service-portal-action-invalid", "agathodaimon-service-portal-readback-mismatch", "agathodaimon-service-system-power-refused", "agathodaimon-service-hard-reset-refused", "agathodaimon-service-envelope-invalid", "agathodaimon-service-request-invalid", "agathodaimon-service-dry-run-invalid", "agathodaimon-service-action-invalid", "agathodaimon-service-request-too-large", "agathodaimon-stop-raised"], "meaning": "The first named input or action refusal, with none on a successful response; an escaped exception is reported by the front door."}
+  }
+}

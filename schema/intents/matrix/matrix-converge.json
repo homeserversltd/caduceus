@@ -1,0 +1,31 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "matrix/matrix-converge",
+  "payload": {
+    "fields": {
+      "args": {"type": "array", "items": {"type": "string"}, "meaning": "Legacy command arguments forwarded by the front door. --plan reports planned actions instead of applying; --config-url overrides CADUCEUS_CONFIG_URL (fallback http://127.0.0.1:3014); --state-root overrides CADUCEUS_MATRIX_STATE_ROOT (fallback /var/lib/harmonia/state). Omitting the argument vector runs convergence, not a plan."}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "planned": {"type": "boolean", "meaning": "Whether the convergence plan was requested instead of apply."},
+    "plan": {"type": "object", "fields": {"floor": {"type": "array"}, "secret": {"type": "string"}, "validate": {"type": "array"}, "config": {"type": "string"}, "fingerprintState": {"type": "string"}}, "meaning": "Dependency floor, path to the secret (never its contents), validation commands, config origin and fingerprint state path."},
+    "secretCreated": {"type": "boolean", "meaning": "A missing registration secret was created during apply."},
+    "validations": {"type": "array", "items": {"type": "object", "fields": {"argv": {"type": "array"}, "exit": {"type": "integer"}, "stdout": {"type": "string"}, "stderr": {"type": "string"}}}, "meaning": "Completed validation commands and their results on successful apply."},
+    "portalsConverged": {"type": "boolean", "meaning": "The configured Agora portal and its visibility match the expected values."},
+    "portalDrift": {"type": "array", "items": {"type": "object", "fields": {"path": {"type": "string"}, "expected": {}, "actual": {}}}, "meaning": "The mismatching Agora portal or visibility observations."},
+    "fingerprints": {"type": "array", "items": {"type": "object", "fields": {"service": {"type": "string"}, "changed": {"type": "boolean"}, "reload_outcome": {"type": "string", "enum": ["not-needed", "reloaded"]}, "reloaded": {"type": "boolean"}}}, "meaning": "Nginx and unbound reload observations on successful apply."},
+    "exceptionType": {"type": "string", "meaning": "The front door's exception class if an exception escapes the stop."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The plan/apply outcome. Floor and reload failures can carry variable detail.",
+      "anyOf": [
+        {"enum": ["none", "agathodaimon-matrix-matrix-converge-arguments-invalid", "matrix-floor-missing:element-web-index", "matrix-floor-missing:element-web-artifact-sha256", "matrix-config-validation-failed", "agathodaimon-config-unreachable", "agathodaimon-stop-raised"]},
+        {"pattern": "^matrix-floor-missing:(matrix-synapse-py3|nginx|postgresql-client|logrotate|openssl|unbound|ca-certificates|curl|tar|python3)(,(matrix-synapse-py3|nginx|postgresql-client|logrotate|openssl|unbound|ca-certificates|curl|tar|python3))*$", "meaning": "The missing packages in the order of the declared floor."},
+        {"pattern": "^reload-(fingerprint|command|fingerprint-state)-failed:(nginx|unbound):[\\s\\S]+$", "meaning": "The reload helper's service and OS or command detail."}
+      ]
+    }
+  }
+}
