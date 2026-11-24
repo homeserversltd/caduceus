@@ -23,7 +23,7 @@
     "timeout": {"type": "integer", "const": 100, "meaning": "Area selector's timeout in seconds on timeout refusal."},
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "Fixed stop outcomes; none denotes completion or area cancellation. The shared envelope reader can also report which kernel keys are missing.",
+      "meaning": "Fixed stop outcomes; none denotes completion or area cancellation. Dynamic shared-reader diagnostics outside this enum are 'missing envelope kernel keys: <keys>' and 'foreign seat caduceus.staff.v1: <foreign schema repr>'. The stock front door refuses a foreign seat it encounters at startup before invoking this stop.",
       "enum": [
         "none", "invalid JSON", "JSON object required", "foreign envelope schema", "face-screenshot-operation-failed",
         "face-screenshot-mode-invalid", "owner-account-missing", "owner-session-identity-refused", "owner-runuser-unavailable",

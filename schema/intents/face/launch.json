@@ -28,7 +28,7 @@
     "watcher_started": {"type": "boolean", "meaning": "Whether the menu focus watcher was started; present on the menu path only."},
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "Fixed stop outcomes; none denotes success. The shared envelope reader can also report which kernel keys are missing.",
+      "meaning": "Fixed stop outcomes; none denotes success. Dynamic shared-reader diagnostics outside this enum are 'missing envelope kernel keys: <keys>' and 'foreign seat caduceus.staff.v1: <foreign schema repr>'. The stock front door refuses a foreign seat it encounters at startup before invoking this stop.",
       "enum": [
         "none", "invalid JSON", "JSON object required", "foreign envelope schema", "face-launch-operation-failed",
         "face-launch-desktop-id-invalid", "face-launch-menu-invalid", "face-launch-utility-missing", "face-launch-desktop-id-not-found",

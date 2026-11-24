@@ -18,7 +18,7 @@
     "value": {"type": "integer", "meaning": "Observed usage percentage."},
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "Fixed stop outcomes; none denotes success. The shared envelope reader can also report which kernel keys are missing.",
+      "meaning": "Fixed stop outcomes; none denotes success. Dynamic shared-reader diagnostics outside this enum are 'missing envelope kernel keys: <keys>' and 'foreign seat caduceus.staff.v1: <foreign schema repr>'. The stock front door refuses a foreign seat it encounters at startup before invoking this stop.",
       "enum": [
         "none", "invalid JSON", "JSON object required", "foreign envelope schema", "face-meter-operation-failed",
         "face-meter-kind-required", "face-meter-kind-invalid", "face-meter-cpu-observation-failed", "face-meter-cpu-observation-invalid",

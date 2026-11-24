@@ -24,7 +24,7 @@
     "socket": {"type": "string", "meaning": "Session key with ambiguous socket observations."},
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "Fixed stop outcomes; none denotes success. The shared envelope reader can also report which kernel keys are missing.",
+      "meaning": "Fixed stop outcomes; none denotes success. Dynamic shared-reader diagnostics outside this enum are 'missing envelope kernel keys: <keys>' and 'foreign seat caduceus.staff.v1: <foreign schema repr>'. The stock front door refuses a foreign seat it encounters at startup before invoking this stop.",
       "enum": [
         "none", "invalid JSON", "JSON object required", "foreign envelope schema", "face-workspace-operation-failed",
         "face-workspace-direction-required", "face-workspace-direction-invalid", "face-workspace-carry-invalid", "face-workspace-ring-invalid",
