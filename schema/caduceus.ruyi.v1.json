@@ -198,8 +198,7 @@
     "stats": {
       "schema_ref": "caduceus.appliance.stats.sample.v1",
       "nullable": true,
-      "oneOf": [
-        {"schema_ref": "caduceus.appliance.stats.sample.v1"},
+      "alternatives": [
         {
           "schema_ref": "caduceus.staff.receipt.v1",
           "fields": {
@@ -256,8 +255,7 @@
         "stats": {
           "schema_ref": "caduceus.appliance.stats.sample.v1",
           "nullable": true,
-          "oneOf": [
-            {"schema_ref": "caduceus.appliance.stats.sample.v1"},
+          "alternatives": [
             {
               "schema_ref": "caduceus.staff.receipt.v1",
               "fields": {
