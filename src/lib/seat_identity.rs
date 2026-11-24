@@ -1,7 +1,10 @@
 use std::cmp::Reverse;
 use std::ffi::CStr;
 use std::fs;
-use std::net::{Ipv4Addr, ToSocketAddrs};
+use std::net::Ipv4Addr;
+
+#[path = "seat_identity_dns.rs"]
+mod seat_identity_dns;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct InterfaceAddress {
@@ -42,18 +45,7 @@ pub(crate) fn resolver_target(hostname: &str) -> Option<String> {
 }
 
 pub(crate) fn resolve_home_arpa_ipv4(hostname: &str) -> Option<Ipv4Addr> {
-    let target = resolver_target(hostname)?;
-    let mut addresses: Vec<Ipv4Addr> = (target.as_str(), 0)
-        .to_socket_addrs()
-        .ok()?
-        .filter_map(|address| match address.ip() {
-            std::net::IpAddr::V4(address) => Some(address),
-            std::net::IpAddr::V6(_) => None,
-        })
-        .collect();
-    addresses.sort_unstable();
-    addresses.dedup();
-    addresses.into_iter().next()
+    seat_identity_dns::resolve(&resolver_target(hostname)?)
 }
 
 fn normalized_mac(value: &str) -> Option<String> {
@@ -238,7 +230,9 @@ pub(crate) fn choose(
         );
     }
 
-    let selected = match bind_ipv4.filter(|address| !address.is_unspecified()) {
+    let selected = match bind_ipv4
+        .filter(|address| !address.is_unspecified() && !address.is_loopback())
+    {
         Some(address) => exact(interfaces, address),
         None => fallback(interfaces),
     };
