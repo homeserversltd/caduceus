@@ -1151,6 +1151,7 @@ pub fn router() -> Router {
     router
         .layer(middleware::from_fn(administrative_route_gate))
         .layer(middleware::from_fn(self_telemetry_route))
+        .layer(middleware::from_fn(crate::shared::load_trace::stamp_door_answer))
         .layer(middleware::from_fn(
             crate::shared::load_trace::http_boundary,
         ))

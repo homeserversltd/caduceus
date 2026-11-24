@@ -247,6 +247,126 @@ pub async fn http_boundary(request: Request<Body>, next: Next) -> Response<Body>
         .await
 }
 
+pub async fn stamp_door_answer(request: Request<Body>, next: Next) -> Response<Body> {
+    use axum::{
+        body::HttpBody,
+        http::{header, Method, StatusCode},
+    };
+    use futures_util::{stream, FutureExt, StreamExt};
+    use http_body_util::{BodyExt, BodyStream, StreamBody};
+
+    const MAX_ANSWER_BYTES: u64 = 8 * 1024 * 1024;
+    let path = request.uri().path();
+    let raw = matches!(*request.method(), Method::GET | Method::HEAD)
+        && (matches!(
+            path,
+            "/health"
+                | "/api/v1/schema"
+                | "/api/v1/carapace"
+                | "/api/v1/log/tail"
+                | "/api/v1/hyalos/tail"
+        ) || path.starts_with("/api/v1/schema/")
+            || (path.starts_with("/api/v1/docs/") && path != "/api/v1/docs/seal"));
+    let response = next.run(request).await;
+    let status = response.status();
+    let headers = response.headers();
+    let json = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .is_some_and(|mime| {
+            let mime = mime.trim();
+            mime.eq_ignore_ascii_case("application/json")
+                || mime
+                    .rsplit_once('+')
+                    .is_some_and(|(_, suffix)| suffix.eq_ignore_ascii_case("json"))
+        });
+    if raw
+        || !json
+        || status.is_informational()
+        || matches!(
+            status,
+            StatusCode::NO_CONTENT | StatusCode::RESET_CONTENT | StatusCode::NOT_MODIFIED
+        )
+        || headers
+            .get_all(header::CONTENT_ENCODING)
+            .iter()
+            .any(|value| !value.as_bytes().eq_ignore_ascii_case(b"identity"))
+        || headers.contains_key(header::CONTENT_RANGE)
+        || headers.contains_key(header::TRANSFER_ENCODING)
+        || headers.contains_key(header::TRAILER)
+    {
+        return response;
+    }
+    // Only inspect a bounded, ready, single-frame answer. Never wait for a
+    // stream or consume the rest of one to decide whether to stamp it.
+    let Some(size @ 1..=MAX_ANSWER_BYTES) = response.body().size_hint().exact() else {
+        return response;
+    };
+    let (mut parts, mut body) = response.into_parts();
+    let Some(Some(frame)) = body.frame().now_or_never() else {
+        return Response::from_parts(parts, body);
+    };
+    let bytes = match frame {
+        Ok(frame) if body.is_end_stream() && frame.is_data() => {
+            frame.into_data().expect("data frame")
+        }
+        frame => {
+            // Restore the peeked frame (including trailers or errors) before
+            // the unread frames and keep the original exact wire length.
+            parts
+                .headers
+                .entry(header::CONTENT_LENGTH)
+                .or_insert_with(|| HeaderValue::from(size));
+            let frames = stream::once(async move { frame }).chain(BodyStream::new(body));
+            return Response::from_parts(parts, Body::new(StreamBody::new(frames)));
+        }
+    };
+    if bytes.len() as u64 > MAX_ANSWER_BYTES {
+        return Response::from_parts(parts, Body::from(bytes));
+    }
+    let mut fields = match serde_json::from_slice::<Value>(&bytes) {
+        Ok(Value::Object(fields))
+            if !matches!(
+                fields.get("schema").and_then(Value::as_str),
+                Some("caduceus.staff.receipt.v1" | "caduceus.chord.receipt.v1")
+            ) =>
+        {
+            fields
+        }
+        Ok(Value::Array(items)) => Map::from_iter([("result".to_owned(), Value::Array(items))]),
+        _ => return Response::from_parts(parts, Body::from(bytes)),
+    };
+    fields.insert("schema".into(), json!("caduceus.staff.receipt.v1"));
+    let ok = fields
+        .get("ok")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| {
+            let ok = status.is_success();
+            fields.insert("ok".into(), Value::Bool(ok));
+            ok
+        });
+    fields.entry("stop").or_insert_with(|| {
+        let (noun, verb) = refusal_stop("");
+        json!({"noun": noun, "verb": verb})
+    });
+    for key in ["observed", "could_change_to", "attempt"] {
+        fields.entry(key).or_insert(Value::Null);
+    }
+    if !fields.contains_key("final_receipt") {
+        let final_receipt =
+            json!({"ok": ok, "firstMissingSignal": fields.get("firstMissingSignal")});
+        fields.insert("final_receipt".into(), final_receipt);
+    }
+    let Ok(stamped) = serde_json::to_vec(&fields) else {
+        return Response::from_parts(parts, Body::from(bytes));
+    };
+    parts
+        .headers
+        .insert(header::CONTENT_LENGTH, HeaderValue::from(stamped.len()));
+    Response::from_parts(parts, Body::from(stamped))
+}
+
 pub fn current() -> Option<ContextHandle> {
     ACTIVE_CONTEXT
         .try_with(Clone::clone)
