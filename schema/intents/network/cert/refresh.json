@@ -1,0 +1,33 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/cert/refresh",
+  "payload": {
+    "fields": {
+      "action": {"meaning": "Recognized by the request reader but not used; this stop always refreshes."},
+      "operation": {"meaning": "Recognized by the request reader but not used to select the operation."},
+      "state": {"meaning": "Recognized by the request reader but not used to set the target state."},
+      "argv": {"type": "array", "meaning": "The raw request guard permits an empty argv only; it does not dispatch any argument supplied here.", "enum": [[]]}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "action": {"type": "string", "meaning": "Fixed certificate action.", "const": "refresh"},
+    "observed": {"type": "object", "meaning": "Runtime config and trust-updater availability, or the observation at an earlier refusal boundary."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Whether work made it to a filesystem mutation stage, including on rollback."},
+    "could-change": {"type": "array", "meaning": "Inventoried paths that could change.", "items": {"type": "string"}},
+    "attempt": {"type": ["object", "string"], "meaning": "Completed or failed transaction stage and tool/rollback facts, or the name of a preflight step."},
+    "final": {"type": ["object", "null"], "meaning": "Final paths and SANs with metadata on success, residual paths and SANs on failure, or null before the transaction."},
+    "subjectAltNames": {"type": "array", "meaning": "Requested SANs computed from the runtime configuration.", "items": {"type": "string"}},
+    "writtenPaths": {"type": "array", "meaning": "Distinct paths recorded as modified before any rollback.", "items": {"type": "string"}},
+    "trustUpdater": {"type": "object", "meaning": "Refresh helper availability and, when enabled, its arguments and mutable inventory."},
+    "temporaryFiles": {"type": "array", "meaning": "Names of transaction temporaries tracked for cleanup.", "items": {"type": "string"}},
+    "rollbackFailures": {"type": "array", "meaning": "Paths where restoration could not be confirmed.", "items": {"type": "string"}},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success.",
+      "enum": ["none", "cert-refresh-arguments-refused", "cert-refresh-executable-selector-refused", "cert-refresh-request-invalid", "cert-refresh-root-required", "cert-refresh-config-unavailable", "cert-refresh-config-factory-selected", "cert-refresh-config-selection-unreadable", "cert-refresh-config-unreadable", "cert-refresh-config-invalid", "cert-refresh-config-too-large", "cert-refresh-cors-origins-invalid", "cert-refresh-cors-origin-invalid", "cert-refresh-tailnet-label-invalid", "cert-refresh-tailnet-origin-missing", "cert-refresh-portals-invalid", "cert-refresh-portal-local-url-invalid", "cert-refresh-inventory-read-failed", "cert-refresh-managed-seat-not-regular", "cert-refresh-trust-directory-unreadable", "cert-refresh-trust-directory-refused", "cert-refresh-trust-parent-unavailable", "cert-refresh-trust-parent-refused", "cert-refresh-system-trust-directory-unavailable", "cert-refresh-system-trust-directory-refused", "cert-refresh-system-trust-parent-unavailable", "cert-refresh-system-trust-parent-refused", "cert-refresh-target-seat-refused", "cert-refresh-temporary-seat-exists", "cert-refresh-certificate-directory-refused", "cert-refresh-certificate-parent-unavailable", "cert-refresh-certificate-parent-refused", "cert-refresh-ssl-cert-group-missing", "cert-refresh-openssl-generation-failed", "cert-refresh-generated-pair-invalid", "cert-refresh-san-readback-failed", "cert-refresh-certificate-readback-failed", "cert-refresh-update-ca-certificates-failed", "cert-refresh-trust-readback-failed", "cert-refresh-pair-readback-failed", "cert-refresh-key-metadata-readback-failed", "cert-refresh-certificate-metadata-readback-failed", "cert-refresh-rollback-failed", "cert-refresh-operation-failed"]
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/cert/house-ca/ensure-root",
+  "payload": {
+    "fields": {
+      "renewal-authority": {
+        "type": "string",
+        "meaning": "Nonempty text explicitly authorizes replacing an existing invalid pair. A valid existing pair is kept even when authority is supplied."
+      },
+      "dry-run": {"type": "boolean", "meaning": "Report root creation or replacement without writing a pair; still observe a valid standing pair.", "default": false}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "dry-run": true,
+  "returns": {
+    "primitive": {"type": "string", "meaning": "The certificate operation (ensure_root), or error for the stop-level exception arm."},
+    "role": {"type": "string", "meaning": "Normalized appliance profile used by the certificate operation."},
+    "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
+    "state_generation": {"type": "integer", "meaning": "Reported generation of the certificate state, or 0 when not available."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "Whether clients must reinstall trust for the reported operation.", "const": false},
+    "ca_fingerprint": {"type": "string", "meaning": "SHA-256 fingerprint reported for the House CA certificate."},
+    "ca_not_after": {"type": "string", "meaning": "OpenSSL notAfter text for the House CA certificate."},
+    "renewal_authority": {"type": "boolean", "meaning": "Whether a dry-run creation or renewal had nonempty authority."},
+    "renewed": {"type": "boolean", "meaning": "Whether the newly written pair replaced prior material."},
+    "plan": {"type": "array", "meaning": "Ordered action names describing the proposed operation.", "items": {"type": "string"}},
+    "proof": {"type": "string", "meaning": "Evidence named by the primitive for this outcome."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success.",
+      "enum": ["none", "agathodaimon-house-ca-refused", "agathodaimon-house-ca-busy", "agathodaimon-house-ca-timeout"]
+    }
+  }
+}

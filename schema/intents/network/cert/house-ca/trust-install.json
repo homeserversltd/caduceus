@@ -1,0 +1,63 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/cert/house-ca/trust-install",
+  "payload": {
+    "fields": {
+      "bundle": {"type": "string", "meaning": "Path to a readable CA-only certificate bundle. PEM platforms require one certificate; Windows selects DER."},
+      "platform": {
+        "type": "string",
+        "meaning": "Platform selecting bundle encoding, defaulting to linux when omitted.",
+        "enum": ["android", "chromeos", "linux", "macos", "windows"],
+        "default": "linux"
+      },
+      "fingerprint": {
+        "type": "string",
+        "meaning": "Optional exact match to the supplied bundle fingerprint; required on first contact without a local or recorded root pin. It does not override a local root pin."
+      },
+      "renew-ring": {"type": "boolean", "meaning": "Permit replacing a different ledger pin, but not a different local CA pin.", "default": false},
+      "dry-run": {"type": "boolean", "meaning": "Validate the bundle and pin, then report prospective trust and ledger effects without applying them.", "default": false}
+    },
+    "required": ["bundle"]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "dry-run": true,
+  "returns": {
+    "primitive": {"type": "string", "meaning": "The certificate operation (trust_install), or error for the stop-level exception arm."},
+    "role": {"type": "string", "meaning": "Normalized appliance profile used by the certificate operation."},
+    "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
+    "state_generation": {"type": "integer", "meaning": "Reported generation of the certificate state, or 0 when not available."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "Whether clients must reinstall trust for the reported operation.", "const": false},
+    "platform": {"type": "string", "meaning": "Platform selecting the exported CA bundle encoding and filename.", "enum": ["android", "chromeos", "linux", "macos", "windows"]},
+    "ca_fingerprint": {"type": "string", "meaning": "SHA-256 fingerprint reported for the House CA certificate."},
+    "bundle_fingerprint": {"type": ["string", "null"], "meaning": "Fingerprint of the supplied CA bundle, null on a bundle validation failure."},
+    "supplied_fingerprint": {"type": "string", "meaning": "Fingerprint read from the supplied certificate during pin validation."},
+    "caller_fingerprint": {"meaning": "Provided fingerprint echoed on a caller mismatch, including invalid types."},
+    "reason": {"type": "string", "meaning": "Pin, trust-store or ledger disposition accompanying the outcome."},
+    "pin_decision": {"type": "string", "meaning": "How the active root fingerprint was selected or why it was refused."},
+    "pin_sources": {"type": "array", "meaning": "Available local certificate and state ledger pin sources.", "items": {"type": "string"}},
+    "bundle_installed": {"type": "boolean", "meaning": "Whether the certificate is installed and was read back in system trust."},
+    "anchor_path": {"type": "string", "meaning": "Path of the platform trust anchor."},
+    "system_bundle": {"type": "string", "meaning": "Path of the system bundle checked for trust."},
+    "detail": {"type": "string", "meaning": "Ledger read or parse diagnostic when available."},
+    "refresh_program": {"type": "string", "meaning": "Platform trust refresh program selected by the plan."},
+    "refresh_command": {"type": "array", "meaning": "Trust refresh argument vector in the plan.", "items": {"type": "string"}},
+    "refresh_available": {"type": "boolean", "meaning": "Whether the planned trust refresh tool was found."},
+    "would_write_anchor": {"type": "boolean", "meaning": "Whether the plan would write the platform anchor."},
+    "would_refresh": {"type": "boolean", "meaning": "Whether the plan would refresh system trust."},
+    "would_commit_state": {"type": "boolean", "meaning": "Whether the plan would change the trust ledger."},
+    "would_bridge": {"type": "boolean", "meaning": "Whether the plan would bridge browser trust."},
+    "plan": {"type": "array", "meaning": "Ordered action names describing the proposed operation.", "items": {"type": "string"}},
+    "store_refresh": {"type": "object", "meaning": "Refresh program, argv, exit status or null, and attempt or error facts as available."},
+    "state_commit": {"type": ["object", "null"], "meaning": "Ledger update child receipt, or null if no write was needed."},
+    "browser_trust": {"type": ["boolean", "null", "string"], "meaning": "Browser bridge verdict; null when not applicable and unsupported for a missing bridge."},
+    "bridge": {"type": "object", "meaning": "Browser bridge state before the operation, whether attempted, and exit status or null."},
+    "proof": {"type": "string", "meaning": "Evidence named by the primitive for this outcome."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success. The stop also passes through raw validation, tool and filesystem exception text on some paths; those diagnostics are not fixed tokens.",
+      "enum": ["none", "agathodaimon-cert-bundle-missing", "agathodaimon-cert-bundle-invalid", "agathodaimon-cert-bundle-not-single-ca", "agathodaimon-cert-bundle-not-ca", "agathodaimon-cert-private-key-leaked", "agathodaimon-cert-bundle-fingerprint-mismatch", "agathodaimon-house-ca-root-invalid", "agathodaimon-house-ca-root-fingerprint-missing", "agathodaimon-state-invalid", "bundle_refused", "agathodaimon-state-shape-invalid", "agathodaimon-state-role-inventory-refused", "agathodaimon-state-commit-failed", "agathodaimon-cert-trust-store-refresh-failed", "agathodaimon-cert-trust-store-write-failed", "agathodaimon-cert-trust-store-readback-failed", "agathodaimon-cert-browser-bridge-unsupported", "agathodaimon-cert-browser-bridge-failed", "agathodaimon-house-ca-refused", "agathodaimon-house-ca-busy", "agathodaimon-house-ca-timeout"]
+    }
+  }
+}

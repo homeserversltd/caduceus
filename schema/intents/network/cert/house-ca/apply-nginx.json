@@ -1,0 +1,124 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/cert/house-ca/apply-nginx",
+  "payload": {
+    "fields": {
+      "portal": {"type": "string", "meaning": "Lowercase DNS name used for the vhost; cannot be an IP literal.", "pattern": "^[a-z0-9*._-]+$"},
+      "upstream": {
+        "type": "string",
+        "meaning": "Primary destination for proxy templates. Required for proxy if no prior upstream exists; static and PHP require no upstream.",
+        "pattern": "^https?://[^\\s;{}\"'\\\\]*$"
+      },
+      "aliases": {
+        "type": ["array", "string", "object"],
+        "meaning": "Additional names supplied as an array of strings, comma-separated text, or iterable object keys. Empty names are skipped. Omission on a portal route keeps prior aliases, when present.",
+        "items": {"type": "string"}
+      },
+      "tailnet-port": {
+        "type": ["integer", "string"],
+        "meaning": "Optional tailnet listener port as an integer or an unsigned decimal string in the same range; omission keeps a prior port.",
+        "pattern": "^[0-9]+$",
+        "minimum": 1,
+        "maximum": 65535
+      },
+      "locations": {
+        "type": ["array", "string"],
+        "meaning": "Additional distinct locations, as an array of location objects or text that decodes to that array.",
+        "items": {
+          "type": "object",
+          "required": ["path", "upstream"],
+          "properties": {
+            "path": {"type": "string", "meaning": "Distinct location other than bare /; may be prefixed with = or ^~.", "pattern": "^(?:=|\\^~)?/[^\\s;{}\"'\\\\]*$"},
+            "upstream": {"type": "string", "meaning": "HTTP(S) destination for this location.", "pattern": "^https?://[^\\s;{}\"'\\\\]*$"},
+            "strip_authorization": {"type": "boolean", "meaning": "Suppress the Authorization header for this location.", "default": false}
+          }
+        }
+      },
+      "max-body-size": {"type": "string", "meaning": "Nginx body size; omission keeps the prior setting, otherwise defaults to 1m.", "pattern": "^[0-9]+[kKmMgG]?$", "default": "1m"},
+      "read-timeout": {
+        "type": ["integer", "string"],
+        "meaning": "Proxy read timeout in seconds, as an integer or unsigned decimal string in the same range. Omission keeps the prior setting or defaults to 60.",
+        "pattern": "^[0-9]+$",
+        "minimum": 1,
+        "maximum": 86400,
+        "default": 60
+      },
+      "template": {
+        "type": "string",
+        "meaning": "Template selected by the loaded Hestia seat. Omission keeps any prior template or uses the seat default when present.",
+        "enum": ["proxy", "static", "php"],
+        "default": "proxy"
+      },
+      "cors": {"type": "string", "meaning": "Hestia CORS include selected by name.", "enum": ["open", "echo"]},
+      "cache-static": {"type": "boolean", "meaning": "Use the Hestia cache-static include on static or PHP templates."},
+      "upload-stream": {"type": "boolean", "meaning": "Use the Hestia upload-stream include."},
+      "root": {"type": "string", "meaning": "Absolute document root required by a static or PHP template if not already held.", "pattern": "^/[^\\s;{}\"'\\\\]*$"},
+      "fpm": {"type": "string", "meaning": "PHP backend, required if not already held: unix:/ with a socket path, or host:port (including bracketed IPv6) with port 1–65535."},
+      "path": {
+        "type": ["string", "array", "object"],
+        "meaning": "Append Hestia proxied locations: location=upstream text or a location object, singly or in an array. Uses the same path and upstream rules as locations."
+      },
+      "alias": {
+        "type": ["string", "array", "object"],
+        "meaning": "Add local aliases to a static or PHP template: location=file text or a path/file object, singly or in an array. Both paths start with / and the location cannot duplicate another exact location."
+      },
+      "fallback": {"type": "string", "meaning": "Absolute fallback page for a static template.", "pattern": "^/[^\\s;{}\"'\\\\]*$"},
+      "certificate": {"type": "string", "meaning": "Nginx-safe path to the leaf certificate. A missing or empty path selects <cert dir>/<portal>.pem.", "pattern": "^[^\\s;{}\"'\\\\]*$"},
+      "key-path": {
+        "type": "string",
+        "meaning": "Nginx-safe path to the leaf key, not key bytes. A missing or empty path selects <cert dir>/<portal>.key.pem.",
+        "pattern": "^[^\\s;{}\"'\\\\]*$"
+      },
+      "dry-run": {"type": "boolean", "meaning": "Render the vhost and return the planned commands without validating or reloading Nginx.", "default": false}
+    },
+    "required": ["portal"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "dry-run": true,
+  "returns": {
+    "primitive": {"type": "string", "meaning": "The certificate operation (apply_nginx), or error for the stop-level exception arm."},
+    "role": {"type": "string", "meaning": "Normalized appliance profile used by the certificate operation."},
+    "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
+    "state_generation": {"type": "integer", "meaning": "Reported generation of the certificate state, or 0 when not available."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "Whether clients must reinstall trust for the reported operation.", "const": false},
+    "portal": {"type": "string", "meaning": "Portal for which Nginx was rendered."},
+    "aliases": {"type": "array", "meaning": "Normalized additional names, excluding the primary name.", "items": {"type": "string"}},
+    "server_names": {"type": "array", "meaning": "Primary name and normalized aliases.", "items": {"type": "string"}},
+    "validated": {"type": "boolean", "meaning": "Whether Nginx accepted the candidate."},
+    "reloaded": {"type": "boolean", "meaning": "Whether Nginx was reloaded with the candidate."},
+    "legacy_path": {"type": "string", "meaning": "Path of the legacy vhost for this name."},
+    "legacy_present": {"type": "boolean", "meaning": "Whether the legacy vhost was present before applying."},
+    "legacy_retired": {"type": "boolean", "meaning": "Whether the pre-existing legacy vhost was removed."},
+    "legacy_remaining": {"type": "boolean", "meaning": "Whether the legacy file remains."},
+    "replacement_written": {"type": "boolean", "meaning": "Whether the candidate differs from the initial managed vhost; false in a dry run."},
+    "central_written": {"type": "array", "meaning": "Shared include paths whose candidate bytes differed.", "items": {"type": "string"}},
+    "validation_output": {"type": "string", "meaning": "Output at the Nginx validation boundary."},
+    "reload_output": {"type": "string", "meaning": "Output of the candidate reload on success."},
+    "restored": {"type": "boolean", "meaning": "Whether rollback reported no failed file restore."},
+    "restore_error": {"type": ["string", "null"], "meaning": "Combined restore diagnostics when present."},
+    "rollback_reloaded": {"type": "boolean", "meaning": "Whether Nginx reloaded the previous configuration."},
+    "failed_step": {"type": "string", "meaning": "Named Nginx step that failed."},
+    "command_output": {"type": "string", "meaning": "Failure detail from the write, command or readback."},
+    "plan": {"type": "array", "meaning": "Ordered action names describing the proposed operation.", "items": {"type": "string"}},
+    "commands": {
+      "type": "array",
+      "meaning": "Planned Nginx validation and service reload argument vectors, not commands run in the plan.",
+      "items": {"type": "array", "items": {"type": "string"}}
+    },
+    "hestia_seat": {"type": "string", "meaning": "Whether the Hestia route grammar was available.", "enum": ["present", "absent"]},
+    "skipped_fields": {"type": "array", "meaning": "Rendered row fields not described by the loaded Hestia seat.", "items": {"type": "string"}},
+    "served_fields": {
+      "type": "array",
+      "meaning": "On preflight refusal, the payload field names served by this stop, including notes from the active Hestia seat.",
+      "items": {"type": "string"}
+    },
+    "proof": {"type": "string", "meaning": "Evidence named by the primitive for this outcome."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success. Hestia also forwards the open forms unknown-field:<key>, agathodaimon-hestia-template-unknown:<value>, agathodaimon-hestia-file-absent:<key-or-path>, agathodaimon-hestia-template-hole-unfilled:<hole>, and agathodaimon-hestia-note-refused:<note> from the loaded seat or template. The enum lists fixed tokens and named note/required-hole tokens from the pinned Hestia seat, not unbounded suffixes.",
+      "enum": ["none", "agathodaimon-nginx-input-invalid", "agathodaimon-hestia-seat-absent", "agathodaimon-hestia-seat-invalid", "agathodaimon-hestia-seat-foreign", "agathodaimon-portal-tailnet-name-unavailable", "agathodaimon-hestia-note-refused:alias", "agathodaimon-hestia-note-refused:cache-static", "agathodaimon-hestia-note-refused:cors", "agathodaimon-hestia-note-refused:fallback", "agathodaimon-hestia-note-refused:fpm", "agathodaimon-hestia-note-refused:root", "agathodaimon-hestia-template-hole-unfilled:root", "agathodaimon-hestia-template-hole-unfilled:fpm", "agathodaimon-nginx-stage-nginx-failed", "agathodaimon-nginx-stage-nginx-timeout", "agathodaimon-nginx-validate-nginx-failed", "agathodaimon-nginx-validate-nginx-timeout", "agathodaimon-nginx-activate-nginx-failed", "agathodaimon-nginx-activate-nginx-timeout", "agathodaimon-house-ca-refused", "agathodaimon-house-ca-busy", "agathodaimon-house-ca-timeout"]
+    }
+  }
+}
