@@ -10,7 +10,7 @@
   "returns": {
     "values": {
       "type": "object",
-      "meaning": "Observed owner input values, or null when unavailable. Keys are keyboard_layout, keyboard_variant, key_repeat, repeat_delay_ms, repeat_interval_ms, natural_scroll, tap_to_click, pointer_speed, accel_profile, left_handed, disable_while_typing and scroll_factor."
+      "meaning": "Map of the owner's input settings on a successful read. Individual values are null when unobserved. Keys are keyboard_layout, keyboard_variant, key_repeat, repeat_delay_ms, repeat_interval_ms, natural_scroll, tap_to_click, pointer_speed, accel_profile, left_handed, disable_while_typing and scroll_factor."
     },
     "sources": {"type": "object", "meaning": "Source label or declaration path for each value; none means no observation."},
     "base": {"type": "string", "meaning": "Path of the selected base input declaration."},
