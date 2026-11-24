@@ -47,11 +47,8 @@
       "meaning": "Validation, reload and DNS query checks for the owned-name projection.",
       "fields": {
         "config_valid": {
-          "type": [
-            "boolean",
-            "null"
-          ],
-          "meaning": "Staged configuration passed validation; null on device create’s early no-op."
+          "type": "boolean",
+          "meaning": "Whether the staged configuration passed validation."
         },
         "reload_outcome": {
           "type": "string",
