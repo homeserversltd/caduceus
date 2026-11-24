@@ -1,0 +1,164 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/linker",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "legacy_request": {
+    "meaning": "Legacy adapter: these arguments are read from the top-level JSON object even when the five kernel fields are present. The nested payload room supplies no Linker arguments.",
+    "fields": {
+      "operation": {
+        "type": "string",
+        "meaning": "Choose the NAS operation. browse and hardlink-scan read; deploy, delete, rename and mkdir act.",
+        "enum": [
+          "browse",
+          "hardlink-scan",
+          "deploy",
+          "delete",
+          "rename",
+          "mkdir"
+        ]
+      },
+      "path": {
+        "type": "string",
+        "meaning": "Required for browse, hardlink-scan, delete, rename and mkdir. Resolve to the NAS root or a descendant. For mkdir this is the parent directory.",
+        "minLength": 1
+      },
+      "destination": {
+        "type": "string",
+        "meaning": "Required for deploy. Destination directory under the NAS root.",
+        "minLength": 1
+      },
+      "sources": {
+        "type": "array",
+        "meaning": "Required for deploy. Resolved NAS source paths.",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "conflict_strategy": {
+        "type": "string",
+        "meaning": "How deploy handles existing targets. Rename does not resolve an existing top-level directory.",
+        "enum": [
+          "fail",
+          "skip",
+          "overwrite",
+          "rename"
+        ],
+        "default": "rename"
+      },
+      "new_name": {
+        "type": "string",
+        "meaning": "Required for rename. One directory name, not . or ..; the target must stay within the NAS root.",
+        "minLength": 1
+      },
+      "new_dir_name": {
+        "type": "string",
+        "meaning": "Required for mkdir. One directory name, not . or ..; the target must stay within the NAS root.",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "operation"
+    ]
+  },
+  "returns": {
+    "operation": {
+      "type": "string",
+      "meaning": "Operation attempted; omitted on an adapter error."
+    },
+    "path": {
+      "type": "string",
+      "meaning": "Resolved source, parent or listing path, depending on the operation."
+    },
+    "target": {
+      "type": "string",
+      "meaning": "Resolved rename or mkdir target."
+    },
+    "entries": {
+      "type": "array",
+      "meaning": "Directory entries from browse or hardlink-scan; inode only on hardlink-scan.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "path": {
+            "type": "string",
+            "meaning": "Entry path."
+          },
+          "name": {
+            "type": "string",
+            "meaning": "Entry basename."
+          },
+          "nlink": {
+            "type": "integer",
+            "meaning": "Link count."
+          },
+          "inode": {
+            "type": "integer",
+            "meaning": "Inode number on hardlink-scan."
+          },
+          "is_dir": {
+            "type": "boolean",
+            "meaning": "Whether the entry is a directory."
+          },
+          "is_hardlink": {
+            "type": "boolean",
+            "meaning": "Whether the entry is a non-directory with more than one link."
+          }
+        }
+      }
+    },
+    "destination": {
+      "type": "string",
+      "meaning": "Resolved deployment directory."
+    },
+    "conflict_strategy": {
+      "type": "string",
+      "meaning": "Conflict strategy used for deployment."
+    },
+    "results": {
+      "type": "array",
+      "meaning": "Per-source deployment results.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "source": {
+            "type": "string",
+            "meaning": "Resolved source path."
+          },
+          "success": {
+            "type": "boolean",
+            "meaning": "Hardlink helper outcome for that source."
+          }
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "meaning": "Native status when present; this adapter emits no firstMissingSignal and can also return ok false without a status for an unsuccessful deployment.",
+      "enum": [
+        "adapter_error",
+        "failed",
+        "refused",
+        "deleted_file",
+        "deleted_empty_directory",
+        "deleted_hardlink_directory",
+        "renamed",
+        "created"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "meaning": "Core refusal description, when provided."
+    },
+    "error": {
+      "type": "string",
+      "meaning": "Unstructured adapter or OS diagnostic, when provided."
+    }
+  }
+}

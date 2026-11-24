@@ -1,0 +1,77 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/wifi/device/ipv4/set",
+  "payload": {
+    "fields": {
+      "interface": {
+        "type": "string",
+        "meaning": "NetworkManager interface name. Nonempty UTF-8, at most 128 bytes, with no ASCII control bytes.",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[^\\u0000-\\u001F\\u007F]+$(?![\\s\\S])"
+      },
+      "method": {
+        "type": "string",
+        "meaning": "Set IPv4 to automatic (and clear its static fields) or to manual with a supplied address.",
+        "enum": [
+          "auto",
+          "static"
+        ]
+      },
+      "address": {
+        "type": "string",
+        "meaning": "Required for static and ignored for auto. Nonempty UTF-8 (at most 128 bytes), an IPv4 address followed by a slash and an ASCII-decimal prefix from 0 through 32.",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[0-9]+(?:\\.[0-9]+){3}/[0-9]+$(?![\\s\\S])"
+      },
+      "gateway": {
+        "type": "string",
+        "meaning": "Optional IPv4 gateway for static; absent or empty adds no gateway option. Ignored for auto."
+      },
+      "dns": {
+        "type": "string",
+        "meaning": "Optional comma-separated IPv4 servers for static, with whitespace stripped from each entry for validation; absent or empty adds no DNS option. At most 256 UTF-8 bytes with no ASCII control bytes. Ignored for auto.",
+        "maxLength": 256,
+        "pattern": "^[^\\u0000-\\u001F\\u007F]*$(?![\\s\\S])"
+      }
+    },
+    "required": [
+      "interface",
+      "method"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "action": {
+      "type": "string",
+      "meaning": "The selected operation, ipv4_device, or invalid if the envelope was not read."
+    },
+    "completed": {
+      "type": "boolean",
+      "meaning": "True only when the operation returned success; it is not a change flag."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop's outcome token; none when no signal is missing.",
+      "enum": [
+        "none",
+        "wifi-address-invalid",
+        "wifi-dns-invalid",
+        "wifi-gateway-invalid",
+        "wifi-gateway-required",
+        "wifi-input-invalid",
+        "wifi-interface-active-connection-missing",
+        "wifi-interface-invalid",
+        "wifi-interface-required",
+        "wifi-ipv4-method-invalid",
+        "wifi-nmcli-failed",
+        "wifi-nmcli-stdin-unavailable",
+        "wifi-nmcli-stdin-write-failed",
+        "wifi-nmcli-timeout",
+        "wifi-nmcli-unavailable"
+      ]
+    }
+  }
+}

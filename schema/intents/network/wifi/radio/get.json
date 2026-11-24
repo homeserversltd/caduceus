@@ -1,0 +1,73 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/wifi/radio/get",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "action": {
+      "type": "string",
+      "meaning": "Operation named by this stop.",
+      "const": "radio-get"
+    },
+    "completed": {
+      "type": "boolean",
+      "meaning": "True when the radio read completed without a refusal."
+    },
+    "present": {
+      "type": "boolean",
+      "meaning": "Whether NetworkManager listed a Wi-Fi device."
+    },
+    "enabled": {
+      "type": "boolean",
+      "meaning": "Global NetworkManager Wi-Fi radio state, false if not observed enabled."
+    },
+    "device": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "First listed Wi-Fi device, or null if none was observed."
+    },
+    "radios": {
+      "type": "array",
+      "meaning": "Per-device radio posture from the NetworkManager device list.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "device": {
+            "type": "string",
+            "meaning": "NetworkManager device name."
+          },
+          "product": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "NetworkManager product description, or null when missing or unreadable."
+          },
+          "enabled": {
+            "type": "boolean",
+            "meaning": "Per-device rfkill soft state when readable, otherwise the global radio state."
+          }
+        }
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop's outcome token; none when no signal is missing.",
+      "enum": [
+        "none",
+        "wifi-nmcli-failed",
+        "wifi-nmcli-stdin-unavailable",
+        "wifi-nmcli-stdin-write-failed",
+        "wifi-nmcli-timeout",
+        "wifi-nmcli-unavailable",
+        "wifi-radio-state-invalid"
+      ]
+    }
+  }
+}

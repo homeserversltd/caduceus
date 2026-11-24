@@ -1,0 +1,48 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/wake-on-lan/probe",
+  "payload": {
+    "fields": {
+      "ip": {
+        "type": "string",
+        "meaning": "IPv4 address to probe for reachability."
+      }
+    },
+    "required": [
+      "ip"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ip": {
+      "type": "string",
+      "meaning": "Canonical target IPv4 address."
+    },
+    "awake": {
+      "type": "boolean",
+      "meaning": "True only if ping exits successfully and an RTT is parsed."
+    },
+    "rtt_ms": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "meaning": "Parsed round-trip time in milliseconds; null when the target is not observed awake."
+    },
+    "error": {
+      "type": "string",
+      "meaning": "Input diagnostic or ping launch error on refusal."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop's outcome token; none when no signal is missing.",
+      "enum": [
+        "none",
+        "wake-envelope-invalid",
+        "wake-ip-invalid",
+        "wake-probe-failed"
+      ]
+    }
+  }
+}

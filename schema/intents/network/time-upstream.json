@@ -1,0 +1,53 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/time-upstream",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "primitive": {
+      "type": "string",
+      "meaning": "upstream for source selection; invalid when the request could not be read."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "True when the source file was replaced; false on an input or write refusal."
+    },
+    "gateway": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "WAN default-route IPv4 address, or null when no address was found. Omitted when the envelope is refused."
+    },
+    "answered": {
+      "type": "boolean",
+      "meaning": "Whether chronyd accepted the gateway probe. Omitted when the envelope is refused."
+    },
+    "mode": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "gateway or pools after writing the sources; null on write failure and absent when the envelope is refused."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The listed fixed outcomes, including warnings on a successful pools fallback. The stop also passes through envelope diagnostics with a variable suffix: missing envelope kernel keys: <names> and foreign seat <schema>: <identity>.",
+      "enum": [
+        "JSON object required",
+        "agathodaimon-time-upstream-gateway-missing",
+        "agathodaimon-time-upstream-gateway-no-answer",
+        "agathodaimon-time-upstream-gateway-probe-failed",
+        "agathodaimon-time-upstream-wan-route-unavailable",
+        "agathodaimon-time-upstream-write-failed",
+        "foreign envelope schema",
+        "invalid JSON",
+        "none"
+      ]
+    }
+  }
+}
