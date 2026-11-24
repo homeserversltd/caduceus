@@ -1,0 +1,70 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/input/set",
+  "payload": {
+    "fields": {
+      "pointer_sensitivity": {"meaning": "Recognized by request intake, but the Sway setter rejects it for every value. Use pointer_speed instead."},
+      "scroll_factor": {
+        "type": "number",
+        "meaning": "Set the Sway pointer scroll multiplier. Supply at least one supported setting.",
+        "minimum": 0.1,
+        "maximum": 10
+      },
+      "natural_scroll": {"type": "boolean", "meaning": "Toggle natural scrolling for the pointer and touchpad."},
+      "tap_to_click": {"type": "boolean", "meaning": "Toggle touchpad tapping."},
+      "middle_button_emulation": {"meaning": "Recognized by request intake, but the Sway setter rejects it for every value."},
+      "pointer_speed": {"type": "number", "meaning": "Set Sway pointer and touchpad acceleration.", "minimum": -1, "maximum": 1},
+      "accel_profile": {
+        "type": "string",
+        "meaning": "Select the Sway pointer and touchpad acceleration profile.",
+        "enum": ["flat", "adaptive"]
+      },
+      "left_handed": {"type": "boolean", "meaning": "Toggle left-handed pointer and touchpad behavior."},
+      "disable_while_typing": {"type": "boolean", "meaning": "Toggle touchpad disabling while typing."}
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "receipt": {
+      "type": "object",
+      "meaning": "Settings act metadata: ok, changed, kind, fields, backups and commands. A failure retains metadata about what ran, even after compensation."
+    },
+    "receiptPath": {"type": "string", "meaning": "Path of the saved settings run.json on success."},
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "On a structured failure, true when the stop reports that live state is uncertain after dispatch or rollback."
+    },
+    "dryRun": {
+      "type": "boolean",
+      "meaning": "Present and true only in the private CADUCEUS_SETTINGS_DRY_RUN environment path. This is not an envelope dry-run.",
+      "const": true
+    },
+    "commands": {"type": "array", "meaning": "Command rows returned by the private environment path."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Literal outcomes emitted by the stop and its envelope reader. The envelope reader can also emit missing envelope kernel keys: followed by the comma-joined missing keys. An unrecognized payload key is returned as unknown-field:<key>. Rollback failures carry a dynamic rollback-failed: prefix. Writer errors can be settings-input-failed:<ExceptionType>; pre-writer system errors can return raw exception text.",
+      "enum": [
+        "no-fields-supplied",
+        "unsupported:sway-session-unavailable",
+        "unsupported:sway-input-field",
+        "invalid:scroll_factor:number-required",
+        "invalid:scroll_factor:range",
+        "invalid:accel_profile",
+        "invalid:pointer_speed",
+        "invalid:left_handed",
+        "invalid:disable_while_typing",
+        "invalid:natural_scroll",
+        "invalid:tap_to_click",
+        "input-override-invalid",
+        "sway-session-unavailable",
+        "sway-reload-failed",
+        "sway-scroll-factor-failed",
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema"
+      ]
+    }
+  }
+}

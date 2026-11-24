@@ -1,0 +1,35 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/datetime/household-time/resolve",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "primitive": {
+      "type": "string",
+      "meaning": "resolve for a provider outcome; invalid when intake or state I/O raised.",
+      "enum": ["resolve", "invalid"]
+    },
+    "changed": {"type": "boolean", "meaning": "Whether the new resolution record differs from the previous record."},
+    "detail": {"type": "string", "meaning": "Provider or timezone-validation error text on a failed lookup."},
+    "state": {
+      "type": "object",
+      "meaning": "Published subset of the household clock document, possibly empty. It can contain schema_version, timezone, observed_at, valid_until, provider, validation_status, applied_timezone, pending_timezone and pending_observed_at. State reads preserve the stored values."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Literal outcomes emitted by the stop and its envelope reader. The envelope reader can also emit missing envelope kernel keys: followed by the comma-joined missing keys. Unnormalized exception text can also be returned; those values are not a finite enum.",
+      "enum": [
+        "none",
+        "agathodaimon-household-time-state-invalid",
+        "agathodaimon-household-time-provider-unavailable",
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema"
+      ]
+    }
+  }
+}

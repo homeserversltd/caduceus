@@ -1,0 +1,30 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/region/read",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "values": {
+      "type": "object",
+      "meaning": "System locale and observed measurement units.",
+      "fields": {
+        "locale": {"type": ["string", "null"], "meaning": "LANG from locale.conf, or null when absent."},
+        "measurement_units": {
+          "type": ["string", "null"],
+          "meaning": "Metric or imperial as reported for LC_MEASUREMENT (falling back to LANG), or null if unobserved."
+        }
+      }
+    },
+    "options": {"type": "object", "meaning": "Locale choices listed by locale -a, with UTF-8 variants and available native labels."},
+    "mutationPerformed": {"type": "boolean", "meaning": "The observation does not mutate.", "const": false},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Literal outcomes emitted by the stop and its envelope reader. The envelope reader can also emit missing envelope kernel keys: followed by the comma-joined missing keys. Unnormalized exception text can also be returned; those values are not a finite enum.",
+      "enum": ["invalid JSON", "JSON object required", "foreign envelope schema"]
+    }
+  }
+}

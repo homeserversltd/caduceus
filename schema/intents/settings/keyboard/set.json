@@ -1,0 +1,49 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/keyboard/set",
+  "payload": {
+    "fields": {
+      "keyboard_layout": {
+        "type": "string",
+        "meaning": "Write the Sway xkb_layout value. Supply at least one keyboard setting.",
+        "pattern": "^[A-Za-z0-9_,.-]{1,128}$",
+        "maxLength": 128
+      },
+      "repeat_rate": {"type": "integer", "meaning": "Write the Sway repeat_rate value.", "minimum": 0, "maximum": 10000},
+      "repeat_delay": {"type": "integer", "meaning": "Write the Sway repeat_delay value.", "minimum": 0, "maximum": 10000}
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "receipt": {
+      "type": "object",
+      "meaning": "Settings act metadata: ok, changed, kind, fields, backups and commands. A failure retains metadata about what ran, even after compensation."
+    },
+    "receiptPath": {"type": "string", "meaning": "Path of the saved settings run.json on success."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Whether the stop reports a performed mutation."},
+    "dryRun": {
+      "type": "boolean",
+      "meaning": "Present and true only in the private CADUCEUS_SETTINGS_DRY_RUN environment path. This is not an envelope dry-run.",
+      "const": true
+    },
+    "commands": {"type": "array", "meaning": "Command rows returned by the private environment path."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Literal outcomes emitted by the stop and its envelope reader. The envelope reader can also emit missing envelope kernel keys: followed by the comma-joined missing keys. An unrecognized payload key is returned as unknown-field:<key>. Rollback failures carry a dynamic rollback-failed: prefix. Unnormalized exception text can also be returned; those values are not a finite enum.",
+      "enum": [
+        "no-fields-supplied",
+        "invalid:keyboard_layout",
+        "invalid:repeat_rate",
+        "invalid:repeat_delay",
+        "sway-session-unavailable",
+        "keyboard-override-invalid",
+        "sway-reload-failed",
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema"
+      ]
+    }
+  }
+}

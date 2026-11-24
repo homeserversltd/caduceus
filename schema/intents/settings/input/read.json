@@ -1,0 +1,26 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/input/read",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "values": {
+      "type": "object",
+      "meaning": "Observed owner input values, or null when unavailable. Keys are keyboard_layout, keyboard_variant, key_repeat, repeat_delay_ms, repeat_interval_ms, natural_scroll, tap_to_click, pointer_speed, accel_profile, left_handed, disable_while_typing and scroll_factor."
+    },
+    "sources": {"type": "object", "meaning": "Source label or declaration path for each value; none means no observation."},
+    "base": {"type": "string", "meaning": "Path of the selected base input declaration."},
+    "override": {"type": "string", "meaning": "Path of the backend-specific override."},
+    "readonly": {"type": "object", "meaning": "When Sway is unavailable, input names mapped to the read-only reason."},
+    "mutationPerformed": {"type": "boolean", "meaning": "The observation does not mutate.", "const": false},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Literal outcomes emitted by the stop and its envelope reader. The envelope reader can also emit missing envelope kernel keys: followed by the comma-joined missing keys. Unnormalized exception text can also be returned; those values are not a finite enum.",
+      "enum": ["invalid JSON", "JSON object required", "foreign envelope schema"]
+    }
+  }
+}

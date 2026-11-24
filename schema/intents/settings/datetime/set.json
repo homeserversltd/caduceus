@@ -1,0 +1,92 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/datetime/set",
+  "payload": {
+    "fields": {
+      "timezone": {
+        "type": "string",
+        "meaning": "Use an installed ZoneInfo name and switch to manual. Cannot be supplied with automatic_timezone true; HomeServer keeps UTC. Supply at least one supported setting.",
+        "pattern": "^[A-Za-z][A-Za-z0-9_+.-]*(?:/[A-Za-z0-9_+.-]+)*$"
+      },
+      "ntp_enabled": {"type": "boolean", "meaning": "Enable or disable system NTP. HomeServer does not allow false."},
+      "automatic_timezone": {
+        "type": "boolean",
+        "meaning": "Follow the household timezone when true, select manual when false. HomeServer does not allow false."
+      },
+      "time_format": {
+        "type": "string",
+        "meaning": "Choose the Waybar clock format when the owner config includes its clock override.",
+        "enum": ["24h", "12h"]
+      },
+      "local_time": {
+        "type": "string",
+        "meaning": "Unambiguous local wall time in YYYY-MM-DD HH:MM with NTP off; unavailable on HomeServer.",
+        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$"
+      }
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "receipt": {
+      "type": "object",
+      "meaning": "Settings act metadata: ok, changed, kind, fields, backups and commands. A failure retains metadata about what ran, even after compensation."
+    },
+    "receiptPath": {"type": "string", "meaning": "Path of the saved settings run.json on success."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Whether the stop reports a performed mutation."},
+    "changed": {"type": "boolean", "meaning": "Whether a clock command completed or an applicable config change was recorded."},
+    "readback": {
+      "type": "object",
+      "meaning": "Observed settings when applicable: timezone, automatic_timezone, ntp_enabled, local_time, time_format, waybar_reload and household_zone. It may be partial or empty on failure."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Literal outcomes emitted by the stop and its envelope reader. The envelope reader can also emit missing envelope kernel keys: followed by the comma-joined missing keys. An unrecognized payload key is returned as unknown-field:<key>. Other ValueError text can pass through.",
+      "enum": [
+        "no-fields-supplied",
+        "datetime-clock-read-failed",
+        "unsupported:homeserver-keeps-house-time",
+        "agathodaimon-household-time-profile-unavailable",
+        "agathodaimon-household-time-homeserver-utc-only",
+        "invalid:ntp_enabled:boolean-required",
+        "invalid:automatic_timezone:boolean-required",
+        "invalid:timezone",
+        "invalid:timezone:conflicts-with-follow",
+        "invalid:time_format",
+        "unsupported:bar-clock-override-absent",
+        "bar-clock-path-invalid",
+        "bar-clock-not-a-regular-file",
+        "bar-clock-file-too-large",
+        "datetime-bar-clock-override-invalid",
+        "datetime-bar-clock-write-failed",
+        "invalid:local_time:expected-YYYY-MM-DD-HH:MM",
+        "invalid:local_time:calendar",
+        "invalid:local_time:ambiguous",
+        "invalid:local_time:nonexistent",
+        "unsupported:automatic-time-on",
+        "privilege:timezone",
+        "privilege:ntp_enabled",
+        "privilege:local_time",
+        "datetime-timezone-readback-failed",
+        "datetime-zone-mode-readback-failed",
+        "datetime-ntp-readback-failed",
+        "datetime-local-time-readback-failed",
+        "agathodaimon-household-time-timezone-invalid",
+        "agathodaimon-household-time-timezone-not-installed",
+        "agathodaimon-household-time-state-invalid",
+        "agathodaimon-household-time-timezone-readback-failed",
+        "agathodaimon-zone-mode-config-invalid",
+        "agathodaimon-zone-mode-invalid",
+        "agathodaimon-harmonia-module-toggle-config-invalid",
+        "agathodaimon-harmonia-module-toggle-config-not-object",
+        "agathodaimon-zone-mode-config-concurrent-update",
+        "datetime-system-operation-failed",
+        "failure",
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema"
+      ]
+    }
+  }
+}

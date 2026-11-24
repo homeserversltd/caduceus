@@ -1,0 +1,33 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/datetime/zone-mode/read",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "mode": {
+      "type": "string",
+      "meaning": "Stored time.zone_mode, or follow when absent.",
+      "enum": ["follow", "manual"],
+      "default": "follow"
+    },
+    "changed": {"type": "boolean", "meaning": "The observation does not modify the setting.", "const": false},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Literal outcomes emitted by the stop and its envelope reader. The envelope reader can also emit missing envelope kernel keys: followed by the comma-joined missing keys. Unnormalized exception text can also be returned; those values are not a finite enum.",
+      "enum": [
+        "none",
+        "agathodaimon-zone-mode-config-invalid",
+        "agathodaimon-zone-mode-invalid",
+        "agathodaimon-harmonia-module-toggle-config-invalid",
+        "agathodaimon-harmonia-module-toggle-config-not-object",
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema"
+      ]
+    }
+  }
+}

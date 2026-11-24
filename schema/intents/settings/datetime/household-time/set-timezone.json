@@ -1,0 +1,77 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/datetime/household-time/set-timezone",
+  "payload": {
+    "fields": {
+      "timezone": {
+        "type": "string",
+        "meaning": "Installed slash-separated IANA timezone below the zoneinfo root. HomeServer keeps UTC.",
+        "pattern": "^[A-Za-z][A-Za-z0-9._+-]*(?:/[A-Za-z0-9._+-]+)+$"
+      }
+    },
+    "required": ["timezone"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "primitive": {
+      "type": "string",
+      "meaning": "set-timezone for a timezone outcome; invalid when intake, policy, state or invocation raised.",
+      "enum": ["set-timezone", "invalid"]
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "True when timedatectl and readback confirm a newly applied zone. A pending change can be recorded while this is false."
+    },
+    "requested_timezone": {"type": "string", "meaning": "Validated timezone requested."},
+    "previously_applied_timezone": {"type": ["string", "null"], "meaning": "Previously recorded applied zone, or null on the first application."},
+    "applied_timezone": {
+      "type": ["string", "null"],
+      "meaning": "Confirmed applied zone on success, or prior recorded zone on a hold or failed apply."
+    },
+    "debounce_gated": {"type": "boolean", "meaning": "True when a different zone is held pending instead of immediately applied."},
+    "hold_seconds": {
+      "type": "integer",
+      "meaning": "Effective debounce interval in a held response; chosen from CADUCEUS_TIMEZONE_HOLD_SECONDS, not the payload.",
+      "minimum": 60,
+      "maximum": 604800,
+      "default": 86400
+    },
+    "post_apply": {
+      "type": "object",
+      "meaning": "timedatectl show/status results and parsed properties.",
+      "fields": {
+        "command": {
+          "type": "array",
+          "meaning": "The show arguments.",
+          "items": {"type": "string"}
+        },
+        "show_exit": {"type": "integer", "meaning": "Exit status from show."},
+        "show_stdout": {"type": "string", "meaning": "Trimmed show stdout."},
+        "show_stderr": {"type": "string", "meaning": "Trimmed show stderr."},
+        "status_exit": {"type": "integer", "meaning": "Exit status from status."},
+        "values": {
+          "type": "object",
+          "meaning": "Properties parsed from show and filled from status when absent; may include NTPSynchronized, NTP and Timezone."
+        }
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Literal outcomes emitted by the stop and its envelope reader. The envelope reader can also emit missing envelope kernel keys: followed by the comma-joined missing keys. Unnormalized exception text can also be returned; those values are not a finite enum.",
+      "enum": [
+        "none",
+        "agathodaimon-household-time-profile-unavailable",
+        "agathodaimon-household-time-homeserver-utc-only",
+        "agathodaimon-household-time-timezone-invalid",
+        "agathodaimon-household-time-timezone-not-installed",
+        "agathodaimon-household-time-state-invalid",
+        "agathodaimon-household-time-hold-invalid",
+        "agathodaimon-household-time-timezone-readback-failed",
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema"
+      ]
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/datetime/household-time/state",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "primitive": {
+      "type": "string",
+      "meaning": "state on successful observation; invalid when intake or state reading raised.",
+      "enum": ["state", "invalid"]
+    },
+    "changed": {"type": "boolean", "meaning": "The observation does not modify state.", "const": false},
+    "state": {
+      "type": "object",
+      "meaning": "Published subset of the household clock document, possibly empty. It can contain schema_version, timezone, observed_at, valid_until, provider, validation_status, applied_timezone, pending_timezone and pending_observed_at. State reads preserve the stored values."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Literal outcomes emitted by the stop and its envelope reader. The envelope reader can also emit missing envelope kernel keys: followed by the comma-joined missing keys. Unnormalized exception text, such as a UTF-8 decoding diagnostic, is not a finite enum.",
+      "enum": [
+        "none",
+        "agathodaimon-household-time-state-invalid",
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema"
+      ]
+    }
+  }
+}

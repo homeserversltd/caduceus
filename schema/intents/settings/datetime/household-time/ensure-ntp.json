@@ -1,0 +1,68 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/datetime/household-time/ensure-ntp",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "primitive": {
+      "type": "string",
+      "meaning": "ensure-ntp for a provider outcome; invalid when request intake or operation raised.",
+      "enum": ["ensure-ntp", "invalid"]
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "True if enabling the selected unit exited zero, independent of the subsequent synchronization result."
+    },
+    "providers": {
+      "type": "array",
+      "meaning": "Provider names considered, when none is installed.",
+      "items": {"type": "string", "enum": ["systemd-timesyncd", "chrony", "ntpd"]}
+    },
+    "provider": {
+      "type": "string",
+      "meaning": "First installed provider, in the order systemd-timesyncd, chrony, ntpd.",
+      "enum": ["systemd-timesyncd", "chrony", "ntpd"]
+    },
+    "unit": {
+      "type": "string",
+      "meaning": "Service unit for the selected provider.",
+      "enum": ["systemd-timesyncd.service", "chronyd.service", "ntpd.service"]
+    },
+    "enable_exit": {"type": "integer", "meaning": "Exit status from enabling and starting the provider."},
+    "post_apply": {
+      "type": "object",
+      "meaning": "timedatectl show/status results and parsed properties.",
+      "fields": {
+        "command": {
+          "type": "array",
+          "meaning": "The show arguments.",
+          "items": {"type": "string"}
+        },
+        "show_exit": {"type": "integer", "meaning": "Exit status from show."},
+        "show_stdout": {"type": "string", "meaning": "Trimmed show stdout."},
+        "show_stderr": {"type": "string", "meaning": "Trimmed show stderr."},
+        "status_exit": {"type": "integer", "meaning": "Exit status from status."},
+        "values": {
+          "type": "object",
+          "meaning": "Properties parsed from show and filled from status when absent; may include NTPSynchronized, NTP and Timezone."
+        }
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Literal outcomes emitted by the stop and its envelope reader. The envelope reader can also emit missing envelope kernel keys: followed by the comma-joined missing keys. Unnormalized exception text can also be returned; those values are not a finite enum.",
+      "enum": [
+        "none",
+        "agathodaimon-household-time-ntp-provider-missing",
+        "agathodaimon-household-time-ntp-not-synchronized",
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema"
+      ]
+    }
+  }
+}

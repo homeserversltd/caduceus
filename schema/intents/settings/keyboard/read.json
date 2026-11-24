@@ -1,0 +1,34 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/keyboard/read",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "values": {
+      "type": "object",
+      "meaning": "Keyboard values from Sway files and unanimous live repeat readings.",
+      "fields": {
+        "keyboard_layout": {"type": ["string", "null"], "meaning": "Configured xkb_layout, or null when unavailable."},
+        "repeat_rate": {
+          "type": ["integer", "string", "null"],
+          "meaning": "Live or decimal repeat_rate; other matching file values are returned as text."
+        },
+        "repeat_delay": {
+          "type": ["integer", "string", "null"],
+          "meaning": "Live or decimal repeat_delay; other matching file values are returned as text."
+        }
+      }
+    },
+    "options": {"type": "object", "meaning": "keyboard_layout choices from the installed XKB layout list, absent when unavailable."},
+    "mutationPerformed": {"type": "boolean", "meaning": "The observation does not mutate.", "const": false},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Literal outcomes emitted by the stop and its envelope reader. The envelope reader can also emit missing envelope kernel keys: followed by the comma-joined missing keys. Unnormalized exception text can also be returned; those values are not a finite enum.",
+      "enum": ["invalid JSON", "JSON object required", "foreign envelope schema"]
+    }
+  }
+}

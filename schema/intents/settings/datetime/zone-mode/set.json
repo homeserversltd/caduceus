@@ -1,0 +1,40 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/datetime/zone-mode/set",
+  "payload": {
+    "fields": {
+      "zoneMode": {
+        "type": "string",
+        "meaning": "Set the time.zone_mode preference. Follow uses household time; manual is unavailable on HomeServer.",
+        "enum": ["follow", "manual"]
+      }
+    },
+    "required": ["zoneMode"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "mode": {"type": "string", "meaning": "The accepted requested mode.", "enum": ["follow", "manual"]},
+    "changed": {
+      "type": "boolean",
+      "meaning": "True when the mode is written; false when it was already explicitly set or the operation was refused."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Literal outcomes emitted by the stop and its envelope reader. The envelope reader can also emit missing envelope kernel keys: followed by the comma-joined missing keys. Unnormalized exception text can also be returned; those values are not a finite enum.",
+      "enum": [
+        "none",
+        "unsupported:homeserver-keeps-house-time",
+        "agathodaimon-household-time-profile-unavailable",
+        "agathodaimon-zone-mode-config-invalid",
+        "agathodaimon-zone-mode-invalid",
+        "agathodaimon-harmonia-module-toggle-config-invalid",
+        "agathodaimon-harmonia-module-toggle-config-not-object",
+        "agathodaimon-zone-mode-config-concurrent-update",
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema"
+      ]
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/datetime/read",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "values": {
+      "type": "object",
+      "meaning": "Clock and display observations.",
+      "fields": {
+        "timezone": {"type": "string", "meaning": "Reported system timezone."},
+        "ntp_enabled": {"type": "boolean", "meaning": "Whether NTP is enabled."},
+        "ntp_synchronized": {"type": "boolean", "meaning": "Whether the clock reports synchronization."},
+        "automatic_timezone": {"type": "boolean", "meaning": "Whether zone mode is follow."},
+        "time_format": {"type": ["string", "null"], "meaning": "Recognized Waybar clock format, or null when unknown or not included."},
+        "time_server": {"type": ["string", "null"], "meaning": "Time server name if observed with NTP enabled."},
+        "last_sync": {"type": ["string", "null"], "meaning": "UTC ISO timestamp of timesync marker mtime, or null when unreadable."}
+      }
+    },
+    "options": {
+      "type": "object",
+      "meaning": "Available timezone and time_format lists of value/label choices. Empty or failed enumerations omit the field."
+    },
+    "readonly": {"type": "object", "meaning": "Setting names mapped to reasons they cannot be changed; absent when none applies."},
+    "mutationPerformed": {"type": "boolean", "meaning": "The observation does not mutate.", "const": false},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Literal outcomes emitted by the stop and its envelope reader. The envelope reader can also emit missing envelope kernel keys: followed by the comma-joined missing keys. Other ValueError text (including decoding diagnostics) is passed through.",
+      "enum": [
+        "datetime-observation-failed",
+        "datetime-clock-read-failed",
+        "agathodaimon-zone-mode-config-invalid",
+        "agathodaimon-zone-mode-invalid",
+        "agathodaimon-harmonia-module-toggle-config-invalid",
+        "agathodaimon-harmonia-module-toggle-config-not-object",
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema"
+      ]
+    }
+  }
+}
