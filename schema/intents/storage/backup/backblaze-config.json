@@ -26,6 +26,8 @@
     "bucket": {"type": "string", "meaning": "The configured bucket, on success."},
     "keyman_service": {"type": "string", "meaning": "The seeded service name, on success, not credential material."},
     "mutationPerformed": {"type": "boolean", "meaning": "The stop reports true on completion, false on its own refusals; a later config-write failure does not undo a seed attempt."},
+    "exceptionType": {"type": "string", "meaning": "The front door names an uncaught exception by type, for example a UnicodeEncodeError while assembling the verification request."},
+    "firstMissingSignal": {"type": "string", "meaning": "The front door's signal for an exception outside the stop's shaped refusals.", "enum": ["agathodaimon-stop-raised"]},
     "step": {"type": "string", "meaning": "Failing phase, present only on the stop's refusal.", "enum": ["shape", "config", "locked", "verify", "seed_keyman", "write_config"]},
     "reason": {
       "type": "string",
