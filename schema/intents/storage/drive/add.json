@@ -1,0 +1,47 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/drive/add",
+  "payload": {
+    "fields": {
+      "device": {"type": "string", "meaning": "Whole disk or loop device from the block census, not its partition. It must resolve below /dev, match the census identity, and supply one eligible data filesystem. The stop limits its complete UTF-8 input to 65536 bytes.", "pattern": "^/dev/[A-Za-z0-9._-]+$"},
+      "dry-run": {"type": "boolean", "meaning": "Return the validated mount and share plan instead of changing the ledger, mount or shares.", "default": false}
+    },
+    "required": ["device"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "dry-run": true,
+  "returns": {
+    "device": {"meaning": "The supplied device, including invalid values or null when absent or unread."},
+    "partition": {"type": ["string", "null"], "meaning": "Selected data partition or the whole device when it owns the filesystem."},
+    "disk": {"type": ["string", "null"], "meaning": "Whole device observed in the block census."},
+    "fstype": {"type": ["string", "null"], "meaning": "Selected filesystem as reported by the census; the plan may use a different mount driver."},
+    "label": {"type": ["string", "null"], "meaning": "The derived drive share label, if selected."},
+    "mount": {"type": ["string", "null"], "meaning": "The selected mountpoint."},
+    "share": {"type": ["object", "null"], "meaning": "Share name and path when planned."},
+    "uri": {"type": ["string", "null"], "meaning": "SMB URI for the selected label."},
+    "unc": {"type": ["string", "null"], "meaning": "UNC path for the selected label."},
+    "ownerWritable": {"type": "boolean", "meaning": "Whether owner writability was observed after mounting."},
+    "alreadyMounted": {"type": "boolean", "meaning": "Whether the data device was already mounted at the selected mountpoint."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Whether a direct mount remains observed as performed, including one left standing after failure."},
+    "shareServed": {"type": "boolean", "meaning": "Whether Samba includes the selected attached-drive share."},
+    "rolledBack": {"type": "boolean", "meaning": "Whether rollback and its cleanup were confirmed."},
+    "directMountStarted": {"type": "boolean", "meaning": "Whether the direct mount command was dispatched."},
+    "createdMountpoint": {"type": "boolean", "meaning": "Whether this invocation created the mountpoint directory."},
+    "failedStep": {"type": ["string", "null"], "meaning": "The step that stopped the operation, if named."},
+    "mountLeftStanding": {"type": "boolean", "meaning": "Whether the mount was observed standing after a failed act."},
+    "rollbackSignal": {"type": ["string", "null"], "meaning": "Secondary cleanup refusal, distinct from the primary operation signal."},
+    "mutationUnknown": {"type": "boolean", "meaning": "Whether the final mount or mutation state could not be established."},
+    "steps": {"type": "array", "meaning": "Ordered step observations, with each step's verdict and readback."},
+    "planned": {"type": "object", "meaning": "Dry-run mount driver, options, mountpoint, label and share."},
+    "returnCode": {"type": "integer", "meaning": "Exit status of the failed command, when available."},
+    "shareFailure": {"type": ["string", "null"], "meaning": "Signal passed back by the share rebuild, if it refused."},
+    "unmounted": {"type": "string", "meaning": "Target of a rollback unmount still found mounted after the attempt."},
+    "deedLogSignal": {"type": "string", "const": "caduceus-deed-post-failed", "meaning": "The operation's deed could not be posted."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Add, preflight or compensation refusal; none when accepted.",
+      "enum": ["agathodaimon-drive-request-invalid", "agathodaimon-drive-dry-run-invalid", "agathodaimon-drive-root-required", "agathodaimon-drive-resolver-unavailable", "agathodaimon-drive-owner-unresolved", "agathodaimon-drive-device-form-refused", "agathodaimon-drive-block-census-failed", "agathodaimon-drive-device-not-in-block-census", "agathodaimon-drive-whole-disk-required", "agathodaimon-drive-device-identity-mismatch", "agathodaimon-nas-block-graph-unavailable", "agathodaimon-nas-block-graph-empty", "agathodaimon-nas-block-graph-invalid", "agathodaimon-nas-block-graph-incomplete", "agathodaimon-nas-block-graph-identity-mismatch", "agathodaimon-nas-block-identity-unobserved", "agathodaimon-drive-mount-census-unavailable", "agathodaimon-drive-mount-census-invalid", "agathodaimon-drive-system-device-refused", "agathodaimon-drive-nas-labelled-refused", "agathodaimon-drive-test-unit-unavailable", "agathodaimon-drive-disk-test-running", "agathodaimon-drive-locked-refused", "agathodaimon-drive-partition-ambiguous", "agathodaimon-drive-no-filesystem", "agathodaimon-drive-filesystem-unsupported", "agathodaimon-drive-label-unobservable", "agathodaimon-drive-label-reserved", "agathodaimon-drive-mounted-elsewhere", "agathodaimon-drive-mountpoint-not-directory", "agathodaimon-drive-mountpoint-in-use", "agathodaimon-drive-mountpoint-not-empty", "agathodaimon-drive-shares-unavailable", "agathodaimon-drive-ledger-unavailable", "agathodaimon-drive-mount-failed", "agathodaimon-drive-mount-readback-mismatch", "agathodaimon-drive-shares-refused", "agathodaimon-drive-share-not-served", "agathodaimon-drive-busy", "agathodaimon-drive-command-failed", "agathodaimon-drive-operation-unavailable", "agathodaimon-drive-sync-running", "agathodaimon-nas-drive-operation-running", "agathodaimon-nas-sync-lock-invalid", "agathodaimon-nas-sync-lock-unavailable", "agathodaimon-nas-scratch-root-invalid", "agathodaimon-nas-scratch-root-unreadable", "agathodaimon-nas-scratch-path-escape", "none"]
+    }
+  }
+}

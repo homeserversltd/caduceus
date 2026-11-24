@@ -1,0 +1,46 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/drive/remove",
+  "payload": {
+    "fields": {
+      "device": {"type": "string", "meaning": "Whole disk or loop device from the block census. If the source vanished, only a matching staff ledger mount for an sd, nvme or loop disk can be recovered for removal. The stop limits its complete UTF-8 input to 65536 bytes.", "pattern": "^/dev/[A-Za-z0-9._-]+$"},
+      "dry-run": {"type": "boolean", "meaning": "Return the unshare and unmount plan without carrying it out.", "default": false}
+    },
+    "required": ["device"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "dry-run": true,
+  "returns": {
+    "device": {"meaning": "The supplied device, including invalid values or null when absent or unread."},
+    "partition": {"type": ["string", "null"], "meaning": "Selected data device or the source of the surviving mount."},
+    "mount": {"type": ["string", "null"], "meaning": "Observed mountpoint, if any."},
+    "share": {"type": ["object", "null"], "meaning": "Share name and confirmation of closure before unmount, if reached."},
+    "changed": {"type": "boolean", "meaning": "Whether the share set or mount changed as observed by the stop."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Whether share or mount work was recorded as performed."},
+    "unmounted": {"type": "boolean", "meaning": "Whether absence was observed after the unmount attempt."},
+    "alreadyRemoved": {"type": "boolean", "meaning": "Whether the selected device had no active mount before removal."},
+    "pruned": {"type": "array", "meaning": "Stale opened-drive ledger labels pruned by the share rebuild."},
+    "failedStep": {"type": ["string", "null"], "meaning": "The step that stopped removal, if named."},
+    "mountLeftStanding": {"type": "boolean", "meaning": "Whether the target or related mount was observed still standing."},
+    "rollbackSignal": {"type": ["string", "null"], "meaning": "A secondary observation or share restoration refusal."},
+    "mutationUnknown": {"type": "boolean", "meaning": "Whether the end state could not be established."},
+    "steps": {"type": "array", "meaning": "Ordered step observations, with each step's verdict and readback."},
+    "planned": {"type": "object", "meaning": "Dry-run plan containing the mountpoint, share label and whether each action would run."},
+    "returnCode": {"type": "integer", "meaning": "Failed helper exit status, when provided by the operation."},
+    "instead": {"type": "string", "const": "storage nas detach", "meaning": "The suggested command when a NAS-role drive must not be removed here."},
+    "nestedMounts": {"type": "array", "meaning": "Mountpoints nested below the selected target."},
+    "sharesSignal": {"type": ["string", "null"], "meaning": "Signal from a refused share rebuild, when it returned one."},
+    "unmountRc": {"type": "integer", "meaning": "Exit status of the unmount command, if available."},
+    "unmountSignal": {"type": "string", "meaning": "Helper signal if the unmount command did not produce an exit result."},
+    "sharesRestored": {"type": "boolean", "meaning": "Whether the follow-up share readback confirmed restoration."},
+    "shareRestoreIncluded": {"type": ["boolean", "null"], "meaning": "Whether smb.conf included generated shares at restoration, if observed."},
+    "ledgerSignal": {"type": "string", "const": "agathodaimon-drive-ledger-forget-failed", "meaning": "The operation could not remove the ledger entry after unmount."},
+    "deedLogSignal": {"type": "string", "const": "caduceus-deed-post-failed", "meaning": "The operation's deed could not be posted."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Remove, preflight or readback refusal; none when accepted.",
+      "enum": ["agathodaimon-drive-request-invalid", "agathodaimon-drive-dry-run-invalid", "agathodaimon-drive-root-required", "agathodaimon-drive-device-form-refused", "agathodaimon-drive-block-census-failed", "agathodaimon-drive-device-not-in-block-census", "agathodaimon-drive-whole-disk-required", "agathodaimon-drive-device-identity-mismatch", "agathodaimon-nas-block-graph-unavailable", "agathodaimon-nas-block-graph-empty", "agathodaimon-nas-block-graph-invalid", "agathodaimon-nas-block-graph-incomplete", "agathodaimon-nas-block-graph-identity-mismatch", "agathodaimon-nas-block-identity-unobserved", "agathodaimon-drive-mount-census-unavailable", "agathodaimon-drive-mount-census-invalid", "agathodaimon-drive-system-device-refused", "agathodaimon-drive-protected-census-unavailable", "agathodaimon-drive-nas-role-refused", "agathodaimon-drive-test-unit-unavailable", "agathodaimon-drive-disk-test-running", "agathodaimon-drive-locked-refused", "agathodaimon-drive-partition-ambiguous", "agathodaimon-drive-no-filesystem", "agathodaimon-drive-filesystem-unsupported", "agathodaimon-drive-label-unobservable", "agathodaimon-drive-label-reserved", "agathodaimon-drive-mounted-elsewhere", "agathodaimon-drive-not-opened-here", "agathodaimon-drive-busy", "agathodaimon-drive-share-unconfirmed", "agathodaimon-drive-shares-refused", "agathodaimon-drive-mount-readback-mismatch", "agathodaimon-drive-command-failed", "agathodaimon-drive-operation-unavailable", "agathodaimon-drive-sync-running", "agathodaimon-nas-drive-operation-running", "agathodaimon-nas-sync-lock-invalid", "agathodaimon-nas-sync-lock-unavailable", "agathodaimon-nas-scratch-root-invalid", "agathodaimon-nas-scratch-root-unreadable", "agathodaimon-nas-scratch-path-escape", "none"]
+    }
+  }
+}

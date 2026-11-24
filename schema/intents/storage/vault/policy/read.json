@@ -1,0 +1,22 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/vault/policy/read",
+  "payload": {
+    "fields": {
+      "mapper": {"type": "string", "meaning": "Name of the open mapper, without /dev/mapper/. Exactly one mount must match it.", "pattern": "^[A-Za-z0-9_.-]{1,128}$", "maxLength": 128}
+    },
+    "required": ["mapper"]
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "op": {"type": "string", "const": "read", "meaning": "Operation fixed by this stop, not a request field."},
+    "mountpoint": {"type": ["string", "null"], "meaning": "The uniquely resolved mapper mountpoint when one was found."},
+    "unlock": {"type": ["string", "null"], "enum": ["crypttab_keyfile", "manual_passphrase", null], "meaning": "Observed policy, or null on refusal. A missing policy file reads as manual_passphrase."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Policy read refusal, or none once a policy is read.",
+      "enum": ["vault-policy-mapper-invalid", "vault-policy-mapper-not-open", "vault-policy-mountpoint-ambiguous", "vault-policy-read-failed", "vault-policy-document-invalid", "none"]
+    }
+  }
+}

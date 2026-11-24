@@ -1,0 +1,30 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/vault/open/unlock",
+  "payload": {
+    "fields": {
+      "device": {"type": "string", "meaning": "Absolute /dev path. Direct unlock opens an existing block device without following links or allowing empty, dot or dot-dot components; seated-record mode accepts only a single [A-Za-z0-9._-]+ component under /dev. The stop limits its complete UTF-8 input to 131072 bytes.", "pattern": "^/dev/"},
+      "mapper": {"type": "string", "meaning": "Requested mapper name, not its path.", "pattern": "^[A-Za-z0-9_.-]{1,128}$", "maxLength": 128},
+      "mountpoint": {"type": "string", "meaning": "Required when seated_record is false; forbidden when true. The absolute path must be /mnt or /vault or a safe descendant, or a new single component under /. Empty, dot, dot-dot and symlink components are refused."},
+      "passphrase": {"type": ["string", "null"], "meaning": "Optional UTF-8 passphrase on stdin only. Null or absence allows the seated credential when needed. A non-null passphrase is forbidden in seated-record mode; the stop removes it before attaching the request."},
+      "seated_record": {"type": "boolean", "meaning": "Use only the seated Keyman record; no caller mountpoint or passphrase. If a record is present, this mode mounts at /vault.", "default": false}
+    },
+    "required": ["device", "mapper"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "present": {"type": "boolean", "meaning": "Credential or already-open evidence as reported by this branch; accepted seated-record discovery with no record returns false."},
+    "already_open": {"type": "boolean", "meaning": "Whether the mapper was already open before this invocation."},
+    "mounted": {"type": ["boolean", "null"], "meaning": "Observed mount state; null when readback is indeterminate, absent on some preflight paths."},
+    "mapper_closed": {"type": "boolean", "meaning": "Whether a mapper opened by this invocation was closed during failure cleanup."},
+    "rite": {"type": "object", "meaning": "Outcome of the vault initialization script and, on a newly mounted /vault, its NAS attachment results."},
+    "nasFirstMissingSignal": {"type": ["string", "null"], "meaning": "First NAS attachment failure from the NAS runtime, separate from the vault verdict."},
+    "attachments": {"type": "object", "meaning": "Per-role NAS attachment outcomes when an attachment failed."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Unlock, mount or initialization refusal; none on acceptance.",
+      "enum": ["agathodaimon-vault-open-request-invalid", "agathodaimon-vault-open-key-absent", "agathodaimon-vault-keyman-open-refused", "agathodaimon-vault-unlock-refused", "agathodaimon-vault-mount-refused", "agathodaimon-vault-mountpoint-refused", "agathodaimon-vault-init-failed", "none"]
+    }
+  }
+}

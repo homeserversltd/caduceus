@@ -1,0 +1,29 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/disk/wipe",
+  "payload": {
+    "fields": {
+      "device": {"type": "string", "meaning": "The literal /dev path to wipe. The stop checks the path shape, not whether the target is a whole disk.", "pattern": "^/dev/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", "maxLength": 133},
+      "dry-run": {"type": "boolean", "meaning": "Report the wipe argument vector without executing it.", "default": false}
+    },
+    "required": ["device"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "dry-run": true,
+  "returns": {
+    "action": {"type": "string", "meaning": "wipe on acceptance, unknown on refusal."},
+    "planned": {"type": "boolean", "meaning": "Whether the stop returned a plan."},
+    "mutationPerformed": {"type": "boolean", "meaning": "True on an accepted non-plan run; a refusal reports false."},
+    "commands": {"type": "array", "meaning": "Planned or executed argument vectors; empty on refusal."},
+    "device": {"type": "string", "meaning": "Accepted device path."},
+    "target": {"type": "string", "meaning": "Accepted wipe target, equal to the device path."},
+    "failedStep": {"type": "string", "meaning": "Failing executable name where known."},
+    "returnCode": {"type": "integer", "meaning": "Failing command's exit status where available."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Wipe or request failure; none for an accepted plan or wipe.",
+      "enum": ["agathodaimon-disk-request-invalid", "agathodaimon-disk-planned-invalid", "agathodaimon-disk-device-invalid", "agathodaimon-disk-command-start-refused", "agathodaimon-disk-wipe-refused", "none"]
+    }
+  }
+}

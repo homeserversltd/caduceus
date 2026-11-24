@@ -1,0 +1,38 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/disk-doors",
+  "payload": {
+    "fields": {
+      "actuator": {"type": "string", "meaning": "Legacy actuator selector; a top-level actuator, if supplied, takes precedence over this payload field.", "enum": ["disk-doors"]},
+      "metadata": {
+        "type": "object",
+        "meaning": "Arguments for the legacy wipe actuator. A top-level metadata value, if supplied, takes precedence over this payload field. The stop limits its complete UTF-8 input to 65536 bytes.",
+        "fields": {
+          "action": {"type": "string", "meaning": "The operation to perform or plan.", "enum": ["wipe"]},
+          "device": {"type": "string", "meaning": "The literal /dev path to send to the wipe actuator. The stop checks the path shape, not whether the target is a whole disk.", "pattern": "^/dev/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", "maxLength": 133},
+          "dryRun": {"type": "boolean", "meaning": "Return the wipe plan without executing it when true. Takes precedence over planned when present."},
+          "planned": {"type": "boolean", "meaning": "Legacy dry-run input used only when dryRun is absent.", "default": false}
+        },
+        "required": ["action", "device"]
+      }
+    },
+    "required": ["actuator", "metadata"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "action": {"type": "string", "meaning": "wipe on acceptance, unknown on refusal."},
+    "planned": {"type": "boolean", "meaning": "Whether the stop returned a plan."},
+    "mutationPerformed": {"type": "boolean", "meaning": "True on an accepted non-plan run; a refusal reports false."},
+    "commands": {"type": "array", "meaning": "Planned or executed argument vectors; empty on refusal."},
+    "device": {"type": "string", "meaning": "Accepted device path."},
+    "target": {"type": "string", "meaning": "Accepted wipe target, equal to the device path."},
+    "failedStep": {"type": "string", "meaning": "Failing executable name where known."},
+    "returnCode": {"type": "integer", "meaning": "Failing command's exit status where available."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The wipe dispatch or input signal; none on acceptance.",
+      "enum": ["agathodaimon-disk-request-too-large", "agathodaimon-disk-request-invalid", "agathodaimon-disk-planned-invalid", "agathodaimon-disk-action-invalid", "agathodaimon-disk-device-invalid", "agathodaimon-disk-command-start-refused", "agathodaimon-disk-wipe-refused", "none"]
+    }
+  }
+}

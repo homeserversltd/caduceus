@@ -1,0 +1,28 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/vault/policy/write",
+  "payload": {
+    "fields": {
+      "mapper": {"type": "string", "meaning": "Name of the open mapper, without /dev/mapper/. Exactly one mount must match it.", "pattern": "^[A-Za-z0-9_.-]{1,128}$", "maxLength": 128},
+      "unlock": {"type": "string", "meaning": "The unlock policy to persist.", "enum": ["crypttab_keyfile", "manual_passphrase"]},
+      "keyfile": {"type": "string", "meaning": "Required for crypttab_keyfile and refused for manual_passphrase. The path names one non-dot component directly below a root-owned, non-group/world-writable /root/key directory. The name contains no whitespace, slash or NUL; the file must be regular, root:root, 0400 or 0600, and opened without following symlinks.", "pattern": "^/root/key/"}
+    },
+    "required": ["mapper", "unlock"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "op": {"type": "string", "const": "write", "meaning": "Operation fixed by this stop, not a request field."},
+    "mountpoint": {"type": ["string", "null"], "meaning": "The uniquely resolved mapper mountpoint when one was found."},
+    "unlock": {"type": ["string", "null"], "enum": ["crypttab_keyfile", "manual_passphrase", null], "meaning": "Policy persisted, or null on refusal."},
+    "crypttab": {"type": "object", "meaning": "The crypttab write observation, with changed naming whether the write changed it."},
+    "fstab_changed": {"type": "boolean", "meaning": "Whether the fstab write changed it."},
+    "crypttabRestored": {"type": "boolean", "meaning": "Whether crypttab compensation restored the prior bytes, when attempted."},
+    "fstabRestored": {"type": "boolean", "meaning": "Whether fstab compensation restored the prior bytes, when attempted."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Policy write or compensation signal; none after the policy was installed.",
+      "enum": ["vault-policy-mapper-invalid", "vault-policy-unlock-invalid", "vault-crypttab-keyfile-invalid", "vault-policy-mapper-not-open", "vault-policy-mountpoint-ambiguous", "vault-policy-document-invalid", "vault-policy-document-encoding-failed", "vault-crypttab-read-failed", "vault-fstab-read-failed", "vault-fstab-target-missing", "vault-fstab-target-ambiguous", "vault-fstab-target-invalid", "vault-crypttab-device-ambiguous", "vault-crypttab-uuid-missing", "vault-crypttab-document-changed", "vault-crypttab-write-failed", "vault-fstab-document-changed", "vault-fstab-write-failed", "vault-policy-document-changed", "vault-policy-write-failed", "none"]
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/disk/partlabel/assign",
+  "payload": {
+    "fields": {
+      "current_label": {"type": "string", "meaning": "Current PARTLABEL of exactly one observed, unheld and unmounted NAS partition.", "enum": ["homeserver-primary-nas", "homeserver-backup-nas", "homeserver-nas-swap-tmp"]},
+      "label": {"type": "string", "meaning": "New NAS PARTLABEL; it must not already appear in the partition census.", "enum": ["homeserver-primary-nas", "homeserver-backup-nas", "homeserver-nas-swap-tmp"]}
+    },
+    "required": ["current_label", "label"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "current_label": {"meaning": "Supplied current label, including invalid values or null when absent."},
+    "label": {"meaning": "Supplied target label, including invalid values or null when absent."},
+    "steps": {"type": "array", "meaning": "Ordered root, partition, GPT write, udev and readback observations where reached."},
+    "state": {"type": "string", "const": "partlabel-assigned", "meaning": "The new PARTLABEL was read back."},
+    "partition": {"type": "string", "meaning": "Path of the verified partition."},
+    "deviceIdentity": {"type": "string", "meaning": "Major:minor identity observed after writing the partition label."},
+    "failedStep": {"type": "string", "meaning": "The step that stopped the assignment."},
+    "returnCode": {"type": "integer", "meaning": "The failed helper's exit status where available."},
+    "deedLogSignal": {"type": "string", "const": "agathodaimon-nas-deed-log-unavailable", "meaning": "A failure while building or recording the deed."},
+    "mutationOutcome": {"type": "string", "const": "completed-deed-unrecorded", "meaning": "The assignment completed before the deed failed."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "First assignment or helper refusal, or none after verified assignment.",
+      "enum": ["agathodaimon-nas-request-invalid", "agathodaimon-nas-root-required", "agathodaimon-nas-scratch-root-invalid", "agathodaimon-nas-scratch-root-unreadable", "agathodaimon-nas-scratch-path-escape", "agathodaimon-nas-sync-lock-invalid", "agathodaimon-nas-sync-lock-unavailable", "agathodaimon-nas-drive-operation-running", "sync-hold-refused-running", "agathodaimon-nas-command-unavailable", "agathodaimon-nas-command-timeout", "agathodaimon-nas-command-group-unreaped", "agathodaimon-nas-readback-invalid", "agathodaimon-nas-partlabel-invalid", "agathodaimon-nas-partlabel-unobservable", "agathodaimon-nas-partlabel-absent", "agathodaimon-nas-partlabel-duplicate", "agathodaimon-nas-partlabel-missing-or-mismatch", "agathodaimon-nas-partlabel-already-taken", "agathodaimon-nas-scratch-stat-fixture-invalid", "agathodaimon-nas-device-unobservable", "agathodaimon-nas-block-device-required", "agathodaimon-nas-partition-identity-mismatch", "agathodaimon-nas-block-holders-unreadable", "agathodaimon-nas-block-holders-invalid", "agathodaimon-nas-partition-held", "agathodaimon-nas-partition-number-unobservable", "agathodaimon-nas-partition-number-invalid", "agathodaimon-nas-parent-identity-mismatch", "agathodaimon-nas-block-graph-incomplete", "agathodaimon-nas-block-graph-unavailable", "agathodaimon-nas-block-graph-empty", "agathodaimon-nas-block-graph-invalid", "agathodaimon-nas-block-graph-identity-mismatch", "agathodaimon-nas-block-identity-unobserved", "agathodaimon-nas-mount-census-unavailable", "agathodaimon-nas-mount-census-invalid", "agathodaimon-nas-mount-census-empty", "agathodaimon-nas-partition-mounted", "agathodaimon-nas-partlabel-write-failed", "agathodaimon-nas-udev-settle-failed", "agathodaimon-nas-partlabel-readback-mismatch", "agathodaimon-nas-deed-log-unavailable", "none"]
+    }
+  }
+}

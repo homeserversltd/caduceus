@@ -1,0 +1,26 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/shares/converge",
+  "payload": {"fields": {}, "required": []},
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "changed": {"type": "boolean", "meaning": "Whether the Samba share file bytes differ in the writer's before and after observations."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Whether a share file replacement, reload, compensation or ledger prune was recorded."},
+    "reloaded": {"type": "boolean", "meaning": "Whether the share file reload was confirmed."},
+    "file": {"type": "string", "const": "/etc/samba/drives.conf", "meaning": "Logical path of the generated Samba drive share file."},
+    "includedBySmbConf": {"type": "boolean", "meaning": "Whether smb.conf includes the generated file."},
+    "shares": {"type": "array", "meaning": "Observed attached-drive shares as name and path pairs."},
+    "pruned": {"type": "array", "meaning": "Opened-drive ledger labels removed for absent mounts."},
+    "steps": {"type": "array", "meaning": "Root and mount preflight and writer steps where reached."},
+    "observed": {"type": ["object", "null"], "meaning": "When a writer was run, contains its observed files."},
+    "could_change_to": {"type": ["object", "null"], "meaning": "When a writer was run, contains its candidate files."},
+    "attempt": {"type": ["object", "null"], "meaning": "Writer attempt and step outcomes when a writer was run."},
+    "failedStep": {"type": "string", "meaning": "The named step where convergence stopped."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Convergence or helper refusal; none when the rebuild completes.",
+      "enum": ["agathodaimon-drive-shares-request-invalid", "agathodaimon-nas-root-required", "agathodaimon-nas-scratch-root-invalid", "agathodaimon-nas-scratch-root-unreadable", "agathodaimon-nas-scratch-path-escape", "agathodaimon-nas-sync-lock-invalid", "agathodaimon-nas-sync-lock-unavailable", "agathodaimon-nas-drive-operation-running", "sync-hold-refused-running", "agathodaimon-nas-mount-census-unavailable", "agathodaimon-nas-mount-census-invalid", "agathodaimon-nas-mount-census-empty", "agathodaimon-nas-mount-ambiguous", "agathodaimon-drive-shares-smb-conf-unavailable", "agathodaimon-drive-shares-smb-conf-collision", "agathodaimon-drive-shares-candidate-invalid", "agathodaimon-drive-shares-readback-mismatch", "agathodaimon-drive-shares-reload-failed", "agathodaimon-drive-shares-io-failed", "agathodaimon-nas-command-unavailable", "agathodaimon-nas-command-timeout", "agathodaimon-nas-command-group-unreaped", "none"]
+    }
+  }
+}
