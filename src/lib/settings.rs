@@ -2,8 +2,7 @@
 //!
 //! Each family owns one sbin launcher. Rust validates the family and field
 //! allowlist, then delegates config-file string manipulation to the staff
-//! actuator. Successful mutations must return a receipt rooted in the shared
-//! Caduceus ledger.
+//! actuator. Legacy transient receipt paths are validated and discarded.
 
 use axum::{http::StatusCode, Json};
 use serde_json::{json, Value};
@@ -666,7 +665,8 @@ fn mutate_answer(family: &str, body: Value, protected: bool) -> Result<MutationR
         .and_then(|path| path.strip_prefix(RECEIPT_ROOT).map(|relative| (path, relative)))
         .is_some_and(|(path, relative)| path.ends_with("/run.json")
             && !Path::new(relative).components().any(|component| matches!(component, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_))));
-    let receipt_path_invalid = (receipt.get("receiptPath").is_some() || stop_ok) && !receipt_path_valid;
+    let receipt_path_invalid = receipt.get("receiptPath").is_some_and(|value| !value.is_null())
+        && !receipt_path_valid;
     let object = receipt.as_object_mut().expect("cross_mutation returns an object");
     object.entry("family").or_insert_with(|| json!(family));
     object.entry("fields").or_insert_with(|| json!(values.keys().collect::<Vec<_>>()));
