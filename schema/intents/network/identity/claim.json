@@ -1,0 +1,46 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/identity/claim",
+  "payload": {
+    "fields": {
+      "mac": {
+        "type": "string",
+        "meaning": "Device MAC address; surrounding whitespace is stripped, letters are lowercased and hyphens are converted to colons.",
+        "pattern": "^[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?![\\s\\S])"
+      },
+      "hostname": {
+        "type": "string",
+        "meaning": "Device label after trimming whitespace, lowercasing and removing trailing dots. The normalized label has 1–63 characters; home means the home.arpa apex.",
+        "pattern": "^[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*[A-Za-z0-9\\u212a](?:[A-Za-z0-9\\u212a-]{0,61}[A-Za-z0-9\\u212a])?\\.*[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?![\\s\\S])"
+      },
+      "ip": {"type": ["string", "null"], "meaning": "Explicit unused IPv4 address inside the current Kea reservation boundary when making a new claim. Supply this with auto-ip false, or leave it null or absent with auto-ip true. An existing matching claim can return noop before checking the address.", "default": null},
+      "auto-ip": {"type": "boolean", "meaning": "With ip omitted or null, choose the next free reserved IPv4 address. Exactly one of explicit ip and auto-ip true is required.", "default": false}
+    },
+    "required": ["mac", "hostname"]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "actuator": {"type": "string", "const": "network.identity.claim", "meaning": "Identity claim coordinator, when it returned a transaction result."},
+    "state": {"type": "string", "meaning": "Transaction outcome. Only applied and noop are successful; blocked, rolled_back and rollback_failed are refusals."},
+    "request_id": {"type": "string", "meaning": "Digest of the normalized MAC, requested IP or auto marker, and canonical name once an operation key was formed."},
+    "address": {"type": "string", "meaning": "Verified IPv4 reservation on an applied claim."},
+    "canonical_name": {"type": "string", "meaning": "Applied absolute DNS name."},
+    "journal": {"type": "string", "meaning": "Path of the preimage journal on an applied claim."},
+    "dhcp_verified": {"type": "object", "meaning": "Verified reservation and its writer result.", "fields": {"reservation": {"type": "object"}, "receipt": {"type": "object"}}},
+    "dns_verified": {"type": "object", "meaning": "DNS writer outcome and verification."},
+    "restoration": {"type": "object", "meaning": "Verified DHCP and DNS restoration after a compensated refusal."},
+    "rollback_error": {"type": "string", "meaning": "Rollback diagnostic if restoring the preimages failed."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Whether the coordinator reached a recorded mutation; true also on compensated and failed rollback outcomes. Absent when the front door alone reports an exception."},
+    "exceptionType": {"type": "string", "meaning": "Front-door exception class, including KeyError on missing MAC or hostname, or nonboolean auto-ip."},
+    "first_failing_boundary": {
+      "type": "string",
+      "meaning": "Coordinator detail; none on success. In addition to fixed causes, the stop carries DHCP and DNS helper diagnostics verbatim here, including config, lease, validation, command and writer errors with variable details. Missing MAC or hostname and nonboolean auto-ip instead escape as a front-door KeyError before this detail is printed."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The mapped claim outcome or the front door's caught-exception signal; none on success.",
+      "enum": ["none", "claim-mac-invalid", "claim-envelope-invalid", "claim-failed", "agathodaimon-stop-raised"]
+    }
+  }
+}

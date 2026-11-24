@@ -1,0 +1,46 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/tailscale/tailnet",
+  "payload": {
+    "fields": {
+      "name": {"type": "string", "meaning": "Optional confirmation of the normalized live tailnet label. An empty string uses the live label directly; a nonempty string must lowercase to the live label, not a different requested name.", "maxLength": 63, "default": ""},
+      "backup-dir": {"type": ["string", "null"], "meaning": "Override the default dated backup directory. The supplied destination must be absolute, not the root, not already present, have a safe existing parent, and for a write not overlap a managed path. Omit or pass null for the default.", "default": null},
+      "dry-run": {"type": "boolean", "meaning": "Read the live label and plan the local config, nginx and certificate changes without making a backup or applying changes.", "default": false}
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "dry-run": true,
+  "returns": {
+    "action": {"type": "string", "const": "tailnet", "meaning": "Adopt the live tailnet label in household config, nginx and certificates."},
+    "observed": {"type": ["object", "null"], "meaning": "Live name comparison, prior declarations and local inventory; the dry-run oldSide reports what is already standing or pending."},
+    "could-change": {"type": "array", "items": {"type": "string"}, "meaning": "Public paths of files the transaction could change; key paths are excluded."},
+    "attempt": {"type": ["string", "object", "null"], "meaning": "Phase name or ordered stages, including failedStage and rollback evidence when applicable."},
+    "final": {"type": ["object", "null"], "meaning": "Final declared or planned label, and available backup, changed file, certificate, nginx, TLS, Hestia or rollback outcomes."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Whether the managed write phase began; false for dry-run, converged no-op and most preflight refusals."},
+    "priorTailnet": {"type": ["string", "null"], "meaning": "Previously declared label when read."},
+    "newTailnet": {"type": ["string", "null"], "meaning": "Normalized live tailnet label when read."},
+    "liveName": {"type": "string", "meaning": "Normalized live DNS name, when emitted at top level after preflight."},
+    "hestiaSites": {"type": "array", "items": {"type": "object", "fields": {"name": {"type": "string"}, "port": {"type": "integer", "minimum": 1, "maximum": 65535}, "leaf": {"type": "string", "meaning": "Certificate disposition: standing, pending, kept or re-issued."}}}, "meaning": "Hestia HTTPS sites and their leaf state when inventoried."},
+    "changedFiles": {"type": "array", "items": {"type": "string"}, "meaning": "Sorted public paths that changed, or remain mismatched after rollback."},
+    "attemptedFiles": {"type": "array", "items": {"type": "string"}, "meaning": "Sorted public paths attempted, excluding key filenames."},
+    "backupPath": {"type": ["string", "null"], "meaning": "Completed backup directory, or null before a backup was made."},
+    "subjectAltNames": {"type": "array", "items": {"type": "string"}, "meaning": "Planned certificate DNS identities when inventoried."},
+    "nginxAliases": {"type": "object", "meaning": "Rewritten nginx regular file paths mapped to lists of their aliases."},
+    "dry_run": {"type": "boolean", "meaning": "Whether this was a dry-run, when emitted by the operation."},
+    "transactionId": {"type": "string", "meaning": "Transaction identifier on completed non-no-op apply."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "First transaction, helper or rollback refusal; none for a successful apply, dry-run or converged no-op. Rollback detail is separate in attempt. The named certificate helper can pass its own signal through unchanged.",
+      "enum": [
+        "none", "tailscale-envelope-invalid", "tailscale-tailnet-failed", "agathodaimon-dry-run-invalid", "tailscale-tailnet-dry-run-invalid", "tailscale-tailnet-live-name-unavailable", "tailscale-tailnet-live-name-unusable", "tailscale-tailnet-name-mismatch", "tailscale-tailnet-config-lock-unavailable",
+        "tailscale-config-canonical-unavailable", "tailscale-config-factory-selected", "tailscale-config-selection-unreadable", "tailscale-config-unreadable", "tailscale-config-invalid", "tailscale-config-too-large", "tailscale-config-cors-invalid", "tailscale-config-portals-invalid", "tailscale-origin-invalid", "tailscale-origin-label-invalid", "tailscale-tailnet-url-invalid", "tailscale-tailnet-origin-invalid", "tailscale-tailnet-remote-url-invalid", "tailscale-homeserver-config-unreadable", "tailscale-homeserver-config-seat-refused", "tailscale-homeserver-config-invalid",
+        "tailscale-tailnet-backup-path-invalid", "tailscale-tailnet-backup-path-refused", "tailscale-tailnet-backup-path-exists", "tailscale-tailnet-backup-parent-unavailable", "tailscale-tailnet-backup-parent-create-failed", "tailscale-tailnet-backup-managed-path-overlap", "tailscale-tailnet-backup-create-failed", "tailscale-tailnet-snapshot-read-failed", "tailscale-tailnet-managed-seat-not-regular", "tailscale-tailnet-directory-unreadable", "tailscale-tailnet-nginx-directory-unreadable", "tailscale-tailnet-nginx-directory-refused", "tailscale-tailnet-nginx-config-unreadable",
+        "tailscale-tailnet-house-ca-unavailable", "tailscale-tailnet-house-ca-lock-unavailable", "tailscale-tailnet-hestia-site-unreadable", "tailscale-tailnet-hestia-temporary-seat-exists", "tailscale-tailnet-hestia-issue-failed", "tailscale-tailnet-hestia-readback-failed", "tailscale-tailnet-certificate-refresh-unavailable", "tailscale-tailnet-certificate-inventory-invalid", "tailscale-tailnet-certificate-refresh-failed", "tailscale-tailnet-temporary-seat-exists", "tailscale-tailnet-restore-temporary-exists", "tailscale-tailnet-write-seat-refused", "tailscale-tailnet-signal-handler-unavailable",
+        "tailscale-tailnet-nginx-validation-failed", "tailscale-tailnet-nginx-reload-failed", "tailscale-tailnet-nginx-tls-readback-failed", "tailscale-tailnet-preflight-failed", "tailscale-tailnet-backup-failed", "tailscale-tailnet-write-config-failed", "tailscale-tailnet-write-homeserver-config-failed", "tailscale-tailnet-rewrite-nginx-failed", "tailscale-tailnet-refresh-legacy-certificate-failed", "tailscale-tailnet-hestia-leaves-failed", "tailscale-tailnet-tls-readback-failed", "tailscale-tailnet-interrupted-sigint", "tailscale-tailnet-interrupted-sigterm", "tailscale-tailnet-interrupted-sighup", "tailscale-tailnet-rollback-failed",
+        "cert-refresh-root-required", "cert-refresh-config-unavailable", "cert-refresh-config-factory-selected", "cert-refresh-config-selection-unreadable", "cert-refresh-config-unreadable", "cert-refresh-config-invalid", "cert-refresh-config-too-large", "cert-refresh-cors-origins-invalid", "cert-refresh-cors-origin-invalid", "cert-refresh-tailnet-label-invalid", "cert-refresh-tailnet-origin-missing", "cert-refresh-portals-invalid", "cert-refresh-portal-local-url-invalid", "cert-refresh-inventory-read-failed", "cert-refresh-managed-seat-not-regular", "cert-refresh-trust-directory-unreadable", "cert-refresh-trust-directory-refused", "cert-refresh-trust-parent-unavailable", "cert-refresh-trust-parent-refused", "cert-refresh-system-trust-directory-unavailable", "cert-refresh-system-trust-directory-refused", "cert-refresh-system-trust-parent-unavailable", "cert-refresh-system-trust-parent-refused", "cert-refresh-target-seat-refused", "cert-refresh-temporary-seat-exists", "cert-refresh-certificate-directory-refused", "cert-refresh-certificate-parent-unavailable", "cert-refresh-certificate-parent-refused", "cert-refresh-ssl-cert-group-missing", "cert-refresh-openssl-generation-failed", "cert-refresh-generated-pair-invalid", "cert-refresh-san-readback-failed", "cert-refresh-update-ca-certificates-failed", "cert-refresh-trust-readback-failed", "cert-refresh-pair-readback-failed", "cert-refresh-key-metadata-readback-failed", "cert-refresh-certificate-metadata-readback-failed", "cert-refresh-operation-failed", "cert-refresh-rollback-failed"
+      ]
+    }
+  }
+}

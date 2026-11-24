@@ -1,0 +1,71 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/identity/device/add",
+  "payload": {
+    "fields": {
+      "mac": {
+        "type": "string",
+        "meaning": "Device MAC address; surrounding whitespace is stripped, letters are lowercased and hyphens are converted to colons by the planner and DHCP stage.",
+        "pattern": "^[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?![\\s\\S])"
+      },
+      "hostname": {
+        "type": "string",
+        "meaning": "Device label after trimming whitespace, lowercasing and removing trailing dots. The normalized label has 1–63 characters; home means the home.arpa apex.",
+        "pattern": "^[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*[A-Za-z0-9\\u212a](?:[A-Za-z0-9\\u212a-]{0,61}[A-Za-z0-9\\u212a])?\\.*[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?![\\s\\S])"
+      },
+      "ip": {"type": ["string", "null"], "meaning": "Requested IPv4 address, or explicit null for the observer to keep or select an address. The reference requires the key even when its value is null."},
+      "move": {"type": "boolean", "meaning": "Whether the DNS name may move to the selected address. Forwarded to the observer and name writer."}
+    },
+    "required": ["mac", "hostname", "ip", "move"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "ouroboros": {
+    "observe": "network/identity/device/plan",
+    "arguments": {"mac": {"$ref": "request.payload.mac"}, "hostname": {"$ref": "request.payload.hostname"}, "ip": {"$ref": "request.payload.ip"}, "move": {"$ref": "request.payload.move"}},
+    "deadline_seconds": 20,
+    "reobserve_deadline_seconds": 10
+  },
+  "serve": [
+    {"stage_id": "reserve", "snake": "network/dhcp/add-reservation", "arguments": {"hw_address": {"$ref": "request.payload.mac"}, "ip_address": {"$ref": "stages.observe.receipt.result.plan.ip"}, "hostname": {"$ref": "request.payload.hostname"}}, "deadline_seconds": 30},
+    {"stage_id": "name", "snake": "network/dns/device-name/create", "arguments": {"hostname": {"$ref": "request.payload.hostname"}, "ip": {"$ref": "stages.reserve.receipt.result.ip-address"}, "move": {"$ref": "request.payload.move"}}, "depends_on": ["reserve"], "deadline_seconds": 30}
+  ],
+  "rescue": [
+    {"stage_id": "remove", "snake": "network/dhcp/remove-reservation", "arguments": {"identifier": {"$ref": "stages.reserve.receipt.result.created"}}, "on_refusal_of": ["name"], "deadline_seconds": 20}
+  ],
+  "returns": {
+    "routine_id": {"type": "string", "const": "network/identity/device/add", "meaning": "Arpeggio path."},
+    "request": {"type": "string", "meaning": "Redacted serialization of the request envelope."},
+    "stages": {
+      "type": "array",
+      "meaning": "Observe, reserve, name, remove and reobserve rows in walker order. Stage receipts preserve their own signals; an absent or skipped receipt is null.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "stage_id": {"type": "string"}, "transition": {"type": "string"},
+          "outcome": {"type": "string", "meaning": "stage-completed, stage-refused or stage-skipped."},
+          "arguments": {"type": "object", "meaning": "Resolved stage arguments after redaction."},
+          "receipt": {"type": ["object", "null"], "meaning": "Stage's own receipt without envelope and raw_envelope."},
+          "skipped_by": {"type": "string", "const": "settled", "meaning": "A serve stage skipped because the observer found an empty diff."},
+          "firstMissingSignal": {"type": ["string", "null"], "meaning": "The stage's own refusal or the walker's stage outcome signal, null on a completed stage and absent on an ordinary skipped row. The remove stage can add identifier and Kea restoration diagnostics without replacing the aggregate's first failure."}
+        }
+      }
+    },
+    "failedStage": {"type": ["string", "null"], "meaning": "First required stage to refuse, or null if none is named."},
+    "settledBy": {"type": "string", "const": "observe", "meaning": "The observer found nothing to change, so the serve stages were skipped."},
+    "changed": {"type": "boolean", "meaning": "Known change result; omitted when the walker cannot determine it."},
+    "firstMissingField": {"type": "string", "const": "observe", "meaning": "The first stage lacks dry-run, when the arpeggio's dry-run preflight refuses."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "First failure in the walker or a required stage, or none. Passed-through diagnostics are open where the planner and writers interpolate kernel, DHCP, DNS, upstream or OS errors; the DNS writer also returns JSON text for failed write and restoration details.",
+      "enum": [
+        "none", "chord-secret-carrier-refused", "chord-stage-invalid", "chord-stage-not-snake", "chord-stage-deadline-invalid", "chord-ref-secret", "chord-ref-unresolved", "chord-dry-run-undeclared-stage", "chord-interrupted", "chord-stage-invocation-failed", "chord-stage-receipt-invalid", "chord-stage-deadline-exceeded", "chord-stage-receipt-schema-mismatch", "chord-stage-refused", "ouroboros-observe-shape-invalid", "chord-deed-log-unavailable", "agathodaimon-stop-raised",
+        "identity-plan-input-invalid", "identity-did-not-take", "invalid JSON", "JSON object required", "foreign envelope schema", "missing envelope kernel keys: timestamp", "invalid-envelope",
+        "hw_address must be a string", "ip_address must be a string", "hostname must be a string", "identity-lock-unavailable:network-identity-claim", "reservation with this MAC address already exists", "dhcp-no-free-reserved-address", "no subnet4 configuration found", "target is not a regular file", "dhcp-readback-mismatch",
+        "no JSON object found in DHCP config", "invalid DHCP configuration structure", "caduceus-leases-unavailable:door-reported-failure", "caduceus-leases-malformed:envelope-must-be-object", "caduceus-leases-malformed:payload-must-be-object", "caduceus-leases-malformed:ok-signal-missing", "caduceus-leases-malformed:result-must-be-list", "caduceus-leases-malformed:row-must-be-object", "caduceus-leases-malformed:missing-mac", "caduceus-leases-malformed:missing-ip",
+        "dhcp-neighbour-probe-failed", "dhcp-ping-probe-failed", "dhcp-reservation-held-elsewhere", "dhcp-ip-inside-pool", "dhcp-ip-outside-reserved-range", "dhcp-ip-taken", "dhcp-ip-answered-probe", "dhcp-no-silent-address",
+        "dns-input-invalid", "dns-hostname-malformed", "dns-ipv4-malformed", "dns-owned-record-malformed", "dns-alias-owner-conflict", "dns-device-projection-incomplete", "dns-name-owned-elsewhere", "dns-alias-target-unresolved", "dns-observed-record-collision", "dns-cname-a-owner-conflict", "dns-gateway-apex-address-mismatch", "dns-live-query-tool-missing", "dns-neighbor-not-regular", "dns-ownership-markers-invalid"
+      ]
+    }
+  }
+}

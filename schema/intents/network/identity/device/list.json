@@ -1,0 +1,35 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/identity/device/list",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "actuator": {"type": "string", "const": "network.identity.device_list", "meaning": "Identity roster read actuator."},
+    "action": {"type": "string", "const": "device_list", "meaning": "Roster read operation."},
+    "result": {
+      "type": "array",
+      "meaning": "Sorted fused DHCP and DNS device rows, including DNS-only names away from infrastructure addresses.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "mac": {"type": ["string", "null"], "meaning": "Normalized MAC, or null for a DNS-only row."},
+          "observed_lease": {"type": ["object", "null"], "meaning": "Observed lease with ip, hostname, last_activity and provenance, or null."},
+          "declared_reservation": {"type": ["object", "null"], "meaning": "Declared reservation with ip, hostname and provenance, or null."},
+          "dns_names": {"type": "array", "items": {"type": "string"}, "meaning": "Sorted distinct DNS names for the device addresses."},
+          "dns_name_records": {"type": "array", "items": {"type": "object"}, "meaning": "Name and provenance pairs matching device addresses."},
+          "claim_state": {"type": "string", "meaning": "Whether a reservation and its DNS name are joined, or the identity is partial or unclaimed."},
+          "mismatches": {"type": "array", "items": {"type": "string"}, "meaning": "Reservation/lease disagreement, reservation without DNS, or DNS without a reservation."}
+        }
+      }
+    },
+    "service_names": {"type": "array", "items": {"type": "object", "fields": {"name": {"type": "string"}, "address": {"type": "string"}, "provenance": {"type": "string"}}}, "meaning": "DNS names on infrastructure addresses not already joined to a device."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Listing never performs a mutation."},
+    "exceptionType": {"type": "string", "meaning": "Exception class when an uncaught roster error reaches the front door."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "None on success (spelled none). The helper preserves whole-token lease signals; caduceus-leases-unavailable:<signal> can additionally carry an upstream token. Non-token diagnostics are replaced by identity-device-list-failed:<ExceptionType>.",
+      "enum": ["none", "identity-device-list-failed:DhcpError", "identity-device-list-failed:DnsError", "identity-device-list-failed:EnvelopeError", "caduceus-leases-unavailable:door-reported-failure", "caduceus-leases-malformed:envelope-must-be-object", "caduceus-leases-malformed:payload-must-be-object", "caduceus-leases-malformed:ok-signal-missing", "caduceus-leases-malformed:result-must-be-list", "caduceus-leases-malformed:row-must-be-object", "caduceus-leases-malformed:missing-mac", "caduceus-leases-malformed:missing-ip", "agathodaimon-stop-raised"]
+    }
+  }
+}
