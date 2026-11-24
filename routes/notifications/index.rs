@@ -645,6 +645,19 @@ async fn dismiss(
     action(axum::extract::Path((id, "dismiss".to_owned())), headers, body).await
 }
 
+async fn set_hidden(id: String, hidden: bool) -> Response {
+    if !gateway_profile() { return refusal((StatusCode::FORBIDDEN, "notification-act-on-homeserver")); }
+    let key = id.clone();
+    match tokio::task::spawn_blocking(move || ledger::set_hidden(&key, hidden)).await {
+        Ok(Ok(())) => Json(json!({"schema":SCHEMA,"ok":true,"id":id,"hidden":hidden})).into_response(),
+        Ok(Err(error)) => refusal(error),
+        Err(_) => refusal(unavailable("notification-state-unavailable")),
+    }
+}
+
+async fn hide(axum::extract::Path(id): axum::extract::Path<String>) -> Response { set_hidden(id, true).await }
+async fn unhide(axum::extract::Path(id): axum::extract::Path<String>) -> Response { set_hidden(id, false).await }
+
 async fn receive_post(
     forward: bool,
     peer: Option<axum::extract::ConnectInfo<crate::gate::ConnectionInfo>>,
@@ -657,6 +670,7 @@ async fn receive_post(
         let mut envelope: Value = serde_json::from_slice(&bytes).map_err(|_| (StatusCode::BAD_REQUEST,"notification-row-invalid"))?;
         let row = envelope.get_mut("notification").and_then(Value::as_object_mut).ok_or((StatusCode::BAD_REQUEST,"notification-row-invalid"))?;
         for key in ["id","kind","title"] { if !row.get(key).and_then(Value::as_str).is_some_and(|s| !s.is_empty()) { return Err((StatusCode::BAD_REQUEST,"notification-row-invalid")); } }
+        if gateway_profile() && row.get("kind").and_then(Value::as_str) == Some("update") { return Err((StatusCode::GONE,"notification-kind-retired")); }
         if row.get("color").is_some_and(|v| !v.is_null() && !v.as_str().is_some_and(|s| ["red","amber","blue","none"].contains(&s))) { return Err((StatusCode::BAD_REQUEST,"notification-row-invalid")); }
         let ip = peer.and_then(|p| match p.0 { crate::gate::ConnectionInfo::Tcp(addr) => match addr.ip() { std::net::IpAddr::V4(ip) => Some(ip.to_string()), _ => None }, _ => None });
         if let Some(ip) = ip {
@@ -733,10 +747,19 @@ async fn action(axum::extract::Path((id,verb)): axum::extract::Path<(String,Stri
 
 pub fn register(router: Router) -> Router {
     let _ = crate::routes::leaf_schema::declaration(SCHEMA).expect("link-up-schema-desync");
-    if gateway_profile() { let _ = ledger::initialize(); }
+    if gateway_profile() {
+        if let Err((_, signal)) = ledger::initialize() {
+            let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
+                "organ":"notifications", "kind":"deed", "message":"notification deed", "ok":false,
+                "attributes_redacted":{"who":"caduceus", "verb":"initialize", "target":"notification", "outcome":"failed", "signal":signal}
+            }));
+        }
+    }
     router
         .route("/api/v1/notifications", axum::routing::get(list).post(post))
         .route("/api/v1/notifications/forward", axum::routing::post(forward))
+        .route("/api/v1/notifications/:id/hide", axum::routing::post(hide))
+        .route("/api/v1/notifications/:id/unhide", axum::routing::post(unhide))
         .route("/api/v1/notifications/:id/:verb", axum::routing::post(action))
         .route(
             "/api/v1/notifications/:id/accept",

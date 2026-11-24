@@ -13,6 +13,14 @@ fn stamp(at: i64) -> Value { DateTime::<Utc>::from_timestamp(at, 0).map(|v| json
 fn init(db: &Connection) -> Result<(), Failure> {
     if !gateway_profile() { return Err(error()); }
     db.execute_batch("CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY, kind TEXT NOT NULL, color TEXT NOT NULL, state TEXT NOT NULL, posted_at INTEGER NOT NULL, expires_at INTEGER, acted_at INTEGER, row TEXT NOT NULL);") .map_err(|_| error())?;
+    db.execute_batch("BEGIN IMMEDIATE;").map_err(|_| error())?;
+    let migration = (|| {
+        let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('notifications') WHERE name='hidden')", [], |r| r.get(0)).map_err(|_| error())?;
+        if !exists { db.execute_batch("ALTER TABLE notifications ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;").map_err(|_| error())?; }
+        db.execute_batch("COMMIT;").map_err(|_| error())
+    })();
+    if migration.is_err() { let _ = db.execute_batch("ROLLBACK;"); }
+    migration?;
     let old: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='notification_dismissals')", [], |r| r.get(0)).map_err(|_| error())?;
     if old {
         let timestamp = now();
@@ -33,7 +41,14 @@ fn init(db: &Connection) -> Result<(), Failure> {
 pub(super) fn initialize() -> Result<(), Failure> {
     if !gateway_profile() { return Ok(()); }
     let db = crate::stats::open_db().map_err(|_| error())?.lock().map_err(|_| error())?;
-    init(&db)
+    init(&db)?;
+    db.execute_batch("BEGIN IMMEDIATE;").map_err(|_| error())?;
+    let sweep = (|| {
+        db.execute("DELETE FROM notifications WHERE kind='update'", []).map_err(|_| error())?;
+        db.execute_batch("COMMIT;").map_err(|_| error())
+    })();
+    if sweep.is_err() { let _ = db.execute_batch("ROLLBACK;"); }
+    sweep
 }
 
 fn expires(ttl: &str, timestamp: i64) -> Option<i64> {
@@ -52,6 +67,7 @@ fn expires(ttl: &str, timestamp: i64) -> Option<i64> {
 pub(super) fn post(mut row: Value, repost: bool) -> Result<Value, Failure> {
     let obj = row.as_object_mut().ok_or((StatusCode::BAD_REQUEST, "notification-row-invalid"))?;
     for field in ["id", "kind", "title"] { if !obj.get(field).and_then(Value::as_str).is_some_and(|v| !v.is_empty()) { return Err((StatusCode::BAD_REQUEST, "notification-row-invalid")); } }
+    if obj["kind"] == "update" { return Err((StatusCode::GONE, "notification-kind-retired")); }
     let color = obj.get("color").and_then(Value::as_str).unwrap_or("none");
     if !["red", "amber", "blue", "none"].contains(&color) { return Err((StatusCode::BAD_REQUEST, "notification-row-invalid")); }
     let id = obj["id"].as_str().unwrap().to_owned();
@@ -91,16 +107,33 @@ pub(super) fn post(mut row: Value, repost: bool) -> Result<Value, Failure> {
 
 pub(super) fn list(all: bool) -> Result<Vec<Value>, Failure> {
     let db = crate::stats::open_db().map_err(|_| error())?.lock().map_err(|_| error())?;
+    init(&db)?;
     let timestamp = now();
-    let mut query = db.prepare("SELECT CASE WHEN state='pending' AND expires_at IS NOT NULL AND expires_at<=?1 THEN json_set(row,'$.state','expired','$.acted_at',strftime('%Y-%m-%dT%H:%M:%SZ',expires_at,'unixepoch')) ELSE row END FROM notifications WHERE ?2 OR (state='pending' AND (expires_at IS NULL OR expires_at>?1)) ORDER BY posted_at DESC,id DESC").map_err(|_| error())?;
-    let rows = query.query_map(params![timestamp,all], |r| r.get::<_, String>(0)).map_err(|_| error())?;
-    rows.map(|r| serde_json::from_str(&r.map_err(|_| error())?).map_err(|_| error())).collect()
+    let mut query = db.prepare("SELECT CASE WHEN state='pending' AND expires_at IS NOT NULL AND expires_at<=?1 THEN json_set(row,'$.state','expired','$.acted_at',strftime('%Y-%m-%dT%H:%M:%SZ',expires_at,'unixepoch')) ELSE row END, hidden FROM notifications WHERE ?2 OR (state='pending' AND (expires_at IS NULL OR expires_at>?1)) ORDER BY posted_at DESC,id DESC").map_err(|_| error())?;
+    let rows = query.query_map(params![timestamp,all], |r| Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?))).map_err(|_| error())?;
+    rows.map(|r| { let (row, hidden) = r.map_err(|_| error())?; project_hidden(&row, hidden) }).collect()
+}
+
+fn project_hidden(row: &str, hidden: bool) -> Result<Value, Failure> {
+    let mut value: Value = serde_json::from_str(row).map_err(|_| error())?;
+    value.as_object_mut().ok_or_else(error)?.insert("hidden".into(), json!(hidden));
+    Ok(value)
 }
 
 pub(super) fn get(id: &str) -> Result<Value, Failure> {
     let db = crate::stats::open_db().map_err(|_| error())?.lock().map_err(|_| error())?;
-    let row: Option<String> = db.query_row("SELECT CASE WHEN state='pending' AND expires_at IS NOT NULL AND expires_at<=?2 THEN json_set(row,'$.state','expired','$.acted_at',strftime('%Y-%m-%dT%H:%M:%SZ',expires_at,'unixepoch')) ELSE row END FROM notifications WHERE id=?1", params![id,now()], |r| r.get(0)).optional().map_err(|_| error())?;
-    serde_json::from_str(&row.ok_or((StatusCode::NOT_FOUND,"notification-absent"))?).map_err(|_| error())
+    init(&db)?;
+    let row: Option<(String, bool)> = db.query_row("SELECT CASE WHEN state='pending' AND expires_at IS NOT NULL AND expires_at<=?2 THEN json_set(row,'$.state','expired','$.acted_at',strftime('%Y-%m-%dT%H:%M:%SZ',expires_at,'unixepoch')) ELSE row END, hidden FROM notifications WHERE id=?1", params![id,now()], |r| Ok((r.get(0)?,r.get(1)?))).optional().map_err(|_| error())?;
+    let (row, hidden) = row.ok_or((StatusCode::NOT_FOUND,"notification-absent"))?;
+    project_hidden(&row, hidden)
+}
+
+pub(super) fn set_hidden(id: &str, hidden: bool) -> Result<(), Failure> {
+    let db = crate::stats::open_db().map_err(|_| error())?.lock().map_err(|_| error())?;
+    init(&db)?;
+    let changed = db.execute("UPDATE notifications SET hidden=?2 WHERE id=?1", params![id, hidden]).map_err(|_| error())?;
+    if changed == 0 { return Err((StatusCode::NOT_FOUND, "notification-absent")); }
+    Ok(())
 }
 
 pub(super) fn change(id: &str, state: &str) -> Result<(), Failure> {
