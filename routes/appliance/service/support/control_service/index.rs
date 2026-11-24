@@ -205,11 +205,18 @@ fn execute_transmission_service(
     let up_receipt = (execution == TRANSMISSION_UP.0
         && crate::routes::leaf_schema::aggregate_bound(&receipt, execution))
     .then_some(&receipt);
+    // sbin transmission/onness answers ok true only once Transmission reads on,
+    // and nests the reading under "onness" (agathodaimon/transmission/onness/index.py).
     let on = up_receipt
         .and_then(|up| chord_stage(up, "onness"))
-        .and_then(|stage| stage.get("on"))
-        .and_then(Value::as_bool)
-        == Some(true);
+        .is_some_and(|stage| {
+            stage.get("ok").and_then(Value::as_bool) == Some(true)
+                && stage
+                    .pointer("/onness/on")
+                    .or_else(|| stage.get("on"))
+                    .and_then(Value::as_bool)
+                    == Some(true)
+        });
     if execution == TRANSMISSION_UP.0 && !on && failure.is_none() {
         failure = Some(TRANSMISSION_START_NOT_ON.into());
     }
