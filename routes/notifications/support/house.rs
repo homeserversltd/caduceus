@@ -1,6 +1,8 @@
 use super::{unavailable, Failure, MAX_BODY, SCHEMA};
+use crate::routes::leaf_schema;
 use crate::routes::leaf_ruyi::gateway;
 use axum::http::StatusCode;
+use serde::de::{self, Deserialize, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value};
 use std::{fs, io::Read, net::Ipv4Addr};
 use tokio::{
@@ -57,19 +59,72 @@ pub(super) struct ChildPortal {
     pub port: Value,
 }
 
-#[derive(serde::Deserialize)]
 struct ChildPortals {
-    schema: String,
+    identity: Value,
     entries: Vec<ChildPortal>,
+}
+
+impl<'de> Deserialize<'de> for ChildPortals {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Projection;
+        impl<'de> Visitor<'de> for Projection {
+            type Value = ChildPortals;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a child portals projection")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<ChildPortals, A::Error> {
+                // Preserve the former derived struct's positional decoding.
+                let schema: String = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let entries = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                Ok(ChildPortals { identity: json!({"schema": schema}), entries })
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<ChildPortals, A::Error> {
+                let mut identity = serde_json::Map::new();
+                let mut entries = None;
+                while let Some(field) = map.next_key::<String>()? {
+                    match field.as_str() {
+                        "schema" if identity.contains_key("schema") => {
+                            return Err(de::Error::duplicate_field("schema"));
+                        }
+                        "schema" => {
+                            identity.insert(field, Value::String(map.next_value()?));
+                        }
+                        "entries" if entries.is_some() => {
+                            return Err(de::Error::duplicate_field("entries"));
+                        }
+                        "entries" => entries = Some(map.next_value()?),
+                        // Only the shared leg needs these values. Repeated extension keys
+                        // must not invalidate a former reply, which ignored them entirely.
+                        "ok" | "stop" => {
+                            identity.insert(field, map.next_value()?);
+                        }
+                        _ => {
+                            map.next_value::<IgnoredAny>()?;
+                        }
+                    }
+                }
+                if !identity.contains_key("schema") {
+                    return Err(de::Error::missing_field("schema"));
+                }
+                let entries = entries.ok_or_else(|| de::Error::missing_field("entries"))?;
+                Ok(ChildPortals { identity: Value::Object(identity), entries })
+            }
+        }
+        deserializer.deserialize_struct("ChildPortals", &["schema", "entries"], Projection)
+    }
 }
 
 // The response crosses a bounded streaming channel. Unrelated entry fields
 // are skipped by the semantic reader rather than kept in a response buffer.
 pub(super) async fn child_portals(ip: Ipv4Addr, port: u16) -> Result<Vec<ChildPortal>, Failure> {
+    let path = "/api/v1/portals";
     timeout(Duration::from_secs(3), async move {
         let mut stream = TcpStream::connect((ip, port)).await
             .map_err(|_| unavailable("link-up-child-portals-unavailable"))?;
-        let request = format!("GET /api/v1/portals HTTP/1.0\r\nHost: {ip}\r\nAccept: application/json\r\nConnection: close\r\n\r\n");
+        let request = format!("GET {path} HTTP/1.0\r\nHost: {ip}\r\nAccept: application/json\r\nConnection: close\r\n\r\n");
         stream.write_all(request.as_bytes()).await
             .map_err(|_| unavailable("link-up-child-portals-unavailable"))?;
         let mut head = Vec::new();
@@ -100,7 +155,11 @@ pub(super) async fn child_portals(ip: Ipv4Addr, port: u16) -> Result<Vec<ChildPo
         drop(sender);
         let value = parser.await.map_err(|_| unavailable("link-up-child-portals-unavailable"))?
             .map_err(|_| unavailable("link-up-child-portals-unavailable"))?;
-        if value.schema != "caduceus.portals.v2" { return Err(unavailable("link-up-child-portals-desync")); }
+        if value.identity["schema"] != "caduceus.portals.v2"
+            && !leaf_schema::bound_http_reply(&value.identity, path)
+        {
+            return Err(unavailable("link-up-child-portals-desync"));
+        }
         Ok(value.entries)
     }).await.map_err(|_| unavailable("link-up-child-portals-unavailable"))?
 }

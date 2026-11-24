@@ -1,5 +1,6 @@
 //! House-first internet observation. Only the independent internet worker does IO.
 use super::{named_signal, now_ts, probe_internet, InternetObservation, INTERNET_CADENCE};
+use crate::routes::leaf_schema;
 use crate::shared::{config, seat_identity};
 use serde_json::Value;
 use std::{
@@ -270,10 +271,11 @@ fn gateway_answer(value: &Value) -> Result<InternetObservation, ()> {
 /// Shared with the Ruyi roster: one native HTTP read, 500 ms including connect,
 /// write, read and EOF, and at most 64 KiB. No staff crossing or roster sweep.
 pub(crate) async fn fetch_peer_stats(host: &str, port: u16) -> (Option<Value>, Option<String>) {
+    let path = "/api/v1/appliance/stats";
     let read = async {
         let mut stream = TcpStream::connect((host, port)).await?;
         stream.set_nodelay(true)?;
-        stream.write_all(format!("GET /api/v1/appliance/stats HTTP/1.1\r\nHost: {host}\r\nAccept: application/json\r\nConnection: close\r\n\r\n").as_bytes()).await?;
+        stream.write_all(format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nAccept: application/json\r\nConnection: close\r\n\r\n").as_bytes()).await?;
         let mut bytes = Vec::new();
         let mut buffer = [0u8; 4096];
         loop {
@@ -317,7 +319,9 @@ pub(crate) async fn fetch_peer_stats(host: &str, port: u16) -> (Option<Value>, O
         }
         let value: Value =
             serde_json::from_slice(&bytes[split + 4..]).map_err(|_| "malformed".to_owned())?;
-        if !crate::routes::leaf_schema::accepts("caduceus.appliance.stats.sample.v1", &value) {
+        if !leaf_schema::accepts("caduceus.appliance.stats.sample.v1", &value)
+            && !leaf_schema::bound_http_reply(&value, path)
+        {
             return Err("malformed".to_owned());
         }
         Ok(value)
