@@ -1,0 +1,31 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/default-apps/read",
+  "payload": {"fields": {}, "required": []},
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "values": {
+      "type": "object",
+      "meaning": "The first configured value among the MIME keys for each category in mimeapps.list's Default Applications section, or null if absent.",
+      "fields": {
+        "browser": {"type": ["string", "null"], "meaning": "The HTTP or HTTPS handler, in that order."},
+        "mail": {"type": ["string", "null"], "meaning": "The mailto handler."},
+        "calendar": {"type": ["string", "null"], "meaning": "The text/calendar handler."},
+        "music": {"type": ["string", "null"], "meaning": "The selected audio handler."},
+        "video": {"type": ["string", "null"], "meaning": "The selected video handler."},
+        "photos": {"type": ["string", "null"], "meaning": "The selected image handler."},
+        "text_editor": {"type": ["string", "null"], "meaning": "The text/plain handler."},
+        "terminal": {"type": ["string", "null"], "meaning": "The application/x-terminal handler."},
+        "file_manager": {"type": ["string", "null"], "meaning": "The inode/directory handler."}
+      }
+    },
+    "options": {"type": "object", "meaning": "Nonempty arrays of {value, label} desktop-entry choices by category. A known current default can appear even when it is not a regular choice."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "This stop only observes."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Present on refusal. Besides the fixed intake messages, the reader reports missing envelope kernel keys: <comma-separated keys> and can return a raw ValueError diagnostic.",
+      "enum": ["invalid JSON", "JSON object required", "foreign envelope schema"]
+    }
+  }
+}

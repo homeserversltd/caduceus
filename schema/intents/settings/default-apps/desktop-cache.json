@@ -1,0 +1,59 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/default-apps/desktop-cache",
+  "payload": {
+    "fields": {
+      "args": {
+        "type": "array",
+        "items": {"type": "string"},
+        "meaning": "Argument vector for refresh, the only action. Supply at least one repeatable --domain: desktop-entry-database, kde-kservice or wofi-drun. Each domain may be suffixed with :optional, =optional or ? and may appear only once after suffix removal. --user selects a local account and defaults to owner."
+      }
+    },
+    "required": ["args"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "primitive": {"type": "string", "enum": ["refresh", "invalid"], "meaning": "The refresh operation or the pre-result exception branch; absent on argument refusal."},
+    "changed": {"type": "boolean", "meaning": "Whether any cache domain reported refreshed; a refresh can leave all caches unchanged."},
+    "state_schema": {"type": "string", "const": "caduceus.desktop-cache.v1", "meaning": "Identifier of the cache state described inside the staff receipt."},
+    "user": {"type": "object", "meaning": "Resolved account: name (string), uid and gid (integers)."},
+    "directories": {"type": "object", "meaning": "The resolved home, state, cache and runtime directory strings for the account."},
+    "domains": {
+      "type": "array",
+      "meaning": "Results in request order; the first failed non-optional domain determines the aggregate signal.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "domain": {"type": "string", "enum": ["desktop-entry-database", "kde-kservice", "wofi-drun"], "meaning": "Cache domain, with any optional suffix stripped."},
+          "optional": {"type": "boolean", "meaning": "Whether a missing or failed domain is nonblocking."},
+          "status": {"type": "string", "enum": ["absent-optional", "unchanged", "failed", "refreshed"], "meaning": "The outcome of this domain."},
+          "absent": {"type": ["string", "array"], "meaning": "The absent input directory or the list of missing optional utility names."},
+          "blocker": {"type": "string", "meaning": "The domain failure, even when optional. A Wofi filesystem failure can be a raw OS diagnostic."},
+          "required_path": {"type": "string", "meaning": "The missing required application directory."},
+          "utilities": {"type": "array", "items": {"type": "string"}, "meaning": "Utility names searched when a required utility is unavailable."},
+          "command": {"type": "array", "items": {"type": "string"}, "meaning": "Utility argv when invoked."},
+          "exit": {"type": "integer", "meaning": "Utility exit status."},
+          "stdout": {"type": "string", "meaning": "Stripped utility stdout."},
+          "stderr": {"type": "string", "meaning": "Stripped utility stderr."},
+          "path": {"type": "string", "meaning": "The Wofi cache path."},
+          "removed": {"type": "boolean", "const": true, "meaning": "Present when the Wofi cache was removed."}
+        }
+      }
+    },
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Explicitly false on argument refusal only."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The argument or refresh outcome; none when no required domain failed. The stop also forwards raw OS or subprocess exception text; that diagnostic surface is not a closed token set.",
+      "enum": [
+        "none", "agathodaimon-settings-default-apps-desktop-cache-arguments-invalid",
+        "agathodaimon-desktop-cache-user-missing", "agathodaimon-desktop-cache-user-switch-refused",
+        "agathodaimon-desktop-cache-home-invalid", "agathodaimon-desktop-cache-state-invalid", "agathodaimon-desktop-cache-cache-invalid", "agathodaimon-desktop-cache-runtime-invalid",
+        "agathodaimon-desktop-cache-domain-duplicate", "agathodaimon-desktop-cache-desktop-entry-database-input-missing",
+        "agathodaimon-desktop-cache-desktop-entry-database-utility-missing", "agathodaimon-desktop-cache-desktop-entry-database-refresh-failed",
+        "agathodaimon-desktop-cache-kde-kservice-utility-missing", "agathodaimon-desktop-cache-kde-kservice-refresh-failed",
+        "agathodaimon-desktop-cache-delete-out-of-root", "agathodaimon-desktop-cache-delete-not-file"
+      ]
+    }
+  }
+}

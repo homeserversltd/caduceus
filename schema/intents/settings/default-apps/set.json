@@ -1,0 +1,34 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/default-apps/set",
+  "payload": {
+    "fields": {
+      "browser": {"type": ["string", "number", "boolean", "array", "null"], "meaning": "Application for HTTP and HTTPS. Non-objects are stringified; xdg-settings must accept both handlers before mimeapps.list is edited."},
+      "mail": {"type": ["string", "number", "boolean", "array", "null"], "meaning": "Application for mailto, stringified before writing."},
+      "calendar": {"type": ["string", "number", "boolean", "array", "null"], "meaning": "Application for text/calendar, stringified before writing."},
+      "music": {"type": ["string", "number", "boolean", "array", "null"], "meaning": "Application for audio/mpeg, audio/ogg and audio/*, stringified before writing."},
+      "video": {"type": ["string", "number", "boolean", "array", "null"], "meaning": "Application for video/mp4 and video/*, stringified before writing."},
+      "photos": {"type": ["string", "number", "boolean", "array", "null"], "meaning": "Application for image/jpeg, image/png and image/*, stringified before writing."},
+      "text_editor": {"type": ["string", "number", "boolean", "array", "null"], "meaning": "Application for text/plain, stringified before writing."},
+      "terminal": {"type": ["string", "number", "boolean", "array", "null"], "meaning": "Application for application/x-terminal, stringified before writing."},
+      "file_manager": {"type": ["string", "number", "boolean", "array", "null"], "meaning": "Application for inode/directory, stringified before writing."}
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "changed": {"type": "boolean", "meaning": "Reported on success; whether the file replacement recorded a change."},
+    "receiptPath": {"type": "string", "meaning": "Path of the successful run.json written by the settings receipt writer."},
+    "receipt": {"type": "object", "meaning": "Settings metadata with ok, changed, kind, requested fields, backups and commands; present once the settings receipt is finished."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Explicitly false on early intake or field refusal; not emitted by the finished settings receipt."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Present on refusal. A request needs at least one of the listed categories, but no individual category is required. Unknown keys yield unknown-field:<key>. Validation can also return missing envelope kernel keys: <comma-separated keys> or raw OS or decoding diagnostics.",
+      "enum": [
+        "invalid JSON", "JSON object required", "foreign envelope schema", "no-fields-supplied", "unsupported:browser", "command-failed:browser", "failure",
+        "invalid:browser:type", "invalid:mail:type", "invalid:calendar:type", "invalid:music:type", "invalid:video:type", "invalid:photos:type", "invalid:text_editor:type", "invalid:terminal:type", "invalid:file_manager:type"
+      ]
+    }
+  }
+}

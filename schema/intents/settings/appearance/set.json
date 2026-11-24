@@ -1,0 +1,51 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/appearance/set",
+  "payload": {
+    "fields": {
+      "color_scheme": {
+        "type": ["boolean", "string"],
+        "meaning": "True selects dark, false selects light; strings are compared after Python str.lower(), without trimming.",
+        "enum": [
+          true, false,
+          "DARK", "DARk", "DARK", "DArK", "DArk", "DArK", "DaRK", "DaRk", "DaRK", "DarK", "Dark", "DarK",
+          "dARK", "dARk", "dARK", "dArK", "dArk", "dArK", "daRK", "daRk", "daRK", "darK", "dark", "darK",
+          "LIGHT", "LIGHt", "LIGhT", "LIGht", "LIgHT", "LIgHt", "LIghT", "LIght", "LiGHT", "LiGHt", "LiGhT", "LiGht", "LigHT", "LigHt", "LighT", "Light",
+          "lIGHT", "lIGHt", "lIGhT", "lIGht", "lIgHT", "lIgHt", "lIghT", "lIght", "liGHT", "liGHt", "liGhT", "liGht", "ligHT", "ligHt", "lighT", "light"
+        ]
+      },
+      "icon_theme": {"type": ["string", "number", "boolean", "array", "null"], "meaning": "The icon-theme setting. Non-objects are stringified and passed to gsettings."},
+      "cursor_theme": {
+        "type": ["string", "number", "boolean", "array", "null"],
+        "meaning": "The cursor theme. Non-objects are stringified; the resulting text must be nonempty, at most 256 characters and contain no character below U+0020. A Sway session is required.",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^[^\\u0000-\\u001f]+(?![\\s\\S])"
+      },
+      "font": {"type": ["string", "number", "boolean", "array", "null"], "meaning": "The full interface font description. Non-objects are stringified and passed to gsettings."},
+      "cursor_size": {"type": "integer", "meaning": "The integral cursor size in pixels; a Sway session is required.", "minimum": 8, "maximum": 256},
+      "font_size": {"type": "number", "meaning": "The size replacing the numeric suffix of the current interface font. Refused when no size can be read.", "minimum": 6, "maximum": 72},
+      "text_scale": {"type": "number", "meaning": "The desktop text scaling factor.", "minimum": 0.5, "maximum": 3}
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "changed": {"type": "boolean", "meaning": "Reported on success; whether the settings receipt recorded a change."},
+    "receiptPath": {"type": "string", "meaning": "Path of the successful run.json written by the settings receipt writer."},
+    "receipt": {"type": "object", "meaning": "Settings metadata with ok, changed, kind, requested fields, backups and commands; present once the settings receipt is finished."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Explicitly false on early intake or field refusal; not emitted by the finished settings receipt."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Present on refusal. A request needs at least one supported field, but no individual field is required. Besides the fixed messages, the stop can return missing envelope kernel keys: <comma-separated keys> or raw validation, OS, decoding or rollback diagnostics.",
+      "enum": [
+        "invalid JSON", "JSON object required", "foreign envelope schema", "no-fields-supplied", "unknown-field:accent_color", "unknown-field:wallpaper",
+        "invalid:color_scheme:type", "invalid:icon_theme:type", "invalid:cursor_theme:type", "invalid:cursor_theme", "invalid:font:type", "invalid:cursor_size", "invalid:font_size", "invalid:text_scale",
+        "unsupported:color_scheme", "unsupported:icon_theme", "unsupported:cursor_theme", "unsupported:font", "unsupported:cursor_size", "unsupported:font_size", "unsupported:text_scale", "unsupported:sway-session-unavailable",
+        "command-failed:color_scheme", "command-failed:icon_theme", "command-failed:cursor_theme", "command-failed:font", "command-failed:cursor_size", "command-failed:font_size", "command-failed:text_scale",
+        "cursor-size-observation-failed", "cursor-theme-observation-failed", "cursor-gsettings-rollback-failed", "cursor-override-invalid", "sway-session-unavailable", "sway-cursor-failed", "target is not a regular file", "failure"
+      ]
+    }
+  }
+}

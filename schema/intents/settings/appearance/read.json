@@ -1,0 +1,31 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/appearance/read",
+  "payload": {"fields": {}, "required": []},
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "values": {
+      "type": "object",
+      "meaning": "Observed desktop appearance values; unobserved or unimplemented values are null.",
+      "fields": {
+        "color_scheme": {"type": ["string", "null"], "enum": ["light", "dark", null], "meaning": "The observed color preference; only prefer-dark maps to dark."},
+        "accent_color": {"type": "null", "meaning": "Not observed by this stop."},
+        "wallpaper": {"type": "null", "meaning": "Not observed by this stop."},
+        "icon_theme": {"type": ["string", "null"], "meaning": "The observed icon theme."},
+        "cursor_theme": {"type": ["string", "null"], "meaning": "The observed cursor theme, preferring a Sway override when available."},
+        "font": {"type": ["string", "null"], "meaning": "The observed interface font description."},
+        "cursor_size": {"type": ["integer", "null"], "meaning": "The observed cursor size from the active override or desktop setting."},
+        "font_size": {"type": ["number", "null"], "meaning": "The numeric suffix of the observed interface font, if present."},
+        "text_scale": {"type": ["number", "null"], "meaning": "The observed text scaling factor."}
+      }
+    },
+    "options": {"type": "object", "meaning": "Available icon_theme and cursor_theme choices as arrays of {value, label} strings; unavailable or empty lists are omitted."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "This stop only observes."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Present on refusal. Besides the fixed intake messages, the reader reports missing envelope kernel keys: <comma-separated keys> and can return a raw ValueError diagnostic.",
+      "enum": ["invalid JSON", "JSON object required", "foreign envelope schema"]
+    }
+  }
+}

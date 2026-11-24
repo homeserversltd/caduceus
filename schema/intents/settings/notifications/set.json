@@ -1,0 +1,27 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/notifications/set",
+  "payload": {
+    "fields": {
+      "do_not_disturb": {"type": "boolean", "meaning": "True pauses Dunst notifications; false resumes them."}
+    },
+    "required": ["do_not_disturb"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "changed": {"type": "boolean", "const": false, "meaning": "Reported on success. This branch dispatches dunstctl but does not mark a change in the file-backed settings receipt."},
+    "receiptPath": {"type": "string", "meaning": "Path of the successful run.json written by the settings receipt writer."},
+    "receipt": {"type": "object", "meaning": "Settings metadata with ok, changed, kind, requested fields, backups and commands; present once the settings receipt is finished."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Explicitly false on early intake or field refusal; not emitted by the finished settings receipt."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Present on refusal. Besides the fixed messages, the stop can return missing envelope kernel keys: <comma-separated keys> or raw exception diagnostics.",
+      "enum": [
+        "invalid JSON", "JSON object required", "foreign envelope schema", "no-fields-supplied",
+        "unknown-field:enabled", "unknown-field:show_banners", "unknown-field:show_on_lock_screen", "unknown-field:sound_enabled",
+        "unsupported:do_not_disturb", "invalid:do_not_disturb:boolean-required", "command-failed:do_not_disturb", "failure"
+      ]
+    }
+  }
+}

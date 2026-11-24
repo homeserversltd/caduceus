@@ -1,0 +1,40 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/shortcuts/set",
+  "payload": {
+    "fields": {
+      "from": {
+        "type": "string",
+        "meaning": "The exact default key combination of one editable Sway binding. Keysyms resolve through XKB; aliases cannot duplicate a modifier.",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^(?:(?:Mod[1-5]|Alt|Super|Shift|Ctrl|Control)\\+)*[A-Za-z0-9_]+(?![\\s\\S])"
+      },
+      "to": {
+        "type": ["string", "null"],
+        "meaning": "The new modifier-plus-XKB-keysym combination, or explicit null to reset the override. A modifier may not be repeated through an alias; occupied combinations are refused.",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^(?:(?:Mod[1-5]|Alt|Super|Shift|Ctrl|Control)\\+)*[A-Za-z0-9_]+(?![\\s\\S])"
+      }
+    },
+    "required": ["from", "to"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "changed": {"type": "boolean", "meaning": "Whether the override changed on success; false for an unchanged request or a wrapped failure."},
+    "mutationPerformed": {"type": "boolean", "meaning": "False for no-ops and early refusals, equal to changed on success; on a failed rollback it can be true when the file had changed."},
+    "receiptPath": {"type": "string", "meaning": "Path of the successful run.json, absent on a no-op."},
+    "receipt": {"type": "object", "meaning": "Settings metadata with ok, changed, kind, requested fields, backups and commands, including Sway reload when attempted."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Present on refusal. Computed messages include unknown-field:<key>, shortcuts-key-taken:<label-or-default-keys>, rollback-failed:<rollback-error>:<first-error> and missing envelope kernel keys: <comma-separated keys>. Raw exception diagnostics are not a closed set.",
+      "enum": [
+        "invalid JSON", "JSON object required", "foreign envelope schema", "invalid:request", "unknown:from", "invalid:to",
+        "shortcuts-include-cycle", "shortcuts-override-invalid", "shortcuts-orphaned-override", "shortcuts-keycode-conflict-unknown", "shortcuts-keysym-library-unavailable", "shortcuts-effective-key-unrecognized",
+        "shortcuts-override-include-absent", "shortcuts-override-unmanaged", "shortcuts-override-cycle", "sway-session-unavailable", "sway-reload-failed"
+      ]
+    }
+  }
+}

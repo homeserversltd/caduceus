@@ -1,0 +1,26 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/notifications/read",
+  "payload": {"fields": {}, "required": []},
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "values": {
+      "type": "object",
+      "meaning": "The observed Dunst configuration and pause state.",
+      "fields": {
+        "enabled": {"type": "boolean", "meaning": "Whether the Dunst configuration path is a file."},
+        "do_not_disturb": {"type": ["boolean", "null"], "meaning": "The dunstctl pause state, or null when the command failed."},
+        "show_banners": {"type": ["string", "null"], "meaning": "INI text for show_banners, or null if absent."},
+        "show_on_lock_screen": {"type": ["string", "null"], "meaning": "INI text for show_on_lock_screen, or null if absent."},
+        "sound_enabled": {"type": ["string", "null"], "meaning": "INI text for sound_enabled, or null if absent."}
+      }
+    },
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "This stop only observes."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Present on refusal. Besides the fixed intake messages, the reader reports missing envelope kernel keys: <comma-separated keys> and can return a raw ValueError diagnostic.",
+      "enum": ["invalid JSON", "JSON object required", "foreign envelope schema"]
+    }
+  }
+}

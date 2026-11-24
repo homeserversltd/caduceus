@@ -1,0 +1,41 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/shortcuts/read",
+  "payload": {"fields": {}, "required": []},
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "values": {
+      "type": "object",
+      "meaning": "Bindings in the loaded Sway configuration, with the owned override applied to editable rows.",
+      "fields": {
+        "bindings": {
+          "type": "array",
+          "meaning": "The default and effective shortcut rows.",
+          "items": {
+            "type": "object",
+            "fields": {
+              "name": {"type": "string", "meaning": "Label from the preceding name comment, or an empty string."},
+              "default_keys": {"type": "string", "meaning": "Expanded default binding."},
+              "keys": {"type": "string", "meaning": "Effective binding after any override."},
+              "command": {"type": "string", "meaning": "The command from the default binding."},
+              "flags": {"type": "array", "items": {"type": "string"}, "meaning": "Binding options in source order."},
+              "overridden": {"type": "boolean", "meaning": "Whether an owned override supplies the effective keys."},
+              "editable": {"type": "boolean", "meaning": "Whether the binding is an eligible top-level keyboard bindsym."},
+              "type": {"type": "string", "enum": ["bindsym", "bindcode"], "meaning": "The Sway binding directive."},
+              "mode": {"type": ["string", "null"], "meaning": "The enclosing Sway mode, or null at top level."}
+            }
+          }
+        },
+        "override_path": {"type": "string", "meaning": "Path of the owned bindings-overrides.conf."},
+        "include_present": {"type": "boolean", "meaning": "Whether the override is referenced from the loaded configuration."}
+      }
+    },
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "This stop only observes."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Present on refusal. Besides the fixed messages, observation can return missing envelope kernel keys: <comma-separated keys> or raw ValueError, OSError or TypeError diagnostics.",
+      "enum": ["invalid JSON", "JSON object required", "foreign envelope schema", "shortcuts-include-cycle", "shortcuts-override-invalid"]
+    }
+  }
+}
