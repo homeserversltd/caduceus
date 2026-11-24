@@ -1,0 +1,56 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "update/profile-retire",
+  "payload": {
+    "fields": {
+      "args": {
+        "type": "array",
+        "meaning": "Optional front-door argv. Empty attempts retirement; --plan reports the proposed retirement path without renaming. It is not payload.dry-run.",
+        "items": {
+          "type": "string"
+        },
+        "default": []
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "changed": {
+      "type": "boolean",
+      "meaning": "Whether the obsolete directory was found and a retirement path selected, even when only planning."
+    },
+    "planned": {
+      "type": "boolean",
+      "meaning": "True for the native --plan preview."
+    },
+    "profiles": {
+      "type": "array",
+      "meaning": "Sorted profile directory names observed after the attempted act or plan.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "retiredPath": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Timestamped retirement destination when the obsolete directory was found; null otherwise."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Unknown arguments are refused. An unhandled filesystem exception reaches the front-door exception path; a completed readback uses none.",
+      "enum": [
+        "update-profile-retire-arguments-invalid",
+        "agathodaimon-stop-raised",
+        "none"
+      ]
+    }
+  }
+}

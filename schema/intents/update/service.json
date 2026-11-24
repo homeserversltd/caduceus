@@ -1,0 +1,62 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "update/service",
+  "payload": {
+    "fields": {
+      "action": {
+        "type": "string",
+        "meaning": "Read the current timer with status, or request enable --now (on) or disable --now (off), with readback.",
+        "enum": [
+          "on",
+          "off",
+          "status"
+        ]
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "timer": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "harmonia.timer once action validation passed; null before that."
+    },
+    "enabled": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "First word of systemctl is-enabled, including if it is invalid for the command exit status; null when not observed."
+    },
+    "active": {
+      "type": "boolean",
+      "meaning": "True only when systemctl is-active returns active with exit zero."
+    },
+    "output": {
+      "type": "string",
+      "meaning": "Systemctl command results and diagnostics joined by newlines; can be empty on input refusal."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Named outcome from the staff stop.",
+      "enum": [
+        "update-service-payload-invalid",
+        "update-service-action-invalid",
+        "update-service-systemctl-failed",
+        "update-service-unit-missing",
+        "agathodaimon-stop-raised",
+        "none"
+      ]
+    }
+  }
+}

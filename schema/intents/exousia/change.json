@@ -1,0 +1,75 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "exousia/change",
+  "payload": {
+    "fields": {
+      "oldPin": {
+        "type": "string",
+        "meaning": "Current PIN to compare before changing the config. Supply on stdin, not argv. The declared flags carrier is also read.",
+        "minLength": 1,
+        "maxLength": 512
+      },
+      "newPin": {
+        "type": "string",
+        "meaning": "Replacement PIN. Supply on stdin, not argv. The declared flags carrier is also read.",
+        "minLength": 1,
+        "maxLength": 512
+      }
+    },
+    "required": [
+      "oldPin",
+      "newPin"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "publicKey": {
+      "type": "string",
+      "meaning": "Lowercase hexadecimal Ed25519 public key from the derived signer.",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "epoch": {
+      "type": "string",
+      "meaning": "Lowercase hexadecimal SHA-256 of the public key bytes.",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Named refusal from input, config update or signer rebind. Omitted on success; a failed rebind does not undo an update.",
+      "enum": [
+        "exousia-change-argument-extra",
+        "exousia-change-envelope-foreign",
+        "exousia-change-envelope-kernel-missing",
+        "exousia-change-envelope-invalid",
+        "exousia-pin-old-missing",
+        "exousia-pin-new-missing",
+        "exousia-pin-invalid",
+        "exousia-pin-wrong",
+        "exousia-change-internal-failure",
+        "agathodaimon-staff-root-required",
+        "agathodaimon-scratch-root-invalid",
+        "agathodaimon-skeleton-unavailable",
+        "agathodaimon-skeleton-malformed",
+        "agathodaimon-config-unavailable",
+        "agathodaimon-config-unreadable",
+        "agathodaimon-config-malformed",
+        "exousia-pin-absent",
+        "exousia-pin-malformed",
+        "agathodaimon-config-custody-unavailable",
+        "agathodaimon-config-custody-invalid",
+        "agathodaimon-config-concurrent-update",
+        "agathodaimon-config-write-refused",
+        "agathodaimon-stop-raised"
+      ]
+    }
+  }
+}

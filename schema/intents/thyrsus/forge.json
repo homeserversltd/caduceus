@@ -1,0 +1,131 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "thyrsus/forge",
+  "payload": {
+    "fields": {},
+    "required": [],
+    "meaning": "No payload field is used. The staff bounds its complete stdin read to 65536 characters."
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "observed": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Credential presence and reachability observation when the probes ran.",
+      "fields": {
+        "forge": {
+          "type": "string",
+          "meaning": "Fixed Forgejo hostname.",
+          "const": "git.home.arpa"
+        },
+        "token_present": {
+          "type": "boolean",
+          "meaning": "Whether the selected credential seat appears populated, not whether authentication succeeds."
+        },
+        "reachable": {
+          "type": "boolean",
+          "meaning": "Whether the Forgejo version request received any HTTP response."
+        },
+        "token_present_by_plane": {
+          "type": "object",
+          "meaning": "Root-plane and owner-plane presence booleans, outside the homeserver profile.",
+          "fields": {
+            "root": {
+              "type": "boolean",
+              "meaning": "Root-plane token present."
+            },
+            "owner": {
+              "type": "boolean",
+              "meaning": "Owner-plane token present."
+            }
+          }
+        }
+      }
+    },
+    "could-change": {
+      "type": "array",
+      "meaning": "Native action list; empty before the operation is selected.",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 0
+    },
+    "attempt": {
+      "type": "array",
+      "meaning": "Ordered native step rows, not the common synthesized attempt object.",
+      "maxItems": 0
+    },
+    "final": {
+      "type": "object",
+      "meaning": "The stop’s own final summary, beside the front door’s final_receipt.",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "meaning": "Stop outcome."
+        },
+        "signal": {
+          "type": "string",
+          "meaning": "The same signal as firstMissingSignal."
+        },
+        "mutationPerformed": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "meaning": "The same mutation observation as the top-level field."
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "meaning": "UTC timestamp added by the staff receipt emitter."
+    },
+    "host": {
+      "type": "string",
+      "meaning": "Hostname added by the staff receipt emitter."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "Always false for the forge observation.",
+      "const": false
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "forge": {
+      "type": "string",
+      "meaning": "Fixed Forgejo hostname.",
+      "const": "git.home.arpa"
+    },
+    "token_present": {
+      "type": "boolean",
+      "meaning": "Whether the selected credential seat appears populated, not whether authentication succeeds."
+    },
+    "reachable": {
+      "type": "boolean",
+      "meaning": "Whether the Forgejo version request received any HTTP response."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Native input, configuration or operation signal. The stop can also name an unknown required field of a different loaded envelope seat.",
+      "enum": [
+        "thyrsus-disabled",
+        "thyrsus-forge-invalid",
+        "thyrsus-profile-unsupported",
+        "thyrsus-request-too-large",
+        "thyrsus-envelope-invalid",
+        "thyrsus-observation-failed",
+        "agathodaimon-stop-raised",
+        "none",
+        "thyrsus-arguments-invalid"
+      ],
+      "patterns": [
+        "^thyrsus-kernel-field-unknown:[\\s\\S]+$"
+      ]
+    }
+  }
+}

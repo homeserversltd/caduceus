@@ -1,0 +1,180 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "thyrsus/new-tab",
+  "payload": {
+    "fields": {
+      "id": {
+        "type": "string",
+        "meaning": "Tab ID used in the cartridge repository name. Starts and ends with a lowercase ASCII letter or digit; hyphens are allowed inside.",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$",
+        "minLength": 2,
+        "maxLength": 40
+      },
+      "into": {
+        "type": "string",
+        "meaning": "Absolute path of an existing owner-custodied directory; the derived cartridge child must not exist.",
+        "pattern": "^/"
+      },
+      "display": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Visible tab name. Omitted or null derives a title-cased name from id with hyphens replaced by spaces. An explicit name must not be blank or contain NUL."
+      }
+    },
+    "required": [
+      "id",
+      "into"
+    ],
+    "meaning": "The staff bounds its complete stdin read to 65536 characters; that is not a per-field limit."
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "observed": {
+      "type": "null",
+      "meaning": "This stop does not populate an observation object."
+    },
+    "could-change": {
+      "type": "array",
+      "meaning": "Native action list; empty before the operation is selected.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "create-repository",
+          "clone-example",
+          "seed",
+          "commit",
+          "push"
+        ]
+      }
+    },
+    "attempt": {
+      "type": "array",
+      "meaning": "Ordered native step rows, not the common synthesized attempt object.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Completed or dispatched step.",
+            "enum": [
+              "create-repository",
+              "clone-example",
+              "seed",
+              "origin",
+              "stage",
+              "commit",
+              "push"
+            ]
+          },
+          "ok": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "meaning": "Step outcome; null while dispatch is not confirmed."
+          }
+        }
+      }
+    },
+    "final": {
+      "type": "object",
+      "meaning": "The stop’s own final summary, beside the front door’s final_receipt.",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "meaning": "Stop outcome."
+        },
+        "signal": {
+          "type": "string",
+          "meaning": "The same signal as firstMissingSignal."
+        },
+        "mutationPerformed": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "meaning": "The same mutation observation as the top-level field."
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "meaning": "UTC timestamp added by the staff receipt emitter."
+    },
+    "host": {
+      "type": "string",
+      "meaning": "Hostname added by the staff receipt emitter."
+    },
+    "mutationPerformed": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "meaning": "Native mutation observation; a dispatched, unconfirmed operation can be null."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "repo_url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Forge URL of the new repository after creation."
+    },
+    "path": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Local cartridge worktree path selected after remote creation."
+    },
+    "next": {
+      "type": "array",
+      "meaning": "Follow-up instructions after repository creation or empty on an earlier refusal.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "http_status": {
+      "type": "integer",
+      "meaning": "Forgejo HTTP status when captured for a refusal."
+    },
+    "git_status": {
+      "type": "integer",
+      "meaning": "Git exit status when a push fails and the status is known."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Native input, configuration or operation signal. The stop can also name an unknown required field of a different loaded envelope seat.",
+      "enum": [
+        "thyrsus-disabled",
+        "thyrsus-forge-invalid",
+        "thyrsus-profile-unsupported",
+        "thyrsus-request-too-large",
+        "thyrsus-envelope-invalid",
+        "thyrsus-observation-failed",
+        "agathodaimon-stop-raised",
+        "none",
+        "thyrsus-ledger-unavailable",
+        "thyrsus-arguments-invalid",
+        "new-tab-id-invalid",
+        "new-tab-into-invalid",
+        "thyrsus-token-absent",
+        "forge-unreachable",
+        "thyrsus-forge-refused",
+        "new-tab-repo-exists",
+        "new-tab-clone-failed",
+        "new-tab-seed-invalid",
+        "thyrsus-git-failed"
+      ],
+      "patterns": [
+        "^thyrsus-kernel-field-unknown:[\\s\\S]+$"
+      ]
+    }
+  }
+}

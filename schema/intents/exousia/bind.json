@@ -1,0 +1,61 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "exousia/bind",
+  "payload": {
+    "fields": {},
+    "required": [],
+    "meaning": "Derive the public verifier from the local credential seats. No payload value is read."
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "publicKey": {
+      "type": "string",
+      "meaning": "Lowercase hexadecimal Ed25519 public key from the derived signer.",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "epoch": {
+      "type": "string",
+      "meaning": "Lowercase hexadecimal SHA-256 of the public key bytes.",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The child binding refusal passed back in JSON, or the front-door exception signal. Omitted on success.",
+      "enum": [
+        "agathodaimon-staff-root-required",
+        "agathodaimon-scratch-root-invalid",
+        "agathodaimon-skeleton-unavailable",
+        "agathodaimon-skeleton-malformed",
+        "agathodaimon-config-unavailable",
+        "agathodaimon-config-unreadable",
+        "agathodaimon-config-malformed",
+        "exousia-pin-absent",
+        "exousia-pin-malformed",
+        "agathodaimon-stop-raised"
+      ]
+    },
+    "stderr": {
+      "type": "string",
+      "meaning": "Raw diagnostic lines on the non-JSON error path. An internal failure also prints a leading exception-class and diagnostic line; no receipt is emitted on these paths.",
+      "enum": [
+        "one exousia verb is required",
+        "invalid JSON",
+        "foreign envelope schema",
+        "exousia internal failure"
+      ],
+      "patterns": [
+        "^missing envelope kernel keys: [\\s\\S]+$",
+        "^exousia internal failure: [\\s\\S]+$"
+      ]
+    }
+  }
+}

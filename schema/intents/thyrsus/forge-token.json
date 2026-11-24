@@ -1,0 +1,133 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "thyrsus/forge-token",
+  "payload": {
+    "fields": {
+      "token": {
+        "type": "string",
+        "meaning": "Credential from stdin only. Envelope form requires this field; a legacy call accepts a raw stdin credential. UTF-8 length must be 1–511 bytes, with no NUL, CR, LF or double quote. Non-homeserver profiles also require exactly 40 hexadecimal digits.",
+        "minLength": 1,
+        "maxLength": 511
+      }
+    },
+    "required": [
+      "token"
+    ],
+    "meaning": "The staff bounds its complete stdin read to 65536 characters; that is not a per-field limit."
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "observed": {
+      "type": "null",
+      "meaning": "This stop does not populate an observation object."
+    },
+    "could-change": {
+      "type": "array",
+      "meaning": "Native action list; empty before the operation is selected.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "store-credential"
+        ]
+      }
+    },
+    "attempt": {
+      "type": "array",
+      "meaning": "Ordered native step rows, not the common synthesized attempt object.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Completed or dispatched step.",
+            "enum": [
+              "store-credential"
+            ]
+          },
+          "ok": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "meaning": "Step outcome; null while dispatch is not confirmed."
+          },
+          "place": {
+            "type": "string",
+            "meaning": "Path reported for a runtime-plane write."
+          }
+        }
+      }
+    },
+    "final": {
+      "type": "object",
+      "meaning": "The stop’s own final summary, beside the front door’s final_receipt.",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "meaning": "Stop outcome."
+        },
+        "signal": {
+          "type": "string",
+          "meaning": "The same signal as firstMissingSignal."
+        },
+        "mutationPerformed": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "meaning": "The same mutation observation as the top-level field."
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "meaning": "UTC timestamp added by the staff receipt emitter."
+    },
+    "host": {
+      "type": "string",
+      "meaning": "Hostname added by the staff receipt emitter."
+    },
+    "mutationPerformed": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "meaning": "Native mutation observation; a dispatched, unconfirmed operation can be null."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "places_written": {
+      "type": "array",
+      "meaning": "Runtime credential-plane paths already replaced, emitted by the non-homeserver writer. No credential values.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Native input, configuration or operation signal. The stop can also name an unknown required field of a different loaded envelope seat.",
+      "enum": [
+        "thyrsus-disabled",
+        "thyrsus-forge-invalid",
+        "thyrsus-profile-unsupported",
+        "thyrsus-request-too-large",
+        "thyrsus-envelope-invalid",
+        "thyrsus-observation-failed",
+        "agathodaimon-stop-raised",
+        "none",
+        "thyrsus-ledger-unavailable",
+        "thyrsus-token-stdin-required",
+        "thyrsus-vault-locked",
+        "thyrsus-token-absent",
+        "thyrsus-token-invalid",
+        "thyrsus-username-invalid"
+      ],
+      "patterns": [
+        "^thyrsus-kernel-field-unknown:[\\s\\S]+$"
+      ]
+    }
+  }
+}

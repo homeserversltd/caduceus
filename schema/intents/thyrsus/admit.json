@@ -1,0 +1,154 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "thyrsus/admit",
+  "payload": {
+    "fields": {
+      "repo": {
+        "type": "string",
+        "meaning": "Path in a Git worktree. The resolved worktree root must exist and its basename match [A-Za-z0-9][A-Za-z0-9_.-]{0,99}; a privileged call requires owner custody."
+      },
+      "pr": {
+        "type": [
+          "integer",
+          "string"
+        ],
+        "meaning": "Positive pull request number, or the same decimal digits without a sign or leading zero.",
+        "minimum": 1,
+        "pattern": "^[1-9][0-9]*$"
+      }
+    },
+    "required": [
+      "repo",
+      "pr"
+    ],
+    "meaning": "The staff bounds its complete stdin read to 65536 characters; that is not a per-field limit."
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "observed": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Null before worktree observation; otherwise confirms the worktree was resolved.",
+      "fields": {
+        "worktree": {
+          "type": "boolean",
+          "meaning": "True when resolved.",
+          "const": true
+        }
+      }
+    },
+    "could-change": {
+      "type": "array",
+      "meaning": "Native action list; empty before the operation is selected.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "merge"
+        ]
+      }
+    },
+    "attempt": {
+      "type": "array",
+      "meaning": "Ordered native step rows, not the common synthesized attempt object.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Completed or dispatched step.",
+            "enum": [
+              "merge",
+              "merged-readback"
+            ]
+          },
+          "ok": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "meaning": "Step outcome; null while dispatch is not confirmed."
+          }
+        }
+      }
+    },
+    "final": {
+      "type": "object",
+      "meaning": "The stop’s own final summary, beside the front door’s final_receipt.",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "meaning": "Stop outcome."
+        },
+        "signal": {
+          "type": "string",
+          "meaning": "The same signal as firstMissingSignal."
+        },
+        "mutationPerformed": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "meaning": "The same mutation observation as the top-level field."
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "meaning": "UTC timestamp added by the staff receipt emitter."
+    },
+    "host": {
+      "type": "string",
+      "meaning": "Hostname added by the staff receipt emitter."
+    },
+    "mutationPerformed": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "meaning": "Native mutation observation; a dispatched, unconfirmed operation can be null."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "merged_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Forge-confirmed merge commit identifier; stays null until merged readback."
+    },
+    "http_status": {
+      "type": "integer",
+      "meaning": "Forgejo HTTP status when captured for a refusal."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Native input, configuration or operation signal. The stop can also name an unknown required field of a different loaded envelope seat.",
+      "enum": [
+        "thyrsus-disabled",
+        "thyrsus-forge-invalid",
+        "thyrsus-profile-unsupported",
+        "thyrsus-request-too-large",
+        "thyrsus-envelope-invalid",
+        "thyrsus-observation-failed",
+        "agathodaimon-stop-raised",
+        "none",
+        "thyrsus-ledger-unavailable",
+        "thyrsus-arguments-invalid",
+        "thyrsus-repo-not-a-worktree",
+        "thyrsus-pr-invalid",
+        "thyrsus-token-absent",
+        "thyrsus-forge-unreachable",
+        "thyrsus-forge-refused",
+        "thyrsus-merge-unobserved"
+      ],
+      "patterns": [
+        "^thyrsus-kernel-field-unknown:[\\s\\S]+$"
+      ]
+    }
+  }
+}

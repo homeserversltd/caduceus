@@ -1,0 +1,78 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "update/module-toggle",
+  "payload": {
+    "fields": {
+      "args": {
+        "type": "array",
+        "meaning": "Front-door argv: [\"list\"] observes; [module, \"on\"] or [module, \"off\"] reconciles disabled_modules. Module IDs match ^[a-z][a-z0-9-]{0,63}$. Without a valid string-array args, the stop can use the last segment of transition as the sole positional word (only list succeeds without a state).",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "module": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Module ID as supplied for a toggle; null for list."
+    },
+    "state": {
+      "type": "string",
+      "meaning": "Action returned by the parser.",
+      "enum": [
+        "list",
+        "on",
+        "off"
+      ]
+    },
+    "disabled_modules": {
+      "type": "array",
+      "meaning": "Deduplicated disabled module IDs on success; empty when the stop cannot observe them.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "backup_path": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Device-logical path of the pre-change config backup, or null when not returned."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "False on the argument-parser refusal.",
+      "const": false
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Argument/configuration outcome; OS and UTF-8 decoding exceptions are returned as diagnostic text.",
+      "enum": [
+        "agathodaimon-update-module-toggle-arguments-invalid",
+        "agathodaimon-harmonia-module-toggle-module-invalid",
+        "agathodaimon-harmonia-module-toggle-config-missing",
+        "agathodaimon-harmonia-module-toggle-config-invalid",
+        "agathodaimon-harmonia-module-toggle-config-not-object",
+        "agathodaimon-harmonia-module-toggle-harmonia-not-object",
+        "agathodaimon-harmonia-module-toggle-disabled-modules-invalid",
+        "agathodaimon-stop-raised",
+        "none"
+      ],
+      "patterns": [
+        "^\\[Errno [0-9]+\\] [\\s\\S]+$",
+        "^'utf-8' codec can't decode [\\s\\S]+$"
+      ]
+    }
+  }
+}

@@ -1,0 +1,177 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "thyrsus/propose",
+  "payload": {
+    "fields": {
+      "repo": {
+        "type": "string",
+        "meaning": "Path in a Git worktree. The resolved worktree root must exist and its basename match [A-Za-z0-9][A-Za-z0-9_.-]{0,99}; a privileged call requires owner custody."
+      },
+      "message": {
+        "type": "string",
+        "meaning": "Nonblank commit message and pull request body. The first line becomes the title. NUL is refused."
+      },
+      "branch": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Unused new branch name accepted by git check-ref-format --branch and not starting with a hyphen. Omitted or null generates a UTC timestamped thyrsus branch."
+      }
+    },
+    "required": [
+      "repo",
+      "message"
+    ],
+    "meaning": "The staff bounds its complete stdin read to 65536 characters; that is not a per-field limit."
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "observed": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Null before worktree observation; otherwise confirms the worktree was resolved.",
+      "fields": {
+        "worktree": {
+          "type": "boolean",
+          "meaning": "True when resolved.",
+          "const": true
+        }
+      }
+    },
+    "could-change": {
+      "type": "array",
+      "meaning": "Native action list; empty before the operation is selected.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "branch",
+          "stage",
+          "commit",
+          "push",
+          "pull-request"
+        ]
+      }
+    },
+    "attempt": {
+      "type": "array",
+      "meaning": "Ordered native step rows, not the common synthesized attempt object.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "step": {
+            "type": "string",
+            "meaning": "Completed or dispatched step.",
+            "enum": [
+              "branch",
+              "stage",
+              "restore-original",
+              "delete-empty-branch",
+              "commit",
+              "push",
+              "pull-request"
+            ]
+          },
+          "ok": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "meaning": "Step outcome; null while dispatch is not confirmed."
+          }
+        }
+      }
+    },
+    "final": {
+      "type": "object",
+      "meaning": "The stop’s own final summary, beside the front door’s final_receipt.",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "meaning": "Stop outcome."
+        },
+        "signal": {
+          "type": "string",
+          "meaning": "The same signal as firstMissingSignal."
+        },
+        "mutationPerformed": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "meaning": "The same mutation observation as the top-level field."
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "meaning": "UTC timestamp added by the staff receipt emitter."
+    },
+    "host": {
+      "type": "string",
+      "meaning": "Hostname added by the staff receipt emitter."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "True after a branch is created or work is staged; false again after successful empty-proposal cleanup."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "branch": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Selected proposal branch after validation."
+    },
+    "pr_url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "URL set only after rereading the open pull request and confirming its head."
+    },
+    "http_status": {
+      "type": "integer",
+      "meaning": "Forgejo HTTP status when captured for a refusal."
+    },
+    "git_status": {
+      "type": "integer",
+      "meaning": "Git exit status when a push fails and the status is known."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Native input, configuration or operation signal. The stop can also name an unknown required field of a different loaded envelope seat.",
+      "enum": [
+        "thyrsus-disabled",
+        "thyrsus-forge-invalid",
+        "thyrsus-profile-unsupported",
+        "thyrsus-request-too-large",
+        "thyrsus-envelope-invalid",
+        "thyrsus-observation-failed",
+        "agathodaimon-stop-raised",
+        "none",
+        "thyrsus-ledger-unavailable",
+        "thyrsus-arguments-invalid",
+        "thyrsus-repo-not-a-worktree",
+        "thyrsus-message-invalid",
+        "thyrsus-branch-invalid",
+        "thyrsus-branch-exists",
+        "thyrsus-git-failed",
+        "thyrsus-nothing-to-propose",
+        "thyrsus-token-absent",
+        "thyrsus-forge-unreachable",
+        "thyrsus-forge-refused",
+        "thyrsus-pr-unobserved"
+      ],
+      "patterns": [
+        "^thyrsus-kernel-field-unknown:[\\s\\S]+$"
+      ]
+    }
+  }
+}

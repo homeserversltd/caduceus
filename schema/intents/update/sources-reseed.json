@@ -1,0 +1,102 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "update/sources-reseed",
+  "payload": {
+    "fields": {},
+    "required": [],
+    "meaning": "This wrapper always selects reseed and ignores argv. The map comes from a fixed staged file, not the request."
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "changed": {
+      "type": "boolean",
+      "meaning": "True when the stop reports replacing the sources member; false when unchanged or reporting refusal."
+    },
+    "certificatePath": {
+      "type": "string",
+      "meaning": "Device-logical profile certificate path.",
+      "const": "/etc/appliance/profile.json"
+    },
+    "sourceMapPath": {
+      "type": "string",
+      "meaning": "Device-logical staged source map path.",
+      "const": "/var/lib/caduceus/source-map.json"
+    },
+    "writer": {
+      "type": "string",
+      "meaning": "Source map helper reporting the result.",
+      "const": "agathodaimon.lib.source_map"
+    },
+    "components": {
+      "type": "array",
+      "meaning": "Sorted component identifiers from the validated staged map.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sourcesWerePresent": {
+      "type": "boolean",
+      "meaning": "Whether a sources member existed before the splice."
+    },
+    "preservedNonSourcesBytes": {
+      "type": "boolean",
+      "meaning": "True once the helper has computed the byte-preserving sources splice.",
+      "const": true
+    },
+    "beforeSha256": {
+      "type": "string",
+      "meaning": "Lowercase SHA-256 of the original certificate UTF-8 bytes.",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "afterSha256": {
+      "type": "string",
+      "meaning": "Lowercase SHA-256 of the proposed certificate UTF-8 bytes, including on a later write failure.",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "mode": {
+      "type": "string",
+      "meaning": "Reported intended certificate file mode.",
+      "const": "0444"
+    },
+    "owner": {
+      "type": "string",
+      "meaning": "Reported writer posture.",
+      "enum": [
+        "root:root",
+        "unprivileged-test"
+      ]
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The helper prefixes named validation errors and free-form OS/JSON diagnostics; the write branch uses a separate prefix.",
+      "enum": [
+        "agathodaimon-source-map-reseed-source-map-credential-material-forbidden",
+        "agathodaimon-source-map-reseed-source-map-required",
+        "agathodaimon-source-map-reseed-source-map-component-invalid",
+        "agathodaimon-source-map-reseed-source-map-entry-invalid",
+        "agathodaimon-source-map-reseed-source-map-ref-required",
+        "agathodaimon-source-map-reseed-source-map-candidates-required",
+        "agathodaimon-source-map-reseed-source-map-candidate-invalid",
+        "agathodaimon-source-map-reseed-source-map-git-url-required",
+        "agathodaimon-source-map-reseed-source-map-git-url-invalid",
+        "agathodaimon-source-map-reseed-source-map-selector-required",
+        "agathodaimon-source-map-reseed-source-map-local-checkout-path-invalid",
+        "agathodaimon-source-map-reseed-source-map-candidate-kind-invalid",
+        "agathodaimon-source-map-reseed-certificate-json-invalid",
+        "agathodaimon-source-map-reseed-certificate-must-be-object",
+        "agathodaimon-source-map-reseed-certificate-schema-invalid",
+        "agathodaimon-source-map-reseed-certificate-sources-duplicate",
+        "agathodaimon-stop-raised",
+        "none"
+      ],
+      "patterns": [
+        "^agathodaimon-source-map-reseed-(?:\\[Errno [0-9]+\\] [\\s\\S]+|[\\s\\S]+: line [0-9]+ column [0-9]+ \\(char [0-9]+\\)|write-failed: [\\s\\S]+)$"
+      ]
+    }
+  }
+}

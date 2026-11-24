@@ -1,0 +1,133 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "update/profile-refresh",
+  "payload": {
+    "fields": {
+      "args": {
+        "type": "array",
+        "meaning": "Optional front-door argv. Select at most one of --install, --uninstall or --refresh; no selector means refresh. --plan previews the selected act; it is not payload.dry-run. Refresh uses --profile, then HARMONIA_PROFILE_ID, then the hostname before its first dot; only chia-farmer-01, chia-harvester-01 and chia-harvester-02 succeed. Defaults: --unit-dir /etc/systemd/system, --source /fulcrum/attachments/harmonia-monad, --harmonia /usr/local/bin/harmonia, --config /etc/harmonia and --state /var/lib/harmonia.",
+        "items": {
+          "type": "string"
+        },
+        "default": []
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "operation": {
+      "type": "string",
+      "meaning": "Selected operation.",
+      "enum": [
+        "install",
+        "uninstall",
+        "refresh"
+      ]
+    },
+    "planned": {
+      "type": "boolean",
+      "meaning": "True for the native --plan preview."
+    },
+    "units": {
+      "type": "object",
+      "meaning": "Resolved unit file paths for install/uninstall.",
+      "fields": {
+        "service": {
+          "type": "string",
+          "meaning": "Service unit path."
+        },
+        "path": {
+          "type": "string",
+          "meaning": "Path unit path."
+        }
+      }
+    },
+    "profile": {
+      "type": "string",
+      "meaning": "Selected Chia profile for refresh.",
+      "enum": [
+        "chia-farmer-01",
+        "chia-harvester-01",
+        "chia-harvester-02"
+      ]
+    },
+    "commands": {
+      "type": "array",
+      "meaning": "Ordered external commands planned or dispatched.",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "meaning": "Results in the same order as the executed commands; omitted for a plan, lock skip or pre-dispatch refusal.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "argv": {
+            "type": "array",
+            "meaning": "Argument vector passed to the tool.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exit": {
+            "type": "integer",
+            "meaning": "Tool exit status."
+          },
+          "stdout": {
+            "type": "string",
+            "meaning": "Stripped tool stdout."
+          },
+          "stderr": {
+            "type": "string",
+            "meaning": "Stripped tool stderr."
+          }
+        }
+      }
+    },
+    "receiptRoot": {
+      "type": "string",
+      "meaning": "Refresh receipt directory selected from --state."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Refresh reports true if every command exited zero and false for failed commands or a lock skip; absent otherwise."
+    },
+    "skipped": {
+      "type": "string",
+      "meaning": "A concurrent refresh holds the nonblocking lock.",
+      "const": "locked"
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "False on the argument-parser refusal.",
+      "const": false
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Named operation or parser signal; a ValueError is also returned verbatim, including an unsupported profile suffix.",
+      "enum": [
+        "agathodaimon-update-profile-refresh-arguments-invalid",
+        "harmonia-profile-refresh-unit-install-failed",
+        "harmonia-profile-refresh-unit-uninstall-failed",
+        "harmonia-profile-refresh-profile-missing",
+        "harmonia-profile-refresh-command-failed",
+        "agathodaimon-stop-raised",
+        "none"
+      ],
+      "patterns": [
+        "^harmonia-profile-refresh-unsupported-profile:[\\s\\S]*$"
+      ]
+    }
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "exousia/verify",
+  "payload": {
+    "fields": {
+      "pin": {
+        "type": "string",
+        "meaning": "PIN to verify against the local credential seat; on stdin, not argv. The declared flags carrier is also read; the gate consumes flags.exousia.pin before dispatch.",
+        "minLength": 1,
+        "maxLength": 512
+      },
+      "publicKey": {
+        "type": "string",
+        "meaning": "Expected public key. The stop requires exactly 64 characters and a value parseable by Python int(value, 16), then lowercases it for comparison; the actual verifier key is lowercase hex.",
+        "minLength": 64,
+        "maxLength": 64
+      }
+    },
+    "required": [
+      "pin",
+      "publicKey"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "verified": {
+      "type": "boolean",
+      "meaning": "Whether the comparison succeeded. A completed comparison emits ok true even when verified is false; the child signal is not forwarded."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Only the front door emits this field on an unhandled exception. Ordinary input refusals are stderr-only.",
+      "enum": [
+        "agathodaimon-stop-raised"
+      ]
+    },
+    "stderr": {
+      "type": "string",
+      "meaning": "Raw diagnostic lines on the non-JSON error path. An internal failure also prints a leading exception-class and diagnostic line; no receipt is emitted on these paths.",
+      "enum": [
+        "one exousia verb is required",
+        "invalid JSON",
+        "foreign envelope schema",
+        "exousia internal failure",
+        "pin missing or invalid",
+        "publicKey missing or invalid"
+      ],
+      "patterns": [
+        "^missing envelope kernel keys: [\\s\\S]+$",
+        "^exousia internal failure: [\\s\\S]+$"
+      ]
+    }
+  }
+}
