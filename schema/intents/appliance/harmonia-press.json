@@ -1,0 +1,42 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/harmonia-press",
+  "payload": {
+    "fields": {
+      "argv": {
+        "type": "array",
+        "meaning": "Complete argument vector beginning with /usr/local/bin/harmonia. Accepted tails are update (alone, with --apply, or with --check), interactable list --json, interactable run/silence/unsilence ID, and update-module /etc/harmonia/profiles/PROFILE/index.json --module ID with an optional final --apply. ID consists of one or more ASCII letters, digits, dots, underscores or hyphens; PROFILE consists of one or more lowercase ASCII letters, digits or hyphens.",
+        "minItems": 2,
+        "maxItems": 6,
+        "items": {
+          "type": "string"
+        }
+      },
+      "invocation_id": {
+        "type": "string",
+        "meaning": "Lowercase UUID v4 used to correlate the transient service’s exit footer.",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$(?![\\s\\S])"
+      }
+    },
+    "required": [
+      "argv",
+      "invocation_id"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Only a pre-handoff refusal is a staff receipt. Once exec succeeds, the stop is replaced by systemd-run and the child owns stdout, stderr and exit status.",
+      "enum": [
+        "harmonia-press-request-invalid",
+        "harmonia-press-request-too-large",
+        "harmonia-press-argv-invalid",
+        "harmonia-press-invocation-id-invalid",
+        "harmonia-press-root-required",
+        "harmonia-press-exec-refused"
+      ]
+    }
+  }
+}

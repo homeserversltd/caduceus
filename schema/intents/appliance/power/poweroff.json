@@ -1,0 +1,31 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/power/poweroff",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "action": {
+      "type": "string",
+      "meaning": "The power action scheduled, present only after successful scheduling.",
+      "const": "poweroff"
+    },
+    "delayedSeconds": {
+      "type": "integer",
+      "meaning": "Delay in seconds before the scheduled action; not proof that it has run.",
+      "const": 2
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s outcome token; none means no signal is missing.",
+      "enum": [
+        "appliance-power-request-invalid",
+        "appliance-power-schedule-failed",
+        "none"
+      ]
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/journal-vacuum",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "freed_bytes": {
+      "type": "integer",
+      "meaning": "Total bytes reported freed by journalctl’s fixed 300M vacuum; zero if no amount was reported or the request or command could not be read."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s outcome token; none means no signal is missing.",
+      "enum": [
+        "journal-vacuum-payload-invalid",
+        "journal-vacuum-command-failed",
+        "none"
+      ]
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/service/restart",
+  "payload": {
+    "fields": {
+      "service": {
+        "type": "string",
+        "meaning": "Portal-allowlisted service name. The stop adds .service if not already present; the name cannot start with a hyphen or contain two adjacent dots. forgejo.service may also be restarted as a certificate dependent without the allowlist.",
+        "pattern": "^(?!-)(?!.*\\.\\.)[A-Za-z0-9_.@-]+$(?![\\s\\S])"
+      }
+    },
+    "required": [
+      "service"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "active": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "meaning": "Whether systemctl reported the service active; null when active state was not resolved."
+    },
+    "enabled": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "meaning": "True only when systemctl reports enabled, false for other nonempty states, null if unread."
+    },
+    "output": {
+      "type": "string",
+      "meaning": "Trimmed command stdout, otherwise stderr; may contain a command exception diagnostic, or be empty."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s outcome token; none means no signal is missing.",
+      "enum": [
+        "portal-service-payload-invalid",
+        "portal-service-name-invalid",
+        "portal-service-registry-unreadable",
+        "portal-service-not-allowed",
+        "portal-service-systemctl-failed",
+        "none"
+      ]
+    }
+  }
+}

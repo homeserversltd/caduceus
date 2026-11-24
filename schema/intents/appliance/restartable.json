@@ -1,0 +1,50 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/restartable",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "restartable": {
+      "type": "array",
+      "meaning": "Restartable entries: the configured supported face, then eligible registered Xenia guests. An unreadable register can leave only the face entry.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "name": {
+            "type": "string",
+            "meaning": "Exact selector for appliance/restart."
+          },
+          "label": {
+            "type": "string",
+            "meaning": "Configured face spelling or guest display label, falling back to the guest name."
+          },
+          "unit": {
+            "type": "string",
+            "meaning": "The corresponding systemd service unit."
+          },
+          "kind": {
+            "type": "string",
+            "meaning": "Origin of the inventory entry.",
+            "enum": [
+              "face",
+              "guest"
+            ]
+          }
+        }
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s outcome token. An unreadable guest register can be reported with ok true and a partial list.",
+      "enum": [
+        "appliance-restartable-request-invalid",
+        "appliance-restart-register-unreadable",
+        "none"
+      ]
+    }
+  }
+}
