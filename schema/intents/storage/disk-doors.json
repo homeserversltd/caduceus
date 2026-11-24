@@ -3,10 +3,10 @@
   "intent": "storage/disk-doors",
   "payload": {
     "fields": {
-      "actuator": {"type": "string", "meaning": "Legacy actuator selector; a top-level actuator, if supplied, takes precedence over this payload field.", "enum": ["disk-doors"]},
+      "actuator": {"type": "string", "meaning": "Required actuator selector unless supplied at the envelope root, which takes precedence over this payload field.", "enum": ["disk-doors"]},
       "metadata": {
         "type": "object",
-        "meaning": "Arguments for the legacy wipe actuator. A top-level metadata value, if supplied, takes precedence over this payload field. The stop limits its complete UTF-8 input to 65536 bytes.",
+        "meaning": "Required wipe arguments unless supplied at the envelope root, which takes precedence over this payload field. The stop limits its complete UTF-8 input to 65536 bytes.",
         "fields": {
           "action": {"type": "string", "meaning": "The operation to perform or plan.", "enum": ["wipe"]},
           "device": {"type": "string", "meaning": "The literal /dev path to send to the wipe actuator. The stop checks the path shape, not whether the target is a whole disk.", "pattern": "^/dev/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", "maxLength": 133},
@@ -16,7 +16,7 @@
         "required": ["action", "device"]
       }
     },
-    "required": ["actuator", "metadata"]
+    "required": []
   },
   "exousia": false,
   "mutation_allowed": true,

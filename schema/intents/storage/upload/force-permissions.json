@@ -1,23 +1,7 @@
 {
   "schema": "caduceus.staff.v1",
   "intent": "storage/upload/force-permissions",
-  "payload": {
-    "fields": {
-      "metadata": {
-        "type": "object",
-        "meaning": "The legacy top-level request member. The pinned stop reads metadata at envelope.metadata, not payload.metadata. One of destination, directory or path must select the target.",
-        "fields": {
-          "destination": {"type": "string", "meaning": "Existing directory below /mnt/nas resolved within the NAS root, with no empty, dot or dot-dot components. This spelling takes precedence over both aliases.", "pattern": "^/mnt/nas/"},
-          "directory": {"type": "string", "meaning": "Alias for destination when destination is absent.", "pattern": "^/mnt/nas/"},
-          "path": {"type": "string", "meaning": "Alias for destination when destination and directory are absent.", "pattern": "^/mnt/nas/"},
-          "mode": {"type": ["number", "string"], "meaning": "Permission mode, restricted to octal 0775 in integer-equivalent or supported string form.", "enum": [509, "0775", "775", "0o775"], "default": 509},
-          "planned": {"meaning": "The stop tests this value for truthiness; a truthy value reports the plan without chmod. Takes precedence over dryRun."},
-          "dryRun": {"meaning": "Legacy plan input tested for truthiness when planned is absent.", "default": false}
-        }
-      }
-    },
-    "required": ["metadata"]
-  },
+  "payload": {"fields": {}, "required": []},
   "exousia": false,
   "mutation_allowed": true,
   "returns": {
@@ -32,7 +16,7 @@
     "error": {"type": "string", "meaning": "Input or filesystem error detail on validation failure."},
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "Validation or chmod readback failure; none when accepted.",
+      "meaning": "Validation or chmod readback failure; none when accepted. Validation requires a legacy metadata object at the envelope root, not in payload.",
       "enum": ["force_permissions.validation", "force_permissions.readback_mismatch", "none"]
     }
   }

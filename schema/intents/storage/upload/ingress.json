@@ -1,28 +1,7 @@
 {
   "schema": "caduceus.staff.v1",
   "intent": "storage/upload/ingress",
-  "payload": {
-    "fields": {
-      "metadata": {
-        "type": "object",
-        "meaning": "The legacy top-level request member. The pinned stop reads metadata at envelope.metadata, not payload.metadata. Supply one target form and one spool-source form.",
-        "fields": {
-          "path": {"type": ["string", "null"], "meaning": "Target below /mnt/nas with no empty, dot or dot-dot components; its parent must exist and resolve inside the NAS root. The target must not be a symlink. A null value selects destination plus filename."},
-          "targetPath": {"type": ["string", "null"], "meaning": "Alias for path when path is absent, subject to the same checks."},
-          "destination": {"type": "string", "meaning": "Directory for the alternate destination-plus-filename target, used when the selected path or targetPath is absent or null. The composed path is checked below /mnt/nas."},
-          "filename": {"type": "string", "meaning": "Single basename for the alternate target. It must not be empty, dot, dot-dot or contain a slash."},
-          "spoolPath": {"type": "string", "meaning": "Absolute path to an existing regular spool file, not a symlink, with no dot or dot-dot segment.", "pattern": "^/"},
-          "sourcePath": {"type": "string", "meaning": "Alias for spoolPath when spoolPath is absent, subject to the same checks.", "pattern": "^/"},
-          "mode": {"type": "integer", "meaning": "Permission bits for the installed file.", "minimum": 0, "maximum": 4095, "default": 436},
-          "uid": {"type": "integer", "meaning": "Owner ID for the installed file; defaults to the target parent's UID.", "minimum": 0},
-          "gid": {"type": "integer", "meaning": "Group ID for the installed file; defaults to the target parent's GID.", "minimum": 0},
-          "planned": {"meaning": "The stop tests this value for truthiness; a truthy value returns the copy, mode and ownership plan without writing. Takes precedence over dryRun."},
-          "dryRun": {"meaning": "Legacy plan input tested for truthiness when planned is absent.", "default": false}
-        }
-      }
-    },
-    "required": ["metadata"]
-  },
+  "payload": {"fields": {}, "required": []},
   "exousia": false,
   "mutation_allowed": true,
   "returns": {
@@ -39,7 +18,7 @@
     "error": {"type": "string", "meaning": "Input or filesystem error detail on validation failure."},
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "Validation or final filesystem readback failure; none when accepted.",
+      "meaning": "Validation or final filesystem readback failure; none when accepted. Validation requires a legacy metadata object at the envelope root, not in payload.",
       "enum": ["file_ingress.validation", "file_ingress.readback_mismatch", "none"]
     }
   }
