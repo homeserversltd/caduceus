@@ -45,8 +45,7 @@ fn result_value(result: Result<Value>, verb: &str) -> Value {
     }
 }
 
-/// Exactly one attempt to append the bounded outcome for a declared mutation.
-/// Read-classified runs leave no line.
+/// Append a bounded deed for the door's recorded outcome.
 fn finish(
     id: &str,
     door: &str,
@@ -68,6 +67,13 @@ fn finish(
         value = error.value();
         value["observed"] = json!({"door_outcome": prior});
     }
+    let records_deed = if door == "run" {
+        value["ok"] == false
+            || value.pointer("/receipt/ok").and_then(Value::as_bool) == Some(false)
+            || value.pointer("/receipt/changed").and_then(Value::as_bool) == Some(true)
+    } else {
+        records_deed
+    };
     if records_deed {
         let ok = value["ok"] == true;
         if let Err(error) = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
@@ -109,38 +115,6 @@ fn finish(
         StatusCode::UNPROCESSABLE_ENTITY
     };
     (status, Json(value))
-}
-
-fn run_records_deed(body: &Result<Value>) -> bool {
-    let envelope = body.as_ref().ok().and_then(|value| value.get("envelope"));
-    let Some(envelope) = envelope else {
-        return true;
-    };
-    if let Some(mutation_allowed) = envelope.get("mutation_allowed").and_then(Value::as_bool) {
-        return mutation_allowed;
-    }
-    let Some(transition) = envelope.get("transition").and_then(Value::as_str) else {
-        return true;
-    };
-    let verb = transition
-        .rsplit(|character| matches!(character, '.' | '/' | ':'))
-        .next()
-        .unwrap_or(transition);
-    !matches!(
-        verb,
-        "status"
-            | "list"
-            | "get"
-            | "poll"
-            | "observe"
-            | "health"
-            | "inspect"
-            | "validate"
-            | "query"
-            | "read"
-            | "show"
-            | "check"
-    )
 }
 
 async fn mutation_or_validation(body: Body, mutate: bool) -> Reply {
@@ -259,7 +233,6 @@ pub async fn observe(Path(id): Path<String>, body: Body) -> Reply {
 pub async fn run(Path(id): Path<String>, body: Body) -> Reply {
     let started = Instant::now();
     let parsed = input(body);
-    let records_deed = run_records_deed(&parsed);
     let worker_id = id.clone();
     let result = tokio::task::spawn_blocking(move || -> Result<Value> {
         seat::startup().map_err(|e| observation("schema", "startup", e))?;
@@ -372,7 +345,7 @@ pub async fn run(Path(id): Path<String>, body: Body) -> Reply {
     finish(
         &id,
         "run",
-        records_deed,
+        false,
         u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         result_value(result, "ran"),
     )

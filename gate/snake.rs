@@ -1670,10 +1670,10 @@ async fn native_chord_run_steps(
                     if !is_ring { state.changed = None; }
                     ("stage-refused", receipt, Some("caduceus-schema-desync".to_owned()))
                 } else {
-                    let is_read = stage_declaration.as_ref().and_then(|d| d.get("mutation_allowed")).and_then(Value::as_bool) == Some(false);
-                    if !is_read && !is_ring {
+                    if !is_ring {
                         state.changed = match (state.changed, crate::gate::door::declared_receipt_change(expected_schema.as_deref(), stage_stop, stage_stop, &receipt)) {
-                            (Some(previous), Some(current)) => Some(previous || current),
+                            (Some(true), _) | (_, Some(true)) => Some(true),
+                            (Some(false), Some(false)) => Some(false),
                             _ => None,
                         };
                     }
@@ -1786,14 +1786,6 @@ async fn execute_owned_chord(
             .ok_or("ouroboros-observe-path-invalid")?;
         let safe = safe_band_path(path)?;
         if safe != path { return Err("ouroboros-observe-path-invalid".into()); }
-        let read_shelf = if std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some() {
-            cli_path().parent().ok_or("ouroboros-shelf-invalid")?.to_path_buf()
-        } else { shelf_root() };
-        let is_read = index_entries(&read_shelf)?.iter().any(|entry| {
-            entry.get("bandPath").and_then(Value::as_str) == Some(path)
-                && entry.get("mutation_allowed").and_then(Value::as_bool) == Some(false)
-        });
-        if !is_read { return Err("ouroboros-observe-not-read".into()); }
         let arguments = ring.get("arguments").and_then(Value::as_object)
             .ok_or("ouroboros-arguments-invalid")?;
         let deadline = |name: &str| ring.get(name).and_then(Value::as_u64)

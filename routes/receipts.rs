@@ -681,13 +681,6 @@ fn staff_band_receipt(band: &str, metadata: Value) -> Value {
     receipt
 }
 
-fn staff_mutation_performed(receipt: &Value) -> bool {
-    receipt
-        .get("mutationPerformed")
-        .and_then(Value::as_bool)
-        .unwrap_or(true)
-}
-
 fn file_ingress_reflection(target: &Path, bytes: impl TryInto<u64>) -> Result<Value, String> {
     let filename = target
         .file_name()
