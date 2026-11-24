@@ -635,8 +635,11 @@ fn local_stats() -> (Option<Value>, Option<String>) {
             crate::routes::leaf_schema::accepts("caduceus.appliance.stats.sample.v1", value)
         })
     {
-        Some(value) => (Some(value), None),
-        None => (None, Some("unreachable".to_owned())),
+        Some(Value::Object(mut fields)) => {
+            crate::shared::load_trace::stamp_receipt_fields(&mut fields, true, ("appliance", "stats"));
+            (Some(Value::Object(fields)), None)
+        }
+        _ => (None, Some("unreachable".to_owned())),
     }
 }
 

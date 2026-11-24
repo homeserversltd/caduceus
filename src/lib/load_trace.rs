@@ -247,6 +247,26 @@ pub async fn http_boundary(request: Request<Body>, next: Next) -> Response<Body>
         .await
 }
 
+pub(crate) fn stamp_receipt_fields(fields: &mut Map<String, Value>, fallback_ok: bool, stop: (&str, &str)) {
+    fields.insert("schema".into(), json!("caduceus.staff.receipt.v1"));
+    let ok = fields
+        .get("ok")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| {
+            fields.insert("ok".into(), Value::Bool(fallback_ok));
+            fallback_ok
+        });
+    fields.entry("stop").or_insert_with(|| json!({"noun": stop.0, "verb": stop.1}));
+    for key in ["observed", "could_change_to", "attempt"] {
+        fields.entry(key).or_insert(Value::Null);
+    }
+    if !fields.contains_key("final_receipt") {
+        let final_receipt =
+            json!({"ok": ok, "firstMissingSignal": fields.get("firstMissingSignal")});
+        fields.insert("final_receipt".into(), final_receipt);
+    }
+}
+
 pub async fn stamp_door_answer(request: Request<Body>, next: Next) -> Response<Body> {
     use axum::{
         body::HttpBody,
@@ -337,27 +357,8 @@ pub async fn stamp_door_answer(request: Request<Body>, next: Next) -> Response<B
         Ok(Value::Array(items)) => Map::from_iter([("result".to_owned(), Value::Array(items))]),
         _ => return Response::from_parts(parts, Body::from(bytes)),
     };
-    fields.insert("schema".into(), json!("caduceus.staff.receipt.v1"));
-    let ok = fields
-        .get("ok")
-        .and_then(Value::as_bool)
-        .unwrap_or_else(|| {
-            let ok = status.is_success();
-            fields.insert("ok".into(), Value::Bool(ok));
-            ok
-        });
-    fields.entry("stop").or_insert_with(|| {
-        let (noun, verb) = refusal_stop("");
-        json!({"noun": noun, "verb": verb})
-    });
-    for key in ["observed", "could_change_to", "attempt"] {
-        fields.entry(key).or_insert(Value::Null);
-    }
-    if !fields.contains_key("final_receipt") {
-        let final_receipt =
-            json!({"ok": ok, "firstMissingSignal": fields.get("firstMissingSignal")});
-        fields.insert("final_receipt".into(), final_receipt);
-    }
+    let (noun, verb) = refusal_stop("");
+    stamp_receipt_fields(&mut fields, status.is_success(), (&noun, &verb));
     let Ok(stamped) = serde_json::to_vec(&fields) else {
         return Response::from_parts(parts, Body::from(bytes));
     };
