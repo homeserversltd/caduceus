@@ -1,0 +1,16 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "xenos/test-tab",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "changed": {"type": "boolean", "meaning": "This run created the mirror or admitted the Test guest. False if already present or no change completed before refusal."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Input or first-boot ensure outcome. An upstream admission refusal appends a sanitized message of at most 160 characters.",
+      "enum": ["none", "request-invalid", "root-required", "service-url-invalid", "release-manifest-unavailable", "wait-duration-invalid", "forge-not-ready", "caduceus-not-ready", "coronatio-not-ready", "skeleton-key-invalid", "mirror-create-failed", "admit-refused:status-invalid", "admit-refused:row-missing", "admit-refused:refused", "test-tab-operation-failed"],
+      "additionalPatterns": ["^admit-refused:[A-Za-z0-9._:-]{1,160}$"]
+    }
+  }
+}

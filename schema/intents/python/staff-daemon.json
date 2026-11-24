@@ -1,0 +1,16 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "python/staff-daemon",
+  "payload": {
+    "fields": {
+      "args": {"type": "array", "items": {"type": "string"}, "default": [], "meaning": "Front-door argv for the staff-socket listener. --socket PATH changes the listener path.", "options": {"--socket": {"type": "string", "default": "/run/caduceus/agathodaimon-staff.sock", "meaning": "Unix-domain socket to create and serve."}}}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "exceptionType": {"type": "string", "meaning": "Type of the uncaught startup or serving error as projected by the front door. Normal serving has no finite JSON return; its socket replies are a different protocol."},
+    "firstMissingSignal": {"type": "string", "meaning": "Invalid argv or a front-door projection of an uncaught exception.", "enum": ["agathodaimon-staff-daemon-arguments-invalid", "agathodaimon-stop-raised"]}
+  }
+}

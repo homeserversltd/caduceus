@@ -1,0 +1,17 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "python/staff-path",
+  "payload": {
+    "fields": {
+      "args": {"type": "array", "enum": [["--check"], ["--apply"]], "meaning": "Front-door argv. Check the virtualenv import-path file or converge an existing regular file and read it back. Neither mode is a dry-run flag."}
+    },
+    "required": ["args"]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "stdout": {"type": "string", "enum": ["/usr/local/sbin\n", "Different\n"], "meaning": "Raw observation line, not a JSON receipt; apply prints it only when it obtained final readback."},
+    "stderr": {"type": "string", "meaning": "Usage or raw file, path and I/O diagnostics. The stop has no firstMissingSignal field.", "anyOf": [{"enum": ["usage: staff-path --check|--apply", "caduceus-staff-site-packages-not-unique-or-absent", "caduceus-receipt-write-failed"]}, {"pattern": "^(?:birth-debt: existing staff path file absent: |staff path target is (?:a symlink|not a regular file): )"}, {"type": "string", "meaning": "Host file and encoding error text."}]},
+    "run.json": {"type": "object", "meaning": "Apply's separate on-disk receipt, not stdout: kernel, routine, target, flags, ok, changed, touched_paths, observed, could_change, attempt, final and run_id."}
+  }
+}

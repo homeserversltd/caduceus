@@ -1,0 +1,27 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "xenos/run",
+  "payload": {
+    "meaning": "The shim reads id and band and passes the whole input envelope to the selected guest band, whose arguments are defined by that guest.",
+    "fields": {
+      "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$", "minLength": 1, "maxLength": 63, "meaning": "Local guest clone ID; the shim checks nonempty string and the launcher enforces the grammar."},
+      "band": {"type": "string", "pattern": "^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*$", "minLength": 1, "meaning": "Guest staff band path; selected guest code determines whether the call mutates. The launcher uses its band branch, not the install or exec branches."}
+    },
+    "required": ["id", "band"]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "verb": {"type": "string", "const": "band", "meaning": "Reported when a guest command finishes."},
+    "exitCode": {"type": ["integer", "null"], "meaning": "Guest process exit status."},
+    "stdout": {"type": "string", "meaning": "Guest stdout, decoded as UTF-8 with replacement on decoding errors."},
+    "stderr": {"type": "string", "meaning": "Guest stderr, decoded as UTF-8 with replacement on decoding errors."},
+    "exceptionType": {"type": "string", "meaning": "Uncaught launcher or request fault projected by the front door."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Local request and launcher outcomes or the named launcher response. Missing-kernel text is composed from the shared envelope seat; guest diagnostics are separate stdout and stderr fields.",
+      "enum": ["invalid JSON", "JSON object required", "foreign envelope schema", "xenos-id-missing", "xenos-band-missing", "xenos-run-launcher-unavailable", "xenos-run-launcher-response-invalid", "xenos-run-launcher-exit-nonzero", "xenos-run-root-required", "xenos-id-invalid", "xenos-clone-missing", "xenos-clone-invalid", "xenos-band-invalid", "xenos-staff-cli-missing", "xenos-staff-cli-invalid", "xenos-staff-identity-missing", "xenos-xenia-group-missing", "xenos-band-launch-failed", "xenos-run-timeout", "xenos-band-exit-nonzero", "agathodaimon-stop-raised"],
+      "additionalPatterns": ["^missing envelope kernel keys: "]
+    }
+  }
+}

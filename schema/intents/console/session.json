@@ -1,0 +1,24 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "console/session",
+  "payload": {
+    "fields": {
+      "args": {"type": "array", "enum": [[], ["--print"]], "default": [], "meaning": "No arguments supervise the owner's Sway session; --print emits the desktop environment and launch plan without starting Sway."}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "stdout": {"type": "string", "meaning": "The print form writes a desktop mode marker, environment deltas, and exec sway. The supervisor has no success receipt and inherits the child's output."},
+    "stderr": {
+      "type": "string",
+      "meaning": "Raw diagnostics, not a receipt. The plan and runtime refusals append the exception type. Supervised launches emit bounded deed lines with desktop-exec-<OSError type>, session-interrupted, or exit-<status> in signal.",
+      "anyOf": [
+        {"enum": ["usage: console session [--print]", "console-session-must-run-as-owner"]},
+        {"pattern": "^console-session-(?:plan-invalid|runtime-refused):[A-Za-z_][A-Za-z0-9_]*$"},
+        {"type": "string", "meaning": "Inherited child diagnostics and supervisor deed lines."}
+      ]
+    }
+  }
+}

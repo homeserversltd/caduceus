@@ -1,0 +1,46 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "keyman/newkey",
+  "payload": {
+    "fields": {
+      "args": {
+        "type": "array",
+        "items": {"type": "string"},
+        "meaning": "Argv assembled by the front door: service first, exactly one --username followed by username, and optionally --pword - and --replace, each at most once. Never put the password in argv or in this payload.",
+        "service": {"type": "string", "pattern": "^(?!service_suite$)[A-Za-z0-9_]{1,238}$", "maxLength": 238},
+        "username": {"type": "string", "minLength": 1, "maxLength": 511, "maxBytes": 511, "pattern": "^[^\u0000\r\n\"]+$"},
+        "replace": {"type": "boolean", "default": false}
+      }
+    },
+    "required": ["args"]
+  },
+  "password_source": {
+    "meaning": "On the hand door, two matching TTY entries or, with --pword -, the raw stdin stream with one optional final LF; the latter is not a staff envelope.",
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 511,
+    "maxBytes": 511,
+    "pattern": "^[^\u0000\r\n\"]+$"
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "backend": {"type": "string", "const": "keyman-rust-crown", "meaning": "Custody backend."},
+    "operation": {"type": "string", "const": "newkey", "meaning": "Operation requested of custody."},
+    "service": {"type": ["string", "null"], "meaning": "Service once parsed, scrubbed of secret values."},
+    "username": {"type": ["string", "null"], "meaning": "Username once parsed, scrubbed of secret values."},
+    "replace": {"type": ["boolean", "null"], "meaning": "Whether replacement was requested, or null before parsing."},
+    "observed": {"type": "null", "meaning": "No initial observation supplied by the stop."},
+    "could-change": {"type": "array", "const": ["newkey"], "meaning": "Legacy operation affordance."},
+    "attempt": {"type": "object", "meaning": "Reports dispatched as a boolean."},
+    "attempted-operation": {"type": "string", "const": "newkey", "meaning": "Present after dispatch."},
+    "mutationPerformed": {"type": ["boolean", "null"], "meaning": "True on confirmed write, false if known not to have written, null where custody is unknown."},
+    "final": {"type": "object", "meaning": "Native ok and signal, with state unknown when a dispatched operation fails."},
+    "backendReceipt": {"type": "object", "meaning": "Scrubbed custody answer when accepted; binds operation and service and reports secret_free."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Native intake, custody or backend outcome before value-dependent wire scrubbing; a root re-exec passes through the bound child answer.",
+      "enum": ["none", "keyman-newkey-argv-required", "keyman-newkey-arguments-invalid", "keyman-newkey-service-invalid", "keyman-newkey-username-invalid", "keyman-newkey-password-on-argv-refused", "keyman-newkey-password-source-missing", "keyman-newkey-password-source-unreadable", "keyman-newkey-password-invalid", "keyman-newkey-password-mismatch", "keyman-newkey-root-required", "keyman-newkey-backend-unavailable", "keyman-newkey-backend-timeout", "keyman-newkey-backend-failed", "keyman-newkey-backend-output-too-large", "keyman-newkey-key-already-exists", "keyman-newkey-backend-receipt-invalid", "keyman-newkey-staff-failed", "keyman-newkey-scratch-context-invalid", "keyman-newkey-uninitialized-system", "keyman-newkey-malformed-key-file", "keyman-newkey-preflight-unobservable", "keyman-newkey-keyman-export-lock-timeout", "keyman-newkey-exchange-mount-failed", "keyman-newkey-exchange-obliteration-failed"]
+    }
+  }
+}

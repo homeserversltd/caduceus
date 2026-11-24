@@ -1,0 +1,17 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "console/select-branch",
+  "payload": {
+    "fields": {
+      "args": {"type": "array", "enum": [["-c"], ["-l"]], "meaning": "One of the two historical selection invocations, passed as argv by the front door. Both return the same branch."}
+    },
+    "required": ["args"]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "stdout": {"type": "string", "const": "stable\n", "meaning": "Raw successful branch line, not a JSON receipt."},
+    "stderr": {"type": "string", "const": "usage: console select-branch {-c|-l}\n", "meaning": "Diagnostic accompanying the invalid-arguments receipt."},
+    "firstMissingSignal": {"type": "string", "meaning": "The invalid-arguments JSON refusal accompanying the usage diagnostic.", "enum": ["console-select-branch-arguments-invalid"]}
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "games/sync",
+  "payload": {
+    "fields": {
+      "args": {"type": "array", "enum": [[]], "default": [], "meaning": "The front door can pass argv, but the sync action accepts no arguments. The runner and library inventory come from the runtime filesystem."}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "games": {"type": "array", "items": {"type": "string"}, "meaning": "Discovered game display names."},
+    "game_count": {"type": "integer", "meaning": "Number of games admitted to artwork processing."},
+    "blocked_payloads": {"type": "array", "meaning": "Each blocked game names system, path, reason (missing-user-bios), missing_paths, and policy."},
+    "bios_requirements": {"type": "object", "meaning": "Per-system BIOS prerequisites and user-owned firmware policy."},
+    "artwork": {"type": "array", "meaning": "Per-game appname, system, rom and artwork_cache. Cache metadata may come from an existing file or from provider and generated assets."},
+    "payload_boundary": {"type": "string", "const": "runtime-game-files-artwork-cache-bios-firmware-keys-and-secrets-not-source", "meaning": "The boundary between runtime content and source."},
+    "provider_env_path": {"type": "string", "meaning": "Path read for the optional provider configuration; no provider value is returned."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Argument parsing refused before any library processing; omitted on success."},
+    "exceptionType": {"type": "string", "meaning": "Front-door exception type if the stop's uncaught load or sync fault escapes."},
+    "firstMissingSignal": {"type": "string", "meaning": "Argument refusal or front-door exception; no success token is emitted.", "enum": ["agathodaimon-games-sync-arguments-invalid", "agathodaimon-stop-raised"]}
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "gui/plugs",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "path": {"type": "string", "const": "gui/plugs", "meaning": "The capability module for the settings plugs; it has no main action."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "The front door refused before any act."},
+    "firstMissingSignal": {"type": "string", "meaning": "The front door found the module but it has no act to invoke.", "enum": ["agathodaimon-stop-has-no-act"]}
+  }
+}

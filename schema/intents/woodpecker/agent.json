@@ -1,0 +1,16 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "woodpecker/agent",
+  "payload": {"fields": {"args": {"type": "array", "enum": [[]], "default": [], "meaning": "No argv is accepted."}}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "token_present": {"type": "boolean", "meaning": "A nonempty regular token file was observable; does not expose the token."},
+    "unit_active": {"type": "boolean", "meaning": "Agent service active-state readback. Scratch mode does not contact systemd and reports false."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "The posture read performs no mutation."},
+    "final": {"type": "object", "meaning": "Contains ok, signal and mutationPerformed from the posture read."},
+    "timestamp": {"type": "string", "meaning": "UTC ISO timestamp added by the receipt emitter."},
+    "host": {"type": "string", "meaning": "Local hostname added by the receipt emitter."},
+    "firstMissingSignal": {"type": "string", "meaning": "Read outcome before the front-door stamp.", "enum": ["none", "woodpecker-arguments-invalid", "woodpecker-operation-failed"]}
+  }
+}

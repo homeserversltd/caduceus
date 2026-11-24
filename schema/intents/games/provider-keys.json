@@ -1,0 +1,37 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "games/provider-keys",
+  "payload": {
+    "meaning": "A staff envelope read from stdin without explicit operation argv needs a nonempty payload. No one property is required across the operation forms.",
+    "fields": {
+      "args": {"type": "array", "enum": [[], ["status"], ["save"]], "meaning": "Front-door positional operation; with no positional word, status is the default unless the payload selects save."},
+      "verb": {"type": "string", "meaning": "With no positional operation, save selects a write; all other values leave the default status read. The named operations are status and save.", "default": "status"},
+      "keys": {
+        "type": "object",
+        "meaning": "First provider map considered for save. Only the two supported names may appear; an empty string removes a configured value.",
+        "fields": {
+          "THEGAMESDB_API_KEY": {"type": "string", "meaning": "TheGamesDB provider value, supplied through stdin only."},
+          "SCREENSCRAPER_API_KEY": {"type": "string", "meaning": "Screenscraper provider value, supplied through stdin only."}
+        }
+      },
+      "providers": {"type": "object", "meaning": "Alias of keys with the same allowed entries, used if keys is not an object."},
+      "metadata": {"type": "object", "meaning": "Alias of keys with the same allowed entries, used if neither keys nor providers is an object."},
+      "THEGAMESDB_API_KEY": {"type": "string", "meaning": "TheGamesDB value when the payload itself is the provider map and contains no control keys."},
+      "SCREENSCRAPER_API_KEY": {"type": "string", "meaning": "Screenscraper value when the payload itself is the provider map and contains no control keys."}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "path": {"type": "string", "meaning": "Provider configuration file, not its contents."},
+    "configured": {"type": "object", "meaning": "In status, one presence boolean per supported provider key."},
+    "configured_names": {"type": "array", "items": {"type": "string", "enum": ["THEGAMESDB_API_KEY", "SCREENSCRAPER_API_KEY"]}, "meaning": "Names with a nonempty value; no key material."},
+    "mode": {"type": ["string", "null"], "meaning": "Status reports observed octal mode or null when absent; save reports 0600."},
+    "changed": {"type": "boolean", "meaning": "On save, whether the new text differs from the former file; save also enforces mode 0600."},
+    "preserved_existing": {"type": "boolean", "const": true, "meaning": "On save, values for unsubmitted providers were retained."},
+    "mutationPerformed": {"type": "boolean", "meaning": "True after replacing the file, false on a status read or reported intake failure."},
+    "error": {"type": "string", "meaning": "Intake, validation or file error text. Most such failures have no firstMissingSignal."},
+    "firstMissingSignal": {"type": "string", "meaning": "Named argument or empty-envelope-payload refusal; no token is added on success.", "enum": ["provider-keys-arguments-invalid", "agathodaimon-provider-keys-payload-required"]}
+  }
+}

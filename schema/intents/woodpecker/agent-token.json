@@ -1,0 +1,20 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "woodpecker/agent-token",
+  "payload": {
+    "fields": {"token": {"type": "string", "minLength": 1, "maxLength": 256, "meaning": "Printable, non-whitespace token passed only on stdin. The stream accepts this field from an object payload, or a flat object token or raw token line instead. Total stream bound is 65536 characters."}},
+    "required": ["token"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "file": {"type": ["string", "null"], "meaning": "Logical token path once replaced, not its contents."},
+    "restart": {"type": ["object", "string", "null"], "meaning": "The unit-control receipt, skipped under scratch, or null before restart."},
+    "restarted": {"type": "boolean", "meaning": "The live agent restart was confirmed; false in scratch mode."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Whether the token file was replaced, even if restart or deed later fails."},
+    "final": {"type": "object", "meaning": "Contains ok, signal and mutationPerformed. The slash-form stdin stream does not receive the outer front-door stamp."},
+    "timestamp": {"type": "string", "meaning": "UTC ISO timestamp added by the receipt emitter."},
+    "host": {"type": "string", "meaning": "Local hostname added by the receipt emitter."},
+    "firstMissingSignal": {"type": "string", "meaning": "Intake, file operation, restart or deed outcome.", "enum": ["none", "woodpecker-token-stdin-required", "woodpecker-request-too-large", "woodpecker-token-invalid", "woodpecker-operation-failed", "woodpecker-unit-restart-failed", "woodpecker-ledger-unavailable"]}
+  }
+}

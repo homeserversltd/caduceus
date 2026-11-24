@@ -1,0 +1,23 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "notify/post",
+  "payload": {
+    "fields": {
+      "notification": {"type": "object", "meaning": "Wrapped notification row. If absent, the payload itself is the row. Other row keys are forwarded intact.", "required": ["id", "kind", "title", "color"]},
+      "id": {"type": "string", "meaning": "Notification identity; must contain a non-whitespace character. Applies inside the wrapper or at the flat row."},
+      "kind": {"type": "string", "meaning": "Notification family; must contain a non-whitespace character. Applies inside the wrapper or at the flat row."},
+      "title": {"type": "string", "meaning": "Title; must contain a non-whitespace character. Applies inside the wrapper or at the flat row."},
+      "color": {"type": "string", "enum": ["red", "amber", "blue", "none"], "meaning": "Required severity color. Applies inside the wrapper or at the flat row."}
+    },
+    "required": [],
+    "anyOf": [{"required": ["notification"]}, {"required": ["id", "kind", "title", "color"]}]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "id": {"type": "string", "meaning": "Notification identity read back from the door."},
+    "state": {"type": "string", "enum": ["pending", "dismissed", "expired"], "meaning": "State returned by the ledger, which can preserve a previously terminal row."},
+    "forwarded": {"type": "boolean", "const": true, "meaning": "Present when a non-gateway Caduceus forwarded the post."},
+    "firstMissingSignal": {"type": "string", "meaning": "Local validation or transport refusal, or the decoded Caduceus refusal passed through unchanged.", "enum": ["notify-row-invalid", "notify-door-absent", "notify-door-unavailable", "notify-post-unavailable", "notification-row-invalid", "notification-gateway-unreachable", "notification-state-unavailable", "notification-capacity-full"]}
+  }
+}

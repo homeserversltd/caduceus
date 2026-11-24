@@ -1,0 +1,33 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "python/crossing-daemon",
+  "payload": {
+    "fields": {
+      "args": {
+        "type": "array", "items": {"type": "string"}, "default": [],
+        "meaning": "Front-door argv. No action option serves the crossing socket; --install and --remove are mutually exclusive. --plan only suppresses unit changes in those two modes; it is not an Alkahest dry-run.",
+        "options": {
+          "--socket": {"type": "string", "default": "/run/caduceus/agathodaimon-crossing.sock", "meaning": "Serve socket path; the production default requires root."},
+          "--unit-dir": {"type": "string", "default": "/etc/systemd/system", "meaning": "Unit directory for install or remove; under root only the production directory is allowed."},
+          "--install": {"type": "boolean", "default": false, "meaning": "Write the unit then request systemd daemon-reload; does not enable or start it."},
+          "--remove": {"type": "boolean", "default": false, "meaning": "Unlink the unit if present then request systemd daemon-reload."},
+          "--plan": {"type": "boolean", "default": false, "meaning": "In unit modes return the target and commands without writing or reloading."}
+        }
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "operation": {"type": "string", "enum": ["install", "remove"], "meaning": "Selected unit operation."},
+    "unit": {"type": "string", "meaning": "Target unit path."},
+    "planned": {"type": "boolean", "meaning": "Whether the unit operation was only planned."},
+    "commands": {"type": "array", "const": [["systemctl", "daemon-reload"]], "meaning": "Commands planned or attempted after a write."},
+    "command": {"type": "array", "const": ["systemctl", "daemon-reload"], "meaning": "Command that failed."},
+    "stderr": {"type": "string", "meaning": "Argument diagnostics or raw serve refusal. Startup failure appends the exception text; serving has no finite success receipt.", "anyOf": [{"enum": ["crossing daemon requires root for the production socket"]}, {"pattern": "^crossing-daemon-start-failed: "}]},
+    "error": {"type": "string", "meaning": "Management, unit path, or reload refusal; these are not firstMissingSignal fields.", "enum": ["owner-only-management", "unit-directory-refused", "unit-command-failed"]},
+    "exceptionType": {"type": "string", "meaning": "Front-door projection when an uncaught unit effect fails."},
+    "firstMissingSignal": {"type": "string", "meaning": "Invalid argument vector or uncaught unit failure.", "enum": ["agathodaimon-crossing-daemon-arguments-invalid", "agathodaimon-stop-raised"]}
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "gui/launcher-cache",
+  "payload": {
+    "fields": {
+      "args": {"type": "array", "enum": [["--check"], ["--apply"]], "meaning": "Check the owner's launcher cache or refresh it and read it back. These are argv modes, not an Alkahest dry-run flag."}
+    },
+    "required": ["args"]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "observed": {"type": ["object", "null"], "meaning": "The check result: state is Empty when a cache is current or Different when it is missing or older than desktop inputs or the refresh script.", "fields": {"state": {"type": "string", "enum": ["Empty", "Different"]}}},
+    "changed": {"type": ["boolean", "null"], "meaning": "On apply, whether before and after cache states differ; null if one could not be read."},
+    "stderr": {"type": "string", "meaning": "Usage or observation, refresh and readback diagnostics. Refresh-command stderr is scrubbed and bounded to the last 20 lines and 4096 characters."},
+    "firstMissingSignal": {"type": "string", "meaning": "The check or apply outcome, or refusal of argv outside the two modes.", "enum": ["none", "launcher-cache-observation-failed", "launcher-cache-refresh-failed", "launcher-cache-readback-failed", "launcher-cache-not-converged", "gui-launcher-cache-arguments-invalid"]}
+  }
+}
