@@ -10,7 +10,7 @@ use axum::{
 };
 use serde_json::{json, Map, Value};
 use std::{
-    collections::HashMap,
+    collections::HashSet,
     sync::{Arc, OnceLock, RwLock},
     time::{Duration, Instant},
 };
@@ -23,8 +23,6 @@ pub(crate) const ARPEGGIO_FINALLY: &str = "finally";
 pub(crate) const ARPEGGIO_PARTS: [&str; 4] = [ARPEGGIO_SERVE, ARPEGGIO_RESCUE, ARPEGGIO_OUROBOROS, ARPEGGIO_FINALLY];
 const MAX_CROSSING_DEADLINE: Duration = Duration::from_secs(600);
 const MAX_REQUEST_BODY_BYTES: usize = 2 * 1024 * 1024;
-// No queued mutations: each selected leaf's permit belongs to its detached
-// invocation until its complete finalizer walk returns, even on disconnect.
 
 #[derive(Debug)]
 struct DoorFailure {
@@ -39,21 +37,19 @@ struct DoorReply {
     body: Value,
     receipt: Value,
     changed: Option<bool>,
-    is_chord: bool,
 }
 
 struct DeedGuard {
     declaration: Arc<Value>,
     request_id: String,
     started: Instant,
-    enabled: bool,
     attempted: bool,
     recorded: bool,
 }
 
 impl DeedGuard {
     fn record(&mut self, outcome: &str, signal: &str, witness: Option<&Value>) {
-        if !self.enabled || self.recorded {
+        if self.recorded {
             return;
         }
         self.recorded = true;
@@ -96,23 +92,16 @@ impl DoorFailure {
 /// The compiled router registers only index-less leaves here. This bounded,
 /// declaration-only set lets the existing gate recognize defaulted generic
 /// paths without reclassifying any handwritten route that also has `serve`.
-static GENERIC_HTTP_NAMESPACES: OnceLock<RwLock<HashMap<String, Arc<tokio::sync::Semaphore>>>> = OnceLock::new();
+static GENERIC_HTTP_NAMESPACES: OnceLock<RwLock<HashSet<String>>> = OnceLock::new();
 
 fn register_generic_namespace(namespace: &str) {
-    let namespaces = GENERIC_HTTP_NAMESPACES.get_or_init(|| RwLock::new(HashMap::new()));
-    namespaces.write().unwrap_or_else(|poisoned| poisoned.into_inner())
-        .entry(namespace.to_owned()).or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(1)));
-}
-
-fn mutation_slot(namespace: &str) -> Option<Arc<tokio::sync::Semaphore>> {
-    GENERIC_HTTP_NAMESPACES.get().and_then(|namespaces| {
-        namespaces.read().unwrap_or_else(|poisoned| poisoned.into_inner()).get(namespace).cloned()
-    })
+    let namespaces = GENERIC_HTTP_NAMESPACES.get_or_init(|| RwLock::new(HashSet::new()));
+    namespaces.write().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(namespace.to_owned());
 }
 
 pub(crate) fn is_registered_namespace(namespace: &str) -> bool {
     GENERIC_HTTP_NAMESPACES.get().is_some_and(|namespaces| {
-        namespaces.read().unwrap_or_else(|poisoned| poisoned.into_inner()).contains_key(namespace)
+        namespaces.read().unwrap_or_else(|poisoned| poisoned.into_inner()).contains(namespace)
     })
 }
 
@@ -161,35 +150,38 @@ async fn handle_request(
     let started = Instant::now();
     let namespace = declaration.get("namespace").and_then(Value::as_str).unwrap_or("generic");
     let command = first_command(&declaration).unwrap_or_default();
-    let mutation_allowed = declaration.get("mutation_allowed").and_then(Value::as_bool).unwrap_or(true);
     let (parts, body) = request.into_parts();
     let method = &parts.method;
     let request_id = request_id(&parts.headers);
+    let mut deed = DeedGuard {
+        declaration: Arc::clone(&declaration), request_id: request_id.clone(), started,
+        attempted: false, recorded: false,
+    };
 
     if method.as_str() != expected_method.as_str()
         && !(expected_method == "GET" && method == Method::HEAD)
     {
         let failure = DoorFailure::new(StatusCode::METHOD_NOT_ALLOWED, "caduceus-http-method-not-allowed");
-        return finish_failure(namespace, method, &command, "method", failure);
+        return finish_failure(namespace, method, &command, "method", failure, &mut deed);
     }
 
     if command.is_empty() {
         let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-generic-command-missing");
-        return finish_failure(namespace, method, &command, "command", failure);
+        return finish_failure(namespace, method, &command, "command", failure, &mut deed);
     }
     if let Err(signal) = crate::gate::admittance::check_declared_admittance(&declaration) {
         let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, signal);
-        return finish_failure(namespace, method, &command, "admittance", failure);
+        return finish_failure(namespace, method, &command, "admittance", failure, &mut deed);
     }
     match crate::shared::policy::allows_command(&command) {
         Ok(true) => {}
         Ok(false) => {
             let failure = DoorFailure::new(StatusCode::FORBIDDEN, "caduceus-public-action-not-allowed");
-            return finish_failure(namespace, method, &command, "policy", failure);
+            return finish_failure(namespace, method, &command, "policy", failure, &mut deed);
         }
         Err(_) => {
             let failure = DoorFailure::new(StatusCode::FORBIDDEN, "caduceus-carapace-desync");
-            return finish_failure(namespace, method, &command, "policy", failure);
+            return finish_failure(namespace, method, &command, "policy", failure, &mut deed);
         }
     }
 
@@ -198,31 +190,17 @@ async fn handle_request(
             || crate::routes::leaf_schema::shared_seat_absent(schema) => Some(schema.to_owned()),
         Some(_) => {
             let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-schema-desync");
-            return finish_failure(namespace, method, &command, "receipt-schema", failure);
+            return finish_failure(namespace, method, &command, "receipt-schema", failure, &mut deed);
         }
         None => None,
     };
     let payload = match read_payload(parts.headers, body, &declaration).await {
         Ok(payload) => payload,
         Err(failure) => {
-            return finish_failure(namespace, method, &command, "payload", failure);
+            return finish_failure(namespace, method, &command, "payload", failure, &mut deed);
         }
     };
 
-    let permit = if mutation_allowed {
-        let Some(slot) = mutation_slot(namespace) else {
-            let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-generic-slot-missing");
-            return finish_failure(namespace, method, &command, "mutation-slot", failure);
-        };
-        match slot.try_acquire_owned() {
-            Ok(permit) => Some(permit),
-            // No mutation has started: the rejected concurrent request is a non-event.
-            Err(_) => {
-                let failure = DoorFailure::new(StatusCode::SERVICE_UNAVAILABLE, "caduceus-generic-mutation-busy");
-                return finish_failure(namespace, method, &command, "mutation-permit", failure);
-            }
-        }
-    } else { None };
     // This independent task owns the complete invocation and deed. Dropping the
     // HTTP future after this spawn cannot cancel a running serve/finally chord.
     let task_declaration = Arc::clone(&declaration);
@@ -231,37 +209,25 @@ async fn handle_request(
     let task_request_id = request_id.clone();
     let task_method = method.clone();
     let task = tokio::spawn(async move {
-        let _permit = permit;
-        let mut deed = DeedGuard {
-            declaration: Arc::clone(&task_declaration),
-            request_id: task_request_id.clone(),
-            started,
-            enabled: mutation_allowed,
-            attempted: false,
-            recorded: false,
-        };
         let result = dispatch(&task_declaration, &task_namespace, &task_request_id, payload, receipt_schema.as_deref(), &mut deed).await;
         #[cfg(leaf_pid2)]
-        let changed = mutation_allowed && result.as_ref().is_ok_and(|reply| reply.status.is_success() && reply.changed == Some(true) && reply.receipt.get("ok").and_then(Value::as_bool)==Some(true) && reply.receipt.get("converged").and_then(Value::as_bool)!=Some(false));
+        let changed = result.as_ref().is_ok_and(|reply| reply.status.is_success() && reply.changed == Some(true) && reply.receipt.get("ok").and_then(Value::as_bool)==Some(true) && reply.receipt.get("converged").and_then(Value::as_bool)!=Some(false));
         let response = match result {
             Ok(reply) => {
                 let ok = reply.receipt.get("ok").and_then(Value::as_bool) == Some(true);
                 let signal = receipt_signal(&reply.receipt).filter(|signal| ok || *signal != "none")
                     .unwrap_or(if ok { "none" } else { "caduceus-generic-actuator-refused" });
-                if !reply.is_chord || reply.changed == Some(false) {
-                    deed.recorded = true;
-                } else {
+                if !ok || reply.changed == Some(true) {
                     deed.record(
                         if ok { "success" } else { "refused" },
                         signal,
                         Some(&reply.receipt),
                     );
-                }
+                } else { deed.recorded = true; }
                 (reply.status, Json(reply.body)).into_response()
             }
             Err(failure) => {
-                if failure.no_change { deed.recorded = true; }
-                else { deed.record("refused", &failure.signal, failure.witness.as_ref()); }
+                deed.record("refused", &failure.signal, failure.witness.as_ref());
                 if let Some(witness) = failure.witness {
                     let mut response = (failure.status, Json(witness)).into_response();
                     response.headers_mut().insert(
@@ -278,8 +244,6 @@ async fn handle_request(
                 }
             }
         };
-        // Release this door's permit before waking a line it may have held.
-        drop(_permit);
         // Only a successful, evidenced change wakes the solver.
         #[cfg(leaf_pid2)]
         if changed { crate::pid2::events::notify(); }
@@ -441,7 +405,7 @@ async fn dispatch(
         })?;
     let status = status_from_declaration(declaration, &receipt)
         .unwrap_or_else(|| crate::gate::mutation_status(&receipt));
-    Ok(DoorReply { status, body, receipt, changed, is_chord })
+    Ok(DoorReply { status, body, receipt, changed })
 }
 
 // Only a boolean declared by the expected public seat can establish a no-op.
@@ -593,8 +557,9 @@ fn finish_failure(
     command: &str,
     step: &str,
     failure: DoorFailure,
+    deed: &mut DeedGuard,
 ) -> Response {
-    // Refusal before dispatch cannot have changed state and leaves no deed.
+    deed.record("refused", &failure.signal, failure.witness.as_ref());
     error_response(failure.status, namespace, method, command, &failure.signal, Some(step))
 }
 

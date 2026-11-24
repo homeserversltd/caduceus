@@ -1074,12 +1074,6 @@ pub(crate) fn access_attendance_admits(
     vault_attendance_admits(headers, body, route)
 }
 async fn self_telemetry_route(request: Request<Body>, next: middleware::Next) -> Response {
-    if declared_http_route(request.method().as_str(), request.uri().path())
-        .is_some_and(|declaration| declaration["mutation_allowed"].as_bool() == Some(false))
-    {
-        // Command–Query Separation: the observation leaves no retained counters.
-        return next.run(request).await;
-    }
     let path = request.uri().path().to_owned();
     let started = Instant::now();
     let response = next.run(request).await;
