@@ -1,0 +1,114 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/display/hdr/set",
+  "payload": {
+    "fields": {
+      "hdr": {
+        "type": "boolean",
+        "meaning": "Enable or disable high dynamic range (HDR) on the selected Sway output. It must expose the feature and a readable prior state."
+      }
+    },
+    "required": [
+      "hdr"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "changed": {
+      "type": "boolean",
+      "meaning": "The stop reports whether an effect or stored change was observed on this path."
+    },
+    "receiptPath": {
+      "type": "string",
+      "meaning": "Path to the native settings run.json written on a successful receipt path."
+    },
+    "receipt": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Native settings receipt metadata: ok, changed, kind, fields, backups and commands; entries describe files and command outcomes.",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "meaning": "The settings operation completed."
+        },
+        "changed": {
+          "type": "boolean",
+          "meaning": "The receipt records a change."
+        },
+        "kind": {
+          "type": "string",
+          "meaning": "Settings family."
+        },
+        "fields": {
+          "type": "array",
+          "meaning": "Names of requested settings.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "backups": {
+          "type": "array",
+          "meaning": "Original file metadata for files backed up by the act."
+        },
+        "commands": {
+          "type": "array",
+          "meaning": "Arguments and return codes for the dispatched tools."
+        }
+      }
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "Whether the stop reports acting; this is not an assertion that every effect completed."
+    },
+    "values": {
+      "type": "object",
+      "meaning": "Display policy fallback values on a structured Sway failure."
+    },
+    "settingsSource": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Source of those display policy values, when included."
+    },
+    "backend": {
+      "type": "object",
+      "meaning": "Selected compositor coordinates on a structured refusal."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when an unexpected fault is reported by the front door instead of the stop."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Absent when the stop emits no signal. The enum lists literal outcomes. An extra key is reported as unknown-field:<key>. Command setup faults can report command-unavailable:<exception class>. Failed compensation can prefix the original diagnostic with rollback-failed:, live-rollback-failed: or position-rollback-failed:, including the rollback diagnostic. Filesystem and malformed compositor reply errors can pass through as exception text. The envelope reader also reports the missing kernel keys by name.",
+      "enum": [
+        "JSON object required",
+        "No closing quotation",
+        "No escaped character",
+        "agathodaimon-stop-raised",
+        "command-failed",
+        "command-output-limit",
+        "command-timeout",
+        "display-override-invalid",
+        "display-selection-duplicate",
+        "foreign envelope schema",
+        "invalid JSON",
+        "invalid Sway output name",
+        "no-fields-supplied",
+        "sway-display-apply-failed",
+        "sway-hdr-readback-mismatch",
+        "sway-json-invalid",
+        "sway-output-array-invalid",
+        "sway-output-logical-width-unavailable",
+        "sway-output-prior-position-unavailable",
+        "sway-output-unavailable",
+        "sway-position-readback-mismatch",
+        "unsupported:hdr"
+      ]
+    }
+  }
+}

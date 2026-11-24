@@ -1,0 +1,102 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/display/hdmi-hold/hold",
+  "payload": {
+    "fields": {
+      "connector": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "An exact connected HDMI connector with nonempty EDID. Omitted or null selects the only connected HDMI connector, and refuses when that choice is ambiguous.",
+        "pattern": "^HDMI-[A-Za-z0-9]+-[0-9]+$(?![\\s\\S])",
+        "default": null
+      },
+      "dry-run": {
+        "type": "boolean",
+        "meaning": "Plan file edits and rebuild commands without applying them when true.",
+        "default": false
+      }
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "dry-run": true,
+  "returns": {
+    "observed": {
+      "type": [
+        "object",
+        "array",
+        "null"
+      ],
+      "meaning": "The pre-operation HDMI state on a plan/no-op, or the nidus per-file before/after digest rows after the writer runs. A refusal before the reply has no observation."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "The writer reported changed files when it completed; false on a read, plan, no-op or a handled refusal."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when an unexpected fault is reported by the front door instead of the stop."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Absent when the stop emits no signal. The enum lists literal outcomes. Non-token intake or system exceptions are reported as hdmi-hold-hold-failed:<exception class>.",
+      "enum": [
+        "agathodaimon-stop-raised",
+        "hdmi-hold-connected-edid-required",
+        "hdmi-hold-exactly-one-connected-required",
+        "hdmi-hold-existing-hook-unmanaged",
+        "hdmi-hold-existing-link-release-first",
+        "hdmi-hold-existing-target-unmanaged",
+        "hdmi-hold-hold-failed:EnvelopeError",
+        "hdmi-hold-hold-failed:FileNotFoundError",
+        "hdmi-hold-hold-failed:IsADirectoryError",
+        "hdmi-hold-hold-failed:NotADirectoryError",
+        "hdmi-hold-hold-failed:OSError",
+        "hdmi-hold-hold-failed:PermissionError",
+        "hdmi-hold-hold-failed:UnicodeDecodeError",
+        "hdmi-hold-hold-failed:ValueError",
+        "hdmi-hold-invalid-connector",
+        "hdmi-hold-invalid-dry-run",
+        "hdmi-hold-scratch-mutation-refused",
+        "observe-failed",
+        "reload-failed",
+        "replace-failed"
+      ]
+    },
+    "could_change_to": {
+      "type": [
+        "object",
+        "array",
+        "null"
+      ],
+      "meaning": "A plan has files with actions, modes, digests and optional text, and rebuild argv/deadlines; once the writer runs, this part lists writer target paths."
+    },
+    "attempt": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Whether the writer tried to change files and the ordered steps it records."
+    },
+    "final_receipt": {
+      "type": "object",
+      "meaning": "Final verdict and, when carried, the writer or front-door signal; a plan returns ok only."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "False before the write; the nidus writer supplies its changed verdict if called."
+    },
+    "effective": {
+      "type": "string",
+      "meaning": "The operation changes boot configuration, not the running connector.",
+      "const": "next-boot"
+    },
+    "restore_failed": {
+      "type": "boolean",
+      "meaning": "A file or reload compensation failed, when the writer failed."
+    }
+  }
+}

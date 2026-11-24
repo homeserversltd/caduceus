@@ -1,0 +1,75 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/sound/test-tone/play",
+  "payload": {
+    "fields": {},
+    "required": [],
+    "meaning": "No payload field controls playback. The stop requests playback of its built-in sample."
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "changed": {
+      "type": "boolean",
+      "meaning": "The stop reports whether an effect or stored change was observed on this path."
+    },
+    "receiptPath": {
+      "type": "string",
+      "meaning": "Path to the native settings run.json written on a successful receipt path."
+    },
+    "receipt": {
+      "type": "object",
+      "meaning": "Native settings receipt metadata: ok, changed, kind, fields, backups and commands; entries describe files and command outcomes.",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "meaning": "The settings operation completed."
+        },
+        "changed": {
+          "type": "boolean",
+          "meaning": "The receipt records a change."
+        },
+        "kind": {
+          "type": "string",
+          "meaning": "Settings family."
+        },
+        "fields": {
+          "type": "array",
+          "meaning": "Names of requested settings.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "backups": {
+          "type": "array",
+          "meaning": "Original file metadata for files backed up by the act."
+        },
+        "commands": {
+          "type": "array",
+          "meaning": "Arguments and return codes for the dispatched tools."
+        }
+      }
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "False when the stop refuses before constructing the settings receipt; not filled by the receipt builder."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when an unexpected fault is reported by the front door instead of the stop."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Absent when the stop emits no signal. The enum lists literal outcomes. Caught command setup or filesystem errors can pass through as exception text. The envelope reader also reports the missing kernel keys by name.",
+      "enum": [
+        "JSON object required",
+        "agathodaimon-stop-raised",
+        "command-failed:test_tone",
+        "failure",
+        "foreign envelope schema",
+        "invalid JSON",
+        "unsupported:test_tone"
+      ]
+    }
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/sound/read",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "values": {
+      "type": "object",
+      "meaning": "Audio defaults and readings. The test_tone setting is returned as null because playback has no observed value.",
+      "fields": {
+        "output_device": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "Default sink name."
+        },
+        "input_device": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "Default source name."
+        },
+        "volume": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "Default sink volume text."
+        },
+        "input_volume": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "Default source volume text."
+        },
+        "muted": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "meaning": "Default sink mute observation."
+        },
+        "card_profile": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "Current profile of the default sink card."
+        },
+        "test_tone": {
+          "type": "null",
+          "meaning": "No observed playback value."
+        }
+      }
+    },
+    "options": {
+      "type": "object",
+      "meaning": "Available output_device and input_device rows, each with value and label. Empty/unread choices are omitted; monitor sources are omitted."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "This stop only reads.",
+      "const": false
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when an unexpected fault is reported by the front door instead of the stop."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Absent when the stop emits no signal. The enum lists literal outcomes. An uncaught read or decoding error handled by the stop can pass through as exception text. The envelope reader also reports the missing kernel keys by name.",
+      "enum": [
+        "JSON object required",
+        "agathodaimon-stop-raised",
+        "foreign envelope schema",
+        "invalid JSON"
+      ]
+    }
+  }
+}

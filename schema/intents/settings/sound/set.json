@@ -1,0 +1,131 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/sound/set",
+  "payload": {
+    "fields": {
+      "output_device": {
+        "meaning": "Default sink selector passed to pactl as text. The stop rejects object values before string conversion; valid selectors depend on the audio server."
+      },
+      "input_device": {
+        "meaning": "Default source selector passed to pactl as text. The stop rejects object values before string conversion; valid selectors depend on the audio server."
+      },
+      "volume": {
+        "type": [
+          "number",
+          "string"
+        ],
+        "meaning": "Default sink volume. A numeric value or numeric text, optionally ending in %, is normalized as a percentage in [0, 100].",
+        "minimum": 0,
+        "maximum": 100
+      },
+      "input_volume": {
+        "type": [
+          "number",
+          "string"
+        ],
+        "meaning": "Default source volume. A numeric value or numeric text, optionally ending in %, is normalized as a percentage in [0, 100].",
+        "minimum": 0,
+        "maximum": 100
+      },
+      "muted": {
+        "type": "boolean",
+        "meaning": "Mute or unmute the default sink."
+      },
+      "card_profile": {
+        "type": "string",
+        "meaning": "Profile of the default sink card; the stop requires a nonempty string without C0 controls, and pactl checks profile availability.",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^[^\\u0000-\\u001f]+$(?![\\s\\S])"
+      }
+    },
+    "required": [],
+    "meaning": "Supply one or more of the six settings; none is individually required. The stop applies the recognized settings in request order. test_tone belongs to test-tone/play."
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "changed": {
+      "type": "boolean",
+      "meaning": "The stop reports whether an effect or stored change was observed on this path."
+    },
+    "receiptPath": {
+      "type": "string",
+      "meaning": "Path to the native settings run.json written on a successful receipt path."
+    },
+    "receipt": {
+      "type": "object",
+      "meaning": "Native settings receipt metadata: ok, changed, kind, fields, backups and commands; entries describe files and command outcomes.",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "meaning": "The settings operation completed."
+        },
+        "changed": {
+          "type": "boolean",
+          "meaning": "The receipt records a change."
+        },
+        "kind": {
+          "type": "string",
+          "meaning": "Settings family."
+        },
+        "fields": {
+          "type": "array",
+          "meaning": "Names of requested settings.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "backups": {
+          "type": "array",
+          "meaning": "Original file metadata for files backed up by the act."
+        },
+        "commands": {
+          "type": "array",
+          "meaning": "Arguments and return codes for the dispatched tools."
+        }
+      }
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "False when the stop refuses before constructing the settings receipt; not filled by the receipt builder."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when an unexpected fault is reported by the front door instead of the stop."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Absent when the stop emits no signal. The enum lists literal outcomes. Caught command setup or filesystem errors can pass through as exception text. The envelope reader also reports the missing kernel keys by name.",
+      "enum": [
+        "JSON object required",
+        "agathodaimon-stop-raised",
+        "command-failed:card_profile",
+        "command-failed:input_device",
+        "command-failed:input_volume",
+        "command-failed:muted",
+        "command-failed:output_device",
+        "command-failed:volume",
+        "failure",
+        "foreign envelope schema",
+        "invalid JSON",
+        "invalid:card_profile",
+        "invalid:input_device:type",
+        "invalid:input_volume:percentage-range",
+        "invalid:input_volume:percentage-required",
+        "invalid:muted:boolean-required",
+        "invalid:output_device:type",
+        "invalid:volume:percentage-range",
+        "invalid:volume:percentage-required",
+        "no-fields-supplied",
+        "unknown-field:test_tone",
+        "unsupported:card_profile",
+        "unsupported:input_device",
+        "unsupported:input_volume",
+        "unsupported:muted",
+        "unsupported:output_device",
+        "unsupported:volume"
+      ]
+    }
+  }
+}

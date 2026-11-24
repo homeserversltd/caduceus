@@ -1,0 +1,123 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/display/read",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "values": {
+      "type": "object",
+      "meaning": "Display values; configured overrides or automatic/live values on Sway, and observed monitor values or config-file fallback without Sway.",
+      "fields": {
+        "output": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "Selected output key, returned by the Sway path only."
+        },
+        "resolution": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "Selected or observed width×height string, auto, or no observation."
+        },
+        "refresh_rate": {
+          "meaning": "Refresh from the selected output in Hz, the fallback monitor data/text, or null."
+        },
+        "scale": {
+          "meaning": "The selected scale, auto, the fallback monitor data/text, or null."
+        },
+        "orientation": {
+          "meaning": "The stored or observed transform, auto, or null."
+        },
+        "brightness": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "Observed brightness command text in the fallback, otherwise null."
+        },
+        "night_light": {
+          "type": "null",
+          "meaning": "No value is observed."
+        },
+        "hdr": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "meaning": "Sway feature state if exposed; otherwise null."
+        },
+        "adaptive_sync": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "meaning": "Sway feature state if exposed; otherwise null."
+        },
+        "overscan": {
+          "type": "null",
+          "meaning": "No value is observed."
+        }
+      }
+    },
+    "options": {
+      "type": "object",
+      "meaning": "On Sway, available output, resolution, refresh-rate, scale and orientation choices as value/label rows, drawn from the current output and policy."
+    },
+    "observations": {
+      "type": "object",
+      "meaning": "On Sway: backend, settings source, live connector/KMS observation, and resolved automatic mode."
+    },
+    "backend": {
+      "type": "object",
+      "meaning": "Selected Sway coordinates on a structured refusal."
+    },
+    "settingsSource": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Source of display policy fallback values on a structured refusal."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "False if emitted on a structured Sway refusal.",
+      "const": false
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "This stop only reads.",
+      "const": false
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when an unexpected fault is reported by the front door instead of the stop."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Absent when the stop emits no signal. The enum lists literal outcomes. Command setup faults can report command-unavailable:<exception class>. File, fallback monitor parsing, and malformed compositor reply errors can pass through as exception text. The envelope reader also reports the missing kernel keys by name.",
+      "enum": [
+        "JSON object required",
+        "No closing quotation",
+        "No escaped character",
+        "agathodaimon-stop-raised",
+        "command-failed",
+        "command-output-limit",
+        "command-timeout",
+        "display-override-invalid",
+        "display-override-invalid-scale",
+        "display-selection-duplicate",
+        "foreign envelope schema",
+        "invalid JSON",
+        "sway-json-invalid",
+        "sway-output-array-invalid"
+      ]
+    }
+  }
+}

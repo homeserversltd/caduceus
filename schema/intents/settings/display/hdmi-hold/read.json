@@ -1,0 +1,76 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/display/hdmi-hold/read",
+  "payload": {
+    "fields": {
+      "connector": {
+        "meaning": "Listed by the request reader but not used: the stop reads all HDMI connectors."
+      },
+      "dry-run": {
+        "meaning": "Listed by the request reader but not used by this read; the front door does not admit a dry-run field here."
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "observed": {
+      "type": "object",
+      "meaning": "HDMI state: connector inventory, managed files, live forced-link state and pending boot configuration.",
+      "fields": {
+        "connectors": {
+          "type": "array",
+          "meaning": "Connector name, sysfs path, status and EDID byte length for each matched HDMI entry."
+        },
+        "files": {
+          "type": "object",
+          "meaning": "Firmware, initramfs hook and GRUB drop-in path/existence/connector observations."
+        },
+        "held_now": {
+          "type": "boolean",
+          "meaning": "The running command line has the EDID reference and matching forced connector."
+        },
+        "edid_firmware_now": {
+          "type": "boolean",
+          "meaning": "An EDID firmware reference appears in the running command line."
+        },
+        "held_now_connector": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "The running EDID reference names this connector, if present."
+        },
+        "held_next_boot": {
+          "type": "boolean",
+          "meaning": "The saved GRUB drop-in contains an EDID reference."
+        }
+      }
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "The writer reported changed files when it completed; false on a read, plan, no-op or a handled refusal.",
+      "const": false
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when an unexpected fault is reported by the front door instead of the stop."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Absent when the stop emits no signal. The enum lists literal outcomes. Non-token intake or system exceptions are reported as hdmi-hold-read-failed:<exception class>.",
+      "enum": [
+        "agathodaimon-stop-raised",
+        "hdmi-hold-read-failed:EnvelopeError",
+        "hdmi-hold-read-failed:FileNotFoundError",
+        "hdmi-hold-read-failed:IsADirectoryError",
+        "hdmi-hold-read-failed:NotADirectoryError",
+        "hdmi-hold-read-failed:OSError",
+        "hdmi-hold-read-failed:PermissionError",
+        "hdmi-hold-read-failed:UnicodeDecodeError",
+        "hdmi-hold-read-failed:ValueError"
+      ]
+    }
+  }
+}
