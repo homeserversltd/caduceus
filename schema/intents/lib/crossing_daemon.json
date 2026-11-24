@@ -5,6 +5,7 @@
   "exousia": false,
   "mutation_allowed": false,
   "returns": {
-    "firstMissingSignal": {"enum": ["unknown-path"], "meaning": "The front door cannot resolve this import-only module under lib; the daemon entrypoint is python/crossing-daemon."}
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "The front door refused before any module ran."},
+    "firstMissingSignal": {"type": "string", "enum": ["unknown-path"], "meaning": "The front door cannot resolve this import-only module under lib; the daemon entrypoint is python/crossing-daemon."}
   }
 }

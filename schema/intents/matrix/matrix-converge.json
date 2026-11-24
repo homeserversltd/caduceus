@@ -10,6 +10,8 @@
   "exousia": false,
   "mutation_allowed": null,
   "returns": {
+    "changed": {"type": ["boolean", "null"], "meaning": "Whether apply created the registration secret or changed a reload fingerprint; false on a named apply failure, null for a plan."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Present on the argument-parser refusal, before applying or planning."},
     "planned": {"type": "boolean", "meaning": "Whether the convergence plan was requested instead of apply."},
     "plan": {"type": "object", "fields": {"floor": {"type": "array"}, "secret": {"type": "string"}, "validate": {"type": "array"}, "config": {"type": "string"}, "fingerprintState": {"type": "string"}}, "meaning": "Dependency floor, path to the secret (never its contents), validation commands, config origin and fingerprint state path."},
     "secretCreated": {"type": "boolean", "meaning": "A missing registration secret was created during apply."},

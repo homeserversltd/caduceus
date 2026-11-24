@@ -10,6 +10,8 @@
   "exousia": false,
   "mutation_allowed": true,
   "returns": {
+    "changed": {"type": "boolean", "meaning": "The source-map reseed completed an atomic profile replacement; false for no change or a reseed failure."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Present on the argument-parser refusal, before reseeding was attempted."},
     "certificatePath": {"type": "string", "meaning": "Device-logical profile certificate path."},
     "sourceMapPath": {"type": "string", "meaning": "Device-logical staged source map path."},
     "writer": {"type": "string", "const": "agathodaimon.lib.source_map", "meaning": "The writer named on source-map receipts."},

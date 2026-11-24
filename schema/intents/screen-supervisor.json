@@ -18,6 +18,7 @@
       "anyOf": [
         {"enum": ["none", "screen-supervisor-action-invalid", "screen-supervisor-follower-invalid", "XDG_RUNTIME_DIR-missing", "SWAYSOCK-missing", "invalid JSON", "JSON object required", "foreign envelope schema", "agathodaimon-stop-raised"]},
         {"pattern": "^missing envelope kernel keys: .+$"},
+        {"pattern": "^foreign seat caduceus\\.staff\\.v1: .+$", "meaning": "The envelope reader reports the foreign id it found. The front door separately refuses a foreign seat at startup."},
         {"pattern": "^\\[Errno [0-9]+\\] [\\s\\S]+$"}
       ]
     }

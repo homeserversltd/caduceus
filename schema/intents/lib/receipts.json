@@ -6,6 +6,7 @@
   "mutation_allowed": false,
   "returns": {
     "path": {"type": "string", "meaning": "The shelf-relative path of this import-only receipt helper; it has no command entrypoint."},
-    "firstMissingSignal": {"enum": ["agathodaimon-stop-has-no-act"], "meaning": "The front door's refusal; the imported emit function is not a dispatched intent."}
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "The front door found no act to dispatch."},
+    "firstMissingSignal": {"type": "string", "enum": ["agathodaimon-stop-has-no-act"], "meaning": "The front door's refusal; the imported emit function is not a dispatched intent."}
   }
 }

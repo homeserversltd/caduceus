@@ -11,6 +11,8 @@
   "mutation_allowed": true,
   "dry-run": true,
   "returns": {
+    "mutationPerformed": {"type": "boolean", "meaning": "A card-profile or default-sink change was attempted, even if it failed or could not be confirmed."},
+    "changed": {"type": "boolean", "meaning": "A changed card profile or default sink was confirmed by readback."},
     "default_sink_after": {"type": ["string", "null"], "meaning": "Default sink observed after the attempt or plan, or null when not observed."},
     "skipped": {"type": "string", "const": "hdmi-disconnected", "meaning": "No HDMI connector was connected; no change was needed."},
     "observed": {"type": ["object", "null"], "meaning": "Connector statuses, initial card profile, configured sink and initial default sink, when read."},
@@ -22,7 +24,8 @@
       "meaning": "Present on a refused response; success omits it. The optional card-change wait has its own nested signal, and an invalid canonical dry-run value is intercepted by the front door.",
       "anyOf": [
         {"enum": ["sound-follow-dry-run-invalid", "agathodaimon-dry-run-invalid", "sound-command-timeout", "sound-command-unavailable", "pactl-default-sink-read-failed", "pactl-cards-read-failed", "pactl-cards-json-invalid", "pactl-sinks-read-failed", "pactl-sinks-json-invalid", "wireplumber-configured-sink-read-failed", "wireplumber-configured-sink-metadata-invalid", "hdmi-connector-status-unavailable", "hdmi-connector-not-found", "hdmi-connector-status-invalid", "hdmi-stereo-card-not-found", "hdmi-stereo-profile-not-found", "hdmi-stereo-card-not-found-after-wait", "hdmi-stereo-profile-not-found-after-wait", "hdmi-stereo-profile-unavailable-after-wait", "hdmi-stereo-profile-unavailable", "hdmi-stereo-card-identity-missing", "pactl-set-card-profile-failed", "hdmi-card-profile-readback-missing", "hdmi-card-profile-readback-mismatch", "hdmi-sink-not-found", "pactl-set-default-sink-failed", "default-sink-readback-mismatch", "sound-follow-failed", "sound-follow-request-invalid", "invalid JSON", "JSON object required", "foreign envelope schema"]},
-        {"pattern": "^missing envelope kernel keys: .+$", "meaning": "The actual omitted kernel names, joined by commas."}
+        {"pattern": "^missing envelope kernel keys: .+$", "meaning": "The actual omitted kernel names, joined by commas."},
+        {"pattern": "^foreign seat caduceus\\.staff\\.v1: .+$", "meaning": "The envelope reader reports the foreign id it found. The front door separately refuses a foreign seat at startup."}
       ]
     }
   }

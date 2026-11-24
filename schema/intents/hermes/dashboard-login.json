@@ -10,6 +10,7 @@
   "exousia": true,
   "mutation_allowed": true,
   "returns": {
+    "mutationPerformed": {"type": "boolean", "meaning": "The dashboard configuration write completed, even if a later restart, identity check or deed failed."},
     "file": {"type": ["string", "null"], "meaning": "Written dashboard configuration path, or null before a successful write."},
     "argv": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}, "meaning": "Writer command vectors only; no stdin values."},
     "restart": {"type": ["object", "string", "null"], "meaning": "Nested unit restart receipt, skipped in scratch, or null before restart."},

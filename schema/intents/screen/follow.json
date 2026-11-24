@@ -11,6 +11,7 @@
   "mutation_allowed": true,
   "dry-run": true,
   "returns": {
+    "mutationPerformed": {"type": "boolean", "meaning": "A recorded reconciliation command was classified as mutating and returned an exit status; this does not certify its success."},
     "outputs_after": {"type": ["array", "null"], "items": {"type": "object"}, "meaning": "Sway outputs after reconciliation or the last observation in a read-only or refused path."},
     "observed": {"type": "object", "meaning": "Initial connector and Sway observations, appliance profile if known, and optionally after-wait observations."},
     "could_change_to": {"type": ["object", "null"], "meaning": "Reconciliation target and follower; on dry-run also whether HDMI agrees with Sway."},
@@ -20,7 +21,7 @@
       "type": "string",
       "meaning": "First named outcome, including dynamic exception-class or supervisor-message suffixes; an invalid canonical dry-run value is intercepted by the front door.",
       "anyOf": [
-        {"enum": ["none", "dry-run-invalid", "agathodaimon-dry-run-invalid", "sway-session-unavailable", "sway-socket-unavailable", "sway-owner-runtime-unavailable", "appliance-profile-unreadable", "appliance-profile-invalid", "appliance-profile-missing", "hdmi-sysfs-unavailable", "hdmi-connector-not-found", "hdmi-sysfs-status-unavailable", "hdmi-sysfs-status-invalid", "screen-supervisor-load-failed", "screen-observation-unavailable", "sway-output-subscription-no-stdout", "sway-output-subscription-ended", "sway-output-subscription-stop-timeout", "hdmi-sway-outputs-mismatch-after-subscription", "target-output-not-active-after-reconcile", "physical-output-set-mismatch-after-reconcile", "unexpected-physical-output-after-reconcile"]},
+        {"enum": ["none", "dry-run-invalid", "agathodaimon-dry-run-invalid", "sway-session-unavailable", "sway-socket-unavailable", "sway-owner-runtime-unavailable", "appliance-profile-unreadable", "appliance-profile-invalid", "appliance-profile-missing", "hdmi-sysfs-unavailable", "hdmi-connector-not-found", "hdmi-sysfs-status-unavailable", "hdmi-sysfs-status-invalid", "screen-observation-unavailable", "sway-output-subscription-no-stdout", "sway-output-subscription-ended", "sway-output-subscription-stop-timeout", "hdmi-sway-outputs-mismatch-after-subscription", "target-output-not-active-after-reconcile", "physical-output-set-mismatch-after-reconcile", "unexpected-physical-output-after-reconcile"]},
         {"pattern": "^(sway-output-observation-failed|sway-output-subscription-failed|sway-owner-environment-unavailable|screen-supervisor-load-failed|screen-reconcile-failed|screen-follow-request-failed|screen-follow-failed):[A-Za-z_][A-Za-z0-9_]*$"},
         {"pattern": "^supervisor-error:[\\s\\S]+$"}
       ]

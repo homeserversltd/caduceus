@@ -19,7 +19,8 @@
       "meaning": "The stop's outcome, a helper error class, or the envelope reader's literal diagnostic.",
       "anyOf": [
         {"enum": ["none", "owner-group-action-invalid", "owner-group-failed", "needs-membership", "owner-absent", "caduceus-group-absent", "root-required", "usermod-failed", "membership-not-current", "TimeoutExpired", "OSError", "PermissionError", "FileNotFoundError", "invalid JSON", "JSON object required", "foreign envelope schema", "agathodaimon-stop-raised"]},
-        {"pattern": "^missing envelope kernel keys: .+$", "meaning": "The actual omitted kernel names, joined by commas."}
+        {"pattern": "^missing envelope kernel keys: .+$", "meaning": "The actual omitted kernel names, joined by commas."},
+        {"pattern": "^foreign seat caduceus\\.staff\\.v1: .+$", "meaning": "The envelope reader reports the foreign id it found. The front door separately refuses a foreign seat at startup."}
       ]
     }
   }

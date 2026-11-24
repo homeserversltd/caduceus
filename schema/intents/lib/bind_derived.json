@@ -16,6 +16,7 @@
   "exousia": false,
   "mutation_allowed": null,
   "returns": {
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Present on the argument-parser refusal; no credential operation was dispatched."},
     "operation": {"type": "string", "enum": ["bind", "verify", "atomic-change-pin", "reset-default-pin"], "meaning": "The selected operation when reported by the library."},
     "posture": {"type": "string", "enum": ["DERIVED_BOUND", "UNBOUND", "STALE_DERIVED"], "meaning": "The status of the derived signer or of rebinding after a PIN change."},
     "identity": {"type": "string", "pattern": "^[0-9a-f]{64}$", "meaning": "The public identity digest on successful binding or rebinding."},

@@ -6,6 +6,7 @@
   "mutation_allowed": false,
   "returns": {
     "path": {"type": "string", "meaning": "The shelf-relative path of this import-only attendance library; its socket operations belong to python/staff-daemon."},
-    "firstMissingSignal": {"enum": ["agathodaimon-stop-has-no-act"], "meaning": "The front door's refusal, not an attendance socket signal."}
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "The front door found no act to dispatch."},
+    "firstMissingSignal": {"type": "string", "enum": ["agathodaimon-stop-has-no-act"], "meaning": "The front door's refusal, not an attendance socket signal."}
   }
 }

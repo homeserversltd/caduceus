@@ -23,6 +23,7 @@
   "exousia": true,
   "mutation_allowed": null,
   "returns": {
+    "mutationPerformed": {"type": "boolean", "meaning": "The stop acknowledged a successful action as mutating; false for a plan, fixed status, explicit no-effect action or refusal. Not a guarantee that a refused action had no effects."},
     "action": {"type": "string", "meaning": "The selected metadata action, or unknown on a normalized refusal."},
     "planned": {"type": "boolean", "meaning": "The stop returned a plan, or its portal status annotated with the requested flag."},
     "commands": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}, "meaning": "Observed or planned command vectors as returned by the action."},
