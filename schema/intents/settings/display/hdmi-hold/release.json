@@ -24,7 +24,7 @@
         "array",
         "null"
       ],
-      "meaning": "The pre-operation HDMI state on a plan/no-op, or the nidus per-file before/after digest rows after the writer runs. A refusal before the reply has no observation."
+      "meaning": "The pre-operation HDMI state on a plan/no-op, or the nidus per-file before/after digest rows after the writer runs. The front door supplies null when the stop refused before providing an observation."
     },
     "mutationPerformed": {
       "type": "boolean",
@@ -63,14 +63,14 @@
         "array",
         "null"
       ],
-      "meaning": "A plan has files with actions, modes, digests and optional text, and rebuild argv/deadlines; once the writer runs, this part lists writer target paths."
+      "meaning": "A plan has files with actions, modes, digests and optional text, and rebuild argv/deadlines; once the writer runs, this part lists writer target paths. The front door supplies null when the stop did not provide this part."
     },
     "attempt": {
       "type": [
         "object",
         "null"
       ],
-      "meaning": "Whether the writer tried to change files and the ordered steps it records."
+      "meaning": "Whether the writer tried to change files and the ordered steps it records. The front door supplies null when the stop did not provide this part."
     },
     "final_receipt": {
       "type": "object",

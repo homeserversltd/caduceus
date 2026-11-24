@@ -12,12 +12,15 @@
     },
     "required": []
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": false,
   "returns": {
     "observed": {
-      "type": "object",
-      "meaning": "HDMI state: connector inventory, managed files, live forced-link state and pending boot configuration.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "HDMI state: connector inventory, managed files, live forced-link state and pending boot configuration. The front door supplies null when the stop refused before providing a state.",
       "fields": {
         "connectors": {
           "type": "array",

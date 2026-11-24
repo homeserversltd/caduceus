@@ -42,7 +42,7 @@
     "required": [],
     "meaning": "Supply one or more of the six settings; none is individually required. The stop applies the recognized settings in request order. test_tone belongs to test-tone/play."
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "changed": {
