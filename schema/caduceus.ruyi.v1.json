@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.ruyi.v1",
-  "schema_version": "1.3.0",
+  "schema_version": "1.4.0",
   "role": "Public Ruyi row, roster and removal envelope",
   "authority": {
     "owner": "caduceus",
@@ -197,7 +197,25 @@
     },
     "stats": {
       "schema_ref": "caduceus.appliance.stats.sample.v1",
-      "nullable": true
+      "nullable": true,
+      "oneOf": [
+        {"schema_ref": "caduceus.appliance.stats.sample.v1"},
+        {
+          "schema_ref": "caduceus.staff.receipt.v1",
+          "fields": {
+            "stop": {
+              "type": "object",
+              "required": ["noun", "verb"],
+              "fields": {
+                "noun": {"type": "string", "const": "appliance"},
+                "verb": {"type": "string", "const": "stats"}
+              }
+            }
+          },
+          "required": ["stop"]
+        }
+      ],
+      "description": "A nullable stats slot may carry the former sample or the staff receipt bound to appliance/stats; schema_ref remains the legacy declaration."
     },
     "stats_signal": {
       "type": ["string", "null"],
@@ -237,7 +255,25 @@
         },
         "stats": {
           "schema_ref": "caduceus.appliance.stats.sample.v1",
-          "nullable": true
+          "nullable": true,
+          "oneOf": [
+            {"schema_ref": "caduceus.appliance.stats.sample.v1"},
+            {
+              "schema_ref": "caduceus.staff.receipt.v1",
+              "fields": {
+                "stop": {
+                  "type": "object",
+                  "required": ["noun", "verb"],
+                  "fields": {
+                    "noun": {"type": "string", "const": "appliance"},
+                    "verb": {"type": "string", "const": "stats"}
+                  }
+                }
+              },
+              "required": ["stop"]
+            }
+          ],
+          "description": "A nullable stats slot may carry the former sample or the staff receipt bound to appliance/stats; schema_ref remains the legacy declaration."
         },
         "stats_signal": {
           "type": ["string", "null"],
