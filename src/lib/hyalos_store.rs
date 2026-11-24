@@ -1028,6 +1028,103 @@ pub(crate) fn read_page(offset: usize, limit: usize, filters: LogFilters) -> Sto
     Ok(DeedPage { rows, total, file_size })
 }
 
+impl LogFilters {
+    /// The backup door has its own fixed selector and projection. It does not
+    /// take generic log filters or return generic Hyalos rows.
+    pub(crate) fn read_backup_page(
+        before: Option<u64>,
+        limit: usize,
+    ) -> StoreResult<(Vec<Value>, Option<i64>)> {
+        if before == Some(0) {
+            return Ok((Vec::new(), None));
+        }
+        // An older client can still send a plaintext-log offset. Treat it as
+        // a numeric upper bound, not an offset into the new store.
+        let upper = before.map_or(i64::MAX, |id| i64::try_from(id - 1).unwrap_or(i64::MAX));
+        read(|connection| {
+            // Backblaze and Forgejo send sbin deeds. A NAS verb must also
+            // name nas-sync; a PID 2 fire must be an interrupted backup.
+            // A 48-byte schedule target may have lost its suffix at ingest.
+            let mut stmt = connection.prepare(&format!(
+                "SELECT {ROW_COLUMNS} FROM deeds WHERE id <= ?1 AND (
+                    (organ = 'sbin' AND verb IN (
+                        'backblaze-bucket-add', 'backblaze-bucket-credentials',
+                        'backblaze-bucket-items', 'backblaze-bucket-items-add',
+                        'backblaze-bucket-items-remove', 'backblaze-bucket-remove',
+                        'backblaze-bucket-run', 'backblaze-bucket-save',
+                        'backblaze-restic-rekey', 'backblaze-restic-unlock', 'forgejo-backup-b2'
+                    )) OR
+                    (organ = 'sbin' AND target = 'nas-sync' AND verb IN (
+                        'nas-sync-mirror', 'mirror-pull', 'sync-hold', 'sync-release',
+                        'sync-schedule-disable'
+                    )) OR
+                    (organ = 'pid2' AND verb = 'schedule-fire'
+                        AND signal = 'pid2-fire-interrupted-by-boot'
+                        AND (target = 'nas-sync' OR (target GLOB 'backblaze-*'
+                            AND length(target) BETWEEN 16 AND 47
+                            AND substr(target, 11) NOT GLOB '*[^A-Za-z0-9-]*'
+                            AND lower(substr(target, 11, 3)) <> 'b2-')))
+                ) ORDER BY id DESC LIMIT ?2",
+            )).map_err(|_| "sqlite-backup-page-select-failed")?;
+            let mut rows = stmt.query(params![upper, limit as i64 + 1])
+                .map_err(|_| "sqlite-backup-page-select-failed")?;
+            let mut page = Vec::new();
+            let mut last_id = None;
+            while let Some(row) = rows.next().map_err(|_| "sqlite-backup-page-select-failed")? {
+                if page.len() == limit {
+                    return Ok((page, last_id));
+                }
+                last_id = Some(row.get::<_, i64>("id").map_err(|_| "sqlite-deed-row-invalid")?);
+                let row = row_json(row)?;
+                let source_verb = row["verb"].as_str().ok_or("sqlite-deed-row-invalid")?;
+                let scheduled = row["organ"].as_str() == Some("pid2");
+                let raw_target = row["target"].as_str();
+                let offsite = source_verb.starts_with("backblaze-")
+                    || source_verb == "forgejo-backup-b2"
+                    || (scheduled && raw_target != Some("nas-sync"));
+                let target = if scheduled && offsite {
+                    raw_target.and_then(|target| target.strip_prefix("backblaze-"))
+                } else if offsite {
+                    raw_target.filter(|target| {
+                        (6..=63).contains(&target.len())
+                            && target.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                            && !target.get(..3).is_some_and(|p| p.eq_ignore_ascii_case("b2-"))
+                    })
+                } else {
+                    raw_target
+                };
+                let at = row["at"].as_str()
+                    .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+                    .map(|at| at.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+                let outcome = if scheduled { Some("interrupted") } else {
+                    row["outcome"].as_str().filter(|outcome| matches!(*outcome, "ok" | "failed" | "refused" | "interrupted"))
+                };
+                let signal = row["signal"].as_str().filter(|signal| {
+                    (1..=128).contains(&signal.len())
+                        && signal.bytes().all(|b| b.is_ascii_alphanumeric() || b"._+-".contains(&b))
+                });
+                let mut projected = json!({
+                    "at": at, "job": if offsite { "offsite" } else { "drives" },
+                    "verb": if scheduled { "pid2-fire-interrupted-by-boot" } else { source_verb },
+                    "target": target, "outcome": outcome, "duration_ms": row["duration_ms"],
+                    "signal": signal,
+                });
+                // Only seated numbers can be projected. The current row seat
+                // has no backup-size fields; never invent a count or echo a family.
+                if let Some(families) = row["families"].as_object() {
+                    for key in ["added_bytes", "total_bytes"] {
+                        if let Some(count) = families.values().find_map(|family| family[key].as_u64()) {
+                            projected[key] = json!(count);
+                        }
+                    }
+                }
+                page.push(projected);
+            }
+            Ok((page, None))
+        }).map(|(page, _)| page)
+    }
+}
+
 pub(super) fn read_tail(filters: &TailFilters, limit: usize) -> StoreResult<(Vec<Value>, u64)> {
     let level = filters.level.as_deref().map(str::parse::<i64>).transpose()
         .map_err(|_| "hyalos-tail-level-invalid")?;

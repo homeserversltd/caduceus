@@ -2,7 +2,7 @@
   "namespace": "storage/backup/ledger",
   "admittance": "open",
   "flags": {},
-  "serve": [{"snake": "storage/backup/ledger", "verb": ["backup", "ledger"]}],
+  "serve": [],
   "commands": ["storage backup ledger"],
   "needs": ["nas"],
   "http_method": "POST",
