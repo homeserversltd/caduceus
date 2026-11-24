@@ -27,6 +27,8 @@ use crate::routes::leaf_schema::{self, row_schema};
 
 #[path = "gateway.rs"]
 pub(crate) mod gateway;
+#[path = "road.rs"]
+pub(crate) mod road;
 
 const TEXT_MAX: usize = 64;
 const MAX_PROJECTION_BYTES: u64 = 1024 * 1024;
@@ -1856,6 +1858,7 @@ async fn remove(
 
 pub fn register(router: axum::Router) -> axum::Router {
     router
+        .route("/api/v1/ruyi/road", axum::routing::get(road::get))
         .route("/api/v1/ruyi/:mac", axum::routing::put(put).delete(remove))
         .route("/api/v1/ruyi", axum::routing::get(list))
 }
