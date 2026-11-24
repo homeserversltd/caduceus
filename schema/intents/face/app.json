@@ -1,0 +1,45 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "face/app",
+  "payload": {
+    "fields": {
+      "id": {"type": "string", "meaning": "Owner application process name; kcm_componentchooser uses its dedicated settings scope.", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$", "maxLength": 128},
+      "action": {"type": "string", "meaning": "Open or stop the application.", "enum": ["toggle"]}
+    },
+    "required": ["id", "action"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "verb": {"type": "string", "const": "app", "meaning": "Face operation answered."},
+    "host": {"type": "string", "meaning": "Hostname of the responding staff."},
+    "timestamp": {"type": "string", "meaning": "UTC receipt timestamp."},
+    "benchmark": {"type": "object", "meaning": "Shared timings when benchmarking is requested."},
+    "changed": {"type": "boolean", "const": true, "meaning": "The application was opened or stopped on a successful toggle."},
+    "program": {"type": "string", "meaning": "Application process name in the result or error context."},
+    "running": {"type": "boolean", "meaning": "Whether the application was observed running."},
+    "pid": {"type": "integer", "meaning": "Spawned supervisor PID or observed settings process PID when supplied."},
+    "launched": {"type": "boolean", "const": true, "meaning": "A launch returned before the follow-up process observation failed."},
+    "early_exit": {"type": ["integer", "null"], "meaning": "Launcher status at the initial poll, null if still running."},
+    "exit": {"type": "integer", "meaning": "Nonzero early launcher exit on a failed launch when known."},
+    "signal_exit": {"type": "integer", "meaning": "Exit status of the stop command on a failed stop."},
+    "lock_path": {"type": "string", "meaning": "Owner runtime lock file for this application."},
+    "socket_source": {"type": "string", "meaning": "Owner session discovery sources, or not-required."},
+    "socket": {"type": "string", "meaning": "Session key with ambiguous socket observations."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed stop outcomes; none denotes success. The shared envelope reader can also report which kernel keys are missing.",
+      "enum": [
+        "none", "invalid JSON", "JSON object required", "foreign envelope schema", "face-app-operation-failed",
+        "face-app-id-required", "face-app-action-required", "face-app-id-invalid", "face-app-action-invalid",
+        "owner-account-missing", "owner-session-identity-refused", "owner-session-socket-ambiguous", "owner-wayland-socket-unavailable",
+        "owner-runtime-directory-unavailable", "owner-runtime-directory-unsafe", "owner-runuser-unavailable", "owner-launch-exec-failed",
+        "face-runtime-lock-open-failed", "face-runtime-lock-unsafe", "face-runtime-lock-custody-failed", "face-runtime-lock-owner-invalid",
+        "face-runtime-lock-acquire-failed", "face-runtime-lock-state-invalid", "face-runtime-lock-write-failed",
+        "face-app-pgrep-unavailable", "face-app-pgrep-failed", "face-app-pkill-unavailable", "face-app-stop-failed", "face-app-process-not-observed",
+        "face-app-kcm-host-absent", "face-app-kcm-session-runner-absent", "face-app-kcm-scope-state-unavailable",
+        "face-app-kcm-owner-bus-unavailable", "face-app-kcm-window-observation-unavailable", "face-app-kcm-window-not-observed"
+      ]
+    }
+  }
+}

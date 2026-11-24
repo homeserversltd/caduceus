@@ -1,0 +1,40 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "face/launch",
+  "payload": {
+    "fields": {
+      "desktop_id": {"type": ["string", "null"], "meaning": "Desktop entry to launch; when supplied, menu must be absent or null. Absent or null selects the menu.", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*\\.desktop$"},
+      "menu": {"type": ["boolean", "number", "null"], "meaning": "Request the menu without desktop_id. Omission and null already select the menu; the comparison with True also accepts numeric one.", "enum": [true, 1, null]}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "verb": {"type": "string", "const": "launch", "meaning": "Face operation answered."},
+    "host": {"type": "string", "meaning": "Hostname of the responding staff."},
+    "timestamp": {"type": "string", "meaning": "UTC receipt timestamp."},
+    "benchmark": {"type": "object", "meaning": "Shared timings when benchmarking is requested."},
+    "launched": {"type": "boolean", "const": true, "meaning": "The owner launcher was dispatched without an observed early failure."},
+    "detached": {"type": "boolean", "const": true, "meaning": "Launcher started in a detached owner scope."},
+    "launcher": {"type": "string", "enum": ["gtk-launch", "gio", "wofi"], "meaning": "Owner launcher selected by the desktop or menu path."},
+    "pid": {"type": "integer", "meaning": "PID returned by the launcher spawn, which may be the supervisor."},
+    "early_exit": {"type": ["integer", "null"], "meaning": "Zero if the launcher exited at the initial poll, null if still running."},
+    "exit": {"type": "integer", "meaning": "Nonzero early launcher exit on a failed launch when known."},
+    "socket_source": {"type": "string", "meaning": "Owner session discovery sources."},
+    "socket": {"type": "string", "meaning": "Session key with ambiguous socket observations."},
+    "presentation_keys": {"type": "array", "items": {"type": "string"}, "meaning": "Sorted names of the presentation variables carried from the owner manager."},
+    "pinned": {"type": "integer", "meaning": "Pin count read from the cache writer for the menu path."},
+    "watcher_started": {"type": "boolean", "meaning": "Whether the menu focus watcher was started; present on the menu path only."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed stop outcomes; none denotes success. The shared envelope reader can also report which kernel keys are missing.",
+      "enum": [
+        "none", "invalid JSON", "JSON object required", "foreign envelope schema", "face-launch-operation-failed",
+        "face-launch-desktop-id-invalid", "face-launch-menu-invalid", "face-launch-utility-missing", "face-launch-desktop-id-not-found",
+        "face-launch-pin-cache-failed", "face-launch-pin-cache-invalid", "owner-account-missing", "owner-session-identity-refused",
+        "owner-session-socket-ambiguous", "owner-wayland-socket-unavailable", "owner-runuser-unavailable", "owner-launch-exec-failed"
+      ]
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "face/meter",
+  "payload": {
+    "fields": {"kind": {"type": "string", "meaning": "CPU, RAM, or root disk meter read by the staff stop.", "enum": ["cpu", "ram", "disk"]}},
+    "required": ["kind"]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "verb": {"type": "string", "const": "meter", "meaning": "Face operation answered."},
+    "host": {"type": "string", "meaning": "Hostname of the responding staff."},
+    "timestamp": {"type": "string", "meaning": "UTC receipt timestamp."},
+    "benchmark": {"type": "object", "meaning": "Shared timings when benchmarking is requested."},
+    "text": {"type": "string", "meaning": "Meter label and bars."},
+    "tooltip": {"type": "string", "meaning": "Percentage plus available temperature or used and total MiB."},
+    "class": {"type": "string", "enum": ["low", "medium", "high"], "meaning": "Display class: medium from 60 percent, high from 85 percent."},
+    "value": {"type": "integer", "meaning": "Observed usage percentage."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed stop outcomes; none denotes success. The shared envelope reader can also report which kernel keys are missing.",
+      "enum": [
+        "none", "invalid JSON", "JSON object required", "foreign envelope schema", "face-meter-operation-failed",
+        "face-meter-kind-required", "face-meter-kind-invalid", "face-meter-cpu-observation-failed", "face-meter-cpu-observation-invalid",
+        "face-meter-ram-command-failed", "face-meter-ram-observation-invalid", "face-meter-ram-total-invalid",
+        "face-meter-disk-command-failed", "face-meter-disk-observation-invalid", "face-meter-disk-total-invalid"
+      ]
+    }
+  }
+}

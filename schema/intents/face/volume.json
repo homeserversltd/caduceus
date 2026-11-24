@@ -1,0 +1,38 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "face/volume",
+  "payload": {
+    "fields": {"step": {"type": "string", "meaning": "Unmute and raise by five percentage points, lower by five, or toggle mute.", "enum": ["+5", "-5", "mute"]}},
+    "required": ["step"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "verb": {"type": "string", "const": "volume", "meaning": "Face operation answered."},
+    "host": {"type": "string", "meaning": "Hostname of the responding staff."},
+    "timestamp": {"type": "string", "meaning": "UTC receipt timestamp."},
+    "benchmark": {"type": "object", "meaning": "Shared timings when benchmarking is requested."},
+    "sink": {"type": "string", "meaning": "Default audio sink, or the HDMI fallback selected when no default is observed."},
+    "level": {"type": "integer", "meaning": "First percentage read back for the selected sink, not clamped to 100."},
+    "mute": {"type": "boolean", "meaning": "Mute state read back for the selected sink."},
+    "notification": {
+      "type": "object", "meaning": "Volume notification utility availability and delivery verdict.",
+      "fields": {
+        "available": {"type": "boolean", "meaning": "Whether dunstify was found."},
+        "ok": {"type": ["boolean", "null"], "meaning": "Whether notification returned success; null when unavailable."}
+      }
+    },
+    "socket_source": {"type": "string", "meaning": "Owner session discovery sources."},
+    "socket": {"type": "string", "meaning": "Session key with ambiguous socket observations."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed stop outcomes; none denotes success. The shared envelope reader can also report which kernel keys are missing.",
+      "enum": [
+        "none", "invalid JSON", "JSON object required", "foreign envelope schema", "face-volume-operation-failed",
+        "face-volume-step-required", "face-volume-step-invalid", "owner-account-missing", "owner-session-identity-refused", "owner-session-socket-ambiguous",
+        "owner-command-argv-invalid", "face-volume-pactl-unavailable", "face-volume-sink-unavailable", "face-volume-change-failed",
+        "face-volume-readback-failed", "face-volume-mute-readback-invalid", "face-volume-readback-invalid"
+      ]
+    }
+  }
+}

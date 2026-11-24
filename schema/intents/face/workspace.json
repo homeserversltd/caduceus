@@ -1,0 +1,37 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "face/workspace",
+  "payload": {
+    "fields": {
+      "direction": {"type": "string", "meaning": "Select the preceding or following workspace in the ring.", "enum": ["prev", "next"]},
+      "carry": {"type": ["boolean", "null"], "meaning": "Also move the focused container before switching. Null behaves as omitted.", "default": false},
+      "ring": {"type": ["array", "null"], "items": {"type": "integer"}, "meaning": "Extra workspace numbers; sorted and deduplicated together with observed positive workspace numbers. Null behaves as omitted.", "default": []}
+    },
+    "required": ["direction"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "verb": {"type": "string", "const": "workspace", "meaning": "Face operation answered."},
+    "host": {"type": "string", "meaning": "Hostname of the responding staff."},
+    "timestamp": {"type": "string", "meaning": "UTC receipt timestamp."},
+    "benchmark": {"type": "object", "meaning": "Shared timings when benchmarking is requested."},
+    "target": {"type": "integer", "meaning": "Workspace number selected from the combined ring, if one was selected."},
+    "previous": {"type": "integer", "meaning": "Number reported for the previously focused workspace."},
+    "ring": {"type": "array", "items": {"type": "integer"}, "meaning": "Sorted deduplicated ring used in the operation, possibly empty on refusal."},
+    "carry": {"type": "boolean", "meaning": "Whether a move was requested as part of the switch."},
+    "socket_source": {"type": "string", "meaning": "Owner session discovery sources."},
+    "socket": {"type": "string", "meaning": "Session key with ambiguous socket observations."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed stop outcomes; none denotes success. The shared envelope reader can also report which kernel keys are missing.",
+      "enum": [
+        "none", "invalid JSON", "JSON object required", "foreign envelope schema", "face-workspace-operation-failed",
+        "face-workspace-direction-required", "face-workspace-direction-invalid", "face-workspace-carry-invalid", "face-workspace-ring-invalid",
+        "owner-account-missing", "owner-session-identity-refused", "owner-session-socket-ambiguous", "owner-sway-socket-unavailable", "swaymsg-query-failed", "swaymsg-json-invalid",
+        "face-workspace-workspaces-shape-invalid", "face-workspace-focused-missing", "face-workspace-focused-num-invalid", "face-workspace-ring-empty",
+        "swaymsg-workspace-move-failed", "swaymsg-workspace-focus-failed", "swaymsg-workspace-response-invalid", "swaymsg-workspace-command-refused"
+      ]
+    }
+  }
+}

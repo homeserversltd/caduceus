@@ -1,0 +1,48 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "face/screenshot",
+  "payload": {
+    "fields": {"mode": {"type": "string", "meaning": "Select an area, the full output, or the focused window. Only omission defaults to area.", "enum": ["area", "full", "window"], "default": "area"}},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "verb": {"type": "string", "const": "screenshot", "meaning": "Face operation answered."},
+    "host": {"type": "string", "meaning": "Hostname of the responding staff."},
+    "timestamp": {"type": "string", "meaning": "UTC receipt timestamp."},
+    "benchmark": {"type": "object", "meaning": "Shared timings when benchmarking is requested."},
+    "mode": {"type": ["string", "null"], "meaning": "Selected mode or the supplied invalid string; null for an invalid non-string."},
+    "editor": {"type": ["string", "null"], "enum": ["satty", "swappy", null], "meaning": "Editor selected for dispatch, or null when none was selected."},
+    "captured": {"type": "boolean", "meaning": "Capture bytes were observed; a later action can still fail."},
+    "cancelled": {"type": "boolean", "const": true, "meaning": "The area selector was cancelled without a capture."},
+    "detached": {"type": "boolean", "meaning": "Whether the editor waiter was detached; false on cancellation."},
+    "pid": {"type": "integer", "meaning": "PID of the dispatched editor waiter."},
+    "socket_source": {"type": "string", "meaning": "Sources of the selected owner session sockets and tool path."},
+    "exit": {"type": "integer", "meaning": "Tool or editor waiter exit status on a failure that supplies one."},
+    "timeout": {"type": "integer", "const": 100, "meaning": "Area selector's timeout in seconds on timeout refusal."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed stop outcomes; none denotes completion or area cancellation. The shared envelope reader can also report which kernel keys are missing.",
+      "enum": [
+        "none", "invalid JSON", "JSON object required", "foreign envelope schema", "face-screenshot-operation-failed",
+        "face-screenshot-mode-invalid", "owner-account-missing", "owner-session-identity-refused", "owner-runuser-unavailable",
+        "face-screenshot-runtime-directory-unavailable", "face-screenshot-runtime-directory-unsafe",
+        "face-screenshot-wayland-display-ambiguous", "face-screenshot-wayland-display-unavailable",
+        "face-screenshot-owner-path-ambiguous", "face-screenshot-owner-path-unavailable", "face-screenshot-owner-path-invalid",
+        "face-screenshot-dbus-session-bus-address-ambiguous", "face-screenshot-swaysock-ambiguous", "face-screenshot-sway-socket-ambiguous",
+        "face-screenshot-hyprland-instance-signature-ambiguous", "face-screenshot-hyprland-signature-invalid",
+        "face-screenshot-hyprland-signature-unavailable", "face-screenshot-hyprland-signature-unsafe",
+        "face-screenshot-window-compositor-unavailable", "face-screenshot-window-compositor-ambiguous",
+        "face-screenshot-grim-unavailable", "face-screenshot-wl-copy-unavailable", "face-screenshot-owner-python-unavailable", "face-screenshot-slurp-unavailable",
+        "face-screenshot-slurp-failed", "face-screenshot-slurp-timeout", "face-screenshot-slurp-geometry-invalid",
+        "swaymsg-query-failed", "swaymsg-json-invalid", "face-screenshot-sway-tree-invalid", "face-screenshot-sway-focused-window-ambiguous", "face-screenshot-sway-focused-rect-invalid",
+        "face-screenshot-hyprctl-unavailable", "face-screenshot-hyprland-activewindow-failed", "face-screenshot-hyprland-activewindow-invalid", "face-screenshot-hyprland-activewindow-rect-invalid",
+        "face-screenshot-editor-unavailable", "face-screenshot-wl-paste-unavailable", "face-screenshot-notification-unavailable",
+        "face-screenshot-capture-file-create-failed", "face-screenshot-capture-file-open-failed", "face-screenshot-capture-file-unsafe",
+        "face-screenshot-capture-busy", "face-screenshot-capture-reset-failed", "face-screenshot-grim-failed", "face-screenshot-capture-read-failed",
+        "face-screenshot-wl-copy-failed", "face-screenshot-editor-launch-failed", "face-screenshot-waiter-input-failed"
+      ]
+    }
+  }
+}

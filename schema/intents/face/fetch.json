@@ -1,0 +1,29 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "face/fetch",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "verb": {"type": "string", "const": "fetch", "meaning": "Face operation answered."},
+    "host": {"type": "string", "meaning": "Hostname of the responding staff."},
+    "timestamp": {"type": "string", "meaning": "UTC receipt timestamp."},
+    "benchmark": {"type": "object", "meaning": "Shared timings when benchmarking is requested."},
+    "moved_count": {"type": "integer", "meaning": "Windows moved to the focused workspace before success or failure."},
+    "requested_count": {"type": "integer", "meaning": "Eligible windows on the other workspaces."},
+    "current_workspace": {"type": "string", "meaning": "Workspace to which the windows were moved and focus returned."},
+    "refocus_ok": {"type": "boolean", "meaning": "Whether the final refocus succeeded when a move failed."},
+    "socket_source": {"type": "string", "meaning": "Owner session discovery sources."},
+    "socket": {"type": "string", "meaning": "Session key with ambiguous socket observations."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed stop outcomes; none denotes success. The shared envelope reader can also report which kernel keys are missing.",
+      "enum": [
+        "none", "invalid JSON", "JSON object required", "foreign envelope schema", "face-fetch-operation-failed",
+        "owner-account-missing", "owner-session-identity-refused", "owner-session-socket-ambiguous", "owner-sway-socket-unavailable",
+        "swaymsg-query-failed", "swaymsg-json-invalid", "swaymsg-workspaces-shape-invalid", "sway-focused-workspace-missing",
+        "swaymsg-tree-shape-invalid", "swaymsg-move-failed", "swaymsg-refocus-failed"
+      ]
+    }
+  }
+}

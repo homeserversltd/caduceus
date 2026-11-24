@@ -1,0 +1,23 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "face/settings-relaunch",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "kept": {"type": "integer", "meaning": "Settings processes new enough to leave running."},
+    "relaunched": {"type": "integer", "meaning": "Stale settings processes stopped and relaunched with a new window observed."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "First recorded failure, or none even if there was nothing to relaunch. The stop reports failure in the receipt, not in its exit status.",
+      "enum": [
+        "none", "owner-account-missing", "owner-session-identity-refused", "swaymsg-query-failed", "swaymsg-json-invalid",
+        "face-settings-relaunch-session-unavailable", "face-settings-relaunch-seat-unavailable", "face-settings-relaunch-process-changed",
+        "face-settings-relaunch-process-stop-failed", "face-settings-relaunch-tree-invalid", "face-settings-relaunch-window-unobserved",
+        "face-settings-relaunch-process-observation-failed", "face-settings-relaunch-parent-changed", "face-settings-relaunch-open-failed",
+        "face-settings-relaunch-process-exited", "face-settings-relaunch-operation-failed", "face-settings-relaunch-observation-failed",
+        "face-settings-relaunch-unexpected-failure"
+      ]
+    }
+  }
+}

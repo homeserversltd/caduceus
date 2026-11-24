@@ -1,0 +1,93 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "face/launcher-cache",
+  "payload": {
+    "fields": {"action": {"type": "string", "meaning": "Observe cache freshness (check) or refresh the desktop caches and read back (apply).", "enum": ["check", "apply"]}},
+    "required": ["action"]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "verb": {"type": "string", "const": "launcher-cache", "meaning": "Face operation answered."},
+    "host": {"type": "string", "meaning": "Hostname of the responding staff."},
+    "timestamp": {"type": "string", "meaning": "UTC receipt timestamp."},
+    "benchmark": {"type": "object", "meaning": "Shared timings when benchmarking is requested."},
+    "action": {"type": "string", "enum": ["check", "apply"], "meaning": "Selected observation or refresh branch."},
+    "target": {
+      "type": "object", "meaning": "Owner home and observed cache directory.",
+      "fields": {
+        "home": {"type": "string", "meaning": "Resolved owner home path."},
+        "cache_directory": {"type": "string", "meaning": "Resolved cache observation directory."}
+      }
+    },
+    "changed": {"type": "boolean", "meaning": "False for check; apply compares the initial and final state words, not all written bytes."},
+    "state": {"type": "string", "enum": ["Empty", "Different"], "meaning": "Check verdict: Empty when at least one cache is as new as the newest desktop input; Different otherwise."},
+    "observed": {
+      "type": ["object", "null"], "meaning": "Cache observation for check, or the pre-refresh observation for apply; null when none was made.",
+      "fields": {
+        "state": {"type": "string", "enum": ["Empty", "Different"], "meaning": "Cache freshness verdict."},
+        "cache_mtime_ns": {"type": ["integer", "null"], "meaning": "Newest regular cache mtime, null if none was found."},
+        "newest_desktop_input_mtime_ns": {"type": "integer", "meaning": "Newest regular desktop input mtime; zero if none was found."},
+        "cache_count": {"type": "integer", "meaning": "Number of regular caches observed."},
+        "desktop_input_count": {"type": "integer", "meaning": "Number of regular desktop inputs observed."},
+        "errors": {"type": "array", "items": {"type": "string", "enum": ["launcher-cache-cache-stat-failed", "launcher-cache-cache-directory-observation-failed", "launcher-cache-desktop-input-observation-failed", "launcher-cache-desktop-input-stat-failed"]}, "meaning": "Named faults from the observation."}
+      }
+    },
+    "could_change": {
+      "type": "object", "meaning": "Apply's requested cache state and path.",
+      "fields": {
+        "state": {"type": "string", "const": "Empty", "meaning": "Fresh cache state sought."},
+        "path": {"type": "string", "meaning": "Cache directory observed."}
+      }
+    },
+    "attempt": {
+      "type": ["object", "null"], "meaning": "Apply's native refresh outcome and ordered operations, not an arpeggio; null when there was no refresh attempt.",
+      "fields": {
+        "attempted": {"type": "boolean", "const": true, "meaning": "The refresh was attempted."},
+        "exit": {"type": "integer", "meaning": "Zero for no failed steps, else the first known failed step exit or one."},
+        "steps": {
+          "type": "array", "meaning": "Native refresh step rows in execution order.",
+          "items": {
+            "type": "object", "fields": {
+              "name": {"type": "string", "enum": ["update-desktop-database", "remove-ksycoca-cache", "kbuildsycoca6", "remove-wofi-cache"], "meaning": "Operation name."},
+              "outcome": {"type": "string", "enum": ["succeeded", "failed"], "meaning": "Operation verdict."},
+              "signal": {"type": "string", "meaning": "Step-specific failure, when present.", "enum": ["launcher-cache-update-desktop-database-utility-missing", "launcher-cache-update-desktop-database-failed", "launcher-cache-remove-ksycoca-cache-rm-unavailable", "launcher-cache-remove-ksycoca-cache-failed", "launcher-cache-ksycoca-observation-failed", "launcher-cache-kbuildsycoca6-utility-missing", "launcher-cache-kbuildsycoca6-failed", "launcher-cache-remove-wofi-cache-rm-unavailable", "launcher-cache-remove-wofi-cache-failed", "launcher-cache-wofi-remove-failed"]},
+              "exit": {"type": "integer", "meaning": "Native command status if dispatched."},
+              "count": {"type": "integer", "meaning": "Count of removal targets when reported."},
+              "changed": {"type": "boolean", "const": false, "meaning": "The removal step had no targets."},
+              "stderr_tail": {"type": "string", "meaning": "Bounded, redacted command stderr tail when not empty."}
+            }
+          }
+        }
+      }
+    },
+    "final": {
+      "type": "object", "meaning": "Apply's post-refresh observation.",
+      "fields": {
+        "state": {"type": "string", "enum": ["Empty", "Different"], "meaning": "Cache freshness verdict."},
+        "cache_mtime_ns": {"type": ["integer", "null"], "meaning": "Newest regular cache mtime, null if none was found."},
+        "newest_desktop_input_mtime_ns": {"type": "integer", "meaning": "Newest regular desktop input mtime; zero if none was found."},
+        "cache_count": {"type": "integer", "meaning": "Number of regular caches observed."},
+        "desktop_input_count": {"type": "integer", "meaning": "Number of regular desktop inputs observed."},
+        "errors": {"type": "array", "items": {"type": "string", "enum": ["launcher-cache-cache-stat-failed", "launcher-cache-cache-directory-observation-failed", "launcher-cache-desktop-input-observation-failed", "launcher-cache-desktop-input-stat-failed"]}, "meaning": "Named faults from the observation."},
+        "converged": {"type": "boolean", "meaning": "The final state is Empty with no observation errors."}
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed stop outcomes; none denotes success. The shared envelope reader can also report which kernel keys are missing.",
+      "enum": [
+        "none", "invalid JSON", "JSON object required", "foreign envelope schema", "face-launcher-cache-operation-failed",
+        "face-launcher-cache-action-required", "face-launcher-cache-action-invalid", "launcher-home-invalid",
+        "owner-account-missing", "owner-session-identity-refused", "owner-runuser-unavailable",
+        "launcher-cache-cache-stat-failed", "launcher-cache-cache-directory-observation-failed",
+        "launcher-cache-desktop-input-observation-failed", "launcher-cache-desktop-input-stat-failed",
+        "launcher-cache-update-desktop-database-utility-missing", "launcher-cache-update-desktop-database-failed",
+        "launcher-cache-remove-ksycoca-cache-rm-unavailable", "launcher-cache-remove-ksycoca-cache-failed", "launcher-cache-ksycoca-observation-failed",
+        "launcher-cache-kbuildsycoca6-utility-missing", "launcher-cache-kbuildsycoca6-failed",
+        "launcher-cache-remove-wofi-cache-rm-unavailable", "launcher-cache-remove-wofi-cache-failed", "launcher-cache-wofi-remove-failed",
+        "launcher-cache-not-converged"
+      ]
+    }
+  }
+}

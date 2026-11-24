@@ -1,0 +1,42 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "face/focus",
+  "payload": {
+    "fields": {"direction": {"type": "string", "meaning": "Cycle forward or backward through eligible windows in workspace and screen order.", "enum": ["next", "prev"]}},
+    "required": ["direction"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "verb": {"type": "string", "const": "focus", "meaning": "Face operation answered."},
+    "host": {"type": "string", "meaning": "Hostname of the responding staff."},
+    "timestamp": {"type": "string", "meaning": "UTC receipt timestamp."},
+    "benchmark": {"type": "object", "meaning": "Shared timings when benchmarking is requested."},
+    "changed": {"type": "boolean", "meaning": "Focus commands succeeded; false for the no-eligible-window result."},
+    "target": {
+      "type": ["object", "null"],
+      "meaning": "Selected window before dispatch, or null when there was no eligible window.",
+      "fields": {
+        "id": {"type": "integer", "meaning": "Sway container ID."},
+        "workspace": {"type": "string", "meaning": "Workspace name."},
+        "workspace_num": {"type": "integer", "meaning": "Workspace number or the sort sentinel 2147483647 for an unnumbered workspace."},
+        "output": {"type": "string", "meaning": "Active display name."},
+        "x": {"type": "integer", "meaning": "Horizontal coordinate used in ordering, or zero when not an integer."},
+        "y": {"type": "integer", "meaning": "Vertical coordinate used in ordering, or zero when not an integer."},
+        "focused": {"type": "boolean", "meaning": "Whether it was already focused in the observation."}
+      }
+    },
+    "socket_source": {"type": "string", "meaning": "Owner session discovery sources."},
+    "socket": {"type": "string", "meaning": "Session key with ambiguous socket observations."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed stop outcomes; none denotes success. The shared envelope reader can also report which kernel keys are missing.",
+      "enum": [
+        "none", "invalid JSON", "JSON object required", "foreign envelope schema", "face-focus-operation-failed",
+        "face-focus-direction-required", "face-focus-direction-invalid", "owner-account-missing", "owner-session-identity-refused",
+        "owner-session-socket-ambiguous", "owner-sway-socket-unavailable", "swaymsg-query-failed", "swaymsg-json-invalid",
+        "swaymsg-response-shape-invalid", "swaymsg-focus-failed"
+      ]
+    }
+  }
+}
