@@ -709,6 +709,20 @@
         {
           "properties": {
             "tool": {
+              "const": "staff"
+            },
+            "permutation": {
+              "const": "ask"
+            }
+          },
+          "required": [
+            "tool",
+            "permutation"
+          ]
+        },
+        {
+          "properties": {
+            "tool": {
               "const": "command"
             },
             "permutation": {
@@ -1544,6 +1558,32 @@
             "properties": {
               "args": {
                 "$ref": "#/definitions/ladderArgs_ai_coding_harness_reconcile"
+              }
+            },
+            "required": [
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "staff"
+              },
+              "permutation": {
+                "const": "ask"
+              }
+            },
+            "required": [
+              "tool",
+              "permutation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/definitions/ladderArgs_staff_ask"
               }
             },
             "required": [
@@ -3558,6 +3598,82 @@
       },
       "required": [
         "files"
+      ]
+    },
+    "ladderArgs_staff_ask": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intent": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+(/[a-z0-9_-]+)*$",
+          "description": "The intent name of the staff stop to ask."
+        },
+        "observe": {
+          "type": "object",
+          "description": "The payload used to observe the current state."
+        },
+        "act": {
+          "type": "object",
+          "description": "The payload used to change the state."
+        },
+        "converged": {
+          "type": "object",
+          "description": "The expected return when the state is converged.",
+          "additionalProperties": false,
+          "properties": {
+            "stdout": {
+              "type": "string",
+              "description": "The expected raw line for a stop whose own seat declares one, until it answers the one receipt."
+            },
+            "receipt": {
+              "type": "object",
+              "minProperties": 1,
+              "description": "Expected values keyed by dotted member paths into caduceus.staff.receipt.v1."
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "stdout"
+              ]
+            },
+            {
+              "required": [
+                "receipt"
+              ]
+            }
+          ]
+        },
+        "timeout_secs": {
+          "description": "The time allowed for the ask in seconds.",
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$constants\\.[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "lane": {
+          "description": "The lane in which the ask runs.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/definitions/constantRef"
+            }
+          ]
+        }
+      },
+      "required": [
+        "intent",
+        "observe",
+        "act",
+        "converged"
       ]
     },
     "ladderArgs_command_act": {
