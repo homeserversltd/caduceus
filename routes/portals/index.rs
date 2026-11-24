@@ -212,6 +212,25 @@ fn homeserver_native_slugs() -> Result<BTreeSet<String>, String> {
 }
 
 pub(crate) fn guard_native_portals(before: &Value, after: &Value) -> Result<(), String> {
+    if homeserver_profile() {
+        let before = HOMESERVER_PORTALS.split('.').try_fold(before, |v, key| v.get(key));
+        let after = HOMESERVER_PORTALS.split('.').try_fold(after, |v, key| v.get(key));
+        if before != after {
+            let native = homeserver_native_slugs()?;
+            let remaining: BTreeSet<String> = after
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry.get("name").and_then(Value::as_str))
+                .filter(|name| !name.trim().is_empty())
+                .map(name_slug)
+                .collect();
+            if !native.is_subset(&remaining) {
+                return Err("caduceus-portals-native-entry".into());
+            }
+        }
+        return Ok(());
+    }
     // Mounting this leaf on HomeServer must not enable the legacy config guard.
     if !homeserver_profile() && before.get("portals") != after.get("portals") {
         let remaining = slugs(after.get("portals"))?;
