@@ -436,31 +436,6 @@ pub fn wake_stop_json(metadata: Value) -> Result<Value, String> {
     stop_receipt(stop, selected_fields(&metadata, names))
 }
 
-pub fn child_device_stop_json(metadata: Value) -> Result<Value, String> {
-    let action = metadata.get("action").and_then(Value::as_str)
-        .ok_or_else(|| "child-device-envelope-metadata-invalid".to_string())?;
-    let (stop, names): (&str, &[&str]) = match action {
-        "observed" => ("network/child-device/observed", &[]),
-        "list" => ("network/child-device/list", &[]),
-        "apply" => ("network/child-device/apply", &[]),
-        "register" => ("network/child-device/register", &["mac", "name"]),
-        "unregister" => ("network/child-device/unregister", &["mac"]),
-        "whitelist get" => ("network/child-device/whitelist/get", &["mac"]),
-        "whitelist set" => ("network/child-device/whitelist/set", &["mac", "hosts"]),
-        _ => return Err("child-device-action-invalid".into()),
-    };
-    let mut fields = selected_fields(&metadata, names);
-    if action == "whitelist set" {
-        if metadata.get("hosts").is_some() && metadata.get("hostnames").is_some() {
-            return Err("child-device-whitelist-hosts-invalid".into());
-        }
-        if let Some(hostnames) = metadata.get("hostnames") {
-            fields["hosts"] = hostnames.clone();
-        }
-    }
-    stop_receipt(stop, fields)
-}
-
 pub fn stop_receipt(stop: &str, fields: Value) -> Result<Value, String> {
     let walked = crate::gate::snake::crossing_path_with_timeout(stop, &fields, Duration::from_secs(30))?;
     let mut receipt = walked.get("receiptPayload").cloned().filter(Value::is_object)

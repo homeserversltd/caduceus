@@ -101,8 +101,6 @@ pub use leaf_network_device_list as list_network_devices;
 pub use leaf_network_tailnet as manage_tailnet;
 #[cfg(leaf_network_vpn)]
 pub use leaf_network_vpn as manage_vpn;
-#[cfg(leaf_settings_child_device)]
-pub use leaf_settings_child_device as manage_child_device;
 #[cfg(leaf_local_ai_query)]
 pub use leaf_local_ai_query as query_local_ai;
 #[cfg(leaf_log_read)]
@@ -180,8 +178,6 @@ pub(crate) use leaf_network_dhcp_status::network_read_route;
 #[path = "network/support/read.rs"]
 pub mod network_read;
 pub use network_read as network;
-#[cfg(leaf_settings_child_device)]
-pub use manage_child_device as child_device;
 #[cfg(leaf_network_bandwidth_measure)]
 pub use measure_bandwidth as speedtest;
 #[cfg(leaf_appliance_name)]

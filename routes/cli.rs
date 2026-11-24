@@ -15,8 +15,6 @@ pub fn show() -> i32 {
     0
 }
 
-#[cfg(leaf_settings_child_device)]
-use crate::routes::child_device;
 #[cfg(any(
     leaf_display_projector_power,
     leaf_display_projector_products,
@@ -44,7 +42,6 @@ use crate::shared::policy;
 pub(crate) mod cli_staff;
 #[cfg(any(
     leaf_settings_appearance,
-    leaf_settings_child_device,
     leaf_settings_datetime,
     leaf_settings_default_apps,
     leaf_settings_display,
@@ -496,7 +493,6 @@ where
         }
         #[cfg(any(
             leaf_settings_appearance,
-            leaf_settings_child_device,
             leaf_settings_datetime,
             leaf_settings_default_apps,
             leaf_settings_display,
@@ -529,20 +525,6 @@ where
         [domain, verb] if domain == "legacy-sbin" && verb == "list" => legacy_sbin::list(),
         [domain, verb] if domain == "homeserver-sbin" && verb == "list" => homeserver_sbin::list(),
         [domain, verb] if domain == "network" && verb == "status" => network::status(),
-        #[cfg(leaf_settings_child_device)]
-        [domain, rest @ ..] if domain == "child-device" && !rest.is_empty() => {
-            match policy::allows_command("child-device") {
-                Ok(true) => child_device::command(rest),
-                Ok(false) => {
-                    eprintln!("caduceus-public-action-not-allowed");
-                    2
-                }
-                Err(error) => {
-                    eprintln!("{error}");
-                    1
-                }
-            }
-        }
         [domain, object, rest @ ..]
             if domain == "network" && object == "dhcp" && !rest.is_empty() =>
         {
@@ -1140,7 +1122,6 @@ fn print_usage(args: Option<&[String]>) {
     println!("  caduceus time resolve");
     println!("  caduceus time ensure-ntp");
     println!("  caduceus time set-timezone <timezone>");
-    println!("  caduceus child-device <command> [arguments]");
     println!("  caduceus disk test progress");
     println!("  caduceus disk test results");
     println!("  caduceus disk test start <device> <quick|full|ultimate> [--dry-run]");
