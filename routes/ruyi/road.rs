@@ -62,25 +62,30 @@ pub(super) async fn get(
         }
         Ok::<_, (StatusCode, Json<crate::gate::ApiErrorBody>)>((rows, current_identity()))
     }).await??;
-    let self_mac = identity.mac.unwrap_or_else(|| "unknown".to_owned());
+    let known_self_mac = identity.mac;
+    let self_mac = known_self_mac.as_deref().unwrap_or("unknown");
     let Json(beam) = crate::routes::leaf_beam::route().await?;
     let hostname = beam.hostname.filter(|name| !name.trim().is_empty()).unwrap_or_else(|| "unknown".to_owned());
     let mut answers = Vec::new();
     let mut tasks = JoinSet::new();
+    let mut task_peers = std::collections::HashMap::new();
     if target == "every" || target == self_mac {
-        if thing == "stats" {
+        if known_self_mac.is_none() {
+            answers.push(answer(self_mac, &hostname, false, Some("seat-mac-unknown".to_owned()), None));
+        } else if thing == "stats" {
             let (value, signal) = local_stats();
-            answers.push(answer(&self_mac, &hostname, true, signal, value));
+            answers.push(answer(self_mac, &hostname, true, signal, value));
         } else {
-            answers.push(answer(&self_mac, &hostname, false, Some("thing-undeclared".to_owned()), None));
+            answers.push(answer(self_mac, &hostname, false, Some("thing-undeclared".to_owned()), None));
         }
     }
-    for row in rows.into_iter().filter(|row| row.mac != self_mac && (target == "every" || row.mac == target)) {
+    for row in rows.into_iter().filter(|row| known_self_mac.as_deref() != Some(row.mac.as_str()) && (target == "every" || row.mac == target)) {
         if thing != "stats" {
             answers.push(answer(&row.mac, &row.hostname, false, Some("thing-undeclared".to_owned()), None));
             continue;
         }
-        tasks.spawn(async move {
+        let peer = (row.mac.clone(), row.hostname.clone());
+        let handle = tasks.spawn(async move {
             match prove_stave(&row, Instant::now() + RUYI_PEER_TIMEOUT).await {
                 Ok((host, port)) => {
                     let (value, signal) = fetch_peer_stats(&host, port).await;
@@ -89,11 +94,19 @@ pub(super) async fn get(
                 Err(signal) => answer(&row.mac, &row.hostname, false, Some(signal.to_owned()), None),
             }
         });
+        task_peers.insert(handle.id(), peer);
     }
-    while let Some(result) = tasks.join_next().await {
+    while let Some(result) = tasks.join_next_with_id().await {
         match result {
-            Ok(value) => answers.push(value),
-            Err(_) => return Err(error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-road-task-failed")),
+            Ok((id, value)) => {
+                task_peers.remove(&id);
+                answers.push(value);
+            }
+            Err(err) => {
+                if let Some((mac, hostname)) = task_peers.remove(&err.id()) {
+                    answers.push(answer(&mac, &hostname, false, Some("road-task-failed".to_owned()), None));
+                }
+            }
         }
     }
     if answers.is_empty() {
