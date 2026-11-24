@@ -1,0 +1,14 @@
+{
+  "namespace": "exousia/verify",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "exousia/verify", "verb": ["exousia", "verify"]}],
+  "commands": ["exousia verify"],
+  "needs": ["all"],
+  "http_method": "POST",
+  "http_path": "/api/v1/exousia/verify",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "mutation_allowed": false,
+  "deadline_seconds": 30
+}
