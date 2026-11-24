@@ -1,0 +1,163 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/energy/set",
+  "payload": {
+    "fields": {
+      "screen_off_seconds": {
+        "type": "integer",
+        "meaning": "Sway display blanking timeout in seconds; zero disables it. Requires the owner Sway session.",
+        "minimum": 0,
+        "maximum": 86400
+      },
+      "sleep_seconds": {
+        "meaning": "Recognized but always refused: there is no idle sleep consumer."
+      },
+      "power_button_action": {
+        "type": "string",
+        "meaning": "Action to set for the logind power key.",
+        "enum": [
+          "poweroff",
+          "suspend",
+          "ignore"
+        ]
+      },
+      "power_profile": {
+        "type": "string",
+        "meaning": "The exact name of a profile currently advertised by powerprofilesctl; choices are runtime-dependent.",
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "charge_limit": {
+        "type": "boolean",
+        "meaning": "Whether to enable conservation mode on hardware that exposes it."
+      },
+      "battery_level": {
+        "meaning": "Recognized but always refused on write: this field is owned by the system."
+      },
+      "battery_state": {
+        "meaning": "Recognized but always refused on write: this field is owned by the system."
+      },
+      "lid_action": {
+        "meaning": "Recognized but always refused on write: this field is owned by the system."
+      }
+    },
+    "required": [],
+    "meaning": "Supply at least one writable field. No individual field is mandatory, and an empty payload is refused."
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "changed": {
+      "type": "boolean",
+      "meaning": "Whether a settings change was reported; false on a returned refusal or environment-only preview."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "False before actuation or on a preview; on rollback failure, indicates unconfirmed compensation."
+    },
+    "receiptPath": {
+      "type": "string",
+      "meaning": "Path to the settings receipt written on a successful non-preview run."
+    },
+    "receipt": {
+      "type": "object",
+      "meaning": "Settings operation record: kind, field names, ok, changed, backups and commands."
+    },
+    "dryRun": {
+      "type": "boolean",
+      "meaning": "Present and true on the environment-only CADUCEUS_SETTINGS_DRY_RUN preview, not on the staff-envelope path.",
+      "const": true
+    },
+    "commands": {
+      "type": "array",
+      "meaning": "Would-be process and file operations for the environment-only preview."
+    },
+    "observed": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "meaning": "Nidus file witnesses with path and before/after digests when a file transaction ran."
+    },
+    "could_change_to": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "meaning": "Candidate file paths when the nidus writer participated."
+    },
+    "attempt": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Nidus transaction steps and field readbacks when available."
+    },
+    "final_receipt": {
+      "type": "object",
+      "meaning": "Nidus outcome when present; otherwise the shared stamp reports the stop outcome."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the shared front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed outcome tokens and open families for echoed input keys, exception classes and composite rollback failures; preflight can also forward exception text. Success omits this top-level field.",
+      "enum": [
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: intent_id",
+        "missing envelope kernel keys: transition",
+        "missing envelope kernel keys: version",
+        "missing envelope kernel keys: timestamp",
+        "missing envelope kernel keys: intent_id,transition",
+        "missing envelope kernel keys: intent_id,version",
+        "missing envelope kernel keys: intent_id,timestamp",
+        "missing envelope kernel keys: transition,version",
+        "missing envelope kernel keys: transition,timestamp",
+        "missing envelope kernel keys: version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version",
+        "missing envelope kernel keys: intent_id,transition,timestamp",
+        "missing envelope kernel keys: intent_id,version,timestamp",
+        "missing envelope kernel keys: transition,version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version,timestamp",
+        "agathodaimon-stop-raised",
+        "no-fields-supplied",
+        "unsupported:system-owned",
+        "energy-idle-consumer-absent",
+        "unsupported:sway-session-unavailable",
+        "invalid:screen_off_seconds",
+        "invalid:power_button_action",
+        "invalid:power_profile",
+        "invalid:charge_limit:boolean-required",
+        "unsupported:power-profiles-daemon-unavailable",
+        "unsupported:charge_limit",
+        "charge-limit-unreadable",
+        "charge-limit-drop-in-is-symlink",
+        "charge-limit-write-failed",
+        "charge-limit-readback-mismatch",
+        "charge-limit-drop-in-readback-mismatch",
+        "screen-idle-readback-mismatch",
+        "screen-idle-config-unreadable",
+        "swayidle-observation-failed",
+        "swayidle-stop-failed",
+        "swayidle-stop-timeout",
+        "swayidle-start-timeout",
+        "power-profile-set-failed",
+        "power-profile-readback-mismatch",
+        "logind-reload-failed",
+        "logind-power-key-observation-failed",
+        "logind-power-key-shadowed",
+        "energy-file-readback-mismatch:screen_off_seconds",
+        "energy-file-readback-mismatch:power_button_action",
+        "owner-runuser-unavailable"
+      ],
+      "patterns": [
+        "^unknown-field:[\\s\\S]*$",
+        "^settings-energy-failed:[A-Za-z_][A-Za-z_0-9]*$",
+        "^rollback-failed:[a-zA-Z0-9_.:-]+$"
+      ]
+    }
+  }
+}

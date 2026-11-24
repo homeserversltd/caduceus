@@ -1,0 +1,101 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/ssh/config/set",
+  "payload": {
+    "fields": {
+      "state": {
+        "type": "string",
+        "meaning": "Desired SSH exposure state.",
+        "enum": [
+          "on",
+          "off"
+        ]
+      }
+    },
+    "required": [
+      "state"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "original": {
+      "type": "string",
+      "meaning": "The exact configuration preimage once the stop captured it, also available on post-read refusal."
+    },
+    "changedFlag": {
+      "type": "boolean",
+      "meaning": "Whether a change was made or compensation could not prove restoration, used by the rescue stage."
+    },
+    "changed": {
+      "type": "array",
+      "meaning": "Zero or one PubkeyAuthentication transition with directive, from, to and operation (inserted or replaced)."
+    },
+    "unchanged": {
+      "type": "array",
+      "meaning": "Zero or one already-correct PubkeyAuthentication directive with its value."
+    },
+    "mutation_performed": {
+      "type": "boolean",
+      "meaning": "Whether the stop reports that the configuration changed; snake-case spelling retained."
+    },
+    "commands": {
+      "type": "array",
+      "meaning": "External command argument vectors recorded by the stop.",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the shared front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s first outcome signal, when supplied.",
+      "enum": [
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: intent_id",
+        "missing envelope kernel keys: transition",
+        "missing envelope kernel keys: version",
+        "missing envelope kernel keys: timestamp",
+        "missing envelope kernel keys: intent_id,transition",
+        "missing envelope kernel keys: intent_id,version",
+        "missing envelope kernel keys: intent_id,timestamp",
+        "missing envelope kernel keys: transition,version",
+        "missing envelope kernel keys: transition,timestamp",
+        "missing envelope kernel keys: version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version",
+        "missing envelope kernel keys: intent_id,transition,timestamp",
+        "missing envelope kernel keys: intent_id,version,timestamp",
+        "missing envelope kernel keys: transition,version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version,timestamp",
+        "payload-not-object",
+        "agathodaimon-stop-raised",
+        "unsupported-operation",
+        "agathodaimon-ssh-exposure-scratch-config-outside-root",
+        "agathodaimon-ssh-exposure-config-read-refused",
+        "agathodaimon-ssh-exposure-directive-unsupported",
+        "agathodaimon-ssh-exposure-directive-ambiguous",
+        "agathodaimon-ssh-exposure-scratch-tool-unavailable",
+        "agathodaimon-ssh-exposure-config-invalid",
+        "agathodaimon-ssh-exposure-runtime-directory-refused",
+        "identity-lock-unavailable:ssh-config",
+        "agathodaimon-ssh-exposure-config-changed",
+        "agathodaimon-ssh-exposure-config-readback-mismatch",
+        "agathodaimon-ssh-exposure-config-restore-refused",
+        "none"
+      ],
+      "patterns": [
+        "^unknown-field:[\\s\\S]*$",
+        "^agathodaimon-ssh-exposure-failed:[A-Za-z_][A-Za-z_0-9]*$",
+        "^agathodaimon-ssh-exposure-config-set-failed:[A-Za-z_][A-Za-z_0-9]*$"
+      ]
+    }
+  }
+}

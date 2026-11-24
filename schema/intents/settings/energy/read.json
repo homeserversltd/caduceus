@@ -1,0 +1,146 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/energy/read",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "values": {
+      "type": "object",
+      "meaning": "Observe the energy settings and those hardware rows that exist.",
+      "fields": {
+        "screen_off_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "meaning": "Configured Sway screen-off seconds, observed Hypridle screen-off seconds, or null."
+        },
+        "sleep_seconds": {
+          "type": "null",
+          "meaning": "No system sleep consumer is available."
+        },
+        "power_button_action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "Observed logind power-key action when supported, or null.",
+          "enum": [
+            "poweroff",
+            "suspend",
+            "ignore",
+            null
+          ]
+        },
+        "battery_level": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "meaning": "Present battery charge percentage when observable.",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "battery_state": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "Power-supply status text of the present battery."
+        },
+        "lid_action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "Observed logind lid action when a battery is present."
+        },
+        "charge_limit": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "meaning": "Conservation mode when the hardware exposes its setting."
+        },
+        "power_profile": {
+          "type": "string",
+          "meaning": "Active power profile when reported by the active daemon."
+        }
+      }
+    },
+    "options": {
+      "type": "object",
+      "meaning": "Choices reported for power_profile when the daemon identifies the active choice.",
+      "fields": {
+        "power_profile": {
+          "type": "array",
+          "meaning": "Rows with value, label, and cpu_only=true when platform profiles are absent."
+        }
+      }
+    },
+    "readonly": {
+      "type": "object",
+      "meaning": "Field-to-reason map for rows that are not writable.",
+      "fields": {
+        "screen_off_seconds": {
+          "type": "string",
+          "meaning": "Reason the observed row is not writable.",
+          "const": "sway-session-unavailable"
+        },
+        "battery_level": {
+          "type": "string",
+          "meaning": "Reason the observed row is not writable.",
+          "const": "system-owned"
+        },
+        "battery_state": {
+          "type": "string",
+          "meaning": "Reason the observed row is not writable.",
+          "const": "system-owned"
+        },
+        "lid_action": {
+          "type": "string",
+          "meaning": "Reason the observed row is not writable.",
+          "const": "system-owned"
+        }
+      }
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "Energy read never changes settings.",
+      "const": false
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the shared front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "A shared reader refusal, or an escaping exception stamped by the front door. Success omits this field; an invalid UTF-8 settings file can also supply its decoding diagnostic.",
+      "enum": [
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: intent_id",
+        "missing envelope kernel keys: transition",
+        "missing envelope kernel keys: version",
+        "missing envelope kernel keys: timestamp",
+        "missing envelope kernel keys: intent_id,transition",
+        "missing envelope kernel keys: intent_id,version",
+        "missing envelope kernel keys: intent_id,timestamp",
+        "missing envelope kernel keys: transition,version",
+        "missing envelope kernel keys: transition,timestamp",
+        "missing envelope kernel keys: version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version",
+        "missing envelope kernel keys: intent_id,transition,timestamp",
+        "missing envelope kernel keys: intent_id,version,timestamp",
+        "missing envelope kernel keys: transition,version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version,timestamp",
+        "agathodaimon-stop-raised"
+      ]
+    }
+  }
+}

@@ -1,0 +1,246 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/samba/off",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "observed": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Fixed-unit load states, or the load-probe refusal for each unit.",
+      "fields": {
+        "loadStates": {
+          "type": "object",
+          "meaning": "smbd.service, nmbd.service and wsdd2.service each carry loadState or firstMissingSignal."
+        }
+      }
+    },
+    "could_change_to": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Requested active and enabled state."
+    },
+    "attempt": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Action taken on loaded units; each step has unit, ok, returncode and the command outcome.",
+      "fields": {
+        "command": {
+          "type": "string",
+          "meaning": "systemctl action sent with --now.",
+          "const": "disable"
+        },
+        "steps": {
+          "type": "array",
+          "meaning": "One row for each actuation attempt.",
+          "items": {
+            "type": "object",
+            "fields": {
+              "firstMissingSignal": {
+                "type": "string",
+                "meaning": "The stop’s first outcome signal, when supplied.",
+                "enum": [
+                  "agathodaimon-settings-samba-smbd-disable-launch-failed",
+                  "agathodaimon-settings-samba-smbd-disable-failed",
+                  "agathodaimon-settings-samba-nmbd-disable-launch-failed",
+                  "agathodaimon-settings-samba-nmbd-disable-failed",
+                  "agathodaimon-settings-samba-wsdd2-disable-launch-failed",
+                  "agathodaimon-settings-samba-wsdd2-disable-failed",
+                  "none"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "unitsActedOn": {
+      "type": "array",
+      "meaning": "Units for which systemctl returned an actuation status.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "smbd.service",
+          "nmbd.service",
+          "wsdd2.service"
+        ]
+      }
+    },
+    "readback": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Samba status, or null if it could not be observed.",
+      "fields": {
+        "services": {
+          "type": "object",
+          "meaning": "Observations of smbd and nmbd.",
+          "fields": {
+            "smbd": {
+              "type": "object",
+              "meaning": "Samba unit observation.",
+              "fields": {
+                "unit": {
+                  "type": "string",
+                  "meaning": "Unit queried.",
+                  "enum": [
+                    "smbd.service",
+                    "nmbd.service"
+                  ]
+                },
+                "active": {
+                  "type": "boolean",
+                  "meaning": "True exactly when the unit is active."
+                },
+                "activeState": {
+                  "type": "string",
+                  "meaning": "Accepted active state; a missing unit is inactive.",
+                  "enum": [
+                    "active",
+                    "inactive",
+                    "failed",
+                    "activating",
+                    "deactivating",
+                    "reloading",
+                    "maintenance",
+                    "refreshing"
+                  ]
+                },
+                "enabled": {
+                  "type": "boolean",
+                  "meaning": "True exactly when systemctl reports enabled."
+                },
+                "enabledState": {
+                  "type": "string",
+                  "meaning": "Accepted unit-file state or unknown for a missing unit.",
+                  "enum": [
+                    "enabled",
+                    "enabled-runtime",
+                    "linked",
+                    "linked-runtime",
+                    "alias",
+                    "masked",
+                    "masked-runtime",
+                    "static",
+                    "indirect",
+                    "disabled",
+                    "generated",
+                    "transient",
+                    "unknown"
+                  ]
+                }
+              }
+            },
+            "nmbd": {
+              "type": "object",
+              "meaning": "Samba unit observation.",
+              "fields": {
+                "unit": {
+                  "type": "string",
+                  "meaning": "Unit queried.",
+                  "enum": [
+                    "smbd.service",
+                    "nmbd.service"
+                  ]
+                },
+                "active": {
+                  "type": "boolean",
+                  "meaning": "True exactly when the unit is active."
+                },
+                "activeState": {
+                  "type": "string",
+                  "meaning": "Accepted active state; a missing unit is inactive.",
+                  "enum": [
+                    "active",
+                    "inactive",
+                    "failed",
+                    "activating",
+                    "deactivating",
+                    "reloading",
+                    "maintenance",
+                    "refreshing"
+                  ]
+                },
+                "enabled": {
+                  "type": "boolean",
+                  "meaning": "True exactly when systemctl reports enabled."
+                },
+                "enabledState": {
+                  "type": "string",
+                  "meaning": "Accepted unit-file state or unknown for a missing unit.",
+                  "enum": [
+                    "enabled",
+                    "enabled-runtime",
+                    "linked",
+                    "linked-runtime",
+                    "alias",
+                    "masked",
+                    "masked-runtime",
+                    "static",
+                    "indirect",
+                    "disabled",
+                    "generated",
+                    "transient",
+                    "unknown"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "running": {
+          "type": "boolean",
+          "meaning": "Whether smbd is active."
+        }
+      }
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the shared front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s first outcome signal, when supplied.",
+      "enum": [
+        "agathodaimon-settings-samba-smbd-load-state-launch-failed",
+        "agathodaimon-settings-samba-smbd-load-state-command-failed",
+        "agathodaimon-settings-samba-smbd-load-state-unusable",
+        "agathodaimon-settings-samba-smbd-active-state-launch-failed",
+        "agathodaimon-settings-samba-smbd-active-state-unusable",
+        "agathodaimon-settings-samba-smbd-enabled-state-launch-failed",
+        "agathodaimon-settings-samba-smbd-enabled-state-unusable",
+        "agathodaimon-settings-samba-nmbd-load-state-launch-failed",
+        "agathodaimon-settings-samba-nmbd-load-state-command-failed",
+        "agathodaimon-settings-samba-nmbd-load-state-unusable",
+        "agathodaimon-settings-samba-nmbd-active-state-launch-failed",
+        "agathodaimon-settings-samba-nmbd-active-state-unusable",
+        "agathodaimon-settings-samba-nmbd-enabled-state-launch-failed",
+        "agathodaimon-settings-samba-nmbd-enabled-state-unusable",
+        "agathodaimon-settings-samba-envelope-read-failed",
+        "agathodaimon-stop-raised",
+        "none",
+        "agathodaimon-settings-samba-wsdd2-load-state-launch-failed",
+        "agathodaimon-settings-samba-wsdd2-load-state-command-failed",
+        "agathodaimon-settings-samba-wsdd2-load-state-unusable",
+        "agathodaimon-settings-samba-smbd-disable-launch-failed",
+        "agathodaimon-settings-samba-smbd-disable-failed",
+        "agathodaimon-settings-samba-nmbd-disable-launch-failed",
+        "agathodaimon-settings-samba-nmbd-disable-failed",
+        "agathodaimon-settings-samba-wsdd2-disable-launch-failed",
+        "agathodaimon-settings-samba-wsdd2-disable-failed",
+        "agathodaimon-settings-samba-smbd-readback-mismatch"
+      ]
+    }
+  }
+}

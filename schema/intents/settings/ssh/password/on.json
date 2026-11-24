@@ -1,0 +1,186 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/ssh/password/on",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "directive": {
+      "type": "string",
+      "meaning": "The one changed SSH directive.",
+      "const": "PasswordAuthentication"
+    },
+    "from": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Previous global value, absent if inserted, or null before observation.",
+      "enum": [
+        "yes",
+        "no",
+        "absent",
+        null
+      ]
+    },
+    "to": {
+      "type": "string",
+      "meaning": "The requested global value.",
+      "const": "yes"
+    },
+    "observed": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Observed previous value, concrete service unit and service active state.",
+      "fields": {
+        "value": {
+          "type": "string",
+          "meaning": "Previous directive value.",
+          "enum": [
+            "yes",
+            "no",
+            "absent"
+          ]
+        },
+        "unit": {
+          "type": "string",
+          "meaning": "One of the concrete SSH service units.",
+          "enum": [
+            "ssh.service",
+            "sshd.service"
+          ]
+        },
+        "activeState": {
+          "type": "string",
+          "meaning": "Observed activity state.",
+          "enum": [
+            "active",
+            "inactive",
+            "failed"
+          ]
+        }
+      }
+    },
+    "could_change_to": {
+      "type": "object",
+      "meaning": "Requested PasswordAuthentication value."
+    },
+    "effective": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Effective directive read back after reloading an active service, when observed.",
+      "enum": [
+        "yes",
+        "no",
+        null
+      ]
+    },
+    "reloaded": {
+      "type": "boolean",
+      "meaning": "True when the first active-service reload succeeded."
+    },
+    "rollbackReloaded": {
+      "type": "boolean",
+      "meaning": "True when compensation reloaded the restored configuration."
+    },
+    "restored": {
+      "type": "boolean",
+      "meaning": "True when a writer compensation step successfully restored the file."
+    },
+    "rollbackSignal": {
+      "type": "string",
+      "meaning": "First compensation error, when compensation failed.",
+      "enum": [
+        "agathodaimon-ssh-password-rollback-config-unrestored",
+        "agathodaimon-ssh-password-reload-refused",
+        "agathodaimon-ssh-password-systemctl-failed",
+        "agathodaimon-ssh-exposure-scratch-tool-unavailable",
+        "agathodaimon-ssh-exposure-config-read-refused"
+      ],
+      "patterns": [
+        "^agathodaimon-ssh-password-rollback-failed:[A-Za-z_][A-Za-z_0-9]*$"
+      ]
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Whether the writer’s before and after byte digests differ."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "True when reload was attempted, the file was restored, or bytes changed."
+    },
+    "attempt": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Writer steps, plus whether any change or reload was attempted."
+    },
+    "commands": {
+      "type": "array",
+      "meaning": "External command argument vectors recorded by the stop.",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the shared front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s first outcome signal, when supplied.",
+      "enum": [
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: intent_id",
+        "missing envelope kernel keys: transition",
+        "missing envelope kernel keys: version",
+        "missing envelope kernel keys: timestamp",
+        "missing envelope kernel keys: intent_id,transition",
+        "missing envelope kernel keys: intent_id,version",
+        "missing envelope kernel keys: intent_id,timestamp",
+        "missing envelope kernel keys: transition,version",
+        "missing envelope kernel keys: transition,timestamp",
+        "missing envelope kernel keys: version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version",
+        "missing envelope kernel keys: intent_id,transition,timestamp",
+        "missing envelope kernel keys: intent_id,version,timestamp",
+        "missing envelope kernel keys: transition,version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version,timestamp",
+        "agathodaimon-stop-raised",
+        "agathodaimon-ssh-exposure-scratch-config-outside-root",
+        "agathodaimon-ssh-exposure-config-read-refused",
+        "agathodaimon-ssh-exposure-directive-unsupported",
+        "agathodaimon-ssh-exposure-directive-ambiguous",
+        "identity-lock-unavailable:ssh-config",
+        "agathodaimon-ssh-exposure-scratch-tool-unavailable",
+        "agathodaimon-ssh-exposure-config-invalid",
+        "agathodaimon-ssh-exposure-config-changed",
+        "agathodaimon-ssh-exposure-config-readback-mismatch",
+        "agathodaimon-ssh-exposure-service-missing",
+        "agathodaimon-ssh-password-service-state-unobserved",
+        "agathodaimon-ssh-password-systemctl-failed",
+        "agathodaimon-ssh-password-reload-refused",
+        "agathodaimon-ssh-password-effective-read-refused",
+        "agathodaimon-ssh-password-effective-readback-mismatch",
+        "none"
+      ],
+      "patterns": [
+        "^agathodaimon-ssh-password-failed:[A-Za-z_][A-Za-z_0-9]*$",
+        "^agathodaimon-ssh-password-request-failed:[A-Za-z_][A-Za-z_0-9]*$"
+      ]
+    }
+  }
+}

@@ -1,0 +1,175 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/ssh/on",
+  "payload": {
+    "fields": {},
+    "required": [],
+    "meaning": "No caller-supplied stage arguments are required. The declaration supplies the first state and wires subsequent stage arguments."
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "routine_id": {
+      "type": "string",
+      "meaning": "The arpeggio that ran.",
+      "const": "settings/ssh/on"
+    },
+    "request": {
+      "type": "string",
+      "meaning": "Serialized request echoed by the staff arpeggio walker."
+    },
+    "stages": {
+      "type": "array",
+      "meaning": "Ordered serve and rescue rows with each stage’s outcome and receipt; consult the crossed stage’s own intent seat for its return."
+    },
+    "failedStage": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "First required stage that refused, or null if none was selected."
+    },
+    "firstMissingField": {
+      "type": "string",
+      "meaning": "The undeclared stage named when dry-run preflight refuses.",
+      "const": "config-set"
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Aggregate mutation observation when known; absent when the mutating stages could not establish it."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Aggregate signal from the first failing stage or from the arpeggio walker. Unit stages keep their snake-case signals inside their receipts.",
+      "enum": [
+        "none",
+        "chord-secret-carrier-refused",
+        "chord-stage-invalid",
+        "chord-stage-not-snake",
+        "chord-stage-deadline-invalid",
+        "chord-ref-secret",
+        "chord-ref-unresolved",
+        "chord-dry-run-undeclared-stage",
+        "chord-interrupted",
+        "chord-stage-invocation-failed",
+        "chord-stage-receipt-invalid",
+        "chord-stage-deadline-exceeded",
+        "chord-stage-receipt-schema-mismatch",
+        "chord-stage-refused",
+        "chord-deed-log-unavailable",
+        "agathodaimon-dry-run-undeclared",
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: intent_id",
+        "missing envelope kernel keys: transition",
+        "missing envelope kernel keys: version",
+        "missing envelope kernel keys: timestamp",
+        "missing envelope kernel keys: intent_id,transition",
+        "missing envelope kernel keys: intent_id,version",
+        "missing envelope kernel keys: intent_id,timestamp",
+        "missing envelope kernel keys: transition,version",
+        "missing envelope kernel keys: transition,timestamp",
+        "missing envelope kernel keys: version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version",
+        "missing envelope kernel keys: intent_id,transition,timestamp",
+        "missing envelope kernel keys: intent_id,version,timestamp",
+        "missing envelope kernel keys: transition,version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version,timestamp",
+        "payload-not-object",
+        "agathodaimon-stop-raised",
+        "unsupported-operation",
+        "agathodaimon-ssh-exposure-scratch-config-outside-root",
+        "agathodaimon-ssh-exposure-config-read-refused",
+        "agathodaimon-ssh-exposure-directive-unsupported",
+        "agathodaimon-ssh-exposure-directive-ambiguous",
+        "agathodaimon-ssh-exposure-scratch-tool-unavailable",
+        "agathodaimon-ssh-exposure-config-invalid",
+        "agathodaimon-ssh-exposure-runtime-directory-refused",
+        "identity-lock-unavailable:ssh-config",
+        "agathodaimon-ssh-exposure-config-changed",
+        "agathodaimon-ssh-exposure-config-readback-mismatch",
+        "agathodaimon-ssh-exposure-config-restore-refused",
+        "agathodaimon-ssh-exposure-service-missing",
+        "agathodaimon-ssh-exposure-service-readback-mismatch"
+      ],
+      "patterns": [
+        "^unknown-field:[\\s\\S]*$",
+        "^agathodaimon-ssh-exposure-failed:[A-Za-z_][A-Za-z_0-9]*$",
+        "^agathodaimon-ssh-exposure-config-set-failed:[A-Za-z_][A-Za-z_0-9]*$"
+      ]
+    }
+  },
+  "serve": [
+    {
+      "stage_id": "config-set",
+      "snake": "settings/ssh/config/set",
+      "arguments": {
+        "state": "on"
+      }
+    },
+    {
+      "stage_id": "unit-resolve",
+      "snake": "settings/ssh/unit/resolve"
+    },
+    {
+      "stage_id": "unit-enable",
+      "snake": "unit/enable",
+      "arguments": {
+        "unit": {
+          "$ref": "stages.unit-resolve.receipt.unit"
+        },
+        "scope": "system",
+        "deadline_seconds": 180
+      },
+      "deadline_seconds": 180
+    },
+    {
+      "stage_id": "unit-start",
+      "snake": "unit/start",
+      "arguments": {
+        "unit": {
+          "$ref": "stages.unit-resolve.receipt.unit"
+        },
+        "scope": "system",
+        "deadline_seconds": 180
+      },
+      "deadline_seconds": 180
+    },
+    {
+      "stage_id": "verify",
+      "snake": "settings/ssh/verify",
+      "arguments": {
+        "state": "on",
+        "unit": {
+          "$ref": "stages.unit-resolve.receipt.unit"
+        }
+      }
+    },
+    {
+      "stage_id": "status",
+      "snake": "settings/ssh/status"
+    }
+  ],
+  "rescue": [
+    {
+      "stage_id": "config-restore",
+      "snake": "settings/ssh/config/restore",
+      "on_refusal_of": [
+        "config-set",
+        "unit-resolve",
+        "unit-enable",
+        "unit-start",
+        "verify"
+      ],
+      "arguments": {
+        "original": {
+          "$ref": "stages.config-set.receipt.original"
+        },
+        "changed": {
+          "$ref": "stages.config-set.receipt.changedFlag"
+        }
+      }
+    }
+  ]
+}
