@@ -18,7 +18,7 @@
         "thyrsus",
         "forge"
       ],
-      "stdin": "none"
+      "stdin": "envelope"
     }
   ]
 }

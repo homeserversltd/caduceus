@@ -1,4 +1,4 @@
-//! Thyrsus speaks the staff's bare noun/verb CLI, not its envelope-band API.
+//! Thyrsus selects the staff stop with two words and sends its request on stdin.
 use axum::{
     extract::rejection::JsonRejection,
     http::StatusCode,
@@ -68,7 +68,7 @@ fn text<'a>(body: &'a Value, field: &str) -> Result<&'a str, &'static str> {
         .ok_or("thyrsus-request-invalid")
 }
 
-fn request(verb: Verb, mut body: Value) -> Result<(Vec<String>, Secret), &'static str> {
+fn request(verb: Verb, mut body: Value) -> Result<(Map<String, Value>, Secret), &'static str> {
     let seat =
         crate::routes::leaf_schema::declaration(verb.schema()).ok_or("thyrsus-schema-desync")?;
     if body
@@ -87,19 +87,17 @@ fn request(verb: Verb, mut body: Value) -> Result<(Vec<String>, Secret), &'stati
     {
         return Err("thyrsus-request-kernel-missing");
     }
-    let mut args = vec!["thyrsus".into(), verb.name().into()];
+    let mut payload = Map::new();
     let mut secret = Secret(Vec::new());
     match verb {
         Verb::Propose | Verb::Admit => {
             let repo = text(&body, "repo")?;
-            // A positional repository is never allowed to become a CLI option.
             if repo.starts_with('-') {
                 return Err("thyrsus-request-invalid");
             }
-            args.push(repo.into());
+            payload.insert("repo".into(), json!(repo));
             if matches!(verb, Verb::Propose) {
-                args.push("-m".into());
-                args.push(text(&body, "message")?.into());
+                payload.insert("message".into(), json!(text(&body, "message")?));
                 match body.get("branch") {
                     None | Some(Value::Null) => {}
                     Some(Value::String(branch))
@@ -107,8 +105,7 @@ fn request(verb: Verb, mut body: Value) -> Result<(Vec<String>, Secret), &'stati
                             && !branch.starts_with('-')
                             && !branch.contains('\0') =>
                     {
-                        args.push("--branch".into());
-                        args.push(branch.clone());
+                        payload.insert("branch".into(), json!(branch));
                     }
                     Some(_) => return Err("thyrsus-request-invalid"),
                 }
@@ -122,7 +119,7 @@ fn request(verb: Verb, mut body: Value) -> Result<(Vec<String>, Secret), &'stati
                     })
                     .filter(|pr| *pr > 0)
                     .ok_or("thyrsus-request-invalid")?;
-                args.push(pr.to_string());
+                payload.insert("pr".into(), json!(pr));
             }
         }
         Verb::ForgeToken => {
@@ -142,8 +139,8 @@ fn request(verb: Verb, mut body: Value) -> Result<(Vec<String>, Secret), &'stati
         }
         Verb::Forge => {}
     }
-    // Additive request fields are skipped, never reinterpreted as flags or argv.
-    Ok((args, secret))
+    // Additive request fields are skipped, never reinterpreted as flags or arguments.
+    Ok((payload, secret))
 }
 
 fn named_signal(value: &Value) -> bool {
@@ -222,23 +219,48 @@ fn receipt(
     Ok(Value::Object(result))
 }
 
-fn invoke(verb: Verb, args: Vec<String>, secret: Secret) -> Result<Value, &'static str> {
-    // Reserve the JSON wrapper plus the worst-case six-byte escape for each
-    // token byte, so serialization cannot leave a secret in a freed allocation.
-    let mut input = Secret(if matches!(verb, Verb::ForgeToken) {
-        Vec::with_capacity(secret.0.len() * 6 + 12)
-    } else {
-        Vec::new()
-    });
-    if matches!(verb, Verb::ForgeToken) {
-        let token = std::str::from_utf8(&secret.0).map_err(|_| "thyrsus-request-invalid")?;
-        #[derive(serde::Serialize)]
-        struct StaffRequest<'a> {
-            token: &'a str,
-        }
-        serde_json::to_writer(&mut input.0, &StaffRequest { token })
-            .map_err(|_| "thyrsus-request-invalid")?;
+fn staff_input(
+    verb: Verb,
+    payload: Map<String, Value>,
+    secret: &Secret,
+) -> Result<Secret, &'static str> {
+    let transition = format!("thyrsus/{}", verb.name());
+    let envelope = crate::gate::snake::crossing_envelope(&transition, &Value::Object(payload));
+    // The shared builder and serializer see only the non-secret fields.
+    let (mut envelope, raw) =
+        crate::gate::snake::prepare_envelope(&envelope).map_err(|_| "thyrsus-schema-desync")?;
+    if !matches!(verb, Verb::ForgeToken) {
+        return Ok(Secret(raw.into_bytes()));
     }
+    let fields = envelope.as_object_mut().ok_or("thyrsus-schema-desync")?;
+    fields.remove("payload");
+    let token = std::str::from_utf8(&secret.0).map_err(|_| "thyrsus-request-invalid")?;
+    #[derive(serde::Serialize)]
+    struct TokenPayload<'a> {
+        token: &'a str,
+    }
+    #[derive(serde::Serialize)]
+    struct TokenEnvelope<'a> {
+        #[serde(flatten)]
+        fields: &'a Map<String, Value>,
+        payload: TokenPayload<'a>,
+    }
+    // raw includes the empty payload. Reserve its wrapper and the worst-case
+    // six-byte JSON escape per token byte before the buffer sees any secret.
+    let mut input = Secret(Vec::with_capacity(raw.len() + secret.0.len() * 6 + 12));
+    serde_json::to_writer(
+        &mut input.0,
+        &TokenEnvelope {
+            fields,
+            payload: TokenPayload { token },
+        },
+    )
+    .map_err(|_| "thyrsus-request-invalid")?;
+    Ok(input)
+}
+
+fn invoke(verb: Verb, payload: Map<String, Value>, secret: Secret) -> Result<Value, &'static str> {
+    let input = staff_input(verb, payload, &secret)?;
     let cli = crate::gate::snake::cli_path();
     let mut command = if std::env::var_os("CADUCEUS_AGATHODAIMON_CLI").is_some() {
         Command::new(&cli)
@@ -248,12 +270,8 @@ fn invoke(verb: Verb, args: Vec<String>, secret: Secret) -> Result<Value, &'stat
         command
     };
     let mut child = command
-        .args(args)
-        .stdin(if matches!(verb, Verb::ForgeToken) {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
+        .args(["thyrsus", verb.name()])
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
@@ -317,8 +335,8 @@ pub(crate) async fn handle(verb: Verb, body: Result<Json<Value>, JsonRejection>)
     let started = Instant::now();
     let value = match body {
         Ok(Json(body)) => match request(verb, body) {
-            Ok((args, secret)) => {
-                match tokio::task::spawn_blocking(move || invoke(verb, args, secret)).await {
+            Ok((payload, secret)) => {
+                match tokio::task::spawn_blocking(move || invoke(verb, payload, secret)).await {
                     Ok(Ok(value)) => value,
                     Ok(Err(signal)) => refusal(verb, signal),
                     Err(_) => refusal(verb, "thyrsus-staff-task-failed"),
