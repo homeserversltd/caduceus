@@ -171,6 +171,9 @@ pub use control_resolver as dns_control;
 pub use inspect_disks as disk;
 #[path = "network/dhcp/native_kea_read.rs"]
 pub mod native_kea_read;
+#[cfg(leaf_network_devices)]
+#[path = "network/support/unbound_names.rs"]
+pub(crate) mod unbound_names;
 
 #[cfg(leaf_network_dhcp_status)]
 pub(crate) use leaf_network_dhcp_status::network_read_route;

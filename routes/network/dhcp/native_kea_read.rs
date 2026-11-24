@@ -137,7 +137,7 @@ fn csv_record(line: &str) -> Option<Vec<String>> {
     Some(fields)
 }
 
-fn normalized_mac(value: &str) -> Option<String> {
+pub(crate) fn normalized_mac(value: &str) -> Option<String> {
     let compact = value.trim().replace('-', ":").to_ascii_lowercase();
     let parts: Vec<&str> = compact.split(':').collect();
     (parts.len() == 6
@@ -276,6 +276,41 @@ pub fn read_reservations() -> Result<Vec<ReservationRow>, String> {
     }
     rows.sort_by(|a, b| (&a.mac, &a.ip, &a.hostname).cmp(&(&b.mac, &b.ip, &b.hostname)));
     Ok(rows)
+}
+
+/// Read each reservation independently without changing the strict legacy reader.
+pub(crate) fn read_reservations_partial() -> Result<(Vec<ReservationRow>, Vec<Value>), String> {
+    let root = read_config()?;
+    let dhcp = &root["Dhcp4"];
+    let mut rows = Vec::new();
+    let mut skipped = Vec::new();
+    let mut collect = |entries: &Vec<Value>| {
+        for entry in entries {
+            match reservation(entry) {
+                Ok(row) => rows.push(row),
+                Err(_) => {
+                    let reason = if entry.get("hw-address").and_then(Value::as_str).and_then(normalized_mac).is_none() {
+                        "invalid-or-missing-hw-address"
+                    } else {
+                        "missing-ip-address"
+                    };
+                    skipped.push(json!({"entry": entry, "reason": reason}));
+                }
+            }
+        }
+    };
+    if let Some(entries) = dhcp.get("reservations").and_then(Value::as_array) {
+        collect(entries);
+    }
+    if let Some(subnets) = dhcp.get("subnet4").and_then(Value::as_array) {
+        for subnet in subnets {
+            if let Some(entries) = subnet.get("reservations").and_then(Value::as_array) {
+                collect(entries);
+            }
+        }
+    }
+    rows.sort_by(|a, b| (&a.mac, &a.ip, &a.hostname).cmp(&(&b.mac, &b.ip, &b.hostname)));
+    Ok((rows, skipped))
 }
 
 fn doorway_mac(suffix: &str) -> Option<String> {

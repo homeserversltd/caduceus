@@ -1,0 +1,1 @@
+{"namespace":"network/devices","admittance":"open","flags":{},"serve":[],"commands":["network devices"],"needs":["kea"],"http_method":"GET","http_path":"/api/v1/network/devices","body":"none","receipt":"caduceus.staff.receipt.v1","administrative":false,"mutation_allowed":false}
