@@ -39,13 +39,11 @@ pub(super) async fn gateway_post(body: &Value) -> Option<Value> {
 }
 
 pub(super) async fn gateway_notifications() -> Option<Value> {
-    let value = gateway::get_json(
-        gateway::resolve()?,
-        "/api/v1/notifications",
-        gateway::TIMEOUT,
-    )
-    .await?;
-    if value["schema"] != SCHEMA || !value["notifications"].is_array() {
+    let path = "/api/v1/notifications";
+    let value = gateway::get_json(gateway::resolve()?, path, gateway::TIMEOUT).await?;
+    if (value["schema"] != SCHEMA && !crate::routes::leaf_schema::bound_http_reply(&value, path))
+        || !value["notifications"].is_array()
+    {
         return None;
     }
     Some(value)

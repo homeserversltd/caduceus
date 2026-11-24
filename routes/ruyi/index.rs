@@ -23,7 +23,7 @@ use tokio::{
     time::{timeout, timeout_at, Duration, Instant},
 };
 
-use crate::routes::leaf_schema::row_schema;
+use crate::routes::leaf_schema::{self, row_schema};
 
 #[path = "gateway.rs"]
 pub(crate) mod gateway;
@@ -35,6 +35,7 @@ const RUYI_PEER_TIMEOUT: Duration = Duration::from_millis(500);
 const RUYI_STREAM_SWEEP_TIMEOUT: Duration = Duration::from_secs(2);
 const RUYI_STREAM_SEND_TIMEOUT: Duration = Duration::from_millis(500);
 const MAX_PEER_RESPONSE_BYTES: usize = 64 * 1024;
+const PEER_BEAM_PATH: &str = "/api/v1/beam";
 
 fn peer_probe_port() -> u16 {
     #[cfg(debug_assertions)]
@@ -488,7 +489,8 @@ fn valid_peer_beam(response: &[u8]) -> bool {
     let Ok(value) = serde_json::from_slice::<Value>(&response[body_start + 4..]) else {
         return false;
     };
-    crate::routes::leaf_schema::accepts("caduceus.beam.v1", &value)
+    (leaf_schema::accepts("caduceus.beam.v1", &value)
+        || leaf_schema::bound_http_reply(&value, PEER_BEAM_PATH))
         && value.get("ok").and_then(Value::as_bool) == Some(true)
         && value.get("service").and_then(Value::as_str) == Some("caduceus")
 }
@@ -501,7 +503,7 @@ async fn probe_peer(row: RuyiRow, include_stats: bool) -> Option<(String, PeerRe
     };
     let port = row.caduceus_port.unwrap_or_else(peer_probe_port);
     let deadline = Instant::now() + RUYI_PEER_TIMEOUT;
-    let response = timeout_at(deadline, fetch_peer(host, port, "/api/v1/beam"))
+    let response = timeout_at(deadline, fetch_peer(host, port, PEER_BEAM_PATH))
         .await
         .ok()?
         .ok()?;
@@ -511,12 +513,14 @@ async fn probe_peer(row: RuyiRow, include_stats: bool) -> Option<(String, PeerRe
     let beam = response_json_200(&response)?;
     // The seat-only query prevents a reciprocal roster sweep on newer peers;
     // older peers ignore it and return their ordinary roster within this deadline.
-    let seat_response = timeout_at(deadline, fetch_peer(host, port, "/api/v1/ruyi?seat=1"))
+    let seat_target = "/api/v1/ruyi?seat=1";
+    let seat_response = timeout_at(deadline, fetch_peer(host, port, seat_target))
         .await
         .ok()?
         .ok()?;
     let roster = response_json_200(&seat_response)?;
-    if roster.get("schema").and_then(Value::as_str) != Some(row_schema())
+    if (roster.get("schema").and_then(Value::as_str) != Some(row_schema())
+        && !leaf_schema::bound_http_reply(&roster, seat_target))
         || roster.get("ok").and_then(Value::as_bool) != Some(true)
         || roster.get("service").and_then(Value::as_str) != Some("caduceus")
     {
@@ -704,7 +708,8 @@ async fn gateway_read_payload(
     budget: Duration,
 ) -> Option<Value> {
     let mut reply = gateway::get_json(seat, path, budget).await?;
-    if reply["schema"] != "caduceus.network.read.v1"
+    if (reply["schema"] != "caduceus.network.read.v1"
+        && !leaf_schema::bound_http_reply(&reply, path))
         || reply["ok"] != true
         || reply["payload"]["ok"] != true
     {
@@ -832,7 +837,7 @@ async fn probe_candidate(
     let deadline = Instant::now() + RUYI_PEER_TIMEOUT;
     let beam_bytes = timeout(
         RUYI_PEER_TIMEOUT,
-        fetch_peer(&host, peer_port, "/api/v1/beam"),
+        fetch_peer(&host, peer_port, PEER_BEAM_PATH),
     )
     .await
     .ok()?
@@ -849,14 +854,16 @@ async fn probe_candidate(
     let seat_host = if beam_hostname.is_some() {
         None
     } else {
+        let path = "/api/v1/ruyi";
         match deadline.checked_duration_since(Instant::now()) {
             Some(remaining) if !remaining.is_zero() => timeout(
                 remaining,
-                fetch_peer(&host, peer_port, "/api/v1/ruyi"),
+                fetch_peer(&host, peer_port, path),
             )
                 .await.ok().and_then(Result::ok).and_then(|bytes| response_json_200(&bytes))
                 .filter(|roster| {
-                    crate::routes::leaf_schema::accepts_form(row_schema(), "roster", roster)
+                    (leaf_schema::accepts_form(row_schema(), "roster", roster)
+                        || leaf_schema::bound_http_reply(roster, path))
                         && roster.get("ok").and_then(Value::as_bool) == Some(true)
                         && roster.get("service").and_then(Value::as_str) == Some("caduceus")
                 })

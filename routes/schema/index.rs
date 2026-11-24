@@ -218,6 +218,13 @@ pub(crate) fn bound(value: &Value, stop_path: &str) -> bool {
         && value.pointer("/stop/verb").and_then(Value::as_str) == Some(verb)
 }
 
+/// Bind a peer's HTTP reply to the path sent, not its query or a name from the reply.
+pub(crate) fn bound_http_reply(value: &Value, request_target: &str) -> bool {
+    let path = request_target.split_once('?').map_or(request_target, |(path, _)| path);
+    path.strip_prefix("/api/v1/")
+        .is_some_and(|stop| !stop.is_empty() && bound(value, stop))
+}
+
 // Close 402 binds an arpeggio aggregate to the routine crossed.
 pub(crate) fn aggregate_bound(value: &Value, routine: &str) -> bool {
     accepts("caduceus.chord.receipt.v1", value)
