@@ -1,0 +1,188 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "transmission/daemon",
+  "payload": {
+    "fields": {
+      "provider": {
+        "type": ["string", "null"],
+        "meaning": "Legacy provider override. Null selects the default provider; on omission the standing choice applies. A VPN flag wins over this alias.",
+        "enum": ["pia", null]
+      },
+      "flags": {
+        "type": "object",
+        "meaning": "Payload-carried flags; VPN options can also ride in the envelope flags. The envelope carrier wins over the payload carrier, and flags.vpn wins over flags.exousia.vpn within each carrier.",
+        "fields": {
+          "vpn": {
+            "type": ["object", "null"],
+            "meaning": "Overrides the standing Transmission VPN options field by field. A null family resets all options to the primitive.",
+            "fields": {
+              "provider": {
+                "type": ["string", "null"],
+                "meaning": "Provider override; null selects pia.",
+                "enum": ["pia", null]
+              },
+              "protocol": {
+                "type": ["string", "null"],
+                "meaning": "Provider protocol override; null selects openvpn for PIA.",
+                "enum": ["openvpn", "wireguard", null]
+              },
+              "region": {
+                "type": ["string", "null"],
+                "meaning": "Provider region ID. Null leaves automatic region selection; an explicit ID must resolve at the provider where a provider endpoint is selected.",
+                "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+                "maxLength": 64
+              },
+              "dip": {"type": ["boolean", "null"], "meaning": "Request a dedicated IP; null selects false."},
+              "dns": {
+                "type": ["string", "null"],
+                "meaning": "Use provider DNS; null selects the public resolver in the namespace setup.",
+                "enum": ["provider", null]
+              },
+              "rescan": {
+                "type": ["boolean", "null"],
+                "meaning": "Request the RPC torrent rescan after applying download settings; null selects false."
+              }
+            }
+          },
+          "exousia": {
+            "type": "object",
+            "meaning": "Legacy scoped VPN flag carrier.",
+            "fields": {
+              "vpn": {
+                "type": ["object", "null"],
+                "meaning": "Overrides the standing Transmission VPN options field by field. A null family resets all options to the primitive.",
+                "fields": {
+                  "provider": {
+                    "type": ["string", "null"],
+                    "meaning": "Provider override; null selects pia.",
+                    "enum": ["pia", null]
+                  },
+                  "protocol": {
+                    "type": ["string", "null"],
+                    "meaning": "Provider protocol override; null selects openvpn for PIA.",
+                    "enum": ["openvpn", "wireguard", null]
+                  },
+                  "region": {
+                    "type": ["string", "null"],
+                    "meaning": "Provider region ID. Null leaves automatic region selection; an explicit ID must resolve at the provider where a provider endpoint is selected.",
+                    "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+                    "maxLength": 64
+                  },
+                  "dip": {"type": ["boolean", "null"], "meaning": "Request a dedicated IP; null selects false."},
+                  "dns": {
+                    "type": ["string", "null"],
+                    "meaning": "Use provider DNS; null selects the public resolver in the namespace setup.",
+                    "enum": ["provider", null]
+                  },
+                  "rescan": {
+                    "type": ["boolean", "null"],
+                    "meaning": "Request the RPC torrent rescan after applying download settings; null selects false."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "provider": {"type": ["string", "null"], "meaning": "Selected provider, or null if selection did not complete."},
+    "steps": {
+      "type": "array",
+      "meaning": "Operation or observation rows, each carrying step, observed, could-change, attempt and finalState."
+    },
+    "field": {"type": "string", "meaning": "Name of the invalid VPN option."},
+    "providers": {"type": "array", "meaning": "Provider names from the VPN declaration."},
+    "nativeUnit": {"type": "string", "meaning": "Name of the native Transmission systemd unit."},
+    "boundProvider": {"type": "string", "meaning": "Provider bound to the native unit."},
+    "requestedProvider": {"type": "string", "meaning": "Resolved provider requested for the native unit."},
+    "boundProviders": {"type": "array", "meaning": "Matching providers when the native unit binding is ambiguous or absent."},
+    "failedRung": {"type": "string", "meaning": "Rung at which the operation stopped."},
+    "failedCommandError": {"type": "object", "meaning": "Signal and step identifying the failed command or operation."},
+    "namespace": {"type": "string", "meaning": "Namespace the scratch exec plan enters."},
+    "rpcPort": {
+      "type": ["integer", "null"],
+      "meaning": "RPC port from the Transmission portal row, or null if not read."
+    },
+    "scratchObservation": {"type": "object", "meaning": "Scratch-only root, namespace and portal check before exec."},
+    "scratchLogicalArgv": {"type": "array", "meaning": "Scratch-only logical launch argv before stand-in substitutions."},
+    "credentialSeed": {
+      "type": "object",
+      "meaning": "Credential seed attempt, outcome, publish state and signal; no credential values."
+    },
+    "interimDebt": {"type": "string", "meaning": "Names the credential settings write the staff still owns."},
+    "unitOverridePropagated": {"type": "boolean", "meaning": "No unit-level VPN override is propagated.", "const": false},
+    "nextStartConfigurationSource": {"type": "string", "meaning": "Appliance configuration read at the next launch."},
+    "execReplacementAttempted": {"type": "boolean", "meaning": "The scratch pre-exec receipt marks the replacement attempt."},
+    "pid": {"type": "integer", "meaning": "PID scheduled for exec replacement in the scratch receipt."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s outcome token; none when no signal is missing.",
+      "enum": [
+        "none",
+        "provider-not-bound",
+        "provider-unknown",
+        "transmission-command-timeout",
+        "transmission-command-unavailable",
+        "transmission-daemon-config-directory-absent",
+        "transmission-daemon-config-directory-unsafe",
+        "transmission-daemon-credential-export-failed",
+        "transmission-daemon-credential-seed-failed",
+        "transmission-daemon-exec-failed",
+        "transmission-daemon-owner-unavailable",
+        "transmission-daemon-settings-absent",
+        "transmission-daemon-settings-changed",
+        "transmission-daemon-settings-invalid",
+        "transmission-daemon-settings-not-object",
+        "transmission-daemon-settings-publish-failed",
+        "transmission-daemon-settings-unreadable",
+        "transmission-daemon-settings-unsafe",
+        "transmission-daemon-stage-unsafe",
+        "transmission-daemon-stage-write-failed",
+        "transmission-key-export-exchange-artifact-malformed",
+        "transmission-key-export-exchange-artifact-preexisting",
+        "transmission-key-export-exchange-artifact-raced",
+        "transmission-key-export-exchange-cleanup-failed",
+        "transmission-key-export-exchange-mount-failed",
+        "transmission-key-export-exchange-obliteration-failed",
+        "transmission-key-export-export-failed",
+        "transmission-key-export-export-timeout",
+        "transmission-key-export-export-unavailable",
+        "transmission-key-export-invalid",
+        "transmission-key-export-keyman-export-lock-timeout",
+        "transmission-key-export-malformed-key-file",
+        "transmission-key-export-missing-key",
+        "transmission-key-export-preflight-unobservable",
+        "transmission-key-export-scratch-context-invalid",
+        "transmission-key-export-uninitialized-system",
+        "transmission-namespace-absent",
+        "transmission-namespace-read-failed",
+        "transmission-namespace-read-invalid",
+        "transmission-native-unit-provider-unbound",
+        "transmission-portal-config-invalid",
+        "transmission-portal-config-read-failed",
+        "transmission-portal-map-invalid",
+        "transmission-portal-port-invalid",
+        "transmission-portal-row-missing-or-ambiguous",
+        "transmission-provider-metadata-invalid",
+        "transmission-provider-metadata-unreadable",
+        "transmission-request-invalid",
+        "transmission-root-required",
+        "transmission-scratch-path-escape",
+        "transmission-scratch-root-invalid",
+        "transmission-vpn-config-invalid",
+        "transmission-vpn-dip-unknown",
+        "transmission-vpn-dns-unknown",
+        "transmission-vpn-family-unknown",
+        "transmission-vpn-protocol-unknown",
+        "transmission-vpn-provider-unknown",
+        "transmission-vpn-region-unknown",
+        "transmission-vpn-rescan-unknown"
+      ]
+    }
+  }
+}

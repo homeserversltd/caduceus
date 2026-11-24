@@ -1,0 +1,35 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "transmission/vpn/release-trip",
+  "payload": {"fields": {}, "required": []},
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "markerPresent": {"type": "boolean", "meaning": "Whether the trip marker was observed before removal."},
+    "markerRemoved": {
+      "type": "boolean",
+      "meaning": "True if this call unlinked the marker; false if absent or removed by a concurrent start."
+    },
+    "changed": {"type": "boolean", "meaning": "Same as markerRemoved."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Same as markerRemoved."},
+    "observed": {"type": "object", "meaning": "The marker path and, when read, initial presence."},
+    "could_change_to": {"type": "object", "meaning": "The target state is an absent trip marker."},
+    "attempt": {
+      "type": "object",
+      "meaning": "Whether unlink was attempted and whether the marker was removed, kept or refused."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s outcome token; none when no signal is missing.",
+      "enum": [
+        "none",
+        "transmission-request-invalid",
+        "transmission-scratch-path-escape",
+        "transmission-scratch-root-invalid",
+        "transmission-trip-marker-io-failed",
+        "transmission-trip-marker-not-regular",
+        "transmission-trip-marker-still-present"
+      ]
+    }
+  }
+}

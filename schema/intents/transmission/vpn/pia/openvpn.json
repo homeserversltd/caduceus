@@ -1,0 +1,19 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "transmission/vpn/pia/openvpn",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "path": {
+      "type": "string",
+      "meaning": "This protocol module has no front-door main; the front door refuses the path as a stop with no act."
+    },
+    "mutationPerformed": {"type": "boolean", "meaning": "The stop performs no mutation.", "const": false},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Front-door refusal: no main exists for this protocol backend.",
+      "enum": ["agathodaimon-stop-has-no-act"]
+    }
+  }
+}

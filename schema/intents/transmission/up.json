@@ -1,0 +1,221 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "transmission/up",
+  "payload": {
+    "fields": {
+      "provider": {
+        "type": ["string", "null"],
+        "meaning": "Legacy provider override. Null selects the default provider; on omission the standing choice applies. A VPN flag wins over this alias.",
+        "enum": ["pia", null]
+      },
+      "flags": {
+        "type": "object",
+        "meaning": "Payload-carried flags; VPN options can also ride in the envelope flags. The envelope carrier wins over the payload carrier, and flags.vpn wins over flags.exousia.vpn within each carrier.",
+        "fields": {
+          "vpn": {
+            "type": ["object", "null"],
+            "meaning": "Overrides the standing Transmission VPN options field by field. A null family resets all options to the primitive.",
+            "fields": {
+              "provider": {
+                "type": ["string", "null"],
+                "meaning": "Provider override; null selects pia.",
+                "enum": ["pia", null]
+              },
+              "protocol": {
+                "type": ["string", "null"],
+                "meaning": "Provider protocol override; null selects openvpn for PIA.",
+                "enum": ["openvpn", "wireguard", null]
+              },
+              "region": {
+                "type": ["string", "null"],
+                "meaning": "Provider region ID. Null leaves automatic region selection; an explicit ID must resolve at the provider where a provider endpoint is selected.",
+                "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+                "maxLength": 64
+              },
+              "dip": {"type": ["boolean", "null"], "meaning": "Request a dedicated IP; null selects false."},
+              "dns": {
+                "type": ["string", "null"],
+                "meaning": "Use provider DNS; null selects the public resolver in the namespace setup.",
+                "enum": ["provider", null]
+              },
+              "rescan": {
+                "type": ["boolean", "null"],
+                "meaning": "Request the RPC torrent rescan after applying download settings; null selects false."
+              }
+            }
+          },
+          "exousia": {
+            "type": "object",
+            "meaning": "Legacy scoped VPN flag carrier.",
+            "fields": {
+              "vpn": {
+                "type": ["object", "null"],
+                "meaning": "Overrides the standing Transmission VPN options field by field. A null family resets all options to the primitive.",
+                "fields": {
+                  "provider": {
+                    "type": ["string", "null"],
+                    "meaning": "Provider override; null selects pia.",
+                    "enum": ["pia", null]
+                  },
+                  "protocol": {
+                    "type": ["string", "null"],
+                    "meaning": "Provider protocol override; null selects openvpn for PIA.",
+                    "enum": ["openvpn", "wireguard", null]
+                  },
+                  "region": {
+                    "type": ["string", "null"],
+                    "meaning": "Provider region ID. Null leaves automatic region selection; an explicit ID must resolve at the provider where a provider endpoint is selected.",
+                    "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+                    "maxLength": 64
+                  },
+                  "dip": {"type": ["boolean", "null"], "meaning": "Request a dedicated IP; null selects false."},
+                  "dns": {
+                    "type": ["string", "null"],
+                    "meaning": "Use provider DNS; null selects the public resolver in the namespace setup.",
+                    "enum": ["provider", null]
+                  },
+                  "rescan": {
+                    "type": ["boolean", "null"],
+                    "meaning": "Request the RPC torrent rescan after applying download settings; null selects false."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "deadline_seconds": {
+        "type": "number",
+        "meaning": "Onness wait in seconds, strictly greater than zero and at most 180.",
+        "exclusiveMinimum": 0,
+        "maximum": 180,
+        "default": 180
+      }
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "serve": [
+    {"stage_id": "resolve", "snake": "transmission/vpn/resolve"},
+    {
+      "stage_id": "hold-preflight",
+      "snake": "unit/status",
+      "arguments": {"unit": {"$ref": "stages.resolve.receipt.holdUnit"}, "scope": "system"}
+    },
+    {
+      "stage_id": "native-preflight",
+      "snake": "unit/status",
+      "arguments": {"unit": {"$ref": "stages.resolve.receipt.nativeUnit"}, "scope": "system"}
+    },
+    {"stage_id": "release-trip", "snake": "transmission/vpn/release-trip"},
+    {
+      "stage_id": "native-start",
+      "snake": "unit/start",
+      "arguments": {"unit": {"$ref": "stages.resolve.receipt.nativeUnit"}, "scope": "system", "deadline_seconds": 180},
+      "deadline_seconds": 180
+    },
+    {
+      "stage_id": "hold-readback",
+      "snake": "unit/status",
+      "arguments": {"unit": {"$ref": "stages.resolve.receipt.holdUnit"}, "scope": "system"}
+    },
+    {
+      "stage_id": "onness",
+      "snake": "transmission/onness",
+      "arguments": {"provider": {"$ref": "stages.resolve.receipt.provider"}},
+      "deadline_seconds": 200
+    }
+  ],
+  "rescue": [
+    {
+      "stage_id": "hold-failure-readback",
+      "snake": "unit/status",
+      "on_refusal_of": ["native-start"],
+      "depends_on": ["resolve"],
+      "arguments": {"unit": {"$ref": "stages.resolve.receipt.holdUnit"}, "scope": "system"},
+      "required": false
+    },
+    {
+      "stage_id": "rollback-stop",
+      "snake": "transmission/vpn/rollback-stop",
+      "on_refusal_of": ["native-start", "hold-readback", "onness"],
+      "depends_on": ["native-preflight"],
+      "arguments": {
+        "nativeActiveBefore": {"$ref": "stages.native-start.receipt.observed.active_state"},
+        "nativeStartAttempted": {"$ref": "stages.native-start.receipt.mutation_performed"}
+      }
+    }
+  ],
+  "returns": {
+    "routine_id": {"type": "string", "meaning": "Identity on the arpeggio aggregate.", "const": "transmission/up"},
+    "request": {"type": "string", "meaning": "Serialized, redacted arpeggio request."},
+    "stages": {
+      "type": "array",
+      "meaning": "Stage rows with stage_id, transition, arguments, outcome and stop receipt, with a signal on refusal."
+    },
+    "failedStage": {
+      "type": ["string", "null"],
+      "meaning": "ID of the first required stage that refused, or null before a stage refuses."
+    },
+    "firstMissingField": {
+      "type": "string",
+      "meaning": "First stage without dry-run support when the walker refuses the dry-run request."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Present when the walker can determine whether any executed mutating stage changed state."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s outcome token; none when no signal is missing.",
+      "enum": [
+        "chord-deed-log-unavailable",
+        "chord-dry-run-undeclared-stage",
+        "chord-interrupted",
+        "chord-ref-secret",
+        "chord-ref-unresolved",
+        "chord-secret-carrier-refused",
+        "chord-stage-deadline-exceeded",
+        "chord-stage-deadline-invalid",
+        "chord-stage-invalid",
+        "chord-stage-invocation-failed",
+        "chord-stage-not-snake",
+        "chord-stage-receipt-invalid",
+        "chord-stage-receipt-schema-mismatch",
+        "chord-stage-refused",
+        "none",
+        "provider-not-bound",
+        "provider-unknown",
+        "transmission-command-timeout",
+        "transmission-command-unavailable",
+        "transmission-namespace-read-failed",
+        "transmission-namespace-read-invalid",
+        "transmission-native-unit-provider-unbound",
+        "transmission-onness-deadline-invalid",
+        "transmission-onness-not-confirmed",
+        "transmission-portal-config-invalid",
+        "transmission-portal-config-read-failed",
+        "transmission-portal-map-invalid",
+        "transmission-portal-port-invalid",
+        "transmission-portal-row-missing-or-ambiguous",
+        "transmission-provider-metadata-invalid",
+        "transmission-provider-metadata-unreadable",
+        "transmission-request-invalid",
+        "transmission-scratch-path-escape",
+        "transmission-scratch-root-invalid",
+        "transmission-trip-marker-io-failed",
+        "transmission-trip-marker-not-regular",
+        "transmission-trip-marker-still-present",
+        "transmission-vpn-config-invalid",
+        "transmission-vpn-dip-unknown",
+        "transmission-vpn-dns-unknown",
+        "transmission-vpn-family-unknown",
+        "transmission-vpn-protocol-unknown",
+        "transmission-vpn-provider-unknown",
+        "transmission-vpn-region-unknown",
+        "transmission-vpn-rescan-unknown"
+      ]
+    }
+  }
+}

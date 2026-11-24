@@ -1,0 +1,55 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "transmission/vpn/rollback-stop",
+  "payload": {
+    "fields": {
+      "nativeActiveBefore": {
+        "type": ["string", "null", "object", "array", "number"],
+        "meaning": "Original ActiveState from unit/start. If a start was attempted, inactive or failed triggers stop; active, reloading, activating and deactivating preserve the pre-existing unit. If no start was attempted, the value is ignored except that a boolean is refused."
+      },
+      "nativeStartAttempted": {"type": "boolean", "meaning": "Unit/start’s mutation_performed witness. False skips the rollback."}
+    },
+    "required": ["nativeStartAttempted"]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "provider": {"type": ["string", "null"], "meaning": "Selected provider, or null if selection did not complete."},
+    "steps": {
+      "type": "array",
+      "meaning": "Operation or observation rows, each carrying step, observed, could-change, attempt and finalState."
+    },
+    "failedRung": {"type": "string", "meaning": "Rung at which the operation stopped."},
+    "failedCommandError": {"type": "object", "meaning": "Signal and step identifying the failed command or operation."},
+    "nativeUnit": {"type": "string", "meaning": "Name of the native Transmission systemd unit."},
+    "nativeActiveBefore": {"meaning": "The original value as received; may be absent on failure."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Whether the rollback stop was attempted."},
+    "mutationOutcome": {
+      "type": "string",
+      "meaning": "Unknown if an attempted stop did not yield a verified result.",
+      "const": "unknown"
+    },
+    "reason": {
+      "type": "string",
+      "meaning": "Why no stop was needed.",
+      "enum": ["native-start-not-attempted", "native-unit-already-active-or-transitioning"]
+    },
+    "nativeState": {"type": "string", "meaning": "ActiveState read after the attempted rollback."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s outcome token; none when no signal is missing.",
+      "enum": [
+        "none",
+        "rollback-witness-unresolved",
+        "transmission-command-timeout",
+        "transmission-command-unavailable",
+        "transmission-native-before-unavailable",
+        "transmission-request-invalid",
+        "transmission-rollback-stop-failed",
+        "transmission-scratch-path-escape",
+        "transmission-scratch-root-invalid",
+        "transmission-unit-state-unreadable"
+      ]
+    }
+  }
+}

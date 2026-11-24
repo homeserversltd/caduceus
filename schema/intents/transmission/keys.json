@@ -1,0 +1,186 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "transmission/keys",
+  "payload": {
+    "fields": {
+      "action": {
+        "type": "string",
+        "meaning": "Primary action selector after a nonempty args list. Without a selector the final transition segment selects the action.",
+        "enum": ["status", "replace", "rotate"]
+      },
+      "op": {
+        "type": "string",
+        "meaning": "Action alias, after action in the same container.",
+        "enum": ["status", "replace", "rotate"]
+      },
+      "operation": {
+        "type": "string",
+        "meaning": "Action alias, after op in the same container.",
+        "enum": ["status", "replace", "rotate"]
+      },
+      "verb": {
+        "type": "string",
+        "meaning": "Action alias, after operation in the same container.",
+        "enum": ["status", "replace", "rotate"]
+      },
+      "metadata": {
+        "type": "object",
+        "meaning": "Legacy object carrying action aliases; considered after the payload and envelope selectors.",
+        "fields": {
+          "action": {
+            "type": "string",
+            "meaning": "Primary action selector after a nonempty args list. Without a selector the final transition segment selects the action.",
+            "enum": ["status", "replace", "rotate"]
+          },
+          "op": {
+            "type": "string",
+            "meaning": "Action alias, after action in the same container.",
+            "enum": ["status", "replace", "rotate"]
+          },
+          "operation": {
+            "type": "string",
+            "meaning": "Action alias, after op in the same container.",
+            "enum": ["status", "replace", "rotate"]
+          },
+          "verb": {
+            "type": "string",
+            "meaning": "Action alias, after operation in the same container.",
+            "enum": ["status", "replace", "rotate"]
+          }
+        }
+      },
+      "service": {
+        "type": "string",
+        "meaning": "Required for rotate (transmission) or replace (a VPN provider); ignored by status.",
+        "enum": ["pia", "transmission"]
+      },
+      "username": {
+        "type": "string",
+        "meaning": "Required for replace; nonempty UTF-8 text with no CR, LF or NUL. Stdin only; not echoed.",
+        "minLength": 1,
+        "pattern": "^[^\\r\\n\\u0000]+$"
+      },
+      "password": {
+        "type": "string",
+        "meaning": "Required for replace; nonempty UTF-8 text with no CR, LF or NUL. Stdin only; not echoed.",
+        "minLength": 1,
+        "pattern": "^[^\\r\\n\\u0000]+$"
+      },
+      "args": {
+        "type": "array",
+        "meaning": "An empty list uses action or transition selection; one action word takes precedence over other selectors.",
+        "maxItems": 1,
+        "items": {"type": "string", "enum": ["status", "replace", "rotate"]}
+      }
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "action": {"type": ["string", "null"], "meaning": "Selected keys action, or null for an invalid action."},
+    "service": {
+      "type": ["string", "null"],
+      "meaning": "Selected service for replace or rotate; null before selection and for status."
+    },
+    "services": {"type": ["array", "null"], "meaning": "Services in the provider and Transmission key census."},
+    "keys": {
+      "type": ["object", "null"],
+      "meaning": "Key file presence by service (present or absent), not key contents."
+    },
+    "keyChanged": {
+      "type": ["boolean", "null"],
+      "meaning": "True only after successful write, presence and credential length readback; otherwise null."
+    },
+    "lengths": {"type": ["object", "null"], "meaning": "Read-back username and password byte counts, not contents."},
+    "restart": {"type": "object", "meaning": "Native unit, before state, restart attempt and outcome."},
+    "onness": {
+      "type": ["object", "null"],
+      "meaning": "Provider-bound onness after an attempted restart, or null when not read."
+    },
+    "steps": {
+      "type": "array",
+      "meaning": "Operation or observation rows, each carrying step, observed, could-change, attempt and finalState."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s outcome token; none when no signal is missing.",
+      "enum": [
+        "daemon",
+        "forward",
+        "namespace",
+        "none",
+        "peerPort",
+        "provider-unknown",
+        "transmission-command-timeout",
+        "transmission-command-unavailable",
+        "transmission-forward-state-invalid",
+        "transmission-forward-state-permissions-invalid",
+        "transmission-forward-state-read-failed",
+        "transmission-interface-read-invalid",
+        "transmission-key-create-failed",
+        "transmission-key-credentials-invalid",
+        "transmission-key-export-exchange-artifact-malformed",
+        "transmission-key-export-exchange-artifact-preexisting",
+        "transmission-key-export-exchange-artifact-raced",
+        "transmission-key-export-exchange-cleanup-failed",
+        "transmission-key-export-exchange-mount-failed",
+        "transmission-key-export-exchange-obliteration-failed",
+        "transmission-key-export-export-failed",
+        "transmission-key-export-export-timeout",
+        "transmission-key-export-export-unavailable",
+        "transmission-key-export-failed",
+        "transmission-key-export-invalid",
+        "transmission-key-export-keyman-export-lock-timeout",
+        "transmission-key-export-malformed-key-file",
+        "transmission-key-export-missing-key",
+        "transmission-key-export-preflight-unobservable",
+        "transmission-key-export-scratch-context-invalid",
+        "transmission-key-export-uninitialized-system",
+        "transmission-key-file-unsafe",
+        "transmission-key-path-unsafe",
+        "transmission-key-presence-unobservable",
+        "transmission-key-readback-absent",
+        "transmission-key-readback-failed",
+        "transmission-key-readback-length-mismatch",
+        "transmission-key-service-invalid",
+        "transmission-keys-action-invalid",
+        "transmission-keys-replace-failed",
+        "transmission-keys-request-failed",
+        "transmission-keys-rotate-failed",
+        "transmission-keys-status-failed",
+        "transmission-keys-stdin-required",
+        "transmission-namespace-read-failed",
+        "transmission-namespace-read-invalid",
+        "transmission-native-unit-provider-unbound",
+        "transmission-native-unit-restart-failed",
+        "transmission-onness-not-established",
+        "transmission-onness-readback-failed",
+        "transmission-portal-config-invalid",
+        "transmission-portal-config-read-failed",
+        "transmission-portal-map-invalid",
+        "transmission-portal-port-invalid",
+        "transmission-portal-row-missing-or-ambiguous",
+        "transmission-provider-band-unreadable",
+        "transmission-provider-face-incomplete",
+        "transmission-provider-metadata-invalid",
+        "transmission-provider-metadata-unreadable",
+        "transmission-provider-protocol-incomplete",
+        "transmission-provider-protocol-unreadable",
+        "transmission-root-required",
+        "transmission-scratch-path-escape",
+        "transmission-scratch-root-invalid",
+        "transmission-unit-state-unreadable",
+        "transmission-vault-locked",
+        "transmission-vpn-config-invalid",
+        "transmission-vpn-dip-unknown",
+        "transmission-vpn-dns-unknown",
+        "transmission-vpn-family-unknown",
+        "transmission-vpn-protocol-unknown",
+        "transmission-vpn-region-unknown",
+        "transmission-vpn-rescan-unknown",
+        "tunnel"
+      ]
+    }
+  }
+}
