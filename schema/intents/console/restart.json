@@ -3,32 +3,25 @@
   "intent": "console/restart",
   "payload": {
     "fields": {
-      "args": {"type": "array", "enum": [[], ["stream"], ["seat"]], "meaning": "Optional front-door argv: one restart degree. With no positional degree the stop checks the legacy top-level degree, not payload.degree."}
-    },
-    "required": []
-  },
-  "exousia": false,
-  "mutation_allowed": true,
-  "legacy_request": {
-    "meaning": "With no positional degree, the piped JSON object must carry degree at its top level, including in a staff envelope.",
-    "fields": {
-      "degree": {"type": "string", "enum": ["stream", "seat"], "meaning": "Restart the owner's Sunshine service or the SDDM seat service respectively."}
+      "degree": {"type": "string", "enum": ["stream", "seat"], "meaning": "Restart the owner's Sunshine service or the SDDM seat service respectively. Positional arguments do not select a degree."}
     },
     "required": ["degree"]
   },
+  "exousia": false,
+  "mutation_allowed": true,
   "returns": {
     "degree": {"type": ["string", "null"], "meaning": "Selected or refused degree, null when missing, or the multiple-degrees marker."},
     "target_unit": {"type": "string", "meaning": "Unit selected by a valid degree."},
     "units_touched": {"type": "array", "items": {"type": "string"}, "meaning": "Unit for which restart was dispatched, otherwise empty."},
     "processes_touched": {"type": "array", "const": [], "meaning": "No processes are acted on directly."},
-    "command_results": {"type": "array", "meaning": "Load-state, restart, and active-state results in execution order. Each has argv, ok, exit_code (integer or null), stdout and stderr; completed output is sliced to the last 1200 characters and stripped."},
+    "command_results": {"type": "array", "meaning": "Load-state, restart, and active-state results in execution order. Each has a 30-second command timeout and reports argv, ok, exit_code (integer or null), stdout and stderr; completed output is sliced to the last 1200 characters and stripped."},
     "mutation_performed": {"type": "boolean", "meaning": "Whether systemctl restart was dispatched, not whether it succeeded."},
-    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Argument-parser refusal spelling, before any restart."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Argument guard refusal spelling, before any restart."},
     "first_missing_signal": {
       "type": "string",
       "meaning": "Restart or readback outcome; none only after active readback.",
       "enum": ["console-restart-degree-required-one-of-stream-seat", "console-restart-stream-unit-absent", "console-restart-seat-unit-absent", "console-restart-stream-command-failed", "console-restart-seat-command-failed", "console-restart-stream-active-readback-failed", "console-restart-seat-active-readback-failed", "none"]
     },
-    "firstMissingSignal": {"type": "string", "meaning": "Argument-parser refusal before reading the request.", "enum": ["agathodaimon-console-restart-arguments-invalid"]}
+    "firstMissingSignal": {"type": "string", "meaning": "Refusal of a nonempty argv before reading the request.", "enum": ["agathodaimon-console-restart-arguments-invalid"]}
   }
 }

@@ -1,7 +1,7 @@
 {
   "schema": "caduceus.staff.v1",
   "intent": "woodpecker/agent",
-  "payload": {"fields": {"args": {"type": "array", "enum": [[]], "default": [], "meaning": "No argv is accepted."}}, "required": []},
+  "payload": {"fields": {}, "required": []},
   "exousia": false,
   "mutation_allowed": false,
   "returns": {

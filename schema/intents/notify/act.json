@@ -5,8 +5,7 @@
     "fields": {
       "id": {"meaning": "Unvalidated caller-supplied notification identity, echoed or null when absent."},
       "verb": {"type": "string", "enum": ["dismiss", "open-updates"], "meaning": "Dismiss returns the dismissed state without inspecting row.kind; open-updates requires row.kind update and leaves it pending."},
-      "row": {"type": "object", "meaning": "Only kind is consulted. An absent or nonobject row is treated as empty.", "fields": {"kind": {"meaning": "Echoed unchanged; update is required for open-updates. house-link-up with accept is a named refusal."}}},
-      "fields": {"meaning": "Declared by the stop and carried by the caller; this dispatcher never reads its value."}
+      "row": {"type": "object", "meaning": "Only kind is consulted. An absent or nonobject row is treated as empty.", "fields": {"kind": {"meaning": "Echoed unchanged; update is required for open-updates. house-link-up with accept is a named refusal."}}}
     },
     "required": ["verb"]
   },

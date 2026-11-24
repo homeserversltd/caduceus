@@ -2,9 +2,8 @@
   "schema": "caduceus.staff.v1",
   "intent": "games/sync",
   "payload": {
-    "fields": {
-      "args": {"type": "array", "enum": [[]], "default": [], "meaning": "The front door can pass argv, but the sync action accepts no arguments. The runner and library inventory come from the runtime filesystem."}
-    },
+    "meaning": "The sync reads a staff request but takes no fields or argv. The runner and library inventory come from the runtime filesystem.",
+    "fields": {},
     "required": []
   },
   "exousia": false,
@@ -17,8 +16,8 @@
     "artwork": {"type": "array", "meaning": "Per-game appname, system, rom and artwork_cache. Cache metadata may come from an existing file or from provider and generated assets."},
     "payload_boundary": {"type": "string", "const": "runtime-game-files-artwork-cache-bios-firmware-keys-and-secrets-not-source", "meaning": "The boundary between runtime content and source."},
     "provider_env_path": {"type": "string", "meaning": "Path read for the optional provider configuration; no provider value is returned."},
-    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Argument parsing refused before any library processing; omitted on success."},
-    "exceptionType": {"type": "string", "meaning": "Front-door exception type if the stop's uncaught load or sync fault escapes."},
-    "firstMissingSignal": {"type": "string", "meaning": "Argument refusal or front-door exception; no success token is emitted.", "enum": ["agathodaimon-games-sync-arguments-invalid", "agathodaimon-stop-raised"]}
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Arguments or request refused before any library processing; omitted on success and on a sync failure that could have changed files."},
+    "exceptionType": {"type": "string", "meaning": "Exception class reported by the stop on a sync failure; not the exception text."},
+    "firstMissingSignal": {"type": "string", "meaning": "Arguments, request or sync refusal; no success token is emitted.", "enum": ["agathodaimon-games-sync-arguments-invalid", "agathodaimon-games-sync-failed"]}
   }
 }

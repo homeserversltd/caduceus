@@ -2,10 +2,10 @@
   "schema": "caduceus.staff.v1",
   "intent": "games/provider-keys",
   "payload": {
-    "meaning": "A staff envelope read from stdin without explicit operation argv needs a nonempty payload. No one property is required across the operation forms.",
+    "meaning": "A staff envelope read from stdin needs a nonempty object payload. No one property is required across the operation forms. Send saved values in a provider-map wrapper; a flat save map would also include a control key that its key validator refuses.",
     "fields": {
-      "args": {"type": "array", "enum": [[], ["status"], ["save"]], "meaning": "Front-door positional operation; with no positional word, status is the default unless the payload selects save."},
-      "verb": {"type": "string", "meaning": "With no positional operation, save selects a write; all other values leave the default status read. The named operations are status and save.", "default": "status"},
+      "args": {"type": "array", "meaning": "Operation vector read from the envelope payload, not independently from argv. A nonempty all-string vector is parsed before verb and can select status or save, with the parser's ordinary -- end-of-options separator. An empty vector falls through to verb. For a mixed-type vector only, the first item is used when verb is absent."},
+      "verb": {"type": "string", "meaning": "Fallback operation: save selects a write; all other values leave the status read. A parsed nonempty all-string args vector takes precedence.", "default": "status"},
       "keys": {
         "type": "object",
         "meaning": "First provider map considered for save. Only the two supported names may appear; an empty string removes a configured value.",
@@ -15,9 +15,7 @@
         }
       },
       "providers": {"type": "object", "meaning": "Alias of keys with the same allowed entries, used if keys is not an object."},
-      "metadata": {"type": "object", "meaning": "Alias of keys with the same allowed entries, used if neither keys nor providers is an object."},
-      "THEGAMESDB_API_KEY": {"type": "string", "meaning": "TheGamesDB value when the payload itself is the provider map and contains no control keys."},
-      "SCREENSCRAPER_API_KEY": {"type": "string", "meaning": "Screenscraper value when the payload itself is the provider map and contains no control keys."}
+      "metadata": {"type": "object", "meaning": "Alias of keys with the same allowed entries, used if neither keys nor providers is an object."}
     },
     "required": []
   },

@@ -3,7 +3,7 @@
   "intent": "notify/post",
   "payload": {
     "fields": {
-      "notification": {"type": "object", "meaning": "Wrapped notification row. If absent, the payload itself is the row. Other row keys are forwarded intact.", "required": ["id", "kind", "title", "color"]},
+      "notification": {"type": "object", "meaning": "Wrapped notification row. If absent, the payload itself is the row. Other row keys are forwarded intact to Caduceus.", "required": ["id", "kind", "title", "color"]},
       "id": {"type": "string", "meaning": "Notification identity; must contain a non-whitespace character. Applies inside the wrapper or at the flat row."},
       "kind": {"type": "string", "meaning": "Notification family; must contain a non-whitespace character. Applies inside the wrapper or at the flat row."},
       "title": {"type": "string", "meaning": "Title; must contain a non-whitespace character. Applies inside the wrapper or at the flat row."},
