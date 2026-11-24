@@ -26,14 +26,12 @@
             "type": "string",
             "meaning": "Backblaze account key ID. Keyman intake accepts at most 511 UTF-8 bytes and excludes NUL, LF, CR and double quote.",
             "minLength": 1,
-            "maxLength": 511,
             "pattern": "^[^\\u0000\\r\\n\"]+(?![\\s\\S])"
           },
           "applicationKey": {
             "type": "string",
             "meaning": "Backblaze application key. Keyman intake accepts at most 511 UTF-8 bytes and excludes NUL, LF, CR and double quote.",
             "minLength": 1,
-            "maxLength": 511,
             "pattern": "^[^\\u0000\\r\\n\"]+(?![\\s\\S])"
           },
           "bucket": {
