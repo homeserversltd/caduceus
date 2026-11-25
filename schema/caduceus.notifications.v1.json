@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "schema": "caduceus.notifications.v1",
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "role": "Guest-readable household notifications and Admin Mode link-up receipts",
   "authority": {
     "owner": "caduceus",
@@ -52,6 +52,7 @@
           "expires_at": {"type": ["string", "null"]},
           "acted_at": {"type": ["string", "null"]},
           "actions": {"type": ["array", "null"], "items": {"type": "object", "additionalProperties": true}},
+          "act": {"type": ["object", "null"], "description": "The row's one pressable act, absent when it has nothing to do; an update-available row declares update-now with the posting body itself as target.", "fields": {"verb": {"type": "string"}, "label": {"type": "string"}, "fields": {"type": ["object", "null"]}, "target": {"type": "object", "fields": {"mac": {"type": "string"}, "hostname": {"type": ["string", "null"]}}}}},
           "max_rows": {"type": ["integer", "null"], "description": "Per-kind history bound; factory 50"},
           "received_from": {"type": ["string", "null"], "description": "Address observed by the receiving Caduceus socket"},
           "from": {

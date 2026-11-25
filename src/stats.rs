@@ -319,14 +319,15 @@ fn post_update_available(answer: &Value) {
     let Some((hostname, seat)) = update_notification_seat("post") else { return; };
     let mac = seat.mac.as_ref().unwrap();
     let body = answer.pointer("/modules/pending").and_then(Value::as_u64)
-        .map(|count| format!("{count} modules behind"))
+        .map(|count| format!("{count} {} behind", if count == 1 { "module" } else { "modules" }))
         .unwrap_or_else(|| "Updates waiting".to_owned());
     let envelope = json!({"repost": true, "notification": {
         "id": format!("update-available:{mac}"), "kind": "update-available",
         "color": "blue", "title": "Update available", "body": body,
         "from": {"body": hostname, "hostname": hostname, "mac": mac, "ipv4": seat.ipv4.map(|ip| ip.to_string())},
         "ttl": "1d", "max_rows": 50,
-        "actions": [{"label": "Dismiss", "verb": "dismiss"}]
+        "actions": [{"label": "Dismiss", "verb": "dismiss"}],
+        "act": {"verb": "update-now", "label": "Update now", "target": {"mac": mac, "hostname": hostname}}
     }});
     #[cfg(leaf_notifications)]
     crate::routes::leaf_notifications::post_update_check(envelope);
