@@ -7,7 +7,7 @@
         "type": ["object", "null"], "meaning": "Optional pull settings. A non-null legacy top-level metadata value wins. Omission or null uses the defaults; the whole request is bounded at 65536 bytes.",
         "fields": {
           "dryRun": {"type": "boolean", "meaning": "Native dry-run: scan and measure the source without the delete-capable pull. This is not the front door's payload dry-run flag.", "default": false},
-          "baseline": {"type": ["object", "null"], "meaning": "Last-good source counts for the shrink gate and the deletion cap basis. Without a baseline, base the cap on the current destination file count.", "fields": {
+          "baseline": {"type": ["object", "null"], "meaning": "Last-good source counts for the shrink gate and the deletion cap basis. Without a baseline, base the cap on twenty percent of the source count from the dry scan, with a floor of 1000.", "fields": {
             "fileCount": {"type": "integer", "meaning": "Last-good source file count; a drop greater than twenty percent refuses the pull.", "minimum": 0},
             "totalBytes": {"type": "integer", "meaning": "Last-good source bytes; a drop greater than ten percent refuses the pull.", "minimum": 0}
           }, "required": ["fileCount", "totalBytes"]}
@@ -23,7 +23,7 @@
     "outcome": {"type": "string", "meaning": "The native pull's disposition.", "enum": ["refused", "failed", "planned", "ok"]},
     "planned": {"type": "boolean", "meaning": "True when metadata.dryRun was explicitly true, even if an earlier guard then refused the plan."},
     "checks": {"type": "array", "meaning": "Ordered passed checks and their observed facts.", "items": {"type": "object", "fields": {
-      "name": {"type": "string", "meaning": "The check completed.", "enum": ["single-instance-lock", "backup-device", "current-boot-kernel-log-clean", "proof-only-scratch-destination", "destination-measured", "source-measured", "shrink-canary"]},
+      "name": {"type": "string", "meaning": "The check completed.", "enum": ["single-instance-lock", "backup-device", "current-boot-kernel-log-clean", "proof-only-scratch-destination", "destination-measured", "source-measured", "shrink-canary", "source-remeasured-after-sync"]},
       "ok": {"type": "boolean", "const": true, "meaning": "Only completed checks are added."},
       "partlabel": {"type": "string", "const": "homeserver-backup-nas", "meaning": "Checked destination partition label."},
       "attachScopes": {"type": "array", "maxItems": 1, "meaning": "The first boot-log observation scope after a clean kernel-log check.", "items": {"type": "object", "fields": {
@@ -40,6 +40,12 @@
     }}},
     "rsyncExitCode": {"type": ["integer", "null"], "meaning": "Latest rsync command's exit status, or null before it runs."},
     "rsyncStats": {"type": ["object", "null"], "meaning": "Latest rsync colon-delimited statistics as strings; the parser truncates keys to 96 and values to 256 characters."},
+    "finalFileCount": {"type": "integer", "meaning": "Source file count remeasured after a real copy exited 0.", "minimum": 0},
+    "finalTotalBytes": {"type": "integer", "meaning": "Source bytes remeasured after a real copy exited 0.", "minimum": 0},
+    "box": {"type": "object", "meaning": "The box identity, present when its own MAC could be read.", "fields": {
+      "mac": {"type": "string", "meaning": "The box's own lower-case MAC address."},
+      "hostname": {"type": "string", "meaning": "The box's hostname."}
+    }},
     "maxDelete": {"type": ["integer", "null"], "meaning": "Deletion cap: greater of 1000 or floor of twenty percent of the reference file count; null before available.", "minimum": 1000},
     "homeserver": {"type": ["object", "null"], "meaning": "Resolved default-gateway seat, or null before resolution.", "fields": {
       "ipv4": {"type": "string", "meaning": "IPv4 default-gateway address."},
@@ -50,6 +56,8 @@
       "type": "string", "meaning": "Native pull signal or the front door's uncaught-exception signal. Some NAS guards append the exact tool, device, path or error that failed.",
       "anyOf": [
         {"enum": ["none", "planned-only", "agathodaimon-stop-raised", "mirror-request-invalid", "mirror-dry-run-invalid", "mirror-baseline-invalid", "mirror-scratch-invalid", "single-instance-lock-invalid", "single-instance-lock-contended", "backup-target-is-root", "mountpoint-unevaluable:/mnt/nas_backup", "mountpoint-output-malformed:/mnt/nas_backup", "not-a-real-mountpoint:/mnt/nas_backup", "mount-source-not-block-device:/mnt/nas_backup", "backup-partlabel-invalid", "current-boot-kernel-log-unevaluable", "current-boot-kernel-error-names-backing-drive", "default-gateway-unavailable", "backup-pair-credential-unavailable", "mirror-credential-invalid", "mirror-source-scan-failed", "source-stats-unavailable", "source-shrink-refused:byte-count-shrank-more-than-10-percent", "source-shrink-refused:file-count-shrank-more-than-20-percent", "source-shrink-refused:byte-count-shrank-more-than-10-percent,file-count-shrank-more-than-20-percent", "rsync-delete-cap-exceeded", "mirror-rsync-failed", "mirror-pull-unavailable", "mirror-deed-unavailable"]},
+        {"enum": ["mirror-copy-stalled", "mirror-tunnel-failed", "mirror-upgrade-invalid", "mirror-remote-command-invalid", "backup-mirror-busy", "mirror-serve-lock-busy", "backup-pair-unknown", "backup-mirror-child-failed"]},
+        {"pattern": "^mirror-http-([0-9]{3}|invalid)$"},
         {"pattern": "^(?:single-instance-lock-unavailable|device-alias-unresolvable|backing-device-unevaluable|backing-device-output-malformed|backing-device-root-unevaluable|backup-partlabel-unevaluable|source-unreadable|source-directory-unreadable|source-entry-unreadable):"},
         {"enum": ["required-tool-missing:/usr/bin/findmnt", "required-tool-missing:/usr/bin/lsblk", "required-tool-missing:/usr/bin/journalctl"]},
         {"pattern": "^command-unavailable:/usr/bin/(?:findmnt|lsblk|journalctl):"}

@@ -1,0 +1,47 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/forgejo/nas-export",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the export stop succeeded in its current phase. The stop writes Forgejo onto the NAS as the ForgejoExport tree; it has no Caduceus route yet."
+    },
+    "status": {
+      "type": "string",
+      "meaning": "The transient worker was accepted; this does not assert a finished export.",
+      "const": "accepted"
+    },
+    "unit": {
+      "type": "string",
+      "meaning": "Name of the accepted transient worker unit."
+    },
+    "step": {
+      "type": "string",
+      "meaning": "Phase that refused or failed, when named."
+    },
+    "reason": {
+      "type": "string",
+      "meaning": "Unprefixed refusal or failure reason, when named."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome signal emitted by the stop; none denotes no missing signal.",
+      "enum": [
+        "none",
+        "forgejo-nas-export-busy",
+        "forgejo-nas-export-nas-not-mounted",
+        "forgejo-nas-export-stop-failed",
+        "forgejo-nas-export-dump-failed",
+        "forgejo-nas-export-copy-failed",
+        "forgejo-nas-export-start-failed",
+        "forgejo-nas-export-launch-failed"
+      ]
+    }
+  }
+}
