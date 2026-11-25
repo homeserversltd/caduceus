@@ -1,6 +1,6 @@
 {
   "schema": "harmonia.engine.source_resolution.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "role": "Public Harmonia source-resolution receipt",
   "authority": {
     "owner": "caduceus",
@@ -145,6 +145,23 @@
         "null"
       ],
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "safe",
+        "developer"
+      ],
+      "description": "The component's place on harmonia.safe_modules: safe follows the Wukong stamp and a seal when on the list; developer is given no pin when off it; this is not source_policy or the run receipt's mode"
+    },
+    "followed": {
+      "type": "string",
+      "enum": [
+        "stamp",
+        "seal",
+        "newest"
+      ],
+      "description": "stamp moves the component to the stamp's term; seal moves it to a fire seal's term; newest means no pin in developer mode or because no VALID stamp named the component, taking its own repo's newest flagged Release for a binary or the tip of its configured ref for a source shelf"
     }
   },
   "field_types": {
@@ -167,7 +184,9 @@
     "authority": "string",
     "authority_ref": "string",
     "resolved_revision": "string|null",
-    "digest": "string|null"
+    "digest": "string|null",
+    "mode": "string",
+    "followed": "string"
   },
   "required": [
     "schema",
@@ -191,7 +210,9 @@
     "resolution",
     "authority_ref",
     "resolved_revision",
-    "digest"
+    "digest",
+    "mode",
+    "followed"
   ],
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }

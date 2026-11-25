@@ -1,6 +1,6 @@
 {
   "schema": "harmonia.update-set.v1",
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "role": "Harmonia's appliance update-set and member release evidence",
   "authority": {
     "owner": "caduceus",
@@ -85,6 +85,16 @@
     },
     "failed_step": {
       "type": "string"
+    },
+    "wukong_staff_member_sources": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "values": {
+        "type_ref": "MemberSource"
+      },
+      "description": "One row for each member the body declares, keyed by the member's name; null unless the Wukong stamp's verdict is VALID"
     }
   },
   "field_types": {
@@ -98,7 +108,8 @@
     "transaction_state": "string",
     "restored_paths": "array<string>",
     "rollback_errors": "array<string>",
-    "failed_step": "string"
+    "failed_step": "string",
+    "wukong_staff_member_sources": "map<member,MemberSource>|null"
   },
   "required": [
     "schema",
@@ -113,7 +124,8 @@
     "transaction_state",
     "restored_paths",
     "rollback_errors",
-    "failed_step"
+    "failed_step",
+    "wukong_staff_member_sources"
   ],
   "types": {
     "Member": {
@@ -155,6 +167,63 @@
         },
         "malformed_flags": {
           "type": "integer"
+        }
+      }
+    },
+    "MemberSource": {
+      "description": "Source evidence for one member declared by the body",
+      "fields": {
+        "source_sha": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "The commit the member took"
+        },
+        "stamp_sha": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "The Wukong stamp's term for the member, a git commit, not a 64-hex Ruyi row stamp"
+        },
+        "effective_target": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "A fire seal's term for the member over the stamp's"
+        },
+        "matches": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Whether source_sha equals the stamp's term stamp_sha alone; null when either is absent"
+        },
+        "provenance": {
+          "type": "string",
+          "description": "Where source_sha was read"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "safe",
+            "developer"
+          ],
+          "description": "The member's place on harmonia.safe_modules: safe follows the Wukong stamp and a seal when on the list; developer is given no pin when off it; this is not the run receipt's mode or source_policy"
+        },
+        "followed": {
+          "type": "string",
+          "enum": [
+            "stamp",
+            "seal",
+            "newest"
+          ],
+          "description": "stamp moves the member to the stamp's term; seal moves it to a fire seal's term; newest means no pin in developer mode or because no VALID stamp named the member, taking its own repo's newest flagged Release for a binary or the tip of its configured ref for a source shelf"
         }
       }
     }
