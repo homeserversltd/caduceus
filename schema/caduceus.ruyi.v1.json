@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.ruyi.v1",
-  "schema_version": "1.6.0",
+  "schema_version": "1.7.0",
   "role": "Public Ruyi row, roster and removal envelope",
   "authority": {
     "owner": "caduceus",
@@ -402,7 +402,30 @@
       "description": "The optional flags.exousia.pin carries the target's PIN; it is never echoed."
     },
     "thing": {
-      "type": "string"
+      "type": "string",
+      "declared_names": ["stats", "update-now", "backup-drive", "backup-pull", "pin-check", "backup-enroll"],
+      "description": "The list of things grows by addition in this seat; road.rs keeps the map. An undeclared name answers thing-undeclared."
+    },
+    "payload": {
+      "type": "object",
+      "maxBytes": 1024,
+      "alternatives": [
+        {
+          "thing": "backup-enroll",
+          "type": "object",
+          "fields": {
+            "home": {
+              "type": "object",
+              "fields": {
+                "mac": {"type": "string", "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$"}
+              },
+              "required": ["mac"]
+            }
+          },
+          "required": ["home"]
+        }
+      ],
+      "description": "Optional act payload, at most 1024 bytes as canonical JSON. The backup-enroll alternative carries the paired HomeServer's lower-case MAC. It never carries a PIN, a path or a credential."
     },
     "answers": {
       "type": "array",
@@ -413,6 +436,7 @@
           "hostname": {"type": "string"},
           "proven": {"type": "boolean"},
           "signal": {"type": ["string", "null"]},
+          "peerStatus": {"type": ["integer", "null"], "description": "The target's HTTP status for an act."},
           "answer": {
             "type": ["object", "null"],
             "alternatives": [
@@ -451,12 +475,27 @@
                   }
                 },
                 "required": ["stop"]
+              },
+              {
+                "schema_ref": "caduceus.staff.receipt.v1",
+                "fields": {
+                  "stop": {
+                    "type": "object",
+                    "required": ["noun", "verb"],
+                    "fields": {
+                      "noun": {"type": "string", "const": "storage/backup/drive"},
+                      "verb": {"type": "string", "const": "card"}
+                    }
+                  }
+                },
+                "required": ["stop"]
               }
             ],
             "description": "For stats, the self answer is the sample and a peer answer is the staff receipt bound to appliance/stats. For an act, the self answer is the whole invocation and a peer answer is its whole road response or road-bound staff receipt."
           }
         },
-        "required": ["mac", "hostname", "proven", "signal", "answer"]
+        "required": ["mac", "hostname", "proven", "signal", "answer"],
+        "optional": ["peerStatus"]
       }
     }
   },
@@ -496,6 +535,7 @@
     "discovered_via": "string",
     "target": "string",
     "flags": "object",
+    "payload": "object",
     "thing": "string",
     "answers": "array"
   },
@@ -523,7 +563,7 @@
   "forms": {
     "road-act": {
       "required": ["schema", "target", "thing"],
-      "optional": ["flags"],
+      "optional": ["flags", "payload"],
       "signals": ["road-act-body-invalid", "road-act-pin-carrier-duplicated", "exousia-pin-required", "exousia-pin-wrong", "exousia-pin-not-yet-provisioned", "thing-undeclared", "target-unknown", "act-door-absent", "seat-mac-unknown", "seat-mac-mismatch", "unreachable", "timeout"]
     },
     "road": {

@@ -17,7 +17,7 @@
     "caduceus.carapace.resolved.v1": {"file": "schema/caduceus.carapace.resolved.v1.json", "schema_version": "1.0.0"},
     "caduceus.pid2.routine.v1": {"file": "schema/caduceus.pid2.routine.v1.json", "schema_version": "1.0.0"},
     "caduceus.pid2.schedule.v1": {"file": "schema/caduceus.pid2.schedule.v1.json", "schema_version": "1.0.0"},
-    "caduceus.ruyi.v1": {"file": "schema/caduceus.ruyi.v1.json", "schema_version": "1.6.0"},
+    "caduceus.ruyi.v1": {"file": "schema/caduceus.ruyi.v1.json", "schema_version": "1.7.0"},
     "caduceus.ruyi.stream.v1": {"file": "schema/caduceus.ruyi.stream.v1.json", "schema_version": "1.0.0"},
     "caduceus.docs.seal.v1": {"file": "schema/caduceus.docs.seal.v1.json", "schema_version": "1.0.0"},
     "caduceus.hermes.alive.v1": {"file": "schema/caduceus.hermes.alive.v1.json", "schema_version": "1.0.0"},
