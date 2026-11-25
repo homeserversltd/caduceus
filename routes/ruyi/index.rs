@@ -471,6 +471,25 @@ async fn fetch_peer(host: &str, port: u16, path: &str) -> std::io::Result<Vec<u8
     Ok(response)
 }
 
+async fn post_peer(host: &str, port: u16, body: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut stream = TcpStream::connect((host, port)).await?;
+    stream.set_nodelay(true)?;
+    let headers = format!("POST /api/v1/ruyi/road HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n", body.len());
+    stream.write_all(headers.as_bytes()).await?;
+    stream.write_all(body).await?;
+    let mut response = Vec::new();
+    let mut buffer = [0u8; 4096];
+    loop {
+        let count = stream.read(&mut buffer).await?;
+        if count == 0 { break; }
+        if response.len() + count > MAX_PEER_RESPONSE_BYTES {
+            return Err(Error::new(ErrorKind::InvalidData, "ruyi peer response too large"));
+        }
+        response.extend_from_slice(&buffer[..count]);
+    }
+    Ok(response)
+}
+
 fn valid_peer_beam(response: &[u8]) -> bool {
     let Some(body_start) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
         return false;
@@ -1858,7 +1877,7 @@ async fn remove(
 
 pub fn register(router: axum::Router) -> axum::Router {
     router
-        .route("/api/v1/ruyi/road", axum::routing::get(road::get))
+        .route("/api/v1/ruyi/road", axum::routing::get(road::get).post(road::post))
         .route("/api/v1/ruyi/:mac", axum::routing::put(put).delete(remove))
         .route("/api/v1/ruyi", axum::routing::get(list))
 }
