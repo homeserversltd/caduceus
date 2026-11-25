@@ -67,7 +67,7 @@ fn road_body(mac: &str, hostname: &str, thing: &str, entry: Value) -> Value {
     json!({"schema": row_schema(), "ok": true, "service": "caduceus", "seat": {"mac": mac, "hostname": hostname}, "thing": thing, "answers": [entry]})
 }
 
-pub(super) async fn post(body: Bytes) -> Result<(StatusCode, Json<Value>), Failure> {
+pub(crate) async fn post(body: Bytes) -> Result<(StatusCode, Json<Value>), Failure> {
     let started = Instant::now();
     if body.len() > 4096 {
         return Err(error(StatusCode::BAD_REQUEST, "road-act-body-invalid"));
