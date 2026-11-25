@@ -1165,7 +1165,7 @@ async fn answer_client_refusal(request: Request<Body>, next: middleware::Next) -
     while bytes.len() <= 1024 {
         match stream.next().await {
             Some(Ok(chunk)) => {
-                let remaining = 1025 - bytes.len();
+                let remaining = 1024 - bytes.len();
                 bytes.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
                 if chunk.len() > remaining { break; }
             }
