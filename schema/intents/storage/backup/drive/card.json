@@ -69,7 +69,7 @@
       "type": ["object", "null"],
       "meaning": "Joined by the Caduceus card door from the box's own newest mirror-pull deed in its backups ledger; null when the box has none. The staff stop itself never answers this field.",
       "fields": {
-        "at": {"type": "string", "format": "date-time", "meaning": "UTC date-time of the copy deed."},
+        "at": {"type": "string", "format": "date-time", "pattern": "(Z|\\+00:00)$", "meaning": "UTC date-time of the copy deed."},
         "outcome": {"type": "string", "enum": ["ok", "failed", "refused"], "meaning": "Outcome of the copy."},
         "signal": {"type": "string", "pattern": "^[a-z0-9-]{1,40}$", "meaning": "Copy outcome signal."},
         "durationMs": {"type": "integer", "minimum": 0, "meaning": "Elapsed time in milliseconds."}
