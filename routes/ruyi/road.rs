@@ -10,18 +10,22 @@ const GET_THINGS: &[(&str, Option<&str>, Duration)] = &[
 // The returned address is the one that answered both identity requests. It is
 // deliberately not replaced with a DNS name between proof and the thing read.
 pub(super) async fn prove_stave(row: &RuyiRow, deadline: Instant) -> Result<(String, u16), &'static str> {
-    let host = row.ipv4.clone();
+    prove_address(&row.ipv4, row.caduceus_port, &row.mac, deadline)
+        .await.map(|(host, port, _)| (host, port))
+}
+
+async fn prove_address(host: &str, port: Option<u16>, target: &str, deadline: Instant) -> Result<(String, u16, Option<String>), &'static str> {
     if host.parse::<Ipv4Addr>().is_err() {
         return Err("unreachable");
     }
-    let port = row.caduceus_port.unwrap_or_else(peer_probe_port);
-    let beam = timeout_at(deadline, fetch_peer(&host, port, PEER_BEAM_PATH))
+    let port = port.unwrap_or_else(peer_probe_port);
+    let beam = timeout_at(deadline, fetch_peer(host, port, PEER_BEAM_PATH))
         .await.map_err(|_| "timeout")?.map_err(|_| "unreachable")?;
     if !valid_peer_beam(&beam) {
         return Err("unreachable");
     }
     let path = "/api/v1/ruyi?seat=1";
-    let response = timeout_at(deadline, fetch_peer(&host, port, path))
+    let response = timeout_at(deadline, fetch_peer(host, port, path))
         .await.map_err(|_| "timeout")?.map_err(|_| "unreachable")?;
     let roster = response_json_200(&response).ok_or("unreachable")?;
     if (roster.get("schema").and_then(Value::as_str) != Some(row_schema())
@@ -34,10 +38,11 @@ pub(super) async fn prove_stave(row: &RuyiRow, deadline: Instant) -> Result<(Str
     let mac = roster.pointer("/seat/mac").and_then(Value::as_str)
         .filter(|mac| !mac.trim().eq_ignore_ascii_case("unknown"))
         .ok_or("seat-mac-unknown")?;
-    if normalized_mac(mac).as_deref() != Some(row.mac.as_str()) {
+    if normalized_mac(mac).as_deref() != Some(target) {
         return Err("seat-mac-mismatch");
     }
-    Ok((host, port))
+    let hostname = roster.pointer("/seat/hostname").and_then(Value::as_str).map(str::to_owned);
+    Ok((host.to_owned(), port, hostname))
 }
 
 fn answer(mac: &str, hostname: &str, proven: bool, signal: Option<String>, value: Option<Value>) -> Value {
@@ -131,11 +136,34 @@ pub(super) async fn post(body: Bytes) -> Result<(StatusCode, Json<Value>), Failu
         bytes.map(|bytes| serde_json::from_str::<RuyiRow>(&bytes)
             .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-row-invalid"))).transpose()
     }).await??;
-    let (entry, signal) = match row {
+    let candidate = if let Some(row) = row {
+        Some((row.ipv4, row.caduceus_port, row.hostname, false, false))
+    } else if cfg!(all(carapace_feature_kea, carapace_feature_unbound)) {
+        None
+    } else if let Some(seat) = crate::gate::blocking_task("ruyi", gateway::resolve).await.ok().flatten() {
+        let mut candidates = gateway_kea_candidates(seat, Duration::from_millis(1500)).await;
+        if let Some(candidate) = candidates.remove(&target) {
+            let name = [Some(candidate.hostname), candidate.fallback_hostname].into_iter().flatten()
+                .find(|name| valid_hostname(name) && !name.eq_ignore_ascii_case("unknown"))
+                .unwrap_or_else(|| "unknown".to_owned());
+            Some((candidate.address.to_string(), None, name, true, false))
+        } else {
+            Some((seat.0.to_string(), Some(seat.1), "unknown".to_owned(), true, true))
+        }
+    } else {
+        None
+    };
+    let (entry, signal) = match candidate {
         None => (answer(&target, "unknown", false, Some("target-unknown".into()), None), Some("target-unknown".to_owned())),
-        Some(row) => match prove_stave(&row, Instant::now() + RUYI_PEER_TIMEOUT).await {
-            Err(signal) => (answer(&target, &row.hostname, false, Some(signal.into()), None), Some(signal.to_owned())),
-            Ok((host, port)) => {
+        Some((address, port, name, discovered, gateway_guess)) => match prove_address(&address, port, &target, Instant::now() + RUYI_PEER_TIMEOUT).await {
+            Err(signal) => {
+                let signal = if gateway_guess { "target-unknown" } else { signal };
+                (answer(&target, &name, false, Some(signal.into()), None), Some(signal.to_owned()))
+            },
+            Ok((host, port, seat_name)) => {
+                let name = if discovered {
+                    seat_name.filter(|name| valid_hostname(name) && !name.eq_ignore_ascii_case("unknown")).unwrap_or(name)
+                } else { name };
                 let pin = request.pointer("/flags/exousia/pin").cloned().unwrap_or(Value::Null);
                 let mut outgoing = json!({"schema": row_schema(), "target": target, "thing": thing, "flags": {"exousia": {"pin": pin}}});
                 if let Some(payload) = request.get("payload") { outgoing["payload"] = payload.clone(); }
@@ -159,7 +187,7 @@ pub(super) async fn post(body: Bytes) -> Result<(StatusCode, Json<Value>), Failu
                         } else { (Some("unreachable".to_owned()), None, peer_status) }
                     }
                 };
-                let mut entry = answer(&target, &row.hostname, true, signal.clone(), value);
+                let mut entry = answer(&target, &name, true, signal.clone(), value);
                 entry["peerStatus"] = json!(peer_status);
                 (entry, signal)
             }
