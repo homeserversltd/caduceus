@@ -339,7 +339,7 @@ fn server_now() -> u64 {
         .as_secs()
 }
 
-fn current_identity() -> crate::shared::seat_identity::SeatIdentity {
+pub(crate) fn current_identity() -> crate::shared::seat_identity::SeatIdentity {
     let hostname = crate::shared::seat_identity::local_hostname();
     let dns_ipv4 = crate::shared::seat_identity::resolve_home_arpa_ipv4(&hostname);
     let bind_ipv4 = crate::shared::config::declared_bind()
