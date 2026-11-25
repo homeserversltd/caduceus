@@ -18,11 +18,14 @@
       "fields": {
         "mac": {
           "type": "string",
-          "meaning": "Box MAC address in lower-case."
+          "meaning": "Box MAC address in lower-case.",
+          "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$"
         },
         "hostname": {
           "type": "string",
-          "meaning": "Box hostname."
+          "meaning": "Box hostname.",
+          "maxLength": 253,
+          "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
         }
       }
     },
@@ -32,7 +35,9 @@
     },
     "model": {
       "type": ["string", "null"],
-      "meaning": "Drive model, or null when unobserved."
+      "meaning": "Drive model, or null when unobserved.",
+      "maxLength": 64,
+      "pattern": "^[\\x20-\\x2e\\x30-\\x7e]*$"
     },
     "sizeBytes": {
       "type": ["integer", "null"],
@@ -57,7 +62,8 @@
     },
     "transport": {
       "type": ["string", "null"],
-      "meaning": "How the drive is connected, or null when unobserved."
+      "meaning": "How the drive is connected, or null when unobserved.",
+      "enum": ["usb", "sata", "ata", "nvme", "sas", "scsi", "mmc", "virtio", "iscsi", "fc", "spi", "ieee1394", null]
     },
     "firstMissingSignal": {
       "type": "string",
