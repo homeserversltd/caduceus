@@ -100,7 +100,9 @@ pub fn status(id:&str) -> Result<Value,String> {
     let cal=if frequency.is_empty() {None} else {Some(cal_from_row(frequency.clone(),time.clone(),weekday.clone()))};
     let next=if enabled {cal.as_ref().and_then(|cal|next_slot(cal,super::now())).and_then(|v|chrono::DateTime::from_timestamp(v,0)).map(|v|v.with_timezone(&Local).to_rfc3339())} else {None};
     let fire=if super::table_exists(&db,"pid2_fires")? {db.query_row("SELECT fire_id,trigger,state,queued_at,started_at,finished_at,duration_ms,first_missing_signal,rsync_exit_code,final_file_count,final_total_bytes FROM pid2_fires WHERE schedule_id=?1",[id],fire_json).optional().map_err(|e|e.to_string())?} else {None};
-    let baseline=if super::table_exists(&db,"pid2_sync_baselines")? {db.query_row("SELECT file_count,total_bytes,updated_at,fire_id FROM pid2_sync_baselines WHERE schedule_id=?1",[id],|r|Ok(json!({"fileCount":r.get::<_,i64>(0)?,"totalBytes":r.get::<_,i64>(1)?,"updated_at":r.get::<_,i64>(2)?,"fire_id":r.get::<_,String>(3)?}))).optional().map_err(|e|e.to_string())?} else {None};
+    let baseline=if band=="storage/backup/mirror/pull" {
+        if super::table_exists(&db,"mirror_pull_baselines")? {db.query_row("SELECT file_count,total_bytes,written_at FROM mirror_pull_baselines WHERE schedule_id=?1",[id],|r|Ok(json!({"fileCount":r.get::<_,i64>(0)?,"totalBytes":r.get::<_,i64>(1)?,"updated_at":r.get::<_,i64>(2)?,"fire_id":null}))).optional().map_err(|e|e.to_string())?} else {None}
+    } else if super::table_exists(&db,"pid2_sync_baselines")? {db.query_row("SELECT file_count,total_bytes,updated_at,fire_id FROM pid2_sync_baselines WHERE schedule_id=?1",[id],|r|Ok(json!({"fileCount":r.get::<_,i64>(0)?,"totalBytes":r.get::<_,i64>(1)?,"updated_at":r.get::<_,i64>(2)?,"fire_id":r.get::<_,String>(3)?}))).optional().map_err(|e|e.to_string())?} else {None};
     Ok(json!({"schedule":{"schedule_id":id,"enabled":enabled,"calendar":cal.as_ref().map(|_|json!({"frequency":frequency,"time":time,"weekday":weekday})),"frequency":cal.as_ref().map(|_|frequency),"time":cal.as_ref().map(|_|time),"weekday":weekday,"band":band,"action":action,"max_seconds":max_seconds,"registered_at":registered_at,"updated_at":updated_at,"last_fired_slot":last_fired_slot,"envelope":envelope,"raw_envelope":raw_envelope},"next_fire":next,"last_fire":fire,"baseline":baseline}))
 }
 pub fn list() -> Result<Value,String> {
@@ -226,7 +228,7 @@ fn queue_with_id(id:&str,trigger:&str,slot:Option<i64>,fire_id:&str,waiter:bool)
     let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?; super::tables(&db)?;
     let tx=db.transaction().map_err(|e|e.to_string())?;
     let (raw,enabled,max):(Vec<u8>,bool,u64)=tx.query_row("SELECT envelope,enabled,max_seconds FROM pid2_schedules WHERE schedule_id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(|e|e.to_string())?.ok_or("pid2-schedule-not-found")?;
-    if trigger=="round" && !enabled {drop(tx);drop(db);fire_deed(id,&uuid::Uuid::new_v4().simple().to_string(),"Refused",0,Some("pid2-schedule-disabled"));return Err("pid2-schedule-disabled".into());}
+    if matches!(trigger,"round"|"road") && !enabled {drop(tx);drop(db);fire_deed(id,&uuid::Uuid::new_v4().simple().to_string(),"Refused",0,Some("pid2-schedule-disabled"));return Err("pid2-schedule-disabled".into());}
     let active:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM pid2_fires WHERE schedule_id=?1 AND state IN ('Queued','Running'))",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
     if active {drop(tx);drop(db);fire_deed(id,&uuid::Uuid::new_v4().simple().to_string(),"Refused",0,Some("pid2-schedule-fire-running"));return Err("pid2-schedule-fire-running".into());}
     let signal=unmet(&tx,&raw)?; let now=super::now();
@@ -346,7 +348,8 @@ pub fn execute(id:&str) -> Result<bool,String> {
             let ok=seat_ok && outcome_ok && result.get("ok").and_then(Value::as_bool)==Some(true) && r.get("ok").and_then(Value::as_bool)==Some(true) && r.get("converged").and_then(Value::as_bool)!=Some(false);
             let state=if ok {"Done"} else if r.get("outcome").and_then(Value::as_str)==Some("refused") {"Refused"} else {"Failed"};
             let signal=if ok {None} else if !seat_ok {Some("pid2-schedule-receipt-schema-desync".to_owned())} else {Some(r.get("firstMissingSignal").or_else(||result.get("firstMissingSignal")).and_then(Value::as_str).filter(|s|!s.is_empty() && *s!="none").unwrap_or("pid2-schedule-crossing-failed").to_owned())};
-            let counts=match (r.get("finalFileCount").and_then(Value::as_i64),r.get("finalTotalBytes").and_then(Value::as_i64)) {(Some(f),Some(b)) if ok && f>=0 && b>=0=>Some((f,b)),_=>None};
+            let baseline_ok=band!="storage/backup/mirror/pull" || (r.get("outcome").and_then(Value::as_str)==Some("ok") && r.get("converged").and_then(Value::as_bool)==Some(true));
+            let counts=match (r.get("finalFileCount").and_then(Value::as_i64),r.get("finalTotalBytes").and_then(Value::as_i64)) {(Some(f),Some(b)) if ok && baseline_ok && f>=0 && b>=0=>Some((f,b)),_=>None};
             (state,signal,r.get("rsyncExitCode").and_then(Value::as_i64),counts)
         }
     }};

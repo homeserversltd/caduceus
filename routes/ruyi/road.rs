@@ -46,6 +46,18 @@ fn answer(mac: &str, hostname: &str, proven: bool, signal: Option<String>, value
 
 type Failure = (StatusCode, Json<crate::gate::ApiErrorBody>);
 
+fn enroll_mac(payload: Option<&Value>) -> Option<&str> {
+    let payload = payload?;
+    if serde_json::to_vec(payload).ok()?.len() > 1024 { return None; }
+    let outer = payload.as_object()?;
+    if outer.len() != 1 { return None; }
+    let home = outer.get("home")?.as_object()?;
+    if home.len() != 1 { return None; }
+    let mac = home.get("mac")?.as_str()?;
+    if mac.len() != 17 || !mac.bytes().enumerate().all(|(i, b)| if i % 3 == 2 { b == b':' } else { b.is_ascii_digit() || (b'a'..=b'f').contains(&b) }) { return None; }
+    Some(mac)
+}
+
 fn road_body(mac: &str, hostname: &str, thing: &str, entry: Value) -> Value {
     json!({"schema": row_schema(), "ok": true, "service": "caduceus", "seat": {"mac": mac, "hostname": hostname}, "thing": thing, "answers": [entry]})
 }
@@ -76,12 +88,34 @@ pub(super) async fn post(body: Bytes) -> Result<(StatusCode, Json<Value>), Failu
         crate::shared::attendance::verify_administrative_pin(pin.as_str().unwrap_or(""))
             .map_err(|signal| crate::gate::api_error_signal("ruyi", &signal))?;
         drop(pin);
+        let home = if thing == "backup-enroll" {
+            Some(enroll_mac(request.get("payload")).ok_or_else(|| error(StatusCode::BAD_REQUEST, "payload-invalid"))?.to_owned())
+        } else {
+            if request.get("payload").is_some() { return Err(error(StatusCode::BAD_REQUEST, "payload-invalid")); }
+            None
+        };
         drop(request);
-        if thing != "update-now" {
-            return Err(error(StatusCode::BAD_REQUEST, "thing-undeclared"));
-        }
         let hostname = crate::shared::seat_identity::local_hostname();
-        let (status, Json(value)) = crate::routes::update_support::update_now_route(axum::http::HeaderMap::new()).await?;
+        let (status, value) = match thing.as_str() {
+            "pin-check" => (StatusCode::OK, json!({"ok":true,"verified":true})),
+            #[cfg(leaf_pid2)]
+            "backup-enroll" => {
+                let registration = json!({"schema":"caduceus.pid2.schedule.v1", "intent_id":"backup-pull-enroll", "transition":"register", "version":"1.0.0", "timestamp":"1970-01-01T00:00:00Z", "schedule":{"schedule_id":"backup-pull","enabled":true,"calendar":null,"job":{"band":"storage/backup/mirror/pull","action":"pull","max_seconds":86400,"payload":{"home":{"mac":home}}}}});
+                crate::gate::blocking_task("ruyi", move || crate::pid2::schedule::register(registration.to_string().as_bytes())).await?
+                    .map_err(|signal| crate::gate::api_error_signal("ruyi", &signal))?;
+                (StatusCode::OK, json!({"ok":true,"enrolled":true}))
+            },
+            #[cfg(leaf_pid2)]
+            "backup-pull" => {
+                let queued = crate::gate::blocking_task("ruyi", || crate::pid2::schedule::queue("backup-pull", "road", None)).await?
+                    .map_err(|signal| crate::gate::api_error_signal("ruyi", if signal == "pid2-schedule-not-found" {"backup-pull-not-enrolled"} else {&signal}))?;
+                (StatusCode::OK, queued)
+            },
+            #[cfg(not(leaf_pid2))]
+            "backup-enroll" | "backup-pull" => return Err(error(StatusCode::SERVICE_UNAVAILABLE, "pid2-unavailable")),
+            "update-now" => { let (status, Json(value)) = crate::routes::update_support::update_now_route(axum::http::HeaderMap::new()).await?; (status, value) },
+            _ => return Err(error(StatusCode::BAD_REQUEST, "thing-undeclared")),
+        };
         let signal = value.get("firstMissingSignal").and_then(Value::as_str)
             .filter(|s| !s.is_empty() && *s != "none").map(str::to_owned);
         let entry = answer(self_mac, &hostname, true, signal, Some(value));
@@ -103,27 +137,31 @@ pub(super) async fn post(body: Bytes) -> Result<(StatusCode, Json<Value>), Failu
             Err(signal) => (answer(&target, &row.hostname, false, Some(signal.into()), None), Some(signal.to_owned())),
             Ok((host, port)) => {
                 let pin = request.pointer("/flags/exousia/pin").cloned().unwrap_or(Value::Null);
-                let outgoing = json!({"schema": row_schema(), "target": target, "thing": thing, "flags": {"exousia": {"pin": pin}}});
+                let mut outgoing = json!({"schema": row_schema(), "target": target, "thing": thing, "flags": {"exousia": {"pin": pin}}});
+                if let Some(payload) = request.get("payload") { outgoing["payload"] = payload.clone(); }
                 let bytes = serde_json::to_vec(&outgoing).map_err(|_| error(StatusCode::BAD_REQUEST, "road-act-body-invalid"))?;
                 let response = timeout(Duration::from_secs(5), post_peer(&host, port, &bytes)).await;
-                let (signal, value) = match response {
-                    Err(_) => (Some("timeout".to_owned()), None),
-                    Ok(Err(_)) => (Some("unreachable".to_owned()), None),
+                let (signal, value, peer_status) = match response {
+                    Err(_) => (Some("timeout".to_owned()), None, None),
+                    Ok(Err(_)) => (Some("unreachable".to_owned()), None, None),
                     Ok(Ok(response)) => {
                         let end = response.windows(4).position(|w| w == b"\r\n\r\n");
                         let status = end.and_then(|n| std::str::from_utf8(&response[..n]).ok())
                             .and_then(|headers| headers.lines().next()).and_then(|line| line.split_whitespace().nth(1));
+                        let peer_status = status.and_then(|s| s.parse::<u16>().ok());
                         if status == Some("405") {
-                            (Some("act-door-absent".to_owned()), None)
+                            (Some("act-door-absent".to_owned()), None, peer_status)
                         } else if let Some(value) = end.and_then(|n| serde_json::from_slice::<Value>(&response[n+4..]).ok()) {
                             let signal = value.get("firstMissingSignal").and_then(Value::as_str)
                                 .or_else(|| value.pointer("/answers/0/signal").and_then(Value::as_str))
                                 .filter(|s| !s.is_empty() && *s != "none").map(str::to_owned);
-                            (signal, Some(value))
-                        } else { (Some("unreachable".to_owned()), None) }
+                            (signal, Some(value), peer_status)
+                        } else { (Some("unreachable".to_owned()), None, peer_status) }
                     }
                 };
-                (answer(&target, &row.hostname, true, signal.clone(), value), signal)
+                let mut entry = answer(&target, &row.hostname, true, signal.clone(), value);
+                entry["peerStatus"] = json!(peer_status);
+                (entry, signal)
             }
         }
     };
