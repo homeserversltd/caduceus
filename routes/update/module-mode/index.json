@@ -3,7 +3,7 @@
   "admittance": "open",
   "flags": {},
   "serve": [{"snake": "update/module-mode"}],
-  "commands": ["update module mode"],
+  "commands": ["update module-mode"],
   "needs": ["all"],
   "http_method": "POST",
   "http_path": "/api/v1/update/module-mode",

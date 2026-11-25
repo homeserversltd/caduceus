@@ -87,7 +87,6 @@ fn modules_json() -> Result<Value, String> {
     let disabled_ids = disabled.iter().map(|item| item.as_str().ok_or_else(|| "caduceus-agathodaimon-invalid-receipt".to_string()))
         .collect::<Result<BTreeSet<_>, _>>()?;
     Ok(json!({
-        "schema": "caduceus.update.modules.v1",
         "ok": true,
         "modules": ids
             .into_iter()

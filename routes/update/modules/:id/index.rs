@@ -1,7 +1,7 @@
 use crate::gate::{api_error, api_error_signal, ApiErrorBody};
 use axum::{extract::Path, http::StatusCode, Json};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 pub const NAMESPACE: &str = "update/modules/:id";
 const COMMAND: &str = "update modules toggle";
@@ -31,16 +31,7 @@ pub(crate) async fn route(
             })
             .await?;
             match result {
-                Ok(_) => Ok((
-                    StatusCode::OK,
-                    Json(json!({
-                        "schema": "caduceus.update.modules.mutate.v1",
-                        "ok": true,
-                        "id": id,
-                        "enabled": enabled,
-                        "firstMissingSignal": "none"
-                    })),
-                )),
+                Ok(receipt) => Ok((crate::gate::mutation_status(&receipt), Json(receipt))),
                 Err(e) => Err(api_error_signal(COMMAND, &e)),
             }
         }

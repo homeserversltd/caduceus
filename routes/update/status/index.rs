@@ -12,21 +12,23 @@ pub fn staff_list() -> Result<Value, String> {
 
 fn staff_call(payload: Value) -> Result<Value, String> {
     let receipt = crate::gate::snake::crossing_path_receipt("update/module-toggle", &payload)?;
-    if let Some(signal) = receipt.get("doorSignal").and_then(Value::as_str) {
-        return Err(signal.to_string());
-    }
-    if receipt.get("ok").and_then(Value::as_bool) != Some(true) {
-        return Err(receipt.get("firstMissingSignal").and_then(Value::as_str)
-            .unwrap_or("caduceus-agathodaimon-refused").to_string());
+    if !crate::gate::receipt_succeeded(&receipt) {
+        return Err(receipt_signal(&receipt));
     }
     Ok(receipt)
+}
+
+fn receipt_signal(receipt: &Value) -> String {
+    receipt.get("doorSignal").and_then(Value::as_str)
+        .or_else(|| receipt.get("firstMissingSignal").and_then(Value::as_str))
+        .unwrap_or("caduceus-agathodaimon-refused").to_string()
 }
 
 pub fn toggle_staff(module_id: &str, enabled: bool) -> Result<Value, String> {
     if !valid_module_id(module_id) {
         return Err("caduceus-profile-module-id-invalid".to_string());
     }
-    staff_call(json!({"args": [module_id, if enabled { "on" } else { "off" }]}))
+    crate::gate::snake::crossing_path_receipt("update/module-toggle", &json!({"args": [module_id, if enabled { "on" } else { "off" }]}))
 }
 
 pub fn toggle(module_id: &str, state: &str) -> i32 {
@@ -39,7 +41,7 @@ pub fn toggle(module_id: &str, state: &str) -> i32 {
         }
     };
     match toggle_staff(module_id, enabled) {
-        Ok(_) => {
+        Ok(receipt) if crate::gate::receipt_succeeded(&receipt) => {
             println!("schema=caduceus.profile.module.toggle.v1");
             println!("ok=true");
             println!("module_id={module_id}");
@@ -47,6 +49,10 @@ pub fn toggle(module_id: &str, state: &str) -> i32 {
             println!("first_missing_signal=none");
             println!("message={module_id} {} for the next Harmonia run.", if enabled { "enabled" } else { "disabled" });
             0
+        }
+        Ok(receipt) => {
+            eprintln!("caduceus-profile-module-toggle-failed: {}", receipt_signal(&receipt));
+            1
         }
         Err(err) => {
             eprintln!("caduceus-profile-module-toggle-failed: {err}");
