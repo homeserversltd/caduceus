@@ -194,11 +194,18 @@ pub(crate) async fn post(body: Bytes) -> Result<(StatusCode, Json<Value>), Failu
         }
     };
     let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let deed_signal = signal.as_deref().map(|s| {
+        let valid = (1..=64).contains(&s.len())
+            && s.bytes().next().is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+            && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        let pin = request.pointer("/flags/exousia/pin").and_then(Value::as_str).unwrap_or("");
+        if valid && (pin.is_empty() || !s.contains(pin)) { s } else { "peer-signal-withheld" }
+    }).unwrap_or("none");
     let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
         "organ": "ruyi", "kind": "deed", "ok": signal.is_none(), "message": "ruyi act",
         "attributes_redacted": {"who": "caduceus", "verb": "ruyi-act", "target": target,
             "thing": thing, "outcome": if signal.is_none() {"success"} else {"refused"},
-            "signal": signal.as_deref().unwrap_or("none"), "duration_ms": duration_ms}
+            "signal": deed_signal, "duration_ms": duration_ms}
     }));
     Ok((StatusCode::OK, Json(road_body(self_mac, &hostname, &thing, entry))))
 }
