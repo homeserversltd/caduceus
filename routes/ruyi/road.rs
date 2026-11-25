@@ -201,10 +201,14 @@ pub(crate) async fn post(body: Bytes) -> Result<(StatusCode, Json<Value>), Failu
         let pin = request.pointer("/flags/exousia/pin").and_then(Value::as_str).unwrap_or("");
         if valid && (pin.is_empty() || !s.contains(pin)) { s } else { "peer-signal-withheld" }
     }).unwrap_or("none");
+    let deed_thing = match thing.as_str() {
+        "stats" | "update-now" | "backup-drive" | "backup-pull" | "pin-check" | "backup-enroll" => thing.as_str(),
+        _ => "undeclared",
+    };
     let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
         "organ": "ruyi", "kind": "deed", "ok": signal.is_none(), "message": "ruyi act",
         "attributes_redacted": {"who": "caduceus", "verb": "ruyi-act", "target": target,
-            "thing": thing, "outcome": if signal.is_none() {"success"} else {"refused"},
+            "thing": deed_thing, "outcome": if signal.is_none() {"success"} else {"refused"},
             "signal": deed_signal, "duration_ms": duration_ms}
     }));
     Ok((StatusCode::OK, Json(road_body(self_mac, &hostname, &thing, entry))))
