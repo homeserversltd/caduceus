@@ -230,8 +230,9 @@ async fn revoke(mac: String) -> Result<(Value, bool), Failure> {
         Ok(row)
     }).await?;
     if let Some(inlet) = inlet {
+        let owner = mac.clone();
         blocking(move || {
-            let value = crate::gate::snake::crossing_path("storage/backup/pin-inlet/delete", &json!({"name":inlet}))
+            let value = crate::gate::snake::crossing_path("storage/backup/pin-inlet/delete", &json!({"name":inlet,"username":owner}))
                 .map_err(|_| (StatusCode::BAD_GATEWAY, "backup-pair-inlet-delete-failed"))?;
             if value.get("ok").and_then(Value::as_bool) != Some(true) { return Err((StatusCode::BAD_GATEWAY, "backup-pair-inlet-delete-failed")); }
             Ok(())
