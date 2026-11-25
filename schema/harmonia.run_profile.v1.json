@@ -1,11 +1,11 @@
 {
   "schema": "harmonia.run_profile.v1",
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "role": "Harmonia profile run receipt",
   "authority": {"owner": "caduceus", "path": "schema/harmonia.run_profile.v1.json"},
   "evolution": {"law": "additive-only", "missing_field_semantics": "Absent optional fields mean null", "unknown_fields_preserved": true},
   "required": ["schema", "run_id", "ok"],
-  "optional": ["changed", "mutation", "mode", "profile_id", "identity", "identity_source", "module_count", "operation_count", "config_proposal_count", "run_duration_ms", "first_missing_signal", "module_spine_entered", "selected_profile", "suite_ok", "steps", "module_artifact_debt", "engine_debt", "overall_ok", "degraded", "config_surfaces", "extends", "base_profile_id", "union_module_count", "excluded_module_ids", "observed", "could_change_to", "attempt", "final_receipt", "notify"],
+  "optional": ["changed", "mutation", "mode", "profile_id", "identity", "identity_source", "module_count", "operation_count", "config_proposal_count", "run_duration_ms", "first_missing_signal", "module_spine_entered", "selected_profile", "suite_ok", "steps", "module_artifact_debt", "engine_debt", "overall_ok", "degraded", "config_surfaces", "extends", "base_profile_id", "union_module_count", "excluded_module_ids", "observed", "could_change_to", "attempt", "final_receipt", "notify", "touch"],
   "fields": {
     "schema": {"type": "string", "const": "harmonia.run_profile.v1"},
     "run_id": {"type": "string"},
@@ -49,6 +49,14 @@
       "promoted": {"type": ["array", "null"], "items": {"type": "string"}}, "set_digest": {"type": ["string", "null"]},
       "stamps": {"type": ["array", "null"], "items": {"type": "object", "properties": {"by": {"type": "string"}, "at": {"type": "string"}}}}
     }},
-    "notify": {"type": ["array", "string", "null"], "items": {"type": "object", "properties": {"row": {"type": "string"}, "posted": {"type": "boolean"}, "id": {"type": ["string", "null"]}}}}
+    "notify": {"type": ["array", "string", "null"], "items": {"type": "object", "properties": {"row": {"type": "string"}, "posted": {"type": "boolean"}, "id": {"type": ["string", "null"]}}}},
+    "touch": {"type": ["object", "null"], "properties": {
+      "declaration": {"type": "string", "enum": ["loaded", "absent", "malformed"]},
+      "source": {"type": ["string", "null"]},
+      "source_revision": {"type": ["string", "null"]},
+      "declared_count": {"type": "integer"},
+      "hooked": {"type": "array", "items": {"type": "string"}},
+      "undeclared": {"type": "array", "items": {"type": "object", "properties": {"module": {"type": ["string", "null"]}, "step": {"type": ["string", "null"]}, "target": {"type": "string"}, "lane_hint": {"type": ["string", "null"]}}}}
+    }}
   }
 }
