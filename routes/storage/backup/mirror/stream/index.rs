@@ -70,7 +70,7 @@ async fn route(mut request: Request<Body>) -> Response {
             let captured = tokio::time::timeout_at(early_deadline, stderr_task).await.ok().and_then(Result::ok).unwrap_or_default();
             let signal = captured.split(|byte| *byte == b'\n').next()
                 .and_then(|line| serde_json::from_slice::<serde_json::Value>(line).ok())
-                .and_then(|json| json.get("signal").and_then(|value| value.as_str()).map(str::to_owned))
+                .and_then(|json| json.get("firstMissingSignal").and_then(|value| value.as_str()).or_else(|| json.get("signal").and_then(|value| value.as_str())).map(str::to_owned))
                 .filter(|signal| signal.len() <= 128 && !signal.is_empty() && !credential.is_empty() && !signal.contains(credential)
                     && signal.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'))
                 .unwrap_or_else(|| "backup-mirror-child-failed".to_owned());

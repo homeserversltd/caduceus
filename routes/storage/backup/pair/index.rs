@@ -85,8 +85,11 @@ fn request(mac: &str, hostname: &str, supplied: &str, ipv4: &str) -> Result<(Val
     with_db(|db| {
     let tx = db.transaction().map_err(|_| UNAVAILABLE)?;
     let old: Option<(String,String)> = tx.query_row("SELECT credential_sha256,state FROM backup_pairs WHERE mac=?1", [mac], |r| Ok((r.get(0)?,r.get(1)?))).optional().map_err(|_| UNAVAILABLE)?;
-    if old.as_ref().is_some_and(|(digest,state)| state == "accepted" && equal_digest(digest,supplied)) {
-        return Ok((json!({"ok":true,"state":"accepted"}), false));
+    if let Some((digest, _)) = old.as_ref().filter(|(_, state)| state == "accepted") {
+        if equal_digest(digest, supplied) {
+            return Ok((json!({"ok":true,"state":"accepted"}), false));
+        }
+        return Err((StatusCode::CONFLICT, "backup-pair-already-accepted"));
     }
     tx.execute("INSERT INTO backup_pairs(mac,hostname,ipv4,credential_sha256,state,requested_at,accepted_at) VALUES(?1,?2,?3,?4,'pending',?5,NULL) ON CONFLICT(mac) DO UPDATE SET hostname=excluded.hostname,ipv4=excluded.ipv4,credential_sha256=excluded.credential_sha256,state='pending',requested_at=excluded.requested_at,accepted_at=NULL", params![mac,hostname,ipv4,supplied,now()]).map_err(|_| UNAVAILABLE)?;
     tx.commit().map_err(|_| UNAVAILABLE)?;
@@ -97,7 +100,7 @@ fn request(mac: &str, hostname: &str, supplied: &str, ipv4: &str) -> Result<(Val
 fn list() -> Result<Value, Failure> {
     with_db(|db| {
     let has_ruyi: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='ruyi')", [], |r| r.get(0)).map_err(|_| UNAVAILABLE)?;
-    let sql = if has_ruyi { "SELECT p.mac,COALESCE(json_extract(r.row,'$.hostname'),p.hostname),p.ipv4,p.state,p.requested_at,p.accepted_at FROM backup_pairs p LEFT JOIN ruyi r ON r.mac=p.mac ORDER BY p.mac" } else { "SELECT mac,hostname,ipv4,state,requested_at,accepted_at FROM backup_pairs ORDER BY mac" };
+    let sql = if has_ruyi { "SELECT p.mac,COALESCE(json_extract(r.row,'$.hostname'),p.hostname),p.ipv4,p.state,p.requested_at,p.accepted_at FROM backup_pairs p LEFT JOIN ruyi r ON r.mac=p.mac ORDER BY CASE p.state WHEN 'accepted' THEN 0 ELSE 1 END, CASE WHEN p.state='accepted' THEN p.accepted_at ELSE p.requested_at END, p.mac" } else { "SELECT mac,hostname,ipv4,state,requested_at,accepted_at FROM backup_pairs ORDER BY CASE state WHEN 'accepted' THEN 0 ELSE 1 END, CASE WHEN state='accepted' THEN accepted_at ELSE requested_at END, mac" };
     let mut query = db.prepare(sql).map_err(|_| UNAVAILABLE)?;
     let rows = query.query_map([], |r| Ok(json!({"mac":r.get::<_,String>(0)?,"hostname":r.get::<_,Option<String>>(1)?,"ipv4":r.get::<_,Option<String>>(2)?,"state":r.get::<_,String>(3)?,"requested_at":r.get::<_,i64>(4)?,"accepted_at":r.get::<_,Option<i64>>(5)?}))).map_err(|_| UNAVAILABLE)?;
     let rows = rows.collect::<Result<Vec<_>,_>>().map_err(|_| UNAVAILABLE)?;
