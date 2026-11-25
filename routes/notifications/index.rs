@@ -664,10 +664,23 @@ async fn receive_post(
     bytes: axum::body::Bytes,
 ) -> Response {
     let started = Instant::now();
+    let clearing = serde_json::from_slice::<Value>(&bytes).ok().is_some_and(|value| value["clear"] == true);
+    let verb = if clearing { if forward { "forward-clear" } else { "clear" } } else if forward { "forward" } else { "post" };
     let result: Result<Value, Failure> = async {
         if forward && !gateway_profile() { return Err((StatusCode::FORBIDDEN,"notification-forward-on-homeserver")); }
         if bytes.len() >= 1024 { return Err((StatusCode::BAD_REQUEST,"notification-row-invalid")); }
         let mut envelope: Value = serde_json::from_slice(&bytes).map_err(|_| (StatusCode::BAD_REQUEST,"notification-row-invalid"))?;
+        if clearing {
+            let row = envelope.get("notification").and_then(Value::as_object).ok_or((StatusCode::BAD_REQUEST,"notification-row-invalid"))?;
+            let id = row.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or((StatusCode::BAD_REQUEST,"notification-row-invalid"))?.to_owned();
+            if row.get("kind").and_then(Value::as_str) != Some("update-available") { return Err((StatusCode::BAD_REQUEST,"notification-clear-kind-unsupported")); }
+            if !gateway_profile() {
+                let mut receipt = house::gateway_post(&envelope).await.ok_or(unavailable("notification-gateway-unreachable"))?;
+                receipt["forwarded"] = json!(true);
+                return Ok(receipt);
+            }
+            return tokio::task::spawn_blocking(move || ledger::clear(&id,"update-available")).await.map_err(|_| unavailable("notification-state-unavailable"))?;
+        }
         let row = envelope.get_mut("notification").and_then(Value::as_object_mut).ok_or((StatusCode::BAD_REQUEST,"notification-row-invalid"))?;
         for key in ["id","kind","title"] { if !row.get(key).and_then(Value::as_str).is_some_and(|s| !s.is_empty()) { return Err((StatusCode::BAD_REQUEST,"notification-row-invalid")); } }
         if gateway_profile() && row.get("kind").and_then(Value::as_str) == Some("update") { return Err((StatusCode::GONE,"notification-kind-retired")); }
@@ -697,8 +710,8 @@ async fn receive_post(
         tokio::task::spawn_blocking(move || ledger::post(row,repost)).await.map_err(|_| unavailable("notification-state-unavailable"))?
     }.await;
     match result {
-        Ok(value) => { record(value["id"].as_str().unwrap_or("unknown"), if forward {"forward"} else {"post"}, &value, started); Json(value).into_response() }
-        Err(error) => { record("unknown",if forward {"forward"} else {"post"},&json!({"ok":false,"firstMissingSignal":error.1}),started); refusal(error) }
+        Ok(value) => { record(value["id"].as_str().unwrap_or("unknown"), verb, &value, started); Json(value).into_response() }
+        Err(error) => { record("unknown",verb,&json!({"ok":false,"firstMissingSignal":error.1}),started); refusal(error) }
     }
 }
 
@@ -708,12 +721,20 @@ async fn forward(peer: Option<axum::extract::ConnectInfo<crate::gate::Connection
 // The check runs on a blocking worker, so enter the same local post path as
 // HTTP without calling the live listener or bypassing peer forwarding.
 pub(crate) fn post_update_check(envelope: Value) {
+    update_check_envelope(envelope, "post");
+}
+
+pub(crate) fn clear_update_check(envelope: Value) {
+    update_check_envelope(envelope, "clear");
+}
+
+fn update_check_envelope(envelope: Value, verb: &str) {
     match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(runtime) => {
             let bytes = axum::body::Bytes::from(envelope.to_string());
             let _ = runtime.block_on(receive_post(false, None, bytes));
         }
-        Err(_) => record("update-available", "post", &json!({"ok":false,"firstMissingSignal":"notification-runtime-unavailable"}), Instant::now()),
+        Err(_) => record("update-available", verb, &json!({"ok":false,"firstMissingSignal":"notification-runtime-unavailable"}), Instant::now()),
     }
 }
 

@@ -90,7 +90,7 @@ pub(super) fn post(mut row: Value, repost: bool) -> Result<Value, Failure> {
     // Expiry is projected on reads; only this posted identity is materialized here.
     tx.execute("UPDATE notifications SET state='expired',acted_at=expires_at,row=json_set(row,'$.state','expired','$.acted_at',strftime('%Y-%m-%dT%H:%M:%SZ',expires_at,'unixepoch')) WHERE id=?1 AND state='pending' AND expires_at IS NOT NULL AND expires_at<=?2", params![id,timestamp]).map_err(|_| error())?;
     let old: Option<String> = tx.query_row("SELECT state FROM notifications WHERE id=?1", [&id], |r| r.get(0)).optional().map_err(|_| error())?;
-    if old.as_deref().is_some_and(|s| (s == "dismissed" || s == "expired") && !repost) {
+    if old.as_deref().is_some_and(|s| (s == "dismissed" || s == "expired" || s == "cleared") && !repost) {
         tx.commit().map_err(|_| error())?;
         return Ok(json!({"schema":super::SCHEMA,"ok":true,"id":id,"state":old.unwrap()}));
     }
@@ -103,6 +103,14 @@ pub(super) fn post(mut row: Value, repost: bool) -> Result<Value, Failure> {
     if total > 1000 { return Err(unavailable("notification-capacity-full")); }
     tx.commit().map_err(|_| error())?;
     Ok(json!({"schema":super::SCHEMA,"ok":true,"id":id,"state":"pending"}))
+}
+
+pub(super) fn clear(id: &str, kind: &str) -> Result<Value, Failure> {
+    let db = crate::stats::open_db().map_err(|_| error())?.lock().map_err(|_| error())?;
+    let timestamp = now();
+    let acted = stamp(timestamp).as_str().unwrap_or("").to_owned();
+    let changed = db.execute("UPDATE notifications SET state='cleared',acted_at=?3,row=json_set(row,'$.state','cleared','$.acted_at',?4) WHERE id=?1 AND kind=?2 AND state='pending' AND (expires_at IS NULL OR expires_at>?3)", params![id,kind,timestamp,acted]).map_err(|_| error())?;
+    Ok(json!({"schema":super::SCHEMA,"ok":true,"id":id,"state":if changed == 0 { "absent" } else { "cleared" }}))
 }
 
 pub(super) fn list(all: bool) -> Result<Vec<Value>, Failure> {

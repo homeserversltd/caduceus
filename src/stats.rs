@@ -49,6 +49,7 @@ static INDICATOR_POKE_MASK: AtomicU64 = AtomicU64::new(0);
 static UPDATE_CHECK_GATE: Mutex<()> = Mutex::new(());
 static UPDATE_CHECK_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 static UPDATE_CHECK_LAST_ATTEMPT: AtomicU64 = AtomicU64::new(0);
+static UPDATE_CHECK_START_PULSE: AtomicBool = AtomicBool::new(false);
 static UPDATE_CHECK: OnceLock<Result<Mutex<Option<(i64, Value)>>, String>> = OnceLock::new();
 const MODEL_LANE_PULSE_INTERVAL: u64 = 86_400;
 const MODEL_LANE_TIMEOUT: Duration = Duration::from_millis(400);
@@ -248,6 +249,12 @@ fn update_check_state() -> Result<&'static Mutex<Option<(i64, Value)>>, String> 
 }
 
 fn update_check_due() -> bool {
+    if !UPDATE_CHECK_START_PULSE.load(Ordering::Acquire) {
+        return match update_check_state().and_then(|state| state.lock().map_err(|e| e.to_string()).map(|_| ())) {
+            Ok(()) => true,
+            Err(error) => { eprintln!("harmonia check state outcome=failed signal={error}"); false }
+        };
+    }
     let last_attempt = UPDATE_CHECK_LAST_ATTEMPT.load(Ordering::Acquire);
     if last_attempt != 0 && (now().max(0) as u64).saturating_sub(last_attempt) < MODEL_LANE_PULSE_INTERVAL {
         return false;
@@ -286,11 +293,14 @@ fn perform_update_check(daily: bool) -> Option<Value> {
     *state.lock().unwrap_or_else(|e| e.into_inner()) = Some((checked_at, answer.clone()));
     if answer.get("pending").and_then(Value::as_bool) == Some(true) {
         post_update_available(&answer);
+    } else if answer.get("ok").and_then(Value::as_bool) == Some(true)
+        && answer.get("pending").and_then(Value::as_bool) == Some(false) {
+        clear_update_available();
     }
     Some(answer)
 }
 
-fn post_update_available(answer: &Value) {
+fn update_notification_seat(verb: &str) -> Option<(String, crate::shared::seat_identity::SeatIdentity)> {
     let hostname = crate::shared::seat_identity::local_hostname();
     let dns = crate::shared::seat_identity::resolve_home_arpa_ipv4(&hostname);
     let bind = config::declared_bind().ok().and_then(|address| match address.ip() {
@@ -298,10 +308,16 @@ fn post_update_available(answer: &Value) {
         _ => None,
     });
     let seat = crate::shared::seat_identity::current(dns, bind);
-    let Some(mac) = seat.mac else {
-        record_update_post_failure("notification-body-mac-unavailable");
-        return;
-    };
+    if seat.mac.is_none() {
+        record_update_notification_failure(verb, "notification-body-mac-unavailable");
+        return None;
+    }
+    Some((hostname, seat))
+}
+
+fn post_update_available(answer: &Value) {
+    let Some((hostname, seat)) = update_notification_seat("post") else { return; };
+    let mac = seat.mac.as_ref().unwrap();
     let body = answer.pointer("/modules/pending").and_then(Value::as_u64)
         .map(|count| format!("{count} modules behind"))
         .unwrap_or_else(|| "Updates waiting".to_owned());
@@ -317,14 +333,28 @@ fn post_update_available(answer: &Value) {
     #[cfg(not(leaf_notifications))]
     {
         let _ = envelope;
-        record_update_post_failure("notification-door-unavailable");
+        record_update_notification_failure("post", "notification-door-unavailable");
     }
 }
 
-fn record_update_post_failure(signal: &str) {
+fn clear_update_available() {
+    let Some((_, seat)) = update_notification_seat("clear") else { return; };
+    let envelope = json!({"clear": true, "notification": {
+        "id": format!("update-available:{}", seat.mac.as_ref().unwrap()), "kind": "update-available"
+    }});
+    #[cfg(leaf_notifications)]
+    crate::routes::leaf_notifications::clear_update_check(envelope);
+    #[cfg(not(leaf_notifications))]
+    {
+        let _ = envelope;
+        record_update_notification_failure("clear", "notification-door-unavailable");
+    }
+}
+
+fn record_update_notification_failure(verb: &str, signal: &str) {
     let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
         "organ":"notifications", "kind":"deed", "message":"notification deed", "ok":false,
-        "attributes_redacted":{"who":"caduceus", "verb":"post", "target":"notification", "outcome":"failed", "signal":signal}
+        "attributes_redacted":{"who":"caduceus", "verb":verb, "target":"notification", "outcome":"failed", "signal":signal}
     }));
 }
 
@@ -334,8 +364,9 @@ pub(crate) fn run_update_check() -> Value {
 
 fn pulse_update_check() {
     if !update_check_due() || UPDATE_CHECK_IN_FLIGHT.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() { return; }
-    if let Err(error) = thread::Builder::new().name("caduceus-update-check".into()).spawn(|| {
-        let _ = perform_update_check(true);
+    let first = !UPDATE_CHECK_START_PULSE.swap(true, Ordering::AcqRel);
+    if let Err(error) = thread::Builder::new().name("caduceus-update-check".into()).spawn(move || {
+        let _ = perform_update_check(!first);
         UPDATE_CHECK_IN_FLIGHT.store(false, Ordering::Release);
     }) {
         UPDATE_CHECK_IN_FLIGHT.store(false, Ordering::Release);
