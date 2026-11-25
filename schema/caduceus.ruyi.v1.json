@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.ruyi.v1",
-  "schema_version": "1.5.0",
+  "schema_version": "1.6.0",
   "role": "Public Ruyi row, roster and removal envelope",
   "authority": {
     "owner": "caduceus",
@@ -383,6 +383,14 @@
       "type": "string",
       "const": "lease-sweep"
     },
+    "target": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$"
+    },
+    "flags": {
+      "type": "object",
+      "description": "The optional flags.exousia.pin carries the target's PIN; it is never echoed."
+    },
     "thing": {
       "type": "string"
     },
@@ -455,6 +463,8 @@
     "dns_unresolved": "array",
     "removed": "string",
     "discovered_via": "string",
+    "target": "string",
+    "flags": "object",
     "thing": "string",
     "answers": "array"
   },
@@ -480,6 +490,11 @@
     "stats_signal"
   ],
   "forms": {
+    "road-act": {
+      "required": ["schema", "target", "thing"],
+      "optional": ["flags"],
+      "signals": ["road-act-body-invalid", "road-act-pin-carrier-duplicated", "exousia-pin-required", "exousia-pin-wrong", "exousia-pin-not-yet-provisioned", "thing-undeclared", "target-unknown", "act-door-absent", "seat-mac-unknown", "seat-mac-mismatch", "unreachable", "timeout"]
+    },
     "road": {
       "required": ["schema", "ok", "service", "seat", "thing", "answers"],
       "optional": [],
