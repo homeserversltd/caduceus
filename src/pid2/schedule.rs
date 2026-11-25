@@ -239,10 +239,10 @@ fn queue_with_id(id:&str,trigger:&str,slot:Option<i64>,fire_id:&str,waiter:bool)
     tx.commit().map_err(|e|e.to_string())?;drop(db);
     if let Some(signal)=signal {fire_deed(id,&fire_id,"Refused",0,Some(&signal));return Err(signal);}
     if let Err(signal)=super::events::notify_schedule() {
-        if !waiter {return Err(signal);}
-        // The fire is already committed, so the waiting caller must not be
-        // told that no fire exists. Keep watching it and surface the failed
-        // nudge separately; a later wake may still dispatch the queued fire.
+        if !waiter && trigger!="road" {return Err(signal);}
+        // The fire is already committed. A road caller needs its fire ID,
+        // and a waiter needs to keep watching it. A later wake may still
+        // dispatch the queued fire; report the failed nudge separately.
         eprintln!("pid2-schedule-wake-after-queue: {signal}");
     }
     Ok(json!({"ok":true,"fire_id":fire_id,"state":"Queued","max_seconds":max}))
