@@ -301,7 +301,7 @@ async fn handle(OriginalUri(uri): OriginalUri, peer: Option<ConnectInfo<crate::g
                     if verb == "accept" { accept(mac, box_pin).await } else { revoke(mac).await }
                 },
             }
-        } else if verb == "request" {
+        } else if verb == "request" || verb == "report" {
             let _guard = PAIR_LOCK.lock().await;
             blocking(move || basic(&verb, &body, peer)).await
         } else { blocking(move || basic(&verb, &body, peer)).await };
