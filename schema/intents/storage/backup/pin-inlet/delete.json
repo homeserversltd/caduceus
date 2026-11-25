@@ -3,15 +3,16 @@
   "intent": "storage/backup/pin-inlet/delete",
   "payload": {
     "fields": {
-      "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,53}_pin_inlet$", "meaning": "Keyman inlet record name."}
+      "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,53}_pin_inlet$", "meaning": "Keyman inlet record name."},
+      "username": {"type": "string", "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", "meaning": "Box MAC whose record this is; a record holding any other username is left untouched and answers deleted false."}
     },
-    "required": ["name"]
+    "required": ["name", "username"]
   },
   "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "ok": {"type": "boolean", "meaning": "Whether deletion succeeded."},
-    "deleted": {"type": "boolean", "meaning": "Whether a record was deleted."},
-    "firstMissingSignal": {"type": "string", "enum": ["none", "pin-inlet-name-invalid", "pin-inlet-delete-failed"], "meaning": "Deletion outcome or refusal."}
+    "deleted": {"type": "boolean", "meaning": "Whether a record was deleted; false also when the record belongs to another box."},
+    "firstMissingSignal": {"type": "string", "enum": ["none", "pin-inlet-name-invalid", "pin-inlet-delete-failed", "pin-inlet-username-invalid"], "meaning": "Deletion outcome or refusal."}
   }
 }
