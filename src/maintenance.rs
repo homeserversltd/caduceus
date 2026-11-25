@@ -4,6 +4,9 @@ use crate::shared::hyalos;
 use serde_json::{json, Value};
 use std::fs;
 use std::io::ErrorKind;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::Path;
 use std::sync::OnceLock;
 use tokio::time::{interval, Duration};
 
@@ -38,12 +41,47 @@ pub fn start() {
     });
 }
 
-fn remove_remainders() {
-    // Remainders: /var/lib/caduceus/backups and receipts/log-maintenance-<n>-<n>.json.
+fn remove_remainder_tree(path: &Path) -> bool {
+    let directory = match fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+    {
+        Ok(directory) => directory,
+        Err(error) if error.kind() == ErrorKind::NotFound => return false,
+        Err(_) => return true,
+    };
     let mut failed = false;
-    if let Err(error) = fs::remove_dir_all(crate::shared::config::path("/var/lib/caduceus/backups")) {
+    let held_path = format!("/proc/self/fd/{}", directory.as_raw_fd());
+    match fs::read_dir(held_path) {
+        Ok(entries) => {
+            for entry in entries {
+                match entry {
+                    Ok(entry) => {
+                        let result = match entry.file_type() {
+                            Ok(kind) if kind.is_dir() => fs::remove_dir_all(entry.path()),
+                            Ok(_) => fs::remove_file(entry.path()),
+                            Err(error) => Err(error),
+                        };
+                        if let Err(error) = result {
+                            failed |= error.kind() != ErrorKind::NotFound;
+                        }
+                    }
+                    Err(error) => failed |= error.kind() != ErrorKind::NotFound,
+                }
+            }
+        }
+        Err(error) => failed |= error.kind() != ErrorKind::NotFound,
+    }
+    if let Err(error) = fs::remove_dir(path) {
         failed |= error.kind() != ErrorKind::NotFound;
     }
+    failed
+}
+
+fn remove_remainders() {
+    // Remainders: /var/lib/caduceus/backups and receipts/log-maintenance-<n>-<n>.json.
+    let mut failed = remove_remainder_tree(&crate::shared::config::path("/var/lib/caduceus/backups"));
     match fs::read_dir(crate::shared::config::path("/var/lib/caduceus/receipts")) {
         Ok(entries) => {
             for entry in entries {
