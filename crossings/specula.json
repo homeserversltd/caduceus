@@ -183,6 +183,7 @@
     "update/module-toggle",
     "update/profile-refresh",
     "update/profile-retire",
+    "update/module-mode",
     "update/service",
     "update/sources-reseed",
     "xenos/run"
@@ -420,6 +421,10 @@
     ],
     [
       "update",
+      "module-mode"
+    ],
+    [
+      "update",
       "service"
     ],
     [
@@ -611,6 +616,7 @@
     "/api/v1/sync/now",
     "/api/v1/tailscale/status",
     "/api/v1/update/check",
+    "/api/v1/update/module-mode",
     "/api/v1/update/module",
     "/api/v1/update/modules",
     "/api/v1/update/modules/:id",

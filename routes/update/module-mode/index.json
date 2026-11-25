@@ -1,0 +1,13 @@
+{
+  "namespace": "update/module-mode",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "update/module-mode"}],
+  "commands": ["update module mode"],
+  "needs": ["all"],
+  "http_method": "POST",
+  "http_path": "/api/v1/update/module-mode",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "mutation_allowed": true
+}

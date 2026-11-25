@@ -145,6 +145,8 @@
     "transmission/keys",
     "transmission/status",
     "transmission/up",
+    "update/module-mode",
+    "update/module-toggle",
     "update/service",
     "update/sources-reseed"
   ],
@@ -271,6 +273,14 @@
     ],
     [
       "update",
+      "module-mode"
+    ],
+    [
+      "update",
+      "module-toggle"
+    ],
+    [
+      "update",
       "service"
     ],
     [
@@ -392,6 +402,9 @@
     "/api/v1/transmission/status/look",
     "/api/v1/transmission/up",
     "/api/v1/update/check",
+    "/api/v1/update/modules/:id",
+    "/api/v1/update/modules",
+    "/api/v1/update/module-mode",
     "/api/v1/update/now",
     "/api/v1/update/service/status",
     "/api/v1/update/service/toggle",

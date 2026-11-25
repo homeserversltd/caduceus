@@ -7,8 +7,15 @@ pub const NAMESPACE: &str = "update/modules/:id";
 const COMMAND: &str = "update modules toggle";
 
 #[derive(Deserialize)]
-pub(crate) struct ToggleBody {
+pub(crate) struct TogglePayload {
     enabled: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(crate) enum ToggleBody {
+    Envelope { payload: TogglePayload },
+    Direct(TogglePayload),
 }
 
 pub(crate) async fn route(
@@ -18,9 +25,9 @@ pub(crate) async fn route(
     match crate::shared::policy::allows_command(COMMAND) {
         Ok(true) => {
             let operation_id = id.clone();
-            let enabled = body.enabled;
+            let enabled = match body { ToggleBody::Envelope { payload } | ToggleBody::Direct(payload) => payload.enabled };
             let result = crate::gate::blocking_task(COMMAND, move || {
-                crate::routes::toggle_harmonia_module::toggle_json(&operation_id, enabled)
+                crate::routes::toggle_harmonia_module::toggle_staff(&operation_id, enabled)
             })
             .await?;
             match result {
@@ -30,7 +37,7 @@ pub(crate) async fn route(
                         "schema": "caduceus.update.modules.mutate.v1",
                         "ok": true,
                         "id": id,
-                        "enabled": body.enabled,
+                        "enabled": enabled,
                         "firstMissingSignal": "none"
                     })),
                 )),

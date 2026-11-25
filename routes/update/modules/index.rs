@@ -24,18 +24,14 @@ fn modules_json() -> Result<Value, String> {
         .map_err(|_| "caduceus-harmonia-profile-unreadable".to_string())?;
     let profile: Value =
         serde_json::from_str(&text).map_err(|_| "caduceus-harmonia-profile-invalid".to_string())?;
-    let enabled = profile
+    let members = profile
         .get("modules")
         .and_then(Value::as_array)
         .ok_or_else(|| "caduceus-harmonia-profile-modules-missing".to_string())?;
-    let enabled_ids = enabled
+    let enabled_ids = members
         .iter()
         .filter_map(|module| {
-            module.as_str().or_else(|| {
-                (module.get("enabled").and_then(Value::as_bool) == Some(true))
-                    .then(|| module.get("id").and_then(Value::as_str))
-                    .flatten()
-            })
+            module.as_str().or_else(|| module.get("id").and_then(Value::as_str))
         })
         .filter(|id| valid_module_id(id))
         .collect::<BTreeSet<_>>();
@@ -43,7 +39,7 @@ fn modules_json() -> Result<Value, String> {
         .iter()
         .map(|id| (*id).to_string())
         .collect::<BTreeSet<_>>();
-    ids.extend(enabled.iter().filter_map(|module| {
+    ids.extend(members.iter().filter_map(|module| {
         module.get("id").and_then(Value::as_str).filter(|id| valid_module_id(id)).map(str::to_owned)
     }));
     let modules_dir = profile_path
@@ -85,13 +81,18 @@ fn modules_json() -> Result<Value, String> {
             }
         }
     }
+    let receipt = crate::routes::toggle_harmonia_module::staff_list()?;
+    let disabled = receipt.get("disabled_modules").and_then(Value::as_array)
+        .ok_or_else(|| "caduceus-agathodaimon-invalid-receipt".to_string())?;
+    let disabled_ids = disabled.iter().map(|item| item.as_str().ok_or_else(|| "caduceus-agathodaimon-invalid-receipt".to_string()))
+        .collect::<Result<BTreeSet<_>, _>>()?;
     Ok(json!({
         "schema": "caduceus.update.modules.v1",
         "ok": true,
         "modules": ids
             .into_iter()
             .map(|id| {
-                let enabled = enabled_ids.contains(id.as_str());
+                let enabled = enabled_ids.contains(id.as_str()) && !disabled_ids.contains(id.as_str());
                 let (title, summary) = metadata.get(&id).cloned().unwrap_or((None, None));
                 json!({"id":id,"enabled":enabled,"title":title,"summary":summary})
             })

@@ -74,6 +74,8 @@
     "storage/vault/open/unlock",
     "storage/vault/policy/read",
     "storage/vault/policy/write",
+    "update/module-mode",
+    "update/module-toggle",
     "update/service",
     "update/sources-reseed"
   ],
@@ -143,6 +145,14 @@
     ],
     [
       "update",
+      "module-mode"
+    ],
+    [
+      "update",
+      "module-toggle"
+    ],
+    [
+      "update",
       "service"
     ],
     [
@@ -192,6 +202,9 @@
     "/api/v1/storage/vault/unlock",
     "/api/v1/sync/now",
     "/api/v1/update/check",
+    "/api/v1/update/modules/:id",
+    "/api/v1/update/modules",
+    "/api/v1/update/module-mode",
     "/api/v1/update/now",
     "/api/v1/update/service/status",
     "/api/v1/update/service/toggle",
