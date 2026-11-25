@@ -709,10 +709,10 @@ async fn receive_post(
         if let Some(ip) = row["received_from"].as_str().filter(|ip| ip.parse::<std::net::Ipv4Addr>().is_ok_and(|address| !address.is_loopback())) {
             let db = crate::stats::open_db().map_err(|_| unavailable("notification-state-unavailable"))?.lock().map_err(|_| unavailable("notification-state-unavailable"))?;
             use rusqlite::OptionalExtension;
-            let roster: Option<(String, rusqlite::types::Value)> = db.query_row("SELECT mac, CASE WHEN json_type(row,'$.hostname')='text' THEN json_extract(row,'$.hostname') END FROM ruyi WHERE json_extract(row,'$.ipv4')=?1 LIMIT 1",[ip],|r|Ok((r.get(0)?, r.get(1)?))).optional().map_err(|_| unavailable("notification-state-unavailable"))?;
+            let roster: Option<(String, Option<String>)> = db.query_row("SELECT mac, CASE WHEN json_type(row,'$.hostname')='text' THEN json_extract(row,'$.hostname') END FROM ruyi WHERE json_extract(row,'$.ipv4')=?1 LIMIT 1",[ip],|r|Ok((r.get(0)?, r.get(1)?))).optional().map_err(|_| unavailable("notification-state-unavailable"))?;
             if let Some((mac, hostname)) = roster { if let Some(from) = row["from"].as_object_mut() {
                 from.insert("mac".into(),json!(mac));
-                if let rusqlite::types::Value::Text(hostname) = hostname { if !hostname.is_empty() && hostname.len() <= 63 { from.insert("hostname".into(),json!(hostname)); } }
+                if let Some(hostname) = hostname { if !hostname.is_empty() && hostname.len() <= 63 { from.insert("hostname".into(),json!(hostname)); } }
             } }
         }
         tokio::task::spawn_blocking(move || ledger::post(row,repost)).await.map_err(|_| unavailable("notification-state-unavailable"))?
