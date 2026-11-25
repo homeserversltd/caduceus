@@ -417,7 +417,12 @@
             "type": ["object", "null"],
             "alternatives": [
               {"schema_ref": "caduceus.appliance.stats.sample.v1"},
-              {"schema_ref": "caduceus.harmonia.invoke.v1"},
+              {
+                "type": "object",
+                "fields": {"schema": {"type": "string", "const": "caduceus.harmonia.invoke.v1"}},
+                "required": ["schema"],
+                "description": "The update-now invocation answer, carried whole."
+              },
               {"schema_ref": "caduceus.ruyi.v1", "form": "road"},
               {
                 "schema_ref": "caduceus.staff.receipt.v1",
