@@ -190,13 +190,23 @@ async fn accept(mac: String, pin: String) -> Result<(Value, bool), Failure> {
     }
     let key = mac.clone(); let inlet = name.clone(); let secret = pin.clone();
     blocking(move || {
-        let value = crate::gate::snake::crossing_path("storage/backup/pin-inlet/put", &json!({"name":inlet,"username":key,"password":secret}))
-            .map_err(|_| (StatusCode::BAD_GATEWAY, "backup-pair-inlet-store-failed"))?;
-        if value.get("ok").and_then(Value::as_bool) != Some(true) { return Err((StatusCode::BAD_GATEWAY, "backup-pair-inlet-store-failed")); }
         with_db(|db| {
             let n = db.execute("UPDATE backup_pairs SET inlet_name=?2 WHERE mac=?1 AND state='pending'", params![key,inlet]).map_err(|_| UNAVAILABLE)?;
             if n != 1 { return Err(UNAVAILABLE); } Ok(())
-        })
+        })?;
+        let value = match crate::gate::snake::crossing_path("storage/backup/pin-inlet/put", &json!({"name":inlet,"username":key,"password":secret})) {
+            Ok(value) => value,
+            Err(signal) if signal == "pin-inlet-name-taken" => {
+                with_db(|db| {
+                    db.execute("UPDATE backup_pairs SET inlet_name=NULL WHERE mac=?1 AND state='pending' AND inlet_name=?2", params![key,inlet]).map_err(|_| UNAVAILABLE)?;
+                    Ok(())
+                })?;
+                return Err((StatusCode::CONFLICT, "backup-pair-inlet-name-taken"));
+            }
+            Err(_) => return Err((StatusCode::BAD_GATEWAY, "backup-pair-inlet-store-failed")),
+        };
+        if value.get("ok").and_then(Value::as_bool) != Some(true) { return Err((StatusCode::BAD_GATEWAY, "backup-pair-inlet-store-failed")); }
+        Ok(())
     }).await?;
     let home = blocking(|| Ok(crate::routes::leaf_ruyi::current_identity().mac)).await?
         .filter(|m| valid_mac(m)).ok_or((StatusCode::BAD_GATEWAY, "backup-pair-enroll-failed"))?;
@@ -210,7 +220,15 @@ async fn accept(mac: String, pin: String) -> Result<(Value, bool), Failure> {
 
 async fn revoke(mac: String) -> Result<(Value, bool), Failure> {
     let key = mac.clone();
-    let (_, inlet, _) = blocking(move || pair_row(&key)).await?;
+    let (_, inlet, _) = blocking(move || {
+        let row = pair_row(&key)?;
+        with_db(|db| {
+            let n = db.execute("UPDATE backup_pairs SET state='pending',accepted_at=NULL WHERE mac=?1", [&key]).map_err(|_| UNAVAILABLE)?;
+            if n != 1 { return Err((StatusCode::NOT_FOUND, "backup-pair-unknown")); }
+            Ok(())
+        })?;
+        Ok(row)
+    }).await?;
     if let Some(inlet) = inlet {
         blocking(move || {
             let value = crate::gate::snake::crossing_path("storage/backup/pin-inlet/delete", &json!({"name":inlet}))
@@ -262,35 +280,46 @@ async fn handle(OriginalUri(uri): OriginalUri, peer: Option<ConnectInfo<crate::g
     let verb = uri.path().rsplit('/').next().unwrap_or("").to_owned();
     let started = Instant::now();
     let mutation = matches!(verb.as_str(), "request" | "accept" | "revoke" | "report");
-    let deed = verb.clone();
-    let result = if verb == "accept" || verb == "revoke" {
-        let pin = body.pointer("/flags/exousia/pin").and_then(Value::as_str).unwrap_or("").to_owned();
-        let mac = body.get("mac").and_then(Value::as_str).unwrap_or("").to_owned();
-        let box_pin = body.pointer("/flags/inlet/pin").and_then(Value::as_str).unwrap_or("").to_owned();
-        drop(body);
-        let verified = blocking(move || crate::shared::attendance::verify_administrative_pin(&pin).map_err(|signal| match signal.as_str() {
-            "exousia-pin-required" => (StatusCode::FORBIDDEN, "exousia-pin-required"),
-            "exousia-pin-wrong" => (StatusCode::FORBIDDEN, "exousia-pin-wrong"),
-            _ => UNAVAILABLE,
-        })).await;
-        match verified {
-            Err(error) => Err(error),
-            Ok(()) => tokio::spawn(async move {
-                // The operation owns the lock even if its HTTP caller disconnects.
-                let _guard = PAIR_LOCK.lock().await;
-                if verb == "accept" { accept(mac, box_pin).await } else { revoke(mac).await }
-            }).await.unwrap_or(Err(UNAVAILABLE)),
-        }
-    } else if verb == "request" {
-        // A fresh request must not replace a pending digest during acceptance.
-        tokio::spawn(async move {
+    let work = async move {
+        let deed = verb.clone();
+        let result = if verb == "accept" || verb == "revoke" {
+            let pin = body.pointer("/flags/exousia/pin").and_then(Value::as_str).unwrap_or("").to_owned();
+            let mac = body.get("mac").and_then(Value::as_str).unwrap_or("").to_owned();
+            let box_pin = body.pointer("/flags/inlet/pin").and_then(Value::as_str).unwrap_or("").to_owned();
+            drop(body);
+            let verified = blocking(move || crate::shared::attendance::verify_administrative_pin(&pin).map_err(|signal| match signal.as_str() {
+                "exousia-pin-required" => (StatusCode::FORBIDDEN, "exousia-pin-required"),
+                "exousia-pin-wrong" => (StatusCode::FORBIDDEN, "exousia-pin-wrong"),
+                _ => UNAVAILABLE,
+            })).await;
+            match verified {
+                Err(error) => Err(error),
+                Ok(()) => {
+                    let _guard = PAIR_LOCK.lock().await;
+                    if verb == "accept" { accept(mac, box_pin).await } else { revoke(mac).await }
+                },
+            }
+        } else if verb == "request" {
             let _guard = PAIR_LOCK.lock().await;
             blocking(move || basic(&verb, &body, peer)).await
-        }).await.unwrap_or(Err(UNAVAILABLE))
-    } else { blocking(move || basic(&verb, &body, peer)).await };
+        } else { blocking(move || basic(&verb, &body, peer)).await };
+        if mutation {
+            let deed_outcome = match &result {
+                Ok((_, true)) => Some((true, "none")),
+                Err((_, signal)) => Some((false, *signal)),
+                _ => None,
+            };
+            if let Some((success, signal)) = deed_outcome {
+                let _ = blocking(move || { record(&deed, success, signal, started); Ok(()) }).await;
+            }
+        }
+        result
+    };
+    // Detached mutation owns its deed even after a client disconnects.
+    let result = if mutation { tokio::spawn(work).await.unwrap_or(Err(UNAVAILABLE)) } else { work.await };
     match result {
-        Ok((value, changed)) => { if mutation && changed { record(&deed,true,"none",started); } (StatusCode::OK,Json(value)).into_response() }
-        Err((status,signal)) => { if mutation { record(&deed,false,signal,started); } (status,Json(json!({"ok":false,"signal":signal}))).into_response() }
+        Ok((value, _)) => (StatusCode::OK,Json(value)).into_response(),
+        Err((status,signal)) => (status,Json(json!({"ok":false,"signal":signal}))).into_response(),
     }
 }
 
