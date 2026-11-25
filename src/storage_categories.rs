@@ -323,9 +323,6 @@ fn run_id() -> String {
 fn state_path() -> PathBuf {
     crate::shared::config::path("var/lib/caduceus/state/storage-categories.json")
 }
-fn latest_path() -> PathBuf {
-    crate::shared::config::path("var/lib/caduceus/receipts/latest/storage-categories.json")
-}
 
 fn is_storage_run_id(value: &str) -> bool {
     let Some(value) = value.strip_prefix("storage-categories-") else {
@@ -523,7 +520,7 @@ fn build_snapshot(run_id: &str) -> Value {
             }
         }
     }
-    json!({"schema":SCHEMA,"ok":true,"capturedAt":Utc::now().to_rfc3339(),"runId":run_id,"receiptPath":format!("/var/lib/caduceus/receipts/{run_id}/run.json"),"categoryCount":groups.len(),"rootCount":roots.len(),"totalBytes":total_bytes,"fileCount":file_count,"categories":groups,"syncManifest":{"available":manifest_path.is_some(),"path":manifest_path,"entries":manifest},"diagnostics":{"missingRoots":missing,"permissionErrors":permission,"scanErrors":errors},"firstMissingSignal":"none"})
+    json!({"schema":SCHEMA,"ok":true,"capturedAt":Utc::now().to_rfc3339(),"runId":run_id,"categoryCount":groups.len(),"rootCount":roots.len(),"totalBytes":total_bytes,"fileCount":file_count,"categories":groups,"syncManifest":{"available":manifest_path.is_some(),"path":manifest_path,"entries":manifest},"diagnostics":{"missingRoots":missing,"permissionErrors":permission,"scanErrors":errors},"firstMissingSignal":"none"})
 }
 pub fn scan_json() -> Result<Value, String> {
     let started = Instant::now();
@@ -534,24 +531,13 @@ pub fn scan_json() -> Result<Value, String> {
     let snapshot = build_snapshot(&run_id);
     let snapshot_write = write_json(&state_path(), &snapshot);
     let ok = snapshot_write.is_ok();
-    let state = if ok { "completed" } else { "failed" };
     let signal = if ok {
         "none"
     } else {
         "caduceus-storage-categories-scan-failed"
     };
     let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-    write_json(
-        &latest_path(),
-        &json!({
-            "runId": run_id.clone(),
-            "state": state,
-            "ok": ok,
-            "durationMs": duration_ms,
-            "signal": signal
-        }),
-    )?;
-    remove_legacy_run_directories()?;
+    let _ = remove_legacy_run_directories();
     record_scan_deed(&run_id, ok, duration_ms, signal);
     snapshot_write?;
     Ok(snapshot)
