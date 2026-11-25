@@ -1128,6 +1128,74 @@ fn audit_doors() -> Result<(), String> {
 }
 pub(crate) mod pid2_route;
 
+// Answer non-JSON client refusals at the gate, before the receipt stamp.
+// Only the first KiB is inspected; extractor diagnostics can contain input.
+async fn answer_client_refusal(request: Request<Body>, next: middleware::Next) -> Response {
+    use axum::{extract::MatchedPath, http::Method};
+    use futures_util::StreamExt;
+
+    let path = request.uri().path();
+    let raw = matches!(*request.method(), Method::GET | Method::HEAD)
+        && (matches!(path, "/health" | "/api/v1/schema" | "/api/v1/carapace"
+            | "/api/v1/log/tail" | "/api/v1/hyalos/tail")
+            || path.starts_with("/api/v1/schema/")
+            || (path.starts_with("/api/v1/docs/") && path != "/api/v1/docs/seal"));
+    let command = request.extensions().get::<MatchedPath>()
+        .map(|matched| matched.as_str())
+        .unwrap_or(path)
+        .trim_start_matches("/api/v1/")
+        .to_owned();
+    let response = next.run(request).await;
+    let status = response.status();
+    let json = response.headers().get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .is_some_and(|mime| {
+            let mime = mime.trim();
+            mime.eq_ignore_ascii_case("application/json")
+                || mime.rsplit_once('+').is_some_and(|(_, suffix)| suffix.eq_ignore_ascii_case("json"))
+        });
+    if raw || !status.is_client_error() || matches!(status, StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED) || json {
+        return response;
+    }
+
+    let mut stream = response.into_body().into_data_stream();
+    let mut bytes = Vec::new();
+    let mut complete = false;
+    while bytes.len() <= 1024 {
+        match stream.next().await {
+            Some(Ok(chunk)) => {
+                let remaining = 1025 - bytes.len();
+                bytes.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+                if chunk.len() > remaining { break; }
+            }
+            Some(Err(_)) => break,
+            None => { complete = true; break; }
+        }
+    }
+    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(1024)]);
+    let word = text.trim();
+    let is_word = complete && word.len() <= 128 && word.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+        && word.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"._:-".contains(&c));
+    let (answer_status, signal) = if is_word {
+        (status, word)
+    } else if status == StatusCode::UNPROCESSABLE_ENTITY && text.starts_with("Failed to deserialize the JSON body into the target type")
+        || status == StatusCode::BAD_REQUEST && text.starts_with("Failed to parse the request body as JSON") {
+        (StatusCode::BAD_REQUEST, "caduceus-request-body-invalid")
+    } else if status == StatusCode::UNSUPPORTED_MEDIA_TYPE && text.starts_with("Expected request with `Content-Type: application/json`") {
+        (StatusCode::UNSUPPORTED_MEDIA_TYPE, "caduceus-request-content-type-invalid")
+    } else if status == StatusCode::PAYLOAD_TOO_LARGE && text.starts_with("Failed to buffer the request body") {
+        (StatusCode::PAYLOAD_TOO_LARGE, "caduceus-request-body-too-large")
+    } else if status == StatusCode::BAD_REQUEST && text.starts_with("Failed to deserialize query string") {
+        (StatusCode::BAD_REQUEST, "caduceus-request-query-invalid")
+    } else if status == StatusCode::BAD_REQUEST && (text.starts_with("Invalid URL: ") || text.starts_with("Invalid UTF-8 in `")) {
+        (StatusCode::BAD_REQUEST, "caduceus-request-path-invalid")
+    } else {
+        (status, "caduceus-request-invalid")
+    };
+    (answer_status, Json(ApiErrorBody { ok: false, command, first_missing_signal: signal.to_owned() })).into_response()
+}
+
 pub fn router() -> Router {
     let router = crate::routes::register_selected(
         Router::new()
@@ -1136,6 +1204,7 @@ pub fn router() -> Router {
     );
     router
         .layer(middleware::from_fn(administrative_route_gate))
+        .layer(middleware::from_fn(answer_client_refusal))
         .layer(middleware::from_fn(self_telemetry_route))
         .layer(middleware::from_fn(crate::shared::load_trace::stamp_door_answer))
         .layer(middleware::from_fn(
