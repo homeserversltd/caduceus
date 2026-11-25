@@ -63,8 +63,6 @@ pub(super) async fn post(body: Bytes) -> Result<(StatusCode, Json<Value>), Failu
         .ok_or_else(|| error(StatusCode::BAD_REQUEST, "road-act-body-invalid"))?.to_owned();
     let identity = current_identity();
     let self_mac = identity.mac.as_deref().unwrap_or("unknown");
-    let Json(beam) = crate::routes::leaf_beam::route().await?;
-    let hostname = beam.hostname.filter(|name| !name.trim().is_empty()).unwrap_or_else(|| "unknown".to_owned());
 
     if identity.mac.as_deref() == Some(target.as_str()) {
         let pin = request.pointer_mut("/flags/exousia").and_then(Value::as_object_mut)
@@ -76,6 +74,7 @@ pub(super) async fn post(body: Bytes) -> Result<(StatusCode, Json<Value>), Failu
         if thing != "update-now" {
             return Err(error(StatusCode::BAD_REQUEST, "thing-undeclared"));
         }
+        let hostname = crate::shared::seat_identity::local_hostname();
         let (status, Json(value)) = crate::routes::update_support::update_now_route(axum::http::HeaderMap::new()).await?;
         let signal = value.get("firstMissingSignal").and_then(Value::as_str)
             .filter(|s| !s.is_empty() && *s != "none").map(str::to_owned);
@@ -83,6 +82,8 @@ pub(super) async fn post(body: Bytes) -> Result<(StatusCode, Json<Value>), Failu
         return Ok((status, Json(road_body(self_mac, &hostname, &thing, entry))));
     }
 
+    let Json(beam) = crate::routes::leaf_beam::route().await?;
+    let hostname = beam.hostname.filter(|name| !name.trim().is_empty()).unwrap_or_else(|| "unknown".to_owned());
     let row_target = target.clone();
     let row = crate::gate::blocking_task("ruyi", move || {
         let bytes = crate::stats::ruyi_row(&row_target)
