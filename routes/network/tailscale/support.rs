@@ -179,7 +179,6 @@ fn project_final(value: Option<&Value>, secret: Option<&str>) -> Value {
     }
     for field in [
         "connected",
-        "backupComplete",
         "certificateRefreshed",
         "nginxReloaded",
         "tlsHostnameVerified",
@@ -271,7 +270,7 @@ fn safe_receipt(crossing: &Value, action: &str, secret: Option<&str>) -> Option<
         }
     }
     if action == "tailnet" {
-        for (field, limit) in [("priorTailnet", 256), ("newTailnet", 256), ("backupPath", 4096)] {
+        for (field, limit) in [("priorTailnet", 256), ("newTailnet", 256)] {
             optional_text(receipt, field, fields, limit, secret);
         }
         for (field, max_items, max_len) in [

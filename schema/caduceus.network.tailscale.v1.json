@@ -31,7 +31,6 @@
         "declaredTailnet": {"type": ["string", "null"]},
         "priorTailnet": {"type": ["string", "null"]},
         "newTailnet": {"type": ["string", "null"]},
-        "backupComplete": {"type": ["boolean", "null"]},
         "certificateRefreshed": {"type": ["boolean", "null"]},
         "nginxReloaded": {"type": ["boolean", "null"]},
         "tlsHostnameVerified": {"type": ["boolean", "null"]},
@@ -46,7 +45,6 @@
     "priorTailnet": {"type": ["string", "null"]},
     "newTailnet": {"type": ["string", "null"]},
     "changedFiles": {"type": ["array", "null"], "items": {"type": "string"}},
-    "backupPath": {"type": ["string", "null"]},
     "subjectAltNames": {"type": ["array", "null"], "items": {"type": "string"}}
   },
   "field_types": {
@@ -60,10 +58,9 @@
     "priorTailnet": "string|null",
     "newTailnet": "string|null",
     "changedFiles": "array|null",
-    "backupPath": "string|null",
     "subjectAltNames": "array|null"
   },
-  "optional": ["ok", "action", "firstMissingSignal", "mutationPerformed", "final", "loginUrl", "priorTailnet", "newTailnet", "changedFiles", "backupPath", "subjectAltNames"],
+  "optional": ["ok", "action", "firstMissingSignal", "mutationPerformed", "final", "loginUrl", "priorTailnet", "newTailnet", "changedFiles", "subjectAltNames"],
   "additionalProperties": true,
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }
