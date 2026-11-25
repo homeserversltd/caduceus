@@ -1,6 +1,12 @@
 use super::*;
 use axum::extract::Query;
 
+// Only this map selects a peer door; query parameters never supply a path.
+const GET_THINGS: &[(&str, Option<&str>, Duration)] = &[
+    ("stats", None, Duration::from_millis(500)),
+    ("backup-drive", Some("/api/v1/storage/backup/drive/card"), Duration::from_secs(70)),
+];
+
 // The returned address is the one that answered both identity requests. It is
 // deliberately not replaced with a DNS name between proof and the thing read.
 pub(super) async fn prove_stave(row: &RuyiRow, deadline: Instant) -> Result<(String, u16), &'static str> {
@@ -141,6 +147,7 @@ pub(super) async fn get(
         normalized_mac(raw_target).ok_or_else(|| error(StatusCode::BAD_REQUEST, "target-invalid"))?
     };
     let thing = query.get("thing").cloned().unwrap_or_default();
+    let declared = GET_THINGS.iter().find(|(name, _, _)| *name == thing).copied();
     let (rows, identity) = crate::gate::blocking_task("ruyi", || {
         let stored = crate::stats::ruyi_snapshot().map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "caduceus-ruyi-store-failed"))?;
         let mut rows = Vec::with_capacity(stored.rows.len());
@@ -168,20 +175,45 @@ pub(super) async fn get(
         } else if thing == "stats" {
             let (value, signal) = local_stats();
             answers.push(answer(self_mac, &hostname, true, signal, value));
+        } else if thing == "backup-drive" {
+            let mac = self_mac.to_owned();
+            let name = hostname.clone();
+            let peer = (mac.clone(), name.clone());
+            let handle = tasks.spawn(async move {
+                match crate::gate::blocking_task("storage backup drive card", crate::routes::leaf_storage_backup_drive_card::read_card).await {
+                    Ok(card) => answer(&mac, &name, true, None, Some(card)),
+                    Err(_) => answer(&mac, &name, true, Some("road-task-failed".to_owned()), None),
+                }
+            });
+            task_peers.insert(handle.id(), peer);
         } else {
             answers.push(answer(self_mac, &hostname, false, Some("thing-undeclared".to_owned()), None));
         }
     }
     for row in rows.into_iter().filter(|row| known_self_mac.as_deref() != Some(row.mac.as_str()) && (target == "every" || row.mac == target)) {
-        if thing != "stats" {
+        let Some((_, path, deadline)) = declared else {
             answers.push(answer(&row.mac, &row.hostname, false, Some("thing-undeclared".to_owned()), None));
             continue;
-        }
+        };
         let peer = (row.mac.clone(), row.hostname.clone());
         let handle = tasks.spawn(async move {
             match prove_stave(&row, Instant::now() + RUYI_PEER_TIMEOUT).await {
                 Ok((host, port)) => {
-                    let (value, signal) = fetch_peer_stats(&host, port).await;
+                    let (value, signal) = if let Some(path) = path {
+                        match timeout(deadline, fetch_peer(&host, port, path)).await {
+                            Err(_) => (None, Some("timeout".to_owned())),
+                            Ok(Err(err)) if err.kind() == ErrorKind::InvalidData => (None, Some("too-large".to_owned())),
+                            Ok(Err(_)) => (None, Some("unreachable".to_owned())),
+                            Ok(Ok(bytes)) => match response_json_200(&bytes) {
+                                Some(card) => (Some(card), None),
+                                None => (None, Some("malformed".to_owned())),
+                            },
+                        }
+                    } else {
+                        // The shared stats reader owns the unchanged 500 ms timeout.
+                        debug_assert_eq!(deadline, RUYI_PEER_TIMEOUT);
+                        fetch_peer_stats(&host, port).await
+                    };
                     answer(&row.mac, &row.hostname, true, signal, value)
                 }
                 Err(signal) => answer(&row.mac, &row.hostname, false, Some(signal.to_owned()), None),
@@ -203,7 +235,7 @@ pub(super) async fn get(
         }
     }
     if answers.is_empty() {
-        let signal = if thing == "stats" { "target-unknown" } else { "thing-undeclared" };
+        let signal = if declared.is_some() { "target-unknown" } else { "thing-undeclared" };
         answers.push(answer(&target, "unknown", false, Some(signal.to_owned()), None));
     }
     Ok(Json(json!({"schema": row_schema(), "ok": true, "service": "caduceus", "seat": {"mac": self_mac, "hostname": hostname}, "thing": thing, "answers": answers})))
