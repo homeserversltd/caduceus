@@ -319,7 +319,8 @@ pub fn execute(id:&str) -> Result<bool,String> {
         if changed!=0 {advance_slot(&tx,id,&fire)?;}
         commit_terminal(tx,id,&fire,changed)?;drop(db);if changed!=0 {fire_deed(id,&fire,"Refused",0,Some(&signal));}return Ok(changed!=0);
     }
-    let baseline:Option<(i64,i64)>=tx.query_row("SELECT file_count,total_bytes FROM pid2_sync_baselines WHERE schedule_id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
+    let baseline_query=if band=="storage/backup/mirror/pull" {"SELECT file_count,total_bytes FROM mirror_pull_baselines WHERE schedule_id=?1"} else {"SELECT file_count,total_bytes FROM pid2_sync_baselines WHERE schedule_id=?1"};
+    let baseline:Option<(i64,i64)>=tx.query_row(baseline_query,[id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
     tx.commit().map_err(|e|e.to_string())?;drop(db);
     let started=std::time::Instant::now();
     let baseline=baseline.map(|(f,b)|json!({"fileCount":f,"totalBytes":b}));
@@ -353,7 +354,13 @@ pub fn execute(id:&str) -> Result<bool,String> {
     let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;let tx=db.transaction().map_err(|e|e.to_string())?;
     let changed=tx.execute("UPDATE pid2_fires SET state=?3,finished_at=?4,duration_ms=?5,first_missing_signal=?6,rsync_exit_code=?7,final_file_count=?8,final_total_bytes=?9 WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,state,super::now(),elapsed,signal,exit,counts.map(|v|v.0),counts.map(|v|v.1)]).map_err(|e|e.to_string())?;
     if changed!=0 {advance_slot(&tx,id,&fire)?;}
-    if changed!=0 {if let Some((f,b))=counts {tx.execute("INSERT INTO pid2_sync_baselines(schedule_id,file_count,total_bytes,updated_at,fire_id) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(schedule_id) DO UPDATE SET file_count=excluded.file_count,total_bytes=excluded.total_bytes,updated_at=excluded.updated_at,fire_id=excluded.fire_id",params![id,f,b,super::now(),fire]).map_err(|e|e.to_string())?;}}
+    if changed!=0 {if let Some((f,b))=counts {
+        if band=="storage/backup/mirror/pull" {
+            tx.execute("INSERT INTO mirror_pull_baselines(schedule_id,file_count,total_bytes,written_at) VALUES(?1,?2,?3,?4) ON CONFLICT(schedule_id) DO UPDATE SET file_count=excluded.file_count,total_bytes=excluded.total_bytes,written_at=excluded.written_at",params![id,f,b,super::now()]).map_err(|e|e.to_string())?;
+        } else {
+            tx.execute("INSERT INTO pid2_sync_baselines(schedule_id,file_count,total_bytes,updated_at,fire_id) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(schedule_id) DO UPDATE SET file_count=excluded.file_count,total_bytes=excluded.total_bytes,updated_at=excluded.updated_at,fire_id=excluded.fire_id",params![id,f,b,super::now(),fire]).map_err(|e|e.to_string())?;
+        }
+    }}
     commit_terminal(tx,id,&fire,changed)?;drop(db);
     if changed!=0 {fire_deed(id,&fire,state,elapsed,signal.as_deref());}
     Ok(changed!=0)

@@ -64,7 +64,8 @@ fn tables(db: &rusqlite::Connection) -> Result<(), String> {
         CREATE TABLE IF NOT EXISTS pid2_dirty_wakes (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, queued_at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS pid2_schedules (schedule_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, envelope BLOB NOT NULL, frequency TEXT NOT NULL, time TEXT NOT NULL, weekday TEXT, band TEXT NOT NULL, action TEXT NOT NULL, max_seconds INTEGER NOT NULL, registered_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_fired_slot INTEGER);
         CREATE TABLE IF NOT EXISTS pid2_fires (schedule_id TEXT PRIMARY KEY, fire_id TEXT NOT NULL, trigger TEXT NOT NULL, state TEXT NOT NULL, queued_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, duration_ms INTEGER, first_missing_signal TEXT, rsync_exit_code INTEGER, final_file_count INTEGER, final_total_bytes INTEGER);
-        CREATE TABLE IF NOT EXISTS pid2_sync_baselines (schedule_id TEXT PRIMARY KEY, file_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, updated_at INTEGER NOT NULL, fire_id TEXT NOT NULL);").map_err(|e| e.to_string())?;
+        CREATE TABLE IF NOT EXISTS pid2_sync_baselines (schedule_id TEXT PRIMARY KEY, file_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, updated_at INTEGER NOT NULL, fire_id TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS mirror_pull_baselines (schedule_id TEXT PRIMARY KEY, file_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, written_at INTEGER NOT NULL);").map_err(|e| e.to_string())?;
     for (table,name) in [("pid2_fires","slot"),("pid2_fires","queue_order"),("pid2_schedules","retry_slot"),("pid2_schedules","retry_queued_at"),("pid2_schedules","retry_order"),("pid2_schedules","interrupted_slot")] {
         let present=||db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name=?2)",params![table,name],|r|r.get::<_,bool>(0)).map_err(|e|e.to_string());
         if !present()? {
