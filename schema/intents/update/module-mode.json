@@ -1,0 +1,89 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "update/module-mode",
+  "payload": {
+    "fields": {
+      "module": {
+        "type": "string",
+        "meaning": "Harmonia module whose mode is set; neither module nor mode observes only, while either alone returns agathodaimon-update-module-mode-arguments-invalid.",
+        "pattern": "^[a-z][a-z0-9-]{0,63}$"
+      },
+      "mode": {
+        "type": "string",
+        "meaning": "Safe adds the module to harmonia.safe_modules in /etc/appliance/config.json and developer removes it; a module not on the list is in developer mode.",
+        "enum": [
+          "safe",
+          "developer"
+        ]
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "The verdict of the operation."
+    },
+    "module": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "The module supplied for the mode change, or null when not supplied."
+    },
+    "mode": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "The mode requested, or null when the stop only observed."
+    },
+    "safe_modules": {
+      "type": "array",
+      "meaning": "The device's safe module list as the stop left it, or empty when it cannot be observed.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "The list differs from what the stop found."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "The stop wrote the config file."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches a raised stop."
+    },
+    "backup_path": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Device-logical path of the pre-change config backup, or null when not returned."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Argument or configuration outcome; OS and UTF-8 decoding exceptions are returned as diagnostic text.",
+      "enum": [
+        "agathodaimon-update-module-mode-arguments-invalid",
+        "agathodaimon-update-module-mode-module-invalid",
+        "agathodaimon-update-module-mode-config-missing",
+        "agathodaimon-update-module-mode-config-invalid",
+        "agathodaimon-update-module-mode-config-not-object",
+        "agathodaimon-update-module-mode-harmonia-not-object",
+        "agathodaimon-update-module-mode-safe-modules-invalid",
+        "agathodaimon-stop-raised",
+        "none"
+      ],
+      "patterns": [
+        "^\\[Errno [0-9]+\\] [\\s\\S]+$",
+        "^'utf-8' codec can't decode [\\s\\S]+$"
+      ]
+    }
+  }
+}
