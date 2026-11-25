@@ -15,6 +15,6 @@
     "ok": {"type": "boolean", "meaning": "Whether the inlet was stored."},
     "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,53}_pin_inlet$", "meaning": "Inlet record name."},
     "replaced": {"type": "boolean", "meaning": "Whether an existing record was replaced."},
-    "firstMissingSignal": {"type": "string", "enum": ["none", "pin-inlet-name-invalid", "pin-inlet-username-invalid", "pin-inlet-value-invalid", "pin-inlet-store-failed"], "meaning": "Store outcome or refusal."}
+    "firstMissingSignal": {"type": "string", "enum": ["none", "pin-inlet-name-invalid", "pin-inlet-username-invalid", "pin-inlet-value-invalid", "pin-inlet-store-failed", "pin-inlet-name-taken"], "meaning": "Store outcome or refusal."}
   }
 }
