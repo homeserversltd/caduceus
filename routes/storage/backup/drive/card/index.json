@@ -1,0 +1,13 @@
+{
+  "namespace": "storage/backup/drive/card",
+  "admittance": "open",
+  "flags": {},
+  "serve": [],
+  "commands": ["storage backup drive card"],
+  "needs": ["all"],
+  "http_method": "GET",
+  "http_path": "/api/v1/storage/backup/drive/card",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "mutation_allowed": false
+}
