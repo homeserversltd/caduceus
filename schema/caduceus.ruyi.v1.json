@@ -407,6 +407,22 @@
             "type": ["object", "null"],
             "alternatives": [
               {"schema_ref": "caduceus.appliance.stats.sample.v1"},
+              {"schema_ref": "caduceus.harmonia.invoke.v1"},
+              {"schema_ref": "caduceus.ruyi.v1"},
+              {
+                "schema_ref": "caduceus.staff.receipt.v1",
+                "fields": {
+                  "stop": {
+                    "type": "object",
+                    "required": ["noun", "verb"],
+                    "fields": {
+                      "noun": {"type": "string", "const": "ruyi"},
+                      "verb": {"type": "string", "const": "road"}
+                    }
+                  }
+                },
+                "required": ["stop"]
+              },
               {
                 "schema_ref": "caduceus.staff.receipt.v1",
                 "fields": {
@@ -422,7 +438,7 @@
                 "required": ["stop"]
               }
             ],
-            "description": "For stats, the self answer is the sample and a peer answer is the staff receipt bound to appliance/stats."
+            "description": "For stats, the self answer is the sample and a peer answer is the staff receipt bound to appliance/stats. For an act, the self answer is the whole invocation and a peer answer is its whole road response or road-bound staff receipt."
           }
         },
         "required": ["mac", "hostname", "proven", "signal", "answer"]
