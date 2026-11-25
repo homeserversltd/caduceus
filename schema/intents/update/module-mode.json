@@ -59,13 +59,6 @@
       "type": "string",
       "meaning": "Exception class when the front door catches a raised stop."
     },
-    "backup_path": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "meaning": "Device-logical path of the pre-change config backup, or null when not returned."
-    },
     "firstMissingSignal": {
       "type": "string",
       "meaning": "Argument or configuration outcome; OS and UTF-8 decoding exceptions are returned as diagnostic text.",

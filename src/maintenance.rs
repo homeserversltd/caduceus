@@ -2,6 +2,8 @@
 
 use crate::shared::hyalos;
 use serde_json::{json, Value};
+use std::fs;
+use std::io::ErrorKind;
 use std::sync::OnceLock;
 use tokio::time::{interval, Duration};
 
@@ -11,6 +13,7 @@ pub fn start() {
     if STARTED.set(()).is_err() {
         return;
     }
+    remove_remainders();
     tokio::spawn(async {
         match tokio::task::spawn_blocking(hyalos::prepare_existing).await {
             Ok(Ok(())) => {}
@@ -33,6 +36,50 @@ pub fn start() {
             }
         }
     });
+}
+
+fn remove_remainders() {
+    // Remainders: /var/lib/caduceus/backups and receipts/log-maintenance-<n>-<n>.json.
+    let mut failed = false;
+    if let Err(error) = fs::remove_dir_all(crate::shared::config::path("/var/lib/caduceus/backups")) {
+        failed |= error.kind() != ErrorKind::NotFound;
+    }
+    match fs::read_dir(crate::shared::config::path("/var/lib/caduceus/receipts")) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(_) => {
+                        failed = true;
+                        continue;
+                    }
+                };
+                let name = entry.file_name();
+                let Some(name) = name.to_str() else { continue };
+                let Some(numbers) = name.strip_prefix("log-maintenance-").and_then(|s| s.strip_suffix(".json")) else { continue };
+                let Some((first, second)) = numbers.split_once('-') else { continue };
+                if first.is_empty() || second.is_empty()
+                    || !first.bytes().all(|b| b.is_ascii_digit())
+                    || !second.bytes().all(|b| b.is_ascii_digit())
+                {
+                    continue;
+                }
+                match entry.file_type() {
+                    Ok(kind) if kind.is_file() => {
+                        if let Err(error) = fs::remove_file(entry.path()) {
+                            failed |= error.kind() != ErrorKind::NotFound;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(error) => failed |= error.kind() != ErrorKind::NotFound,
+                }
+            }
+        }
+        Err(error) => failed |= error.kind() != ErrorKind::NotFound,
+    }
+    if failed {
+        eprintln!("caduceus-remainder-removal-failed");
+    }
 }
 
 fn maintenance_tick() -> Result<(), String> {

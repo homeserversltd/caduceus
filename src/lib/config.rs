@@ -672,17 +672,6 @@ fn mutate_with_rollback(
         }));
     }
     let stamp = Utc::now().format("%Y%m%dT%H%M%S%9fZ").to_string();
-    let backup_device = format!(
-        "/var/lib/caduceus/backups/household-config/{}-{stamp}.json",
-        resolved.profile
-    );
-    let backup_fs = paths::path(&backup_device);
-    if let Some(parent) = backup_fs.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|_| "caduceus-household-config-backup-failed".to_string())?;
-    }
-    fs::copy(&resolved.fs_path, &backup_fs)
-        .map_err(|_| "caduceus-household-config-backup-failed".to_string())?;
     let mut rendered = serde_json::to_vec_pretty(&document)
         .map_err(|_| "caduceus-household-config-render-failed".to_string())?;
     rendered.push(b'\n');
@@ -699,10 +688,8 @@ fn mutate_with_rollback(
         "profile": resolved.profile,
         "op": op,
         "path": resolved.device_path,
-        "backup": backup_device,
         "changed": true,
         "keysTouched": keys_touched,
-        "readWritePaths": [resolved.device_path, backup_device],
         "firstMissingSignal": "none",
     });
     let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -711,8 +698,7 @@ fn mutate_with_rollback(
 }
 
 /// Update one declaration block under the same lock and owner-write boundary
-/// as the other household writers. No backup, receipt copy, or retained body is
-/// created. The caller owns the single metadata-only Canonical Log Line.
+/// as the other household writers. The caller owns the metadata-only log line.
 pub(crate) fn update_block_json<F>(key: &str, update: F) -> Result<(Option<Value>, bool), String>
 where
     F: FnOnce(Option<&Value>) -> Result<Option<Value>, String>,

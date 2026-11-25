@@ -39,13 +39,6 @@
         "type": "string"
       }
     },
-    "backup_path": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "meaning": "Device-logical path of the pre-change config backup, or null when not returned."
-    },
     "mutationPerformed": {
       "type": "boolean",
       "meaning": "False on the argument-parser refusal.",
