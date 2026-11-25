@@ -139,7 +139,7 @@
             "rollback-incomplete",
             "not-restored"
           ],
-          "description": "standing: the set committed; rolled-back: a member with a held root or service was restored; rollback-incomplete: restoration was not whole; not-restored: a member of a red press none of whose roots or services were held"
+          "description": "standing: the set committed; rolled-back: a member with a held root or service was restored; rollback-incomplete: restoration was not whole; not-restored: a member of a red press that was not restored: nothing of it was held, or the red step was a developer module's and the safe modules kept what they got"
         }
       },
       "description": "Member observations retain their existing fields unchanged; source_sha is additive release evidence"
