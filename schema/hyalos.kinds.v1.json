@@ -131,10 +131,21 @@
   {
    "organ": "sbin",
    "verb": [
-    "nap",
     "forgejo-backup-b2",
     "backblaze-bucket-run",
     "nas-sync-mirror",
+    "mirror-pull",
+    "forgejo-nas-export"
+   ],
+   "row": {
+    "kind": "run",
+    "level": 1
+   }
+  },
+  {
+   "organ": "sbin",
+   "verb": [
+    "nap",
     "converge"
    ],
    "bad": true,
@@ -147,9 +158,6 @@
    "organ": "sbin",
    "verb": [
     "nap",
-    "forgejo-backup-b2",
-    "backblaze-bucket-run",
-    "nas-sync-mirror",
     "converge"
    ],
    "row": {
