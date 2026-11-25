@@ -39,7 +39,7 @@
           },
           "state": {
             "type": "string",
-            "description": "Pending requests only in the list; an admitted first name disappears, not another pending request"
+            "description": "Pending requests only in the list; an admitted first name disappears, not another pending request. A producer-cleared row has state cleared."
           },
           "hidden": {"type": "boolean"},
           "title": {
@@ -97,10 +97,11 @@
       }
     },
     "notification": {"type": ["object", "null"], "additionalProperties": true, "description": "One raw notification row for a post or forward; unknown fields survive."},
+    "clear": {"type": "boolean", "description": "Clear the named update-available row instead of posting it."},
     "repost": {"type": ["boolean", "null"], "description": "When true, a dismissed or expired identity can be posted again."},
     "forwarded": {"type": ["boolean", "null"], "description": "A peer returned the gateway's post receipt."},
     "id": {"type": ["string", "null"]},
-    "state": {"type": ["string", "null"]},
+    "state": {"type": ["string", "null"], "description": "A clear answers cleared or absent."},
     "hidden": {"type": "boolean"},
     "staff": {"type": ["object", "null"], "additionalProperties": true},
     "gateway": {
@@ -166,7 +167,7 @@
   "forms": {
     "hide": {"required": []},
     "unhide": {"required": []},
-    "post": {"required": ["notification"], "description": "Pinless LAN post; a peer forwards once to the gateway."},
+    "post": {"required": ["notification"], "description": "Pinless LAN post; a clear rides the same envelope, and a peer forwards once to the gateway."},
     "forward": {"required": ["notification"], "description": "Pinless gateway-only forward; no roster admission."},
     "action": {"required": [], "description": "Action fields as an object; gateway attendance is required."},
     "list": {
@@ -214,6 +215,7 @@
     }
   },
   "signals": [
+    "notification-clear-kind-unsupported",
     "notification-kind-retired",
     "link-up-name-invalid",
     "link-up-name-taken",
