@@ -66,6 +66,7 @@
         "agathodaimon-harmonia-module-toggle-config-not-object",
         "agathodaimon-harmonia-module-toggle-harmonia-not-object",
         "agathodaimon-harmonia-module-toggle-disabled-modules-invalid",
+        "household-config-lock-unavailable",
         "agathodaimon-stop-raised",
         "none"
       ],
