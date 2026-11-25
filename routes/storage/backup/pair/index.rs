@@ -249,7 +249,7 @@ fn report(body: &Value) -> Result<(Value, bool), Failure> {
     let at = body.get("at").and_then(Value::as_str).filter(|s| (s.ends_with('Z') || s.ends_with("+00:00")) && chrono::DateTime::parse_from_rfc3339(s).is_ok()).ok_or(INVALID)?;
     let duration = body.get("durationMs").and_then(Value::as_i64).filter(|n| *n >= 0).ok_or(INVALID)?;
     if !valid_mac(mac) { return Err(INVALID); }
-    if !admitted(mac, credential) { return Err(UNKNOWN); }
+    if !matches!(matching_state(mac, credential)?, Some(state) if state == "accepted") { return Err(UNKNOWN); }
     if signal.contains(credential) { return Err(INVALID); }
     with_db(|db| {
         let count = db.execute("UPDATE backup_pairs SET report_outcome=?2,report_signal=?3,report_at=?4,report_duration_ms=?5,report_received_at=?6 WHERE mac=?1 AND state='accepted'", params![mac,outcome,signal,at,duration,now()]).map_err(|_| UNAVAILABLE)?;
