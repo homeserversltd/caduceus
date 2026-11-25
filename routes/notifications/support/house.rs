@@ -40,6 +40,37 @@ pub(super) async fn gateway_post(body: &Value) -> Option<Value> {
     }).await.ok().flatten()
 }
 
+pub(super) async fn gateway_set_hidden(path: &str, hidden: bool) -> Option<(u16, Value)> {
+    let suffix = if hidden { "/hide" } else { "/unhide" };
+    let id = path.strip_prefix("/api/v1/notifications/")?.strip_suffix(suffix)?;
+    if id.is_empty() || id.contains('/') || id.bytes().any(|b| b <= b' ' || b == 127) {
+        return None;
+    }
+    let (ip, port) = gateway::resolve()?;
+    timeout(Duration::from_secs(3), async {
+        let mut stream = TcpStream::connect((ip, port)).await.ok()?;
+        let request = format!("POST {path} HTTP/1.0\r\nHost: {ip}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        stream.write_all(request.as_bytes()).await.ok()?;
+        let mut bytes = Vec::new();
+        stream.take(MAX_BODY as u64 + 1).read_to_end(&mut bytes).await.ok()?;
+        if bytes.len() > MAX_BODY { return None; }
+        let split = bytes.windows(4).position(|v| v == b"\r\n\r\n")?;
+        let head = std::str::from_utf8(&bytes[..split]).ok()?;
+        let status: u16 = head.lines().next()?.split_whitespace().nth(1)?.parse().ok()?;
+        if !(200..=599).contains(&status) { return None; }
+        for line in head.lines().skip(1) {
+            let (name, value) = line.split_once(':')?;
+            if name.eq_ignore_ascii_case("transfer-encoding") { return None; }
+            if name.eq_ignore_ascii_case("content-length")
+                && value.trim().parse::<usize>().ok()? != bytes.len() - split - 4
+            { return None; }
+        }
+        let value = serde_json::from_slice(&bytes[split + 4..]).ok()?;
+        if !crate::routes::leaf_schema::bound_http_reply(&value, path) { return None; }
+        Some((status, value))
+    }).await.ok().flatten()
+}
+
 pub(super) async fn gateway_notifications() -> Option<Value> {
     let path = "/api/v1/notifications";
     let value = gateway::get_json(gateway::resolve()?, path, gateway::TIMEOUT).await?;

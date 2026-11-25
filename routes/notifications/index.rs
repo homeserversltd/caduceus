@@ -645,8 +645,13 @@ async fn dismiss(
     action(axum::extract::Path((id, "dismiss".to_owned())), headers, body).await
 }
 
-async fn set_hidden(id: String, hidden: bool) -> Response {
-    if !gateway_profile() { return refusal((StatusCode::FORBIDDEN, "notification-act-on-homeserver")); }
+async fn set_hidden(id: String, hidden: bool, path: &str) -> Response {
+    if !gateway_profile() {
+        return match house::gateway_set_hidden(path, hidden).await {
+            Some((status, value)) => (StatusCode::from_u16(status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE), Json(value)).into_response(),
+            None => refusal(unavailable("notification-gateway-unreachable")),
+        };
+    }
     let key = id.clone();
     match tokio::task::spawn_blocking(move || ledger::set_hidden(&key, hidden)).await {
         Ok(Ok(())) => Json(json!({"schema":SCHEMA,"ok":true,"id":id,"hidden":hidden})).into_response(),
@@ -655,8 +660,8 @@ async fn set_hidden(id: String, hidden: bool) -> Response {
     }
 }
 
-async fn hide(axum::extract::Path(id): axum::extract::Path<String>) -> Response { set_hidden(id, true).await }
-async fn unhide(axum::extract::Path(id): axum::extract::Path<String>) -> Response { set_hidden(id, false).await }
+async fn hide(axum::extract::Path(id): axum::extract::Path<String>, uri: axum::http::Uri) -> Response { set_hidden(id, true, uri.path()).await }
+async fn unhide(axum::extract::Path(id): axum::extract::Path<String>, uri: axum::http::Uri) -> Response { set_hidden(id, false, uri.path()).await }
 
 async fn receive_post(
     forward: bool,
