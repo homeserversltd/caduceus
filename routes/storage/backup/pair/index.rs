@@ -11,7 +11,16 @@ const INVALID: Failure = (StatusCode::BAD_REQUEST, "backup-pair-invalid");
 const UNKNOWN: Failure = (StatusCode::UNAUTHORIZED, "backup-pair-unknown");
 
 fn initialize(db: &Connection) -> Result<(), Failure> {
-    db.execute_batch("CREATE TABLE IF NOT EXISTS backup_pairs (mac TEXT PRIMARY KEY, hostname TEXT, ipv4 TEXT, credential_sha256 TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','accepted')), requested_at INTEGER NOT NULL, accepted_at INTEGER);").map_err(|_| UNAVAILABLE)
+    db.execute_batch("CREATE TABLE IF NOT EXISTS backup_pairs (mac TEXT PRIMARY KEY, hostname TEXT, ipv4 TEXT, credential_sha256 TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','accepted')), requested_at INTEGER NOT NULL, accepted_at INTEGER);").map_err(|_| UNAVAILABLE)?;
+    let mut stmt = db.prepare("PRAGMA table_info(backup_pairs)").map_err(|_| UNAVAILABLE)?;
+    let columns = stmt.query_map([], |r| r.get::<_, String>(1)).map_err(|_| UNAVAILABLE)?
+        .collect::<Result<Vec<_>, _>>().map_err(|_| UNAVAILABLE)?;
+    for (name, ty) in [("inlet_name", "TEXT"), ("report_outcome", "TEXT"), ("report_signal", "TEXT"), ("report_at", "TEXT"), ("report_duration_ms", "INTEGER"), ("report_received_at", "INTEGER")] {
+        if !columns.iter().any(|c| c == name) {
+            db.execute_batch(&format!("ALTER TABLE backup_pairs ADD COLUMN {name} {ty}")).map_err(|_| UNAVAILABLE)?;
+        }
+    }
+    Ok(())
 }
 
 fn with_db<T>(action: impl FnOnce(&mut Connection) -> Result<T, Failure>) -> Result<T, Failure> {
@@ -130,31 +139,155 @@ fn record(verb: &str, success: bool, signal: &str, started: Instant) {
     }));
 }
 
+static PAIR_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, Failure> + Send + 'static) -> Result<T, Failure> {
+    crate::gate::blocking_task("backup-pair", f).await.map_err(|_| UNAVAILABLE)?
+}
+
+fn pair_row(mac: &str) -> Result<(String, Option<String>, String), Failure> {
+    if !valid_mac(mac) { return Err(INVALID); }
+    with_db(|db| {
+        let has_ruyi: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='ruyi')", [], |r| r.get(0)).map_err(|_| UNAVAILABLE)?;
+        let sql = if has_ruyi { "SELECT COALESCE(json_extract(r.row,'$.hostname'),p.hostname),p.inlet_name,p.state FROM backup_pairs p LEFT JOIN ruyi r ON r.mac=p.mac WHERE p.mac=?1" } else { "SELECT hostname,inlet_name,state FROM backup_pairs WHERE mac=?1" };
+        db.query_row(sql, [mac], |r| Ok((r.get::<_, Option<String>>(0)?.unwrap_or_default(), r.get(1)?, r.get(2)?)))
+            .optional().map_err(|_| UNAVAILABLE)?.ok_or((StatusCode::NOT_FOUND, "backup-pair-unknown"))
+    })
+}
+
+fn inlet_name(hostname: &str) -> Result<String, Failure> {
+    let stem: String = hostname.to_lowercase().chars().map(|c| if c.is_ascii_lowercase() || c.is_ascii_digit() { c } else { '_' }).collect();
+    if stem.is_empty() || stem.len() > 54 || !stem.as_bytes()[0].is_ascii_lowercase() {
+        return Err((StatusCode::BAD_REQUEST, "backup-pair-inlet-name-invalid"));
+    }
+    Ok(format!("{stem}_pin_inlet"))
+}
+
+async fn act(mac: &str, pin: &str, thing: &str, payload: Option<Value>) -> Result<Value, Failure> {
+    let mut request = json!({"schema":crate::routes::leaf_schema::row_schema(),"target":mac,"thing":thing,"flags":{"exousia":{"pin":pin}}});
+    if let Some(payload) = payload { request["payload"] = payload; }
+    let bytes = serde_json::to_vec(&request).map_err(|_| UNAVAILABLE)?;
+    let (_, Json(answer)) = crate::routes::leaf_ruyi::road::post(bytes.into()).await.map_err(|_| UNAVAILABLE)?;
+    Ok(answer)
+}
+
+async fn accept(mac: String, pin: String) -> Result<(Value, bool), Failure> {
+    let key = mac.clone();
+    let (hostname, previous, state) = blocking(move || pair_row(&key)).await?;
+    if state != "pending" { return Err((StatusCode::NOT_FOUND, "backup-pair-not-pending")); }
+    if pin.is_empty() { return Err((StatusCode::BAD_REQUEST, "backup-pair-box-pin-required")); }
+    if pin.len() > 511 || pin.bytes().any(|c| matches!(c, 0 | b'\r' | b'\n' | b'"')) { return Err(INVALID); }
+    let name = inlet_name(&hostname)?;
+    if previous.as_deref().is_some_and(|old| old != name) { return Err((StatusCode::CONFLICT, "backup-pair-inlet-name-invalid")); }
+    let key = mac.clone(); let proposed = name.clone();
+    let taken = blocking(move || with_db(|db| db.query_row("SELECT EXISTS(SELECT 1 FROM backup_pairs WHERE mac<>?1 AND inlet_name=?2)", params![key, proposed], |r| r.get::<_, bool>(0)).map_err(|_| UNAVAILABLE))).await?;
+    if taken { return Err((StatusCode::CONFLICT, "backup-pair-inlet-name-taken")); }
+    let checked = act(&mac, &pin, "pin-check", None).await.map_err(|_| (StatusCode::BAD_GATEWAY, "backup-pair-box-unreachable"))?;
+    let signal = checked.pointer("/answers/0/signal").and_then(Value::as_str);
+    if signal == Some("exousia-pin-wrong") { return Err((StatusCode::FORBIDDEN, "backup-pair-box-pin-wrong")); }
+    if checked.pointer("/answers/0/signal") != Some(&Value::Null) || checked.pointer("/answers/0/answer/answers/0/answer/verified").and_then(Value::as_bool) != Some(true) {
+        return Err((StatusCode::BAD_GATEWAY, "backup-pair-box-unreachable"));
+    }
+    let key = mac.clone(); let inlet = name.clone(); let secret = pin.clone();
+    blocking(move || {
+        let value = crate::gate::snake::crossing_path("storage/backup/pin-inlet/put", &json!({"name":inlet,"username":key,"password":secret}))
+            .map_err(|_| (StatusCode::BAD_GATEWAY, "backup-pair-inlet-store-failed"))?;
+        if value.get("ok").and_then(Value::as_bool) != Some(true) { return Err((StatusCode::BAD_GATEWAY, "backup-pair-inlet-store-failed")); }
+        with_db(|db| {
+            let n = db.execute("UPDATE backup_pairs SET inlet_name=?2 WHERE mac=?1 AND state='pending'", params![key,inlet]).map_err(|_| UNAVAILABLE)?;
+            if n != 1 { return Err(UNAVAILABLE); } Ok(())
+        })
+    }).await?;
+    let home = blocking(|| Ok(crate::routes::leaf_ruyi::current_identity().mac)).await?
+        .filter(|m| valid_mac(m)).ok_or((StatusCode::BAD_GATEWAY, "backup-pair-enroll-failed"))?;
+    let enrolled = act(&mac, &pin, "backup-enroll", Some(json!({"home":{"mac":home}}))).await
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "backup-pair-enroll-failed"))?;
+    if enrolled.pointer("/answers/0/signal") != Some(&Value::Null) || enrolled.pointer("/answers/0/answer/answers/0/answer/enrolled").and_then(Value::as_bool) != Some(true) {
+        return Err((StatusCode::BAD_GATEWAY, "backup-pair-enroll-failed"));
+    }
+    blocking(move || change(&mac, true)).await
+}
+
+async fn revoke(mac: String) -> Result<(Value, bool), Failure> {
+    let key = mac.clone();
+    let (_, inlet, _) = blocking(move || pair_row(&key)).await?;
+    if let Some(inlet) = inlet {
+        blocking(move || {
+            let value = crate::gate::snake::crossing_path("storage/backup/pin-inlet/delete", &json!({"name":inlet}))
+                .map_err(|_| (StatusCode::BAD_GATEWAY, "backup-pair-inlet-delete-failed"))?;
+            if value.get("ok").and_then(Value::as_bool) != Some(true) { return Err((StatusCode::BAD_GATEWAY, "backup-pair-inlet-delete-failed")); }
+            Ok(())
+        }).await?;
+    }
+    blocking(move || change(&mac, false)).await
+}
+
+fn report(body: &Value) -> Result<(Value, bool), Failure> {
+    let mac = body.get("mac").and_then(Value::as_str).ok_or(INVALID)?;
+    let credential = body.get("credential").and_then(Value::as_str).ok_or(INVALID)?;
+    let outcome = body.get("outcome").and_then(Value::as_str).filter(|s| matches!(*s, "ok" | "failed" | "refused")).ok_or(INVALID)?;
+    let signal = body.get("signal").and_then(Value::as_str).filter(|s| (1..=40).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')).ok_or(INVALID)?;
+    let at = body.get("at").and_then(Value::as_str).filter(|s| (s.ends_with('Z') || s.ends_with("+00:00")) && chrono::DateTime::parse_from_rfc3339(s).is_ok()).ok_or(INVALID)?;
+    let duration = body.get("durationMs").and_then(Value::as_i64).filter(|n| *n >= 0).ok_or(INVALID)?;
+    if !valid_mac(mac) { return Err(INVALID); }
+    if !admitted(mac, credential) { return Err(UNKNOWN); }
+    with_db(|db| {
+        let count = db.execute("UPDATE backup_pairs SET report_outcome=?2,report_signal=?3,report_at=?4,report_duration_ms=?5,report_received_at=?6 WHERE mac=?1 AND state='accepted'", params![mac,outcome,signal,at,duration,now()]).map_err(|_| UNAVAILABLE)?;
+        if count != 1 { return Err(UNKNOWN); }
+        Ok((json!({"ok":true}), true))
+    })
+}
+
+fn basic(verb: &str, body: &Value, peer: Option<ConnectInfo<crate::gate::ConnectionInfo>>) -> Result<(Value, bool), Failure> {
+    let mac = body.get("mac").and_then(Value::as_str).unwrap_or("");
+    match verb {
+        "request" => {
+            let hostname = body.get("hostname").and_then(Value::as_str).unwrap_or("");
+            let supplied = body.get("credential_sha256").and_then(Value::as_str).unwrap_or("");
+            let ipv4 = match peer { Some(ConnectInfo(crate::gate::ConnectionInfo::Tcp(address))) => match address.ip() { std::net::IpAddr::V4(ip) => ip.to_string(), _ => return Err(INVALID) }, _ => return Err(INVALID) };
+            request(mac, hostname, supplied, &ipv4)
+        }
+        "status" => {
+            let credential = body.get("credential").and_then(Value::as_str).unwrap_or("");
+            let state = matching_state(mac, credential)?.ok_or(UNKNOWN)?;
+            Ok((json!({"ok":true,"state":state}), false))
+        }
+        "list" => Ok((list()?, false)),
+        "report" => report(body),
+        _ => Err(INVALID),
+    }
+}
+
 async fn handle(OriginalUri(uri): OriginalUri, peer: Option<ConnectInfo<crate::gate::ConnectionInfo>>, Json(body): Json<Value>) -> Response {
     let verb = uri.path().rsplit('/').next().unwrap_or("").to_owned();
     let started = Instant::now();
-    let mutation = matches!(verb.as_str(), "request" | "accept" | "revoke");
+    let mutation = matches!(verb.as_str(), "request" | "accept" | "revoke" | "report");
     let deed = verb.clone();
-    let result = tokio::task::spawn_blocking(move || -> Result<(Value,bool),Failure> {
-        let mac = body.get("mac").and_then(Value::as_str).unwrap_or("");
-        match verb.as_str() {
-            "request" => {
-                let hostname = body.get("hostname").and_then(Value::as_str).unwrap_or("");
-                let supplied = body.get("credential_sha256").and_then(Value::as_str).unwrap_or("");
-                let ipv4 = match peer { Some(ConnectInfo(crate::gate::ConnectionInfo::Tcp(address))) => match address.ip() { std::net::IpAddr::V4(ip) => ip.to_string(), _ => return Err(INVALID) }, _ => return Err(INVALID) };
-                request(mac,hostname,supplied,&ipv4)
-            }
-            "status" => {
-                let credential = body.get("credential").and_then(Value::as_str).unwrap_or("");
-                let state = matching_state(mac,credential)?.ok_or(UNKNOWN)?;
-                Ok((json!({"ok":true,"state":state}),false))
-            }
-            "list" => Ok((list()?,false)),
-            "accept" => change(mac,true),
-            "revoke" => change(mac,false),
-            _ => Err(INVALID),
+    let result = if verb == "accept" || verb == "revoke" {
+        let pin = body.pointer("/flags/exousia/pin").and_then(Value::as_str).unwrap_or("").to_owned();
+        let mac = body.get("mac").and_then(Value::as_str).unwrap_or("").to_owned();
+        let box_pin = body.pointer("/flags/inlet/pin").and_then(Value::as_str).unwrap_or("").to_owned();
+        drop(body);
+        let verified = blocking(move || crate::shared::attendance::verify_administrative_pin(&pin).map_err(|signal| match signal.as_str() {
+            "exousia-pin-required" => (StatusCode::FORBIDDEN, "exousia-pin-required"),
+            "exousia-pin-wrong" => (StatusCode::FORBIDDEN, "exousia-pin-wrong"),
+            _ => UNAVAILABLE,
+        })).await;
+        match verified {
+            Err(error) => Err(error),
+            Ok(()) => tokio::spawn(async move {
+                // The operation owns the lock even if its HTTP caller disconnects.
+                let _guard = PAIR_LOCK.lock().await;
+                if verb == "accept" { accept(mac, box_pin).await } else { revoke(mac).await }
+            }).await.unwrap_or(Err(UNAVAILABLE)),
         }
-    }).await.unwrap_or(Err(UNAVAILABLE));
+    } else if verb == "request" {
+        // A fresh request must not replace a pending digest during acceptance.
+        tokio::spawn(async move {
+            let _guard = PAIR_LOCK.lock().await;
+            blocking(move || basic(&verb, &body, peer)).await
+        }).await.unwrap_or(Err(UNAVAILABLE))
+    } else { blocking(move || basic(&verb, &body, peer)).await };
     match result {
         Ok((value, changed)) => { if mutation && changed { record(&deed,true,"none",started); } (StatusCode::OK,Json(value)).into_response() }
         Err((status,signal)) => { if mutation { record(&deed,false,signal,started); } (status,Json(json!({"ok":false,"signal":signal}))).into_response() }
@@ -169,4 +302,5 @@ pub fn register(router: Router) -> Router {
         .route("/api/v1/storage/backup/pair/list", axum::routing::post(handle))
         .route("/api/v1/storage/backup/pair/accept", axum::routing::post(handle))
         .route("/api/v1/storage/backup/pair/revoke", axum::routing::post(handle))
+        .route("/api/v1/storage/backup/pair/report", axum::routing::post(handle))
 }
