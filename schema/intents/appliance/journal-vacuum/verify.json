@@ -1,0 +1,37 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/journal-vacuum/verify",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "outcome": {
+      "type": "string",
+      "meaning": "Current when the operating system journal's disk usage is at most 300M, otherwise over. The stop exits zero only when the outcome is current.",
+      "enum": [
+        "current",
+        "over"
+      ]
+    },
+    "usageBytes": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "meaning": "Observed journal disk usage in bytes, or null when unread.",
+      "minimum": 0
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop's outcome token; none means no signal is missing.",
+      "enum": [
+        "none",
+        "journal-vacuum-payload-invalid",
+        "journal-vacuum-usage-unread"
+      ]
+    }
+  }
+}

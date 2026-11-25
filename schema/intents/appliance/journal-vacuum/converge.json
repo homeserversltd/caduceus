@@ -1,0 +1,26 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/journal-vacuum/converge",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "freed_bytes": {
+      "type": "integer",
+      "meaning": "Total bytes reported freed by running the operating system journal's declared 300M vacuum once; zero if no amount was reported or the request or command could not be read.",
+      "minimum": 0
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop's outcome token; none means no signal is missing.",
+      "enum": [
+        "journal-vacuum-payload-invalid",
+        "journal-vacuum-command-failed",
+        "none"
+      ]
+    }
+  }
+}
