@@ -1,0 +1,48 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/forgejo/nas-restore",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the restore stop succeeded in its current phase. It restores Forgejo from the fixed /mnt/nas/backups/forgejo/nas/export/ tree only when complete is present."
+    },
+    "status": {
+      "type": "string",
+      "meaning": "The transient worker was accepted; this does not assert a finished restore.",
+      "const": "accepted"
+    },
+    "unit": {
+      "type": "string",
+      "meaning": "Name of the accepted transient worker unit."
+    },
+    "step": {
+      "type": "string",
+      "meaning": "Phase that refused or failed, when named."
+    },
+    "reason": {
+      "type": "string",
+      "meaning": "Unprefixed refusal or failure reason, when named."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome signal emitted by the stop; none denotes no missing signal.",
+      "enum": [
+        "none",
+        "forgejo-nas-restore-busy",
+        "forgejo-nas-restore-source-missing",
+        "forgejo-nas-restore-source-invalid",
+        "forgejo-nas-restore-stop-failed",
+        "forgejo-nas-restore-db-failed",
+        "forgejo-nas-restore-copy-failed",
+        "forgejo-nas-restore-start-failed",
+        "forgejo-nas-restore-launch-failed"
+      ]
+    }
+  }
+}

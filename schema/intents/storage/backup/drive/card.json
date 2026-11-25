@@ -1,0 +1,68 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/drive/card",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the drive facts were read. This stop carries no file name, path or credential; the last copy is joined by the Caduceus door, not this stop."
+    },
+    "box": {
+      "type": "object",
+      "meaning": "Identity of the box holding the drive.",
+      "fields": {
+        "mac": {
+          "type": "string",
+          "meaning": "Box MAC address in lower-case."
+        },
+        "hostname": {
+          "type": "string",
+          "meaning": "Box hostname."
+        }
+      }
+    },
+    "present": {
+      "type": "boolean",
+      "meaning": "A partition labelled homeserver-backup-nas is attached and mounted at /mnt/nas_backup."
+    },
+    "model": {
+      "type": ["string", "null"],
+      "meaning": "Drive model, or null when unobserved."
+    },
+    "sizeBytes": {
+      "type": ["integer", "null"],
+      "meaning": "Drive size in bytes, or null when unobserved."
+    },
+    "usedBytes": {
+      "type": ["integer", "null"],
+      "meaning": "Used bytes, or null when unobserved."
+    },
+    "freeBytes": {
+      "type": ["integer", "null"],
+      "meaning": "Free bytes, or null when unobserved."
+    },
+    "health": {
+      "type": "string",
+      "meaning": "Drive health observation.",
+      "enum": ["passed", "failed", "unknown"]
+    },
+    "readErrors": {
+      "type": ["integer", "null"],
+      "meaning": "Read errors since the drive was attached, or null when unobserved."
+    },
+    "transport": {
+      "type": ["string", "null"],
+      "meaning": "How the drive is connected, or null when unobserved."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome signal emitted by the stop; none denotes no missing signal.",
+      "enum": ["none", "backup-drive-card-unavailable"]
+    }
+  }
+}
