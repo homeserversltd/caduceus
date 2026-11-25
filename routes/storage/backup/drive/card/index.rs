@@ -43,7 +43,7 @@ fn unavailable() -> Value {
         "final_receipt": {"ok": false, "firstMissingSignal": "backup-drive-card-unavailable"}})
 }
 
-fn read_card() -> Value {
+pub(crate) fn read_card() -> Value {
     let crossing = match crate::shared::config::resolved_profile().as_deref() {
         Ok("homeconsole" | "hometv" | "homesi" | "specula") =>
             snake::crossing_path_with_timeout(STOP, &json!({}), Duration::from_secs(60)).ok(),
@@ -64,12 +64,12 @@ fn read_card() -> Value {
 
 async fn http() -> (StatusCode, Json<Value>) {
     if crate::gate::admittance::check_declared_admittance(&DECLARATION).is_err() {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(unavailable()));
+        return (StatusCode::OK, Json(unavailable()));
     }
     match policy::allows_command(COMMAND) {
         Ok(true) => {},
-        Ok(false) => return (StatusCode::FORBIDDEN, Json(unavailable())),
-        Err(_) => return (StatusCode::FORBIDDEN, Json(unavailable())),
+        Ok(false) => return (StatusCode::OK, Json(unavailable())),
+        Err(_) => return (StatusCode::OK, Json(unavailable())),
     }
     match blocking_task(COMMAND, read_card).await {
         Ok(card) => (StatusCode::OK, Json(card)),
