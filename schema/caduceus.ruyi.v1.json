@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.ruyi.v1",
-  "schema_version": "1.7.0",
+  "schema_version": "1.8.0",
   "role": "Public Ruyi row, roster and removal envelope",
   "authority": {
     "owner": "caduceus",
@@ -564,7 +564,7 @@
     "road-act": {
       "required": ["schema", "target", "thing"],
       "optional": ["flags", "payload"],
-      "signals": ["road-act-body-invalid", "road-act-pin-carrier-duplicated", "exousia-pin-required", "exousia-pin-wrong", "exousia-pin-not-yet-provisioned", "thing-undeclared", "target-unknown", "act-door-absent", "seat-mac-unknown", "seat-mac-mismatch", "unreachable", "timeout"]
+      "signals": ["road-act-body-invalid", "road-act-pin-carrier-duplicated", "exousia-pin-required", "exousia-pin-wrong", "exousia-pin-not-yet-provisioned", "thing-undeclared", "target-unknown", "act-door-absent", "seat-mac-unknown", "seat-mac-mismatch", "unreachable", "timeout", "harmonia-update-busy", "harmonia-update-start-unconfirmed", "caduceus-update-launch-handoff-unconfirmed", "caduceus-harmonia-update-argv-invalid", "caduceus-harmonia-route-missing:update_now", "harmonia-update-lock-unreadable", "harmonia-update-lock-invalid", "harmonia-update-lock-pid-unavailable", "caduceus-update-handoff-lock-unavailable", "caduceus-update-handoff-lock-invalid", "caduceus-update-cgroup-unavailable"]
     },
     "road": {
       "required": ["schema", "ok", "service", "seat", "thing", "answers"],
