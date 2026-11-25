@@ -45,7 +45,7 @@
     "harmonia.interactables.household_trust_renew.receipt.v1": {"file": "schema/harmonia.interactables.household_trust_renew.receipt.v1.json", "schema_version": "1.0.0"},
     "harmonia.interactables.dns_record.receipt.v1": {"file": "schema/harmonia.interactables.dns_record.receipt.v1.json", "schema_version": "1.0.0"},
     "harmonia.interactables.ruyi_perspective_seed.receipt.v1": {"file": "schema/harmonia.interactables.ruyi_perspective_seed.receipt.v1.json", "schema_version": "1.0.0"},
-    "harmonia.update-set.v1": {"file": "schema/harmonia.update-set.v1.json", "schema_version": "1.0.0"},
+    "harmonia.update-set.v1": {"file": "schema/harmonia.update-set.v1.json", "schema_version": "1.1.0"},
     "harmonia.update_module.v1": {"file": "schema/harmonia.update_module.v1.json", "schema_version": "1.0.0"},
     "harmonia.module.ladder.v1": {"file": "schema/harmonia.module.ladder.v1.json", "schema_version": null},
     "harmonia.run_profile.v1": {"file": "schema/harmonia.run_profile.v1.json", "schema_version": "1.2.0"},

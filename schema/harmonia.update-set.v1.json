@@ -1,6 +1,6 @@
 {
   "schema": "harmonia.update-set.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "role": "Harmonia's appliance update-set and member release evidence",
   "authority": {
     "owner": "caduceus",
@@ -49,6 +49,42 @@
         "null"
       ],
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "set_verdict": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "failed",
+        "failed-rolled-back",
+        "failed-rollback-incomplete"
+      ],
+      "description": "ok: the set committed; failed: the press was red and nothing was restored; failed-rolled-back: every held root and service was restored and verified; failed-rollback-incomplete: a restoration was owed and is not whole"
+    },
+    "transaction_state": {
+      "type": "string",
+      "enum": [
+        "Open",
+        "Applied",
+        "Committed",
+        "RolledBack",
+        "RollbackIncomplete",
+        "RefusedForeignPostImage"
+      ]
+    },
+    "restored_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rollback_errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "failed_step": {
+      "type": "string"
     }
   },
   "field_types": {
@@ -57,7 +93,12 @@
     "members": "array<Member>",
     "member_flags": "map<member,MemberFlag|string>",
     "syzygy_signal": "string",
-    "syzygy_sha": "string|null"
+    "syzygy_sha": "string|null",
+    "set_verdict": "string",
+    "transaction_state": "string",
+    "restored_paths": "array<string>",
+    "rollback_errors": "array<string>",
+    "failed_step": "string"
   },
   "required": [
     "schema",
@@ -67,7 +108,12 @@
   "optional": [
     "profile",
     "member_flags",
-    "syzygy_sha"
+    "syzygy_sha",
+    "set_verdict",
+    "transaction_state",
+    "restored_paths",
+    "rollback_errors",
+    "failed_step"
   ],
   "types": {
     "Member": {
@@ -78,6 +124,22 @@
             "null"
           ],
           "pattern": "^[0-9a-f]{40}$"
+        },
+        "ordinal": {
+          "type": "integer"
+        },
+        "member": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "standing",
+            "rolled-back",
+            "rollback-incomplete",
+            "not-restored"
+          ],
+          "description": "standing: the set committed; rolled-back: a member with a held root or service was restored; rollback-incomplete: restoration was not whole; not-restored: a member of a red press none of whose roots or services were held"
         }
       },
       "description": "Member observations retain their existing fields unchanged; source_sha is additive release evidence"
