@@ -7,6 +7,10 @@
   },
   "exousia": true,
   "mutation_allowed": true,
+  "known_safe": {
+    "meaning": "These birth-seeded repositories are the only ones the restore may overwrite; any other repository refuses forgejo-nas-restore-forge-holds-own-work without an override by any field, flag or PIN, and an unreadable repository list refuses forgejo-nas-restore-forge-unobserved without touching anything.",
+    "repositories": ["owner/cartridge-test", "owner/starter"]
+  },
   "returns": {
     "ok": {
       "type": "boolean",
@@ -41,8 +45,17 @@
         "forgejo-nas-restore-db-failed",
         "forgejo-nas-restore-copy-failed",
         "forgejo-nas-restore-start-failed",
-        "forgejo-nas-restore-launch-failed"
+        "forgejo-nas-restore-launch-failed",
+        "forgejo-nas-restore-forge-holds-own-work",
+        "forgejo-nas-restore-forge-unobserved",
+        "forgejo-nas-restore-owner-rekey-failed",
+        "forgejo-nas-restore-ci-adopt-failed"
       ]
+    },
+    "foreignCount": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "meaning": "Count of repositories outside known_safe, or null when the forge could not be observed; names are never returned."
     }
   }
 }

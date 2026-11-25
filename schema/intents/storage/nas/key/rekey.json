@@ -1,0 +1,69 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas/key/rekey",
+  "payload": {
+    "fields": {
+      "key_role": {
+        "type": "string",
+        "meaning": "This box's key for the selected role goes into slots 0 and 1.",
+        "enum": ["primary", "backup"]
+      },
+      "partition": {
+        "type": "string",
+        "meaning": "Normalized /dev path resolving to a block device whose identity is present in the NAS PARTLABEL census.",
+        "pattern": "^/dev/(?![\\s\\S]*\\u0000)(?!\\.{1,2}(?:/|(?![\\s\\S])))(?![\\s\\S]*/\\.{1,2}(?:/|(?![\\s\\S])))[^/]+(?:/[^/]+)*(?![\\s\\S])"
+      },
+      "oldPassword": {
+        "type": "string",
+        "secret": true,
+        "minLength": 1,
+        "maxBytes": 511,
+        "pattern": "^[^\u0000\r\n\"]+$",
+        "meaning": "The dead box's password is typed once to open and re-key the drive and is never stored, logged or echoed."
+      },
+      "keepOld": {
+        "type": "boolean",
+        "default": false,
+        "meaning": "When true, first add the old password to the lowest free keyslot."
+      }
+    },
+    "required": ["key_role", "partition", "oldPassword"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "key_role": {"meaning": "The supplied key role, including invalid values on refusal, or null if absent."},
+    "partition": {"meaning": "The supplied partition path, including invalid values on refusal, or null if absent."},
+    "steps": {
+      "type": "array",
+      "meaning": "Ordered observations and actions, with no passwords, keys or slot contents in any readback.",
+      "items": {"type": "object", "fields": {
+        "step": {"type": "string", "meaning": "Name assigned by the stop."},
+        "ok": {"type": "boolean", "meaning": "Whether this step passed."},
+        "readback": {"type": "object", "meaning": "Step-specific observations without passwords, keys or slot contents."}
+      }}
+    },
+    "failedStep": {"type": ["string", "null"], "meaning": "Phase that stopped the operation, if named."},
+    "returnCode": {"type": "integer", "meaning": "Exit status of the failed host command, when known."},
+    "keptSlot": {"type": ["integer", "null"], "minimum": 2, "maximum": 31, "meaning": "Slot retaining the old password, or null if none was retained."},
+    "ownSlots": {"type": "array", "meaning": "Slots that hold this box's key when the act ends.", "items": {"type": "integer", "minimum": 0, "maximum": 31}},
+    "changed": {"type": "boolean", "meaning": "Whether the act changed the drive."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none means the stop reported no missing signal.",
+      "enum": [
+        "none",
+        "nas-rekey-request-invalid",
+        "nas-rekey-root-required",
+        "nas-rekey-partition-invalid",
+        "nas-rekey-drive-busy",
+        "nas-rekey-old-password-mismatched",
+        "nas-rekey-own-key-unavailable",
+        "nas-rekey-no-free-slot",
+        "nas-rekey-slot-write-failed",
+        "nas-rekey-readback-failed",
+        "nas-rekey-timeout"
+      ]
+    }
+  }
+}

@@ -10,7 +10,10 @@
           "baseline": {"type": ["object", "null"], "meaning": "Last-good source counts for the shrink gate and the deletion cap basis. Without a baseline, base the cap on twenty percent of the source count from the dry scan, with a floor of 1000.", "fields": {
             "fileCount": {"type": "integer", "meaning": "Last-good source file count; a drop greater than twenty percent refuses the pull.", "minimum": 0},
             "totalBytes": {"type": "integer", "meaning": "Last-good source bytes; a drop greater than ten percent refuses the pull.", "minimum": 0}
-          }, "required": ["fileCount", "totalBytes"]}
+          }, "required": ["fileCount", "totalBytes"]},
+          "home": {"type": "object", "meaning": "The HomeServer recorded at enroll rides in the box's PID 2 copy row payload; without its MAC the pull refuses mirror-home-unenrolled instead of falling back to the gateway, and without a reachable Caduceus answering with that MAC as its own seat it refuses mirror-home-unproven.", "fields": {
+            "mac": {"type": "string", "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", "meaning": "The HomeServer's lower-case MAC recorded at enroll."}
+          }, "required": ["mac"]}
         }
       }
     },
@@ -47,16 +50,17 @@
       "hostname": {"type": "string", "meaning": "The box's hostname."}
     }},
     "maxDelete": {"type": ["integer", "null"], "meaning": "Deletion cap: greater of 1000 or floor of twenty percent of the reference file count; null before available.", "minimum": 1000},
-    "homeserver": {"type": ["object", "null"], "meaning": "Resolved default-gateway seat, or null before resolution.", "fields": {
+    "homeserver": {"type": ["object", "null"], "meaning": "The enrolled HomeServer, proven by its MAC, or null before it is proven.", "fields": {
       "ipv4": {"type": "string", "meaning": "IPv4 default-gateway address."},
-      "port": {"type": "integer", "meaning": "Seat port, falling back to 8787.", "minimum": 1, "maximum": 65535}
+      "port": {"type": "integer", "meaning": "Seat port, falling back to 8787.", "minimum": 1, "maximum": 65535},
+      "mac": {"type": "string", "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", "meaning": "The proven HomeServer's lower-case MAC address."}
     }},
     "exceptionType": {"type": "string", "meaning": "The pinned slash-path front door reports TypeError when it passes an argument list to this stop's zero-argument main."},
     "firstMissingSignal": {
       "type": "string", "meaning": "Native pull signal or the front door's uncaught-exception signal. Some NAS guards append the exact tool, device, path or error that failed.",
       "anyOf": [
         {"enum": ["none", "planned-only", "agathodaimon-stop-raised", "mirror-request-invalid", "mirror-dry-run-invalid", "mirror-baseline-invalid", "mirror-scratch-invalid", "single-instance-lock-invalid", "single-instance-lock-contended", "backup-target-is-root", "mountpoint-unevaluable:/mnt/nas_backup", "mountpoint-output-malformed:/mnt/nas_backup", "not-a-real-mountpoint:/mnt/nas_backup", "mount-source-not-block-device:/mnt/nas_backup", "backup-partlabel-invalid", "current-boot-kernel-log-unevaluable", "current-boot-kernel-error-names-backing-drive", "default-gateway-unavailable", "backup-pair-credential-unavailable", "mirror-credential-invalid", "mirror-source-scan-failed", "source-stats-unavailable", "source-shrink-refused:byte-count-shrank-more-than-10-percent", "source-shrink-refused:file-count-shrank-more-than-20-percent", "source-shrink-refused:byte-count-shrank-more-than-10-percent,file-count-shrank-more-than-20-percent", "rsync-delete-cap-exceeded", "mirror-rsync-failed", "mirror-pull-unavailable", "mirror-deed-unavailable"]},
-        {"enum": ["mirror-copy-stalled", "mirror-tunnel-failed", "mirror-upgrade-invalid", "mirror-remote-command-invalid", "backup-mirror-busy", "mirror-serve-lock-busy", "backup-pair-unknown", "backup-mirror-child-failed"]},
+        {"enum": ["mirror-copy-stalled", "mirror-tunnel-failed", "mirror-upgrade-invalid", "mirror-remote-command-invalid", "backup-mirror-busy", "mirror-serve-lock-busy", "backup-pair-unknown", "backup-mirror-child-failed", "mirror-home-unenrolled", "mirror-home-unproven"]},
         {"pattern": "^mirror-http-([0-9]{3}|invalid)$"},
         {"pattern": "^(?:single-instance-lock-unavailable|device-alias-unresolvable|backing-device-unevaluable|backing-device-output-malformed|backing-device-root-unevaluable|backup-partlabel-unevaluable|source-unreadable|source-directory-unreadable|source-entry-unreadable):"},
         {"enum": ["required-tool-missing:/usr/bin/findmnt", "required-tool-missing:/usr/bin/lsblk", "required-tool-missing:/usr/bin/journalctl"]},
