@@ -44,7 +44,13 @@ async fn wake_named_actuator_route(
             .await?;
             result
                 .map(|value| (crate::gate::mutation_status(&value), Json(value)))
-                .map_err(|signal| crate::gate::api_error_signal("staff intent", &signal))
+                .map_err(|signal| {
+                    let mut error = crate::gate::api_error_signal("staff intent", &signal);
+                    if signal == "caduceus-network-wake-action-invalid" {
+                        error.0 = StatusCode::BAD_REQUEST;
+                    }
+                    error
+                })
         }
         Ok(false) => Err(crate::gate::api_error("staff intent")),
         Err(_) => Err(crate::gate::api_error_signal(

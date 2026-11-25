@@ -431,7 +431,7 @@ pub fn wake_stop_json(metadata: Value) -> Result<Value, String> {
     let (stop, names): (&str, &[&str]) = match metadata.get("action").and_then(Value::as_str) {
         Some("send") => ("network/wake-on-lan/send", &["mac", "broadcast"]),
         Some("probe") => ("network/wake-on-lan/probe", &["ip"]),
-        _ => return Err("expected send or probe".into()),
+        _ => return Err("caduceus-network-wake-action-invalid".into()),
     };
     stop_receipt(stop, selected_fields(&metadata, names))
 }

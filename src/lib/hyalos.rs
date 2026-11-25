@@ -459,7 +459,7 @@ fn normalize_level(level: Option<String>) -> Result<String, String> {
     if LEVELS.contains(&lowered.as_str()) {
         Ok(lowered)
     } else {
-        Err(format!("hyalos-level-invalid: {level}"))
+        Err("hyalos-level-invalid".to_string())
     }
 }
 
@@ -527,7 +527,7 @@ fn reflect_and_offer(input: Reflection) -> Result<(ChannelEvent, Disposition), S
 
 pub fn reflect_json(input: Value) -> Result<Value, String> {
     let reflection: Reflection =
-        serde_json::from_value(input).map_err(|err| format!("hyalos-reflection-invalid: {err}"))?;
+        serde_json::from_value(input).map_err(|_| "hyalos-reflection-invalid".to_string())?;
     let (event, stored) = reflect_and_offer(reflection)?;
     Ok(json!({
         "schema": "caduceus.hyalos.reflect.v1",
