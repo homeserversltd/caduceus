@@ -1,0 +1,17 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/pin-inlet/delete",
+  "payload": {
+    "fields": {
+      "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,53}_pin_inlet$", "meaning": "Keyman inlet record name."}
+    },
+    "required": ["name"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether deletion succeeded."},
+    "deleted": {"type": "boolean", "meaning": "Whether a record was deleted."},
+    "firstMissingSignal": {"type": "string", "enum": ["none", "pin-inlet-name-invalid", "pin-inlet-delete-failed"], "meaning": "Deletion outcome or refusal."}
+  }
+}

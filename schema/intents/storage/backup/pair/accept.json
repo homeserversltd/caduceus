@@ -1,0 +1,18 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/pair/accept",
+  "description": "The HomeServer PIN rides flags.exousia.pin and the box PIN rides flags.inlet.pin. Both are checked and neither is echoed.",
+  "payload": {
+    "fields": {
+      "mac": {"type": "string", "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", "meaning": "Lower-case address identifying the pending box."}
+    },
+    "required": ["mac"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the acceptance succeeded."},
+    "state": {"type": "string", "enum": ["accepted", "pending"], "meaning": "Pairing state."},
+    "firstMissingSignal": {"type": "string", "enum": ["none", "backup-pair-invalid", "backup-pair-unknown", "backup-pair-not-pending", "backup-pair-unavailable", "exousia-pin-required", "exousia-pin-wrong", "backup-pair-box-pin-required", "backup-pair-box-pin-wrong", "backup-pair-box-unreachable", "backup-pair-inlet-name-invalid", "backup-pair-inlet-name-taken", "backup-pair-inlet-store-failed", "backup-pair-enroll-failed"], "meaning": "Acceptance outcome or refusal."}
+  }
+}

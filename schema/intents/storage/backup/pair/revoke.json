@@ -1,0 +1,16 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/pair/revoke",
+  "payload": {
+    "fields": {
+      "mac": {"type": "string", "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", "meaning": "Lower-case address identifying the paired box."}
+    },
+    "required": ["mac"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether revocation succeeded."},
+    "firstMissingSignal": {"type": "string", "enum": ["none", "backup-pair-invalid", "backup-pair-unknown", "backup-pair-unavailable", "exousia-pin-required", "exousia-pin-wrong", "backup-pair-inlet-delete-failed"], "meaning": "Revocation outcome or refusal."}
+  }
+}

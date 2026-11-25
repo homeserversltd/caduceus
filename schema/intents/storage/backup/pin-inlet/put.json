@@ -1,0 +1,20 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/pin-inlet/put",
+  "payload": {
+    "fields": {
+      "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,53}_pin_inlet$", "meaning": "Keyman inlet record name."},
+      "username": {"type": "string", "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", "meaning": "Lower-case address of the box."},
+      "password": {"type": "string", "secret": true, "minLength": 1, "maxBytes": 511, "pattern": "^[^\u0000\r\n\"]+$", "meaning": "Box PIN for secret custody; never echoed."}
+    },
+    "required": ["name", "username", "password"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the inlet was stored."},
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,53}_pin_inlet$", "meaning": "Inlet record name."},
+    "replaced": {"type": "boolean", "meaning": "Whether an existing record was replaced."},
+    "firstMissingSignal": {"type": "string", "enum": ["none", "pin-inlet-name-invalid", "pin-inlet-username-invalid", "pin-inlet-value-invalid", "pin-inlet-store-failed"], "meaning": "Store outcome or refusal."}
+  }
+}
