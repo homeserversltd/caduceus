@@ -38,22 +38,24 @@ fn unavailable() -> Value {
     json!({"schema": DECLARATION["receipt"], "stop": {"noun": "storage/backup/drive", "verb": "card"},
         "ok": false, "box": null, "present": false, "model": null, "sizeBytes": null,
         "usedBytes": null, "freeBytes": null, "health": "unknown", "readErrors": null,
-        "transport": null, "firstMissingSignal": "backup-drive-card-unavailable",
+        "transport": null, "lastCopy": null, "firstMissingSignal": "backup-drive-card-unavailable",
         "observed": null, "could_change_to": null, "attempt": {"attempted": true},
         "final_receipt": {"ok": false, "firstMissingSignal": "backup-drive-card-unavailable"}})
 }
 
 fn read_card() -> Value {
-    let crossing = if crate::shared::config::resolved_profile().as_deref() == Ok("homeserver") {
-        None
-    } else {
-        snake::crossing_path_with_timeout(STOP, &json!({}), Duration::from_secs(60)).ok()
+    let crossing = match crate::shared::config::resolved_profile().as_deref() {
+        Ok("homeconsole" | "hometv" | "homesi" | "specula") =>
+            snake::crossing_path_with_timeout(STOP, &json!({}), Duration::from_secs(60)).ok(),
+        _ => None,
     };
     let mut card = crossing.and_then(|v| {
         if v["ok"].as_bool() != Some(true) { return None; }
         let mut receipt = v.get("receiptPayload")?.clone();
         if receipt["ok"].as_bool() != Some(true) || !crate::routes::leaf_schema::bound(&receipt, STOP) { return None; }
-        if let Some(band) = v.get("bandPath") { receipt["bandPath"] = band.clone(); }
+        if let (Some(object), Some(band)) = (receipt.as_object_mut(), v.get("bandPath")) {
+            object.entry("bandPath").or_insert_with(|| band.clone());
+        }
         Some(receipt)
     }).unwrap_or_else(unavailable);
     card["lastCopy"] = last_copy().unwrap_or(Value::Null);
@@ -61,10 +63,8 @@ fn read_card() -> Value {
 }
 
 async fn http() -> (StatusCode, Json<Value>) {
-    if let Err(signal) = crate::gate::admittance::check_declared_admittance(&DECLARATION) {
-        let mut card = unavailable();
-        card["firstMissingSignal"] = json!(signal);
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(card));
+    if crate::gate::admittance::check_declared_admittance(&DECLARATION).is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(unavailable()));
     }
     match policy::allows_command(COMMAND) {
         Ok(true) => {},
