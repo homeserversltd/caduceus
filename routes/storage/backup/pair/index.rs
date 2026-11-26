@@ -186,18 +186,15 @@ fn remaining(deadline: Instant) -> std::time::Duration { deadline.saturating_dur
 
 #[cfg(leaf_ruyi)]
 fn signal(value: Option<&str>, secret: &str) -> String {
-    let bounded = value.filter(|s| (1..=64).contains(&s.len())
+    value.filter(|s| (1..=64).contains(&s.len())
         && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        && !s.contains(secret)).unwrap_or("road-act-failed");
-    match bounded {
-        "backup-pull-not-enrolled" | "pid2-schedule-fire-running" | "backup-pair-box-unreachable" => bounded,
-        _ => "road-act-failed",
-    }.to_owned()
+        && *s != "none" && !(!secret.is_empty() && s.contains(secret)))
+        .unwrap_or("road-act-failed").to_owned()
 }
 
 #[cfg(leaf_ruyi)]
 pub(crate) fn queue_pull(mac: &str, inlet: Option<&str>, deadline: Instant) -> Result<(u64, i64, Instant), String> {
-    if remaining(deadline).is_zero() { return Err("road-act-failed".into()); }
+    if remaining(deadline).is_zero() { return Err("no-report".into()); }
     let name = inlet.filter(|s| !s.is_empty()).ok_or("pin-inlet-missing")?;
     let mut crossing = crate::gate::snake::crossing_path_with_timeout("storage/backup/pin-inlet/export", &json!({"name":name}), remaining(deadline).min(std::time::Duration::from_secs(30)))
         .map_err(|_| "pin-inlet-missing".to_owned())?;
@@ -215,7 +212,7 @@ pub(crate) fn queue_pull(mac: &str, inlet: Option<&str>, deadline: Instant) -> R
     let text = std::str::from_utf8(&pin.0).map_err(|_| "pin-inlet-missing".to_owned())?;
     let seen = report_counter(mac).map_err(|_| "backup-pair-unavailable".to_owned())?;
     let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs().min(i64::MAX as u64) as i64;
-    if remaining(deadline).is_zero() { return Err("road-act-failed".into()); }
+    if remaining(deadline).is_zero() { return Err("no-report".into()); }
     let request = json!({"schema":crate::routes::leaf_schema::row_schema(),"target":mac,"thing":"backup-pull","flags":{"exousia":{"pin":text}}});
     let bytes = serde_json::to_vec(&request).map_err(|_| "road-act-failed".to_owned())?;
     drop(request);
