@@ -12,7 +12,7 @@
     },
     "required": ["args"]
   },
-  "exousia": true,
+  "exousia": false,
   "mutation_allowed": true,
   "returns": {
     "primitive": {"type": "string", "enum": ["refresh", "invalid"], "meaning": "The refresh operation or the pre-result exception branch; absent on argument refusal."},

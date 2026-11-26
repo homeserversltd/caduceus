@@ -6,7 +6,7 @@
     "required": [],
     "meaning": "No payload field controls playback. The stop requests playback of its built-in sample."
   },
-  "exousia": true,
+  "exousia": false,
   "mutation_allowed": true,
   "returns": {
     "changed": {

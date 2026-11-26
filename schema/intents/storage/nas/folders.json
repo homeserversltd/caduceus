@@ -16,7 +16,7 @@
       "role"
     ]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": false,
   "returns": {
     "role": {

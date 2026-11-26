@@ -1,0 +1,69 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/service",
+  "payload": {
+    "fields": {
+      "action": {
+        "type": "string",
+        "meaning": "The service action to perform.",
+        "enum": [
+          "start",
+          "stop",
+          "restart",
+          "reload",
+          "enable",
+          "disable",
+          "status"
+        ]
+      },
+      "service": {
+        "type": "string",
+        "meaning": "Service name in the portal allowlist; .service is appended if absent. Forgejo restart and nginx reload are also allowed.",
+        "pattern": "^(?!-)(?!.*\\.\\.)[A-Za-z0-9_.@-]+$(?![\\s\\S])"
+      }
+    },
+    "required": [
+      "action",
+      "service"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the action succeeded."
+    },
+    "active": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "meaning": "Whether systemctl reports active; null if unresolved."
+    },
+    "enabled": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "meaning": "Whether systemctl reports enabled; null if unresolved."
+    },
+    "output": {
+      "type": "string",
+      "meaning": "Trimmed systemctl output or diagnostic."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success.",
+      "enum": [
+        "portal-service-payload-invalid",
+        "portal-service-action-invalid",
+        "portal-service-name-invalid",
+        "portal-service-registry-unreadable",
+        "portal-service-not-allowed",
+        "portal-service-systemctl-failed",
+        "none"
+      ]
+    }
+  }
+}

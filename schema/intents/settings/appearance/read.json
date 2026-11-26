@@ -2,7 +2,7 @@
   "schema": "caduceus.staff.v1",
   "intent": "settings/appearance/read",
   "payload": {"fields": {}, "required": []},
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": false,
   "returns": {
     "values": {

@@ -14,7 +14,11 @@
       "transition",
       "version",
       "timestamp"
-    ]
+    ],
+    "definitions": {
+      "intent_id": {"type": "string", "meaning": "the intent's path, its one name, then '#', then a tail the caller mints, unique per sending"},
+      "transition": {"type": "string", "meaning": "the intent's path, its one name"}
+    }
   },
   "routine": {
     "optional": true,
