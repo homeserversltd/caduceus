@@ -5,7 +5,7 @@
     "fields": {},
     "required": []
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": null,
   "legacy_request": {
     "meaning": "Legacy adapter: these arguments are read from the top-level JSON object even when the five kernel fields are present. The nested payload room supplies no Linker arguments.",
