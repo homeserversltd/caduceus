@@ -180,6 +180,61 @@ pub fn admitted(mac: &str, credential: &str) -> bool {
     matches!(matching_state(mac, credential), Ok(Some(state)) if state == "accepted")
 }
 
+// The bounded export-and-act step is shared by the conductor and copy-now.
+#[cfg(leaf_ruyi)]
+fn remaining(deadline: Instant) -> std::time::Duration { deadline.saturating_duration_since(Instant::now()) }
+
+#[cfg(leaf_ruyi)]
+fn signal(value: Option<&str>, secret: &str) -> String {
+    let bounded = value.filter(|s| (1..=64).contains(&s.len())
+        && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && !s.contains(secret)).unwrap_or("road-act-failed");
+    match bounded {
+        "backup-pull-not-enrolled" | "pid2-schedule-fire-running" | "backup-pair-box-unreachable" => bounded,
+        _ => "road-act-failed",
+    }.to_owned()
+}
+
+#[cfg(leaf_ruyi)]
+pub(crate) fn queue_pull(mac: &str, inlet: Option<&str>, deadline: Instant) -> Result<(u64, i64, Instant), String> {
+    if remaining(deadline).is_zero() { return Err("road-act-failed".into()); }
+    let name = inlet.filter(|s| !s.is_empty()).ok_or("pin-inlet-missing")?;
+    let mut crossing = crate::gate::snake::crossing_path_with_timeout("storage/backup/pin-inlet/export", &json!({"name":name}), remaining(deadline).min(std::time::Duration::from_secs(30)))
+        .map_err(|_| "pin-inlet-missing".to_owned())?;
+    if crossing["ok"] != true { return Err("pin-inlet-missing".into()); }
+    let mut result = crossing.as_object_mut().and_then(|v|v.remove("receiptPayload")).ok_or("pin-inlet-missing")?;
+    drop(crossing);
+    if result["ok"] != true || result["username"].as_str() != Some(mac) { return Err("pin-inlet-missing".into()); }
+    let pin = result.as_object_mut().and_then(|o| o.remove("password")).and_then(|v| match v { Value::String(s) => Some(s), _ => None })
+        .filter(|s| !s.is_empty()).ok_or("pin-inlet-missing")?;
+    drop(result);
+    // This owned buffer is wiped even if runtime construction or the act fails.
+    struct Secret(Vec<u8>);
+    impl Drop for Secret { fn drop(&mut self) { for byte in &mut self.0 { unsafe { std::ptr::write_volatile(byte, 0) }; } std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst); } }
+    let pin = Secret(pin.into_bytes());
+    let text = std::str::from_utf8(&pin.0).map_err(|_| "pin-inlet-missing".to_owned())?;
+    let seen = report_counter(mac).map_err(|_| "backup-pair-unavailable".to_owned())?;
+    let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs().min(i64::MAX as u64) as i64;
+    if remaining(deadline).is_zero() { return Err("road-act-failed".into()); }
+    let request = json!({"schema":crate::routes::leaf_schema::row_schema(),"target":mac,"thing":"backup-pull","flags":{"exousia":{"pin":text}}});
+    let bytes = serde_json::to_vec(&request).map_err(|_| "road-act-failed".to_owned())?;
+    drop(request);
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_| "road-act-failed".to_owned())?;
+    let act_started = Instant::now();
+    let answer = runtime.block_on(async { tokio::time::timeout(remaining(deadline), crate::routes::leaf_ruyi::road::post(bytes.into())).await });
+    let queued = match answer {
+        Ok(Ok((_, axum::Json(value)))) => {
+            let entry = &value["answers"][0];
+            if entry["signal"].is_null() && entry.pointer("/answer/answers/0/answer/state").and_then(Value::as_str) == Some("Queued") { Ok(()) }
+            else { Err(signal(entry.get("signal").and_then(Value::as_str), text)) }
+        },
+        _ => Err("road-act-failed".into()),
+    };
+    drop(pin);
+    queued?;
+    Ok((seen, start, act_started))
+}
+
 fn request(mac: &str, hostname: &str, supplied: &str, ipv4: &str) -> Result<(Value, bool), Failure> {
     if !valid_mac(mac) || !valid_digest(supplied) || hostname.is_empty() || hostname.len() > 253 { return Err(INVALID); }
     with_db(|db| {
@@ -200,9 +255,9 @@ fn request(mac: &str, hostname: &str, supplied: &str, ipv4: &str) -> Result<(Val
 fn list() -> Result<Value, Failure> {
     with_db(|db| {
     let has_ruyi: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='ruyi')", [], |r| r.get(0)).map_err(|_| UNAVAILABLE)?;
-    let sql = if has_ruyi { "SELECT p.mac,COALESCE(json_extract(r.row,'$.hostname'),p.hostname),p.ipv4,p.state,p.requested_at,p.accepted_at FROM backup_pairs p LEFT JOIN ruyi r ON r.mac=p.mac ORDER BY CASE p.state WHEN 'accepted' THEN 0 ELSE 1 END, CASE WHEN p.state='accepted' THEN p.accepted_at ELSE p.requested_at END, p.mac" } else { "SELECT mac,hostname,ipv4,state,requested_at,accepted_at FROM backup_pairs ORDER BY CASE state WHEN 'accepted' THEN 0 ELSE 1 END, CASE WHEN state='accepted' THEN accepted_at ELSE requested_at END, mac" };
+    let sql = if has_ruyi { "SELECT p.mac,COALESCE(json_extract(r.row,'$.hostname'),p.hostname),p.ipv4,p.state,p.requested_at,p.accepted_at,p.report_outcome,p.report_signal,p.report_at,p.report_duration_ms FROM backup_pairs p LEFT JOIN ruyi r ON r.mac=p.mac ORDER BY CASE p.state WHEN 'accepted' THEN 0 ELSE 1 END, CASE WHEN p.state='accepted' THEN p.accepted_at ELSE p.requested_at END, p.mac" } else { "SELECT mac,hostname,ipv4,state,requested_at,accepted_at,report_outcome,report_signal,report_at,report_duration_ms FROM backup_pairs ORDER BY CASE state WHEN 'accepted' THEN 0 ELSE 1 END, CASE WHEN state='accepted' THEN accepted_at ELSE requested_at END, mac" };
     let mut query = db.prepare(sql).map_err(|_| UNAVAILABLE)?;
-    let rows = query.query_map([], |r| Ok(json!({"mac":r.get::<_,String>(0)?,"hostname":r.get::<_,Option<String>>(1)?,"ipv4":r.get::<_,Option<String>>(2)?,"state":r.get::<_,String>(3)?,"requested_at":r.get::<_,i64>(4)?,"accepted_at":r.get::<_,Option<i64>>(5)?}))).map_err(|_| UNAVAILABLE)?;
+    let rows = query.query_map([], |r| Ok(json!({"mac":r.get::<_,String>(0)?,"hostname":r.get::<_,Option<String>>(1)?,"ipv4":r.get::<_,Option<String>>(2)?,"state":r.get::<_,String>(3)?,"requested_at":r.get::<_,i64>(4)?,"accepted_at":r.get::<_,Option<i64>>(5)?,"report_outcome":r.get::<_,Option<String>>(6)?,"report_signal":r.get::<_,Option<String>>(7)?,"report_at":r.get::<_,Option<String>>(8)?,"report_duration_ms":r.get::<_,Option<i64>>(9)?}))).map_err(|_| UNAVAILABLE)?;
     let rows = rows.collect::<Result<Vec<_>,_>>().map_err(|_| UNAVAILABLE)?;
     Ok(json!({"ok":true,"pairs":rows}))
     })
@@ -223,10 +278,10 @@ fn change(mac: &str, accept: bool) -> Result<(Value, bool), Failure> {
     })
 }
 
-fn record(verb: &str, success: bool, signal: &str, started: Instant) {
+fn record(verb: &str, target: &str, success: bool, signal: &str, started: Instant) {
     let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
         "organ":"backup-pair", "kind":"deed", "ok":success, "message":"backup pair deed",
-        "attributes_redacted":{"who":if verb == "request" {"lan"} else if verb == "report" {"box"} else {"owner"},"verb":verb,"target":"backup-pair","outcome":if success {"complete"} else {"refused"},"signal":signal,"duration_ms":started.elapsed().as_millis().min(u64::MAX as u128) as u64}
+        "attributes_redacted":{"who":if verb == "request" {"lan"} else if verb == "report" {"box"} else {"owner"},"verb":verb,"target":target,"outcome":if success {"complete"} else {"refused"},"signal":signal,"duration_ms":started.elapsed().as_millis().min(u64::MAX as u128) as u64}
     }));
 }
 
@@ -354,7 +409,40 @@ fn report(body: &Value) -> Result<(Value, bool), Failure> {
     entry.0 = entry.0.wrapping_add(1);
     entry.1 = Instant::now();
     wake.notify_all();
+    drop(guard);
+    #[cfg(leaf_notifications)]
+    if outcome == "ok" {
+        let _ = crate::routes::leaf_notifications::clear_update_check(json!({"clear":true,"notification":{"id":format!("backup-box-missed:{mac}"),"kind":"backup-box-missed"}}));
+    }
     Ok(result)
+}
+
+fn copy_now(mac: String) -> Result<(Value, bool), Failure> {
+    #[cfg(leaf_pid2)]
+    {
+        let status = crate::pid2::schedule::status("nas-sync").map_err(|_| UNAVAILABLE)?;
+        if matches!(status.pointer("/last_fire/state").and_then(Value::as_str), Some("Queued" | "Running")) {
+            return Err((StatusCode::CONFLICT, "backup-copy-night-running"));
+        }
+    }
+    if !valid_mac(&mac) { return Err((StatusCode::NOT_FOUND, "backup-pair-unknown")); }
+    let (_, inlet, state) = pair_row(&mac)?;
+    if state != "accepted" { return Err((StatusCode::NOT_FOUND, "backup-pair-unknown")); }
+    #[cfg(leaf_ruyi)]
+    {
+        let deadline = Instant::now() + std::time::Duration::from_secs(35);
+        queue_pull(&mac, inlet.as_deref(), deadline).map_err(|signal| match signal.as_str() {
+            "pin-inlet-missing" => (StatusCode::BAD_GATEWAY, "pin-inlet-missing"),
+            "backup-pull-not-enrolled" => (StatusCode::CONFLICT, "backup-pull-not-enrolled"),
+            "pid2-schedule-fire-running" => (StatusCode::CONFLICT, "pid2-schedule-fire-running"),
+            "backup-pair-box-unreachable" => (StatusCode::BAD_GATEWAY, "backup-pair-box-unreachable"),
+            "backup-pair-unavailable" => UNAVAILABLE,
+            _ => (StatusCode::BAD_GATEWAY, "road-act-failed"),
+        })?;
+        Ok((json!({"ok":true,"state":"Queued","mac":mac,"firstMissingSignal":"none"}), true))
+    }
+    #[cfg(not(leaf_ruyi))]
+    { let _ = inlet; Err(UNAVAILABLE) }
 }
 
 fn basic(verb: &str, body: &Value, peer: Option<ConnectInfo<crate::gate::ConnectionInfo>>) -> Result<(Value, bool), Failure> {
@@ -380,10 +468,16 @@ fn basic(verb: &str, body: &Value, peer: Option<ConnectInfo<crate::gate::Connect
 async fn handle(OriginalUri(uri): OriginalUri, peer: Option<ConnectInfo<crate::gate::ConnectionInfo>>, Json(body): Json<Value>) -> Response {
     let verb = uri.path().rsplit('/').next().unwrap_or("").to_owned();
     let started = Instant::now();
-    let mutation = matches!(verb.as_str(), "request" | "accept" | "revoke" | "report");
+    let mutation = matches!(verb.as_str(), "request" | "accept" | "revoke" | "report" | "copy-now");
+    let is_copy_now = verb == "copy-now";
     let work = async move {
         let deed = verb.clone();
-        let result = if verb == "accept" || verb == "revoke" {
+        let target = if verb == "copy-now" { body.get("mac").and_then(Value::as_str).filter(|mac| valid_mac(mac)).unwrap_or("backup-pair").to_owned() } else { "backup-pair".to_owned() };
+        let result = if verb == "copy-now" {
+            let mac = target.clone();
+            let _guard = PAIR_LOCK.lock().await;
+            blocking(move || copy_now(mac)).await
+        } else if verb == "accept" || verb == "revoke" {
             let pin = body.pointer("/flags/exousia/pin").and_then(Value::as_str).unwrap_or("").to_owned();
             let mac = body.get("mac").and_then(Value::as_str).unwrap_or("").to_owned();
             let box_pin = body.pointer("/flags/inlet/pin").and_then(Value::as_str).unwrap_or("").to_owned();
@@ -411,7 +505,7 @@ async fn handle(OriginalUri(uri): OriginalUri, peer: Option<ConnectInfo<crate::g
                 _ => None,
             };
             if let Some((success, signal)) = deed_outcome {
-                let _ = blocking(move || { record(&deed, success, signal, started); Ok(()) }).await;
+                let _ = blocking(move || { record(&deed, &target, success, signal, started); Ok(()) }).await;
             }
         }
         result
@@ -420,6 +514,7 @@ async fn handle(OriginalUri(uri): OriginalUri, peer: Option<ConnectInfo<crate::g
     let result = if mutation { tokio::spawn(work).await.unwrap_or(Err(UNAVAILABLE)) } else { work.await };
     match result {
         Ok((value, _)) => (StatusCode::OK,Json(value)).into_response(),
+        Err((status,signal)) if is_copy_now => (status,Json(json!({"ok":false,"signal":signal,"firstMissingSignal":signal}))).into_response(),
         Err((status,signal)) => (status,Json(json!({"ok":false,"signal":signal}))).into_response(),
     }
 }
@@ -433,4 +528,5 @@ pub fn register(router: Router) -> Router {
         .route("/api/v1/storage/backup/pair/accept", axum::routing::post(handle))
         .route("/api/v1/storage/backup/pair/revoke", axum::routing::post(handle))
         .route("/api/v1/storage/backup/pair/report", axum::routing::post(handle))
+        .route("/api/v1/storage/backup/pair/copy-now", axum::routing::post(handle))
 }

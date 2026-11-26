@@ -11,6 +11,7 @@
     {"http_method":"POST","http_path":"/api/v1/storage/backup/pair/list","administrative":true,"mutation_allowed":false,"needs":["nas"],"commands":[]},
     {"http_method":"POST","http_path":"/api/v1/storage/backup/pair/accept","administrative":false,"mutation_allowed":true,"needs":["nas"],"commands":[]},
     {"http_method":"POST","http_path":"/api/v1/storage/backup/pair/revoke","administrative":false,"mutation_allowed":true,"needs":["nas"],"commands":[]},
-    {"http_method":"POST","http_path":"/api/v1/storage/backup/pair/report","administrative":false,"mutation_allowed":true,"needs":["nas"],"commands":[]}
+    {"http_method":"POST","http_path":"/api/v1/storage/backup/pair/report","administrative":false,"mutation_allowed":true,"needs":["nas"],"commands":[]},
+    {"http_method":"POST","http_path":"/api/v1/storage/backup/pair/copy-now","administrative":true,"mutation_allowed":true,"needs":["nas"],"commands":[]}
   ]
 }
