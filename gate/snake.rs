@@ -1603,7 +1603,7 @@ async fn native_chord_run_steps(
                             Err(signal)
                         } else { Ok(receipt) }
                     },
-                    "pid2/schedule-disable" => crate::pid2::schedule::set_enabled(&id,false,true),
+                    "pid2/schedule-disable" => crate::pid2::schedule::pause_for_swap(&id),
                     "pid2/release" if is_swap && acquired==Some(false) => Ok(json!({"ok":true,"changed":false})),
                     "pid2/release" if is_swap && acquired==Some(true) => crate::pid2::release_from_swap(&id),
                     "pid2/release" if is_swap => Err("pid2-swap-hold-ownership-missing".into()),

@@ -119,7 +119,8 @@ pub fn list() -> Result<Value,String> {
 }
 
 pub fn register(raw:&[u8]) -> Result<Value,String> {
-    let envelope:Value=serde_json::from_slice(raw).map_err(|e|format!("pid2-schedule-json-invalid: {e}"))?;
+    let mut envelope:Value=serde_json::from_slice(raw).map_err(|e|format!("pid2-schedule-json-invalid: {e}"))?;
+    clear_pause(&mut envelope);
     if envelope.get("schema").and_then(Value::as_str)!=Some(SCHEMA) {return Err("pid2-schedule-schema-desync".into());}
     let seat=super::declared::schedule_seat(SCHEMA)?;
     for key in seat.get("required").and_then(Value::as_array).ok_or("pid2-schedule-schema-kernel-missing")? {
@@ -160,12 +161,41 @@ pub fn register(raw:&[u8]) -> Result<Value,String> {
     Ok(json!({"ok":true,"readback":status(&id)?}))
 }
 
+fn clear_pause(envelope:&mut Value) -> bool {
+    envelope.get_mut("schedule").and_then(Value::as_object_mut).is_some_and(|schedule|schedule.remove("paused").is_some())
+}
 pub fn set_enabled(id:&str,enabled:bool,missing_noop:bool) -> Result<Value,String> {
-    let db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?; super::tables(&db)?;
-    let exists:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM pid2_schedules WHERE schedule_id=?1)",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
-    if !exists && !missing_noop {return Err("pid2-schedule-not-found".into());}
-    let changed=db.execute("UPDATE pid2_schedules SET enabled=?2,updated_at=?3 WHERE schedule_id=?1 AND enabled<>?2",params![id,enabled,super::now()]).map_err(|e|e.to_string())?;
+    let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?; super::tables(&db)?;
+    let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+    let row:Option<(bool,Vec<u8>)>=tx.query_row("SELECT enabled,envelope FROM pid2_schedules WHERE schedule_id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
+    if row.is_none() && !missing_noop {return Err("pid2-schedule-not-found".into());}
+    let mut changed=0;
+    if let Some((old,raw))=row {
+        let mut envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+        let paused=clear_pause(&mut envelope);
+        if old!=enabled || paused {
+            let encoded=if paused {envelope.to_string().into_bytes()} else {raw};
+            changed=tx.execute("UPDATE pid2_schedules SET enabled=?2,envelope=?3,updated_at=?4 WHERE schedule_id=?1",params![id,enabled,encoded,super::now()]).map_err(|e|e.to_string())?;
+        }
+    }
+    tx.commit().map_err(|e|e.to_string())?;
     drop(db); if changed!=0 {super::events::notify_schedule()?;super::solver::deed(if enabled {"schedule-enable"} else {"schedule-disable"},id,"success",None);}
+    Ok(json!({"ok":true,"changed":changed!=0,"readback":status(id)?}))
+}
+pub fn pause_for_swap(id:&str) -> Result<Value,String> {
+    let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?; super::tables(&db)?;
+    let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
+    let raw:Option<Vec<u8>>=tx.query_row("SELECT envelope FROM pid2_schedules WHERE schedule_id=?1 AND enabled=1",[id],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+    let mut changed=0;
+    if let Some(raw)=raw {
+        let mut envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+        let schedule=envelope.get_mut("schedule").and_then(Value::as_object_mut).ok_or("pid2-schedule-unusable")?;
+        let now=super::now();
+        schedule.insert("paused".into(),json!({"reason":"drive-swap","at":now}));
+        changed=tx.execute("UPDATE pid2_schedules SET enabled=0,envelope=?2,updated_at=?3 WHERE schedule_id=?1",params![id,envelope.to_string().as_bytes(),now]).map_err(|e|e.to_string())?;
+    }
+    tx.commit().map_err(|e|e.to_string())?;drop(db);
+    if changed!=0 {super::events::notify_schedule()?;super::solver::deed("schedule-disable",id,"success",None);}
     Ok(json!({"ok":true,"changed":changed!=0,"readback":status(id)?}))
 }
 pub fn update(id:&str,patch:&Value) -> Result<Value,String> {
@@ -183,6 +213,7 @@ pub fn update(id:&str,patch:&Value) -> Result<Value,String> {
     let cal=if frequency.is_empty() && !has_calendar_patch {Calendar{frequency:String::new(),time:String::new(),weekday:None}} else {calendar(&input)?};
     let enabled=enabled_value(patch.get("enabled").or_else(||calendar_patch.get("enabled"))).unwrap_or(old_enabled);
     let mut envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
+    let paused=clear_pause(&mut envelope);
     if !cal.frequency.is_empty() {
         let schedule=envelope.get_mut("schedule").and_then(Value::as_object_mut).ok_or("pid2-schedule-unusable")?;
         let target=schedule.entry("calendar").or_insert_with(||json!({}));
@@ -192,11 +223,15 @@ pub fn update(id:&str,patch:&Value) -> Result<Value,String> {
     }
     let encoded=super::declared::project(envelope,seat).to_string();
     let first_slot=if frequency.is_empty() && !cal.frequency.is_empty() {previous_slot(&cal,super::now())} else {None};
-    let changed=tx.execute("UPDATE pid2_schedules SET envelope=?2,frequency=?3,time=?4,weekday=?5,enabled=?6,updated_at=?7,last_fired_slot=CASE WHEN frequency='' AND ?3<>'' THEN ?8 ELSE last_fired_slot END WHERE schedule_id=?1 AND (frequency IS NOT ?3 OR time IS NOT ?4 OR weekday IS NOT ?5 OR enabled IS NOT ?6)",params![id,encoded.as_bytes(),cal.frequency,cal.time,cal.weekday,enabled,super::now(),first_slot]).map_err(|e|e.to_string())?;
+    let mut changed=tx.execute("UPDATE pid2_schedules SET envelope=?2,frequency=?3,time=?4,weekday=?5,enabled=?6,updated_at=?7,last_fired_slot=CASE WHEN frequency='' AND ?3<>'' THEN ?8 ELSE last_fired_slot END WHERE schedule_id=?1 AND (frequency IS NOT ?3 OR time IS NOT ?4 OR weekday IS NOT ?5 OR enabled IS NOT ?6)",params![id,encoded.as_bytes(),cal.frequency,cal.time,cal.weekday,enabled,super::now(),first_slot]).map_err(|e|e.to_string())?;
     if changed==0 {
         // A no-op calendar patch leaves the declared values as they were.
-        let stored=super::declared::stored(&raw,seat)?.to_string();
-        if raw!=stored.as_bytes() {
+        let mut stored=super::declared::stored(&raw,seat)?;
+        clear_pause(&mut stored);
+        let stored=stored.to_string();
+        if paused {
+            changed=tx.execute("UPDATE pid2_schedules SET envelope=?2,updated_at=?3 WHERE schedule_id=?1",params![id,stored.as_bytes(),super::now()]).map_err(|e|e.to_string())?;
+        } else if raw!=stored.as_bytes() {
             tx.execute("UPDATE pid2_schedules SET envelope=?2 WHERE schedule_id=?1",params![id,stored.as_bytes()]).map_err(|e|e.to_string())?;
         }
     }
