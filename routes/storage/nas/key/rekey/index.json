@@ -2,6 +2,7 @@
   "namespace": "storage/nas/key/rekey",
   "admittance": "open",
   "flags": {},
+  "deadline_seconds": 600,
   "serve": [{"snake": "storage/nas/key/rekey", "verb": ["key", "rekey"]}],
   "commands": ["storage nas key rekey"],
   "needs": ["nas"],
