@@ -1,7 +1,6 @@
-//! Native maintenance for the appliance journal and expired Hyalos deeds.
+//! Native maintenance for expired Hyalos deeds.
 
 use crate::shared::hyalos;
-use serde_json::{json, Value};
 use std::fs;
 use std::io::ErrorKind;
 use std::os::fd::AsRawFd;
@@ -122,15 +121,10 @@ fn remove_remainders() {
 
 fn maintenance_tick() -> Result<(), String> {
     let mut errors = Vec::new();
-    let mut freed_bytes = 0;
-    match vacuum_journal() {
-        Ok(freed) => freed_bytes = freed.unwrap_or(0),
-        Err(error) => errors.push(format!("journal-vacuum: {error}")),
-    }
     match hyalos::prune_expired() {
         Ok(0) => {}
         Ok(deleted) => {
-            if let Err(error) = hyalos::record_prune(deleted, freed_bytes) {
+            if let Err(error) = hyalos::record_prune(deleted, 0) {
                 errors.push(format!("maintenance log: {error}"));
             }
         }
@@ -141,85 +135,6 @@ fn maintenance_tick() -> Result<(), String> {
         Ok(())
     } else {
         Err(bounded_error(&errors.join("; ")))
-    }
-}
-
-fn vacuum_journal() -> Result<Option<u64>, String> {
-    let receipt = crate::gate::snake::crossing_path_receipt("appliance/journal-vacuum", &json!({}))?;
-    match receipt.get("ok").and_then(Value::as_bool) {
-        Some(true) if crate::gate::receipt_succeeded(&receipt) => {}
-        Some(true) | Some(false) => {
-            return Err(receipt
-                .get("firstMissingSignal")
-                .and_then(Value::as_str)
-                .filter(|signal| *signal != "none")
-                .unwrap_or("caduceus-journal-vacuum-refused")
-                .to_string());
-        }
-        None => return Err("caduceus-journal-vacuum-result-unobserved".to_string()),
-    }
-    let freed = receipt
-        .get("freed_bytes")
-        .and_then(Value::as_u64)
-        .or_else(|| receipt.get("freedBytes").and_then(Value::as_u64))
-        .or_else(|| receipt.as_str().map(parse_freed))
-        .or_else(|| {
-            receipt
-                .get("output")
-                .or_else(|| receipt.get("stdout"))
-                .and_then(Value::as_str)
-                .map(parse_freed)
-        });
-    Ok(freed.filter(|freed| *freed > 0))
-}
-
-fn parse_freed(text: &str) -> u64 {
-    let lower = text.to_ascii_lowercase();
-    let mut total = 0u64;
-    for start in lower.match_indices("freed ").map(|(index, _)| index) {
-        let token = lower[start + 6..].split_whitespace().next().unwrap_or("");
-        let split_at = token
-            .char_indices()
-            .find(|(_, character)| !character.is_ascii_digit() && *character != '.')
-            .map(|(index, _)| index)
-            .unwrap_or(token.len());
-        let (number_text, unit_text) = token.split_at(split_at);
-        let multiplier = match unit_text {
-            "b" => 1.0,
-            "k" => 1024.0,
-            "m" => 1024.0 * 1024.0,
-            "g" => 1024.0 * 1024.0 * 1024.0,
-            _ => continue,
-        };
-        let number = number_text.parse::<f64>().unwrap_or(0.0);
-        if number.is_finite() && number > 0.0 {
-            total = total.saturating_add((number * multiplier) as u64);
-        }
-    }
-    total
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_freed;
-
-    #[test]
-    fn parse_freed_sums_all_vacuum_lines() {
-        assert_eq!(
-            parse_freed(
-                "Vacuuming done, freed 1.5M of archived journals.\nVacuuming done, freed 2K"
-            ),
-            1_574_912
-        );
-    }
-
-    #[test]
-    fn parse_freed_returns_zero_for_malformed_or_missing_values() {
-        assert_eq!(
-            parse_freed("Vacuuming done, freed nonsense\nother output"),
-            0
-        );
-        assert_eq!(parse_freed("journal vacuum completed"), 0);
     }
 }
 
