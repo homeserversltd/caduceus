@@ -123,7 +123,8 @@ fn request_document(headers: &HeaderMap) -> Option<&str> {
 }
 
 fn session_admitted(headers: &HeaderMap, session: &UploadSession) -> bool {
-    document_attendance_admitted(headers).is_ok()
+    (request_document(headers) == Some(session.document.as_str())
+        && document_attendance_admitted(headers).is_ok())
         || (session.basis != UploadBasis::Attendance
             && request_document(headers) == Some(session.document.as_str()))
 }
@@ -185,8 +186,15 @@ async fn file_ingress(
     axum::Json(mut body): axum::Json<serde_json::Value>,
 ) -> axum::response::Response {
     crate::gate::strip_administrative_flags(&mut body);
-    if document_attendance_admitted(&headers).is_err() && upload_pin_required() {
-        return ingress_refusal(StatusCode::FORBIDDEN, "ingress", "exousia-pin-required");
+    if document_attendance_admitted(&headers).is_err() {
+        if upload_pin_required() {
+            return ingress_refusal(StatusCode::FORBIDDEN, "ingress", "exousia-pin-required");
+        }
+        if let Some(object) = body.as_object_mut() {
+            object.remove("mode");
+            object.remove("uid");
+            object.remove("gid");
+        }
     }
     staff_route("storage/upload/ingress", body)
         .await
@@ -511,7 +519,7 @@ async fn file_ingress_abort(
     }
     let mut sessions = upload_sessions().lock().await;
     let Some(session) = sessions.get(&upload_id) else {
-        return upload_error(StatusCode::NOT_FOUND, "caduceus-file-ingress-upload-id-unknown");
+        return (StatusCode::OK, Json(json!({"ok": true}))).into_response();
     };
     if !session_admitted(&headers, session) {
         return ingress_refusal(StatusCode::FORBIDDEN, "abort", "caduceus-attendance-not-current");
@@ -533,8 +541,9 @@ async fn file_ingress_abort(
 
 async fn force_permissions(
     headers: HeaderMap,
-    axum::Json(body): axum::Json<serde_json::Value>,
+    axum::Json(mut body): axum::Json<serde_json::Value>,
 ) -> axum::response::Response {
+    crate::gate::strip_administrative_flags(&mut body);
     // This door changes ownership and modes under the ingress root; it admits
     // only the callers the ingress doors beside it admit.
     if let Err(response) = document_attendance_admitted(&headers) {
