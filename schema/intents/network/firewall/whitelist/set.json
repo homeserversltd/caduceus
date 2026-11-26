@@ -205,7 +205,10 @@
         "firewall-unbound-owned-file-invalid",
         "firewall-unbound-policy-mismatch",
         "agathodaimon-stop-raised",
-        "firewall-child-way-mismatch"
+        "firewall-child-way-mismatch",
+        "firewall-hostname-global-zone-conflict",
+        "firewall-nft-live-set-mismatch",
+        "firewall-nft-resolver-presets-invalid"
       ]
     },
     "way": {

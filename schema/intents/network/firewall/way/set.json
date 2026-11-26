@@ -224,7 +224,10 @@
         "firewall-intent-shape-invalid",
         "firewall-child-not-registered",
         "firewall-revision-conflict",
-        "firewall-revision-invalid"
+        "firewall-revision-invalid",
+        "firewall-hostname-global-zone-conflict",
+        "firewall-nft-live-set-mismatch",
+        "firewall-nft-resolver-presets-invalid"
       ]
     },
     "way": {

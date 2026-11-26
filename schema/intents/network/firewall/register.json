@@ -217,7 +217,10 @@
         "firewall-allowlist-empty",
         "firewall-way-hostnames-refused",
         "firewall-hostnames-invalid",
-        "firewall-intent-shape-invalid"
+        "firewall-intent-shape-invalid",
+        "firewall-hostname-global-zone-conflict",
+        "firewall-nft-live-set-mismatch",
+        "firewall-nft-resolver-presets-invalid"
       ]
     },
     "way": {

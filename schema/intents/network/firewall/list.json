@@ -147,7 +147,8 @@
         "firewall-unbound-owned-file-foreign-content",
         "firewall-unbound-owned-file-invalid",
         "firewall-unbound-policy-mismatch",
-        "agathodaimon-stop-raised"
+        "agathodaimon-stop-raised",
+        "firewall-nft-live-set-mismatch"
       ]
     }
   }
