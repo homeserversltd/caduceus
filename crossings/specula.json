@@ -2,6 +2,8 @@
   "schema": "appliance.crossings.v1",
   "profile": "specula",
   "bands": [
+    "storage/nas/key/rekey",
+    "storage/backup/forgejo/nas-restore",
     "storage/backup/ledger",
     "storage/backup/mirror/pull",
     "storage/backup/mirror/serve",
@@ -189,6 +191,8 @@
     "xenos/run"
   ],
   "verbs": [
+    ["key", "rekey"],
+    ["forgejo", "nas-restore"],
     ["backup", "ledger"],
     ["nas", "drives"],
     ["nas", "list"],
@@ -457,6 +461,8 @@
     ]
   ],
   "routes": [
+    "/api/v1/storage/nas/key/rekey",
+    "/api/v1/storage/backup/forgejo/nas-restore",
     "/api/v1/storage/backup/ledger",
     "/api/v1/storage/nas/drives",
     "/api/v1/storage/nas/list",
@@ -636,6 +642,8 @@
   ],
   "administrative": {
     "bands": [
+      "storage/nas/key/rekey",
+      "storage/backup/forgejo/nas-restore",
       "storage/nas/list",
       "storage/nas/role/swap",
       "storage/nas/seat",
@@ -705,6 +713,8 @@
       "settings/ssh/on"
     ],
     "verbs": [
+      ["key", "rekey"],
+      ["forgejo", "nas-restore"],
       ["nas", "list"],
       ["forgejo", "skip-check"],
       ["service", "start"],
@@ -786,6 +796,8 @@
       ]
     ],
     "routes": [
+      "/api/v1/storage/nas/key/rekey",
+      "/api/v1/storage/backup/forgejo/nas-restore",
       "/api/v1/storage/nas/list",
       "/api/v1/storage/backup/forgejo/skip-check",
       "PUT /api/v1/local-ai/edition",

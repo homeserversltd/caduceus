@@ -2,6 +2,8 @@
   "schema": "appliance.crossings.v1",
   "profile": "homeserver",
   "bands": [
+    "storage/nas/key/rekey",
+    "storage/backup/forgejo/nas-restore",
     "storage/backup/ledger",
     "storage/backup/mirror/serve",
     "storage/nas/drives",
@@ -151,6 +153,8 @@
     "update/sources-reseed"
   ],
   "verbs": [
+    ["key", "rekey"],
+    ["forgejo", "nas-restore"],
     ["settings", "datetime"],
     ["settings", "region"],
     ["backup", "ledger"],
@@ -301,6 +305,8 @@
     ]
   ],
   "routes": [
+    "/api/v1/storage/nas/key/rekey",
+    "/api/v1/storage/backup/forgejo/nas-restore",
     "/api/v1/storage/backup/ledger",
     "/api/v1/storage/nas/drives",
     "/api/v1/storage/nas/list",
@@ -412,6 +418,8 @@
   ],
   "administrative": {
     "bands": [
+      "storage/nas/key/rekey",
+      "storage/backup/forgejo/nas-restore",
       "settings/datetime/household-time/ensure-ntp",
       "settings/datetime/household-time/resolve",
       "storage/nas/list",
@@ -480,6 +488,8 @@
       "settings/ssh/on"
     ],
     "verbs": [
+      ["key", "rekey"],
+      ["forgejo", "nas-restore"],
       ["settings", "datetime"],
       ["settings", "region"],
       ["nas", "list"],
@@ -531,6 +541,8 @@
       ]
     ],
     "routes": [
+      "/api/v1/storage/nas/key/rekey",
+      "/api/v1/storage/backup/forgejo/nas-restore",
       "/api/v1/settings/datetime",
       "/api/v1/settings/region",
       "/api/v1/storage/nas/list",

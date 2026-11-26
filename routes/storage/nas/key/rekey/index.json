@@ -1,0 +1,13 @@
+{
+  "namespace": "storage/nas/key/rekey",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "storage/nas/key/rekey", "verb": ["key", "rekey"]}],
+  "commands": ["storage nas key rekey"],
+  "needs": ["nas"],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/nas/key/rekey",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

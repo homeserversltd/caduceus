@@ -319,6 +319,8 @@ const ADMINISTRATIVE_FALLBACK_ROUTES: &[&str] = &[
     "/api/v1/storage/disk/census",
     NAS_ATTACH_HTTP_PATH,
     NAS_DETACH_HTTP_PATH,
+    "/api/v1/storage/nas/key/rekey",
+    "/api/v1/storage/backup/forgejo/nas-restore",
     "/api/v1/storage/categories",
     "/api/v1/storage/categories/scan",
     "POST /api/v1/network/dhcp",

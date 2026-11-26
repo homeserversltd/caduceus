@@ -1053,7 +1053,7 @@ impl LogFilters {
                         'backblaze-bucket-items-remove', 'backblaze-bucket-remove',
                         'backblaze-bucket-run', 'backblaze-bucket-save',
                         'backblaze-restic-rekey', 'backblaze-restic-unlock', 'forgejo-backup-b2',
-                        'forgejo-nas-export'
+                        'forgejo-nas-export', 'nas-rekey', 'forgejo-nas-restore'
                     )) OR
                     (organ = 'sbin' AND target = 'nas-sync' AND verb IN (
                         'nas-sync-mirror', 'mirror-pull', 'sync-hold', 'sync-release',

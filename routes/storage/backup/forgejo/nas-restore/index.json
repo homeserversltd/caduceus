@@ -1,0 +1,13 @@
+{
+  "namespace": "storage/backup/forgejo/nas-restore",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "storage/backup/forgejo/nas-restore", "verb": ["forgejo", "nas-restore"]}],
+  "commands": ["storage backup forgejo nas-restore"],
+  "needs": ["nas"],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/forgejo/nas-restore",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}
