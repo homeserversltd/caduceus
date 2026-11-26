@@ -135,7 +135,7 @@ fn change(mac: &str, accept: bool) -> Result<(Value, bool), Failure> {
 fn record(verb: &str, success: bool, signal: &str, started: Instant) {
     let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({
         "organ":"backup-pair", "kind":"deed", "ok":success, "message":"backup pair deed",
-        "attributes_redacted":{"who":if verb == "request" {"lan"} else {"owner"},"verb":verb,"target":"backup-pair","outcome":if success {"complete"} else {"refused"},"signal":signal,"duration_ms":started.elapsed().as_millis().min(u64::MAX as u128) as u64}
+        "attributes_redacted":{"who":if verb == "request" {"lan"} else if verb == "report" {"box"} else {"owner"},"verb":verb,"target":"backup-pair","outcome":if success {"complete"} else {"refused"},"signal":signal,"duration_ms":started.elapsed().as_millis().min(u64::MAX as u128) as u64}
     }));
 }
 
