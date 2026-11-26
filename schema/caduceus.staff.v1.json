@@ -103,6 +103,18 @@
           "serve_locus": "serve:<ordinal>:<band>",
           "serve_ordinal_base": 1
         }
+      },
+      "exousia": {
+        "shape": {
+          "pin": "string, 1 to 512 bytes"
+        },
+        "absent": "primitive (no PIN offered)",
+        "carriers": "HTTP request body to a door or stdin envelope to cli.py; never a command line",
+        "door": "verify against global.admin.pin and remove or redact before a stop, log, receipt or reply",
+        "law": [
+          "pali:appliance-pin-in-once-and-you-are-in-law-20261103 (Carriers)",
+          "pali:workflow-coronatio-upload-tab-parity-emerald-tablet (UploadVerify)"
+        ]
       }
     }
   },
