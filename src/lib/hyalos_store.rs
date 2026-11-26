@@ -1127,8 +1127,8 @@ impl LogFilters {
                     "target": target, "outcome": outcome, "duration_ms": row["duration_ms"],
                     "signal": signal,
                 });
-                // Only seated numbers can be projected. The current row seat
-                // has no backup-size fields; never invent a count or echo a family.
+                // The backup family carries bucket-run and Forgejo backup counts.
+                // Project only seated numbers; never invent a count or echo a family.
                 if let Some(families) = row["families"].as_object() {
                     for key in ["added_bytes", "total_bytes"] {
                         if let Some(count) = families.values().find_map(|family| family[key].as_u64()) {

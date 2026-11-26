@@ -128,6 +128,22 @@ fn project_attributes(event: &ChannelEvent, run_profile: bool) -> Result<Value, 
         attributes["freed_bytes"] = json!(source.get("freed_bytes").and_then(Value::as_u64));
         attributes["rotated"] = json!(source.get("rotated").and_then(Value::as_bool));
     }
+    if event.organ == "sbin"
+        && matches!(
+            attributes["verb"].as_str(),
+            Some("backblaze-bucket-run" | "forgejo-backup-b2")
+        )
+    {
+        for key in ["added_bytes", "total_bytes"] {
+            if let Some(count) = source
+                .get("counts")
+                .and_then(|counts| counts.get(key))
+                .and_then(Value::as_u64)
+            {
+                attributes[key] = json!(count);
+            }
+        }
+    }
     if event.organ == "file-ingress" && event.kind == "upload" {
         // Budget JSON bytes as well as characters. The native upload deed
         // has no ids and leaves 512 bytes for the filename and folder text.
