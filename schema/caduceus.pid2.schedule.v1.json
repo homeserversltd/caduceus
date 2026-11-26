@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.pid2.schedule.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "role": "Caduceus PID-2 schedule registration",
   "authority": {"owner": "caduceus", "path": "schema/caduceus.pid2.schedule.v1.json"},
   "evolution": {"law": "additive-only", "unknown_fields_preserved": true, "missing_field_semantics": "Absent optional fields mean null; only the frozen kernel is required.", "storage_semantics": "Unknown fields are preserved in passage. The PID 2 registration store and its readbacks keep only seat-declared fields, including declared open objects whole."},
@@ -22,6 +22,7 @@
         "band": {"type": "string"}, "action": {"type": "string"}, "payload": {"type": ["object", "null"], "additionalProperties": true},
         "max_seconds": {"type": "integer", "minimum": 1, "maximum": 86400, "default": 21600}
       }, "additionalProperties": true},
+      "paused": {"type": ["object", "null"], "properties": {"reason": {"type": "string", "enum": ["drive-swap"]}, "at": {"type": "integer"}}, "additionalProperties": false, "description": "Set when a drive swap turned this row off. Absent or null: not paused."},
       "needs": {"type": "array", "items": {"type": "object", "properties": {
         "routine_id": {"type": "string"}, "line": {"type": "string"}
       }, "additionalProperties": true}}

@@ -1,6 +1,6 @@
 {
   "schema": "hyalos.row.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "role": "One projected appliance deed in the Caduceus SQLite store",
   "authority": {"owner": "caduceus", "path": "schema/hyalos.row.v1.json"},
   "evolution": {
@@ -42,6 +42,7 @@
         "arpeggio": ["stages", "failedStage"],
         "dictate": ["state", "chars"],
         "harmonia": ["profile", "finished_at", "module_count", "updated_count", "failures", "failures_more"],
+        "backup": ["added_bytes", "total_bytes"],
         "upload": ["filename", "destination", "bytes"]
       },
       "uncompared_fields": {
