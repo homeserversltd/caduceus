@@ -29,7 +29,7 @@
     "firstMissingSignal": {
       "type": "string",
       "meaning": "Fixed outcomes are listed below; none means success. The stop also returns IP address is outside the reserved range (<start> - <end>), failed to read config <path>: <error>, invalid JSON in DHCP config: <error>, and writer or command errors with an optional restore failed suffix.",
-      "enum": ["none", "invalid-envelope", "identifier must be a string", "new_ip must be a string", "identity-lock-unavailable:network-identity-claim", "IP address is already assigned", "reservation not found", "no JSON object found in DHCP config", "invalid DHCP configuration structure", "target is not a regular file", "dhcp-readback-mismatch", "agathodaimon-stop-raised"]
+      "enum": ["none", "invalid-envelope", "identifier must be a string", "new_ip must be a string", "identity-lock-unavailable:network-identity-claim", "IP address is already assigned", "reservation not found", "no JSON object found in DHCP config", "invalid DHCP configuration structure", "target is not a regular file", "dhcp-readback-mismatch", "agathodaimon-stop-raised", "dhcp-reservation-held-by-firewall"]
     }
   }
 }
