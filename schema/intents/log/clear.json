@@ -1,0 +1,22 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "log/clear",
+  "payload": {
+    "fields": {
+      "kind": {"type": "string", "meaning": "A recognized hyalos kind; supply both kind and verb or neither."},
+      "verb": {"type": "string", "meaning": "A non-empty verb; supply both kind and verb or neither."}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "dry-run": false,
+  "no_clobber": true,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the clear succeeded."},
+    "deleted": {"type": "integer", "meaning": "Rows removed, or under no_clobber rows removed and put back."},
+    "restored": {"type": "boolean", "meaning": "Present only under no_clobber; true when the removed rows were put back."},
+    "changed": {"type": "boolean", "meaning": "Present only under no_clobber, then false."},
+    "firstMissingSignal": {"type": "string", "meaning": "caduceus-hyalos-clear-request-invalid, none, or a hyalos store signal word."}
+  }
+}

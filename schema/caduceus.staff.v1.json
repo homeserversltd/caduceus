@@ -119,6 +119,15 @@
           "pali:appliance-pin-in-once-and-you-are-in-law-20261103 (Carriers)",
           "pali:workflow-coronatio-upload-tab-parity-emerald-tablet (UploadVerify)"
         ]
+      },
+      "no_clobber": {
+        "shape": "boolean",
+        "absent": "primitive (the intent acts and keeps what it did)",
+        "declared_by": "the intent seat's no_clobber: true",
+        "undeclared": "ok false, firstMissingSignal no-clobber-undeclared, before the intent acts",
+        "law": [
+          "pali:hyalos-sqlite-alkahest-emerald-tablet (NoClobber)"
+        ]
       }
     }
   },
