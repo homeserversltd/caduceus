@@ -1,0 +1,14 @@
+{
+  "namespace": "network/firewall/way/set",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "network/firewall/way/set"}],
+  "commands": ["caduceus.network.firewall.put"],
+  "needs": ["firewall"],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/firewall/way/set",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true
+}

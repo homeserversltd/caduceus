@@ -85,6 +85,8 @@
     "network/dhcp/status",
     "network/dns/read",
     "network/dns/status",
+    "network/firewall/register",
+    "network/firewall/way/set",
     "network/identity/device/add",
     "network/identity/device/plan",
     "network/neighbors",

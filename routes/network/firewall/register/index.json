@@ -1,0 +1,14 @@
+{
+  "namespace": "network/firewall/register",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "network/firewall/register"}],
+  "commands": ["caduceus.network.firewall.put"],
+  "needs": ["firewall"],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/firewall/register",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true
+}
