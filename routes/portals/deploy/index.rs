@@ -33,7 +33,16 @@ struct UploadStart {
     chunk_size: Option<u64>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum UploadBasis {
+    Attendance,
+    Pin,
+    Open,
+}
+
 struct UploadSession {
+    document: String,
+    basis: UploadBasis,
     spool_path: PathBuf,
     target_path: PathBuf,
     total_size: u64,
@@ -84,6 +93,39 @@ fn document_attendance_admitted(headers: &HeaderMap) -> Result<(), axum::respons
             .and_then(|value| value.to_str().ok()),
     )
     .map_err(|signal| crate::gate::api_error_signal("staff intent", &signal).into_response())
+}
+
+fn ingress_refusal(status: StatusCode, verb: &str, signal: &str) -> axum::response::Response {
+    (status, Json(json!({
+        "schema": "caduceus.staff.receipt.v1",
+        "ok": false,
+        "stop": {"noun": "file/ingress", "verb": verb},
+        "observed": null,
+        "could_change_to": null,
+        "attempt": null,
+        "firstMissingSignal": signal,
+        "final_receipt": {"ok": false, "firstMissingSignal": signal}
+    }))).into_response()
+}
+
+fn upload_pin_required() -> bool {
+    match crate::shared::config::get_json("tabs.upload.data.isPinRequired") {
+        Ok(value) => value.get("value").and_then(Value::as_bool).unwrap_or(true),
+        Err(signal) if signal == "caduceus-household-config-key-missing" => false,
+        Err(_) => true,
+    }
+}
+
+fn request_document(headers: &HeaderMap) -> Option<&str> {
+    headers.get("x-caduceus-document")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn session_admitted(headers: &HeaderMap, session: &UploadSession) -> bool {
+    document_attendance_admitted(headers).is_ok()
+        || (session.basis != UploadBasis::Attendance
+            && request_document(headers) == Some(session.document.as_str()))
 }
 
 fn valid_filename(filename: &str) -> bool {
@@ -140,12 +182,11 @@ async fn staff_route(
 
 async fn file_ingress(
     headers: HeaderMap,
-    axum::Json(body): axum::Json<serde_json::Value>,
+    axum::Json(mut body): axum::Json<serde_json::Value>,
 ) -> axum::response::Response {
-    // This door writes a whole file in one call; it admits only the callers
-    // its chunked siblings admit, before the actuator spools a byte.
-    if let Err(response) = document_attendance_admitted(&headers) {
-        return response;
+    crate::gate::strip_administrative_flags(&mut body);
+    if document_attendance_admitted(&headers).is_err() && upload_pin_required() {
+        return ingress_refusal(StatusCode::FORBIDDEN, "ingress", "exousia-pin-required");
     }
     staff_route("storage/upload/ingress", body)
         .await
@@ -154,14 +195,35 @@ async fn file_ingress(
 
 async fn file_ingress_start(
     headers: HeaderMap,
-    Json(body): Json<UploadStart>,
+    Json(mut body): Json<Value>,
 ) -> axum::response::Response {
-    if let Err(response) = document_attendance_admitted(&headers) {
-        return response;
-    }
+    let pin = body.pointer_mut("/flags/exousia/pin").map(Value::take);
+    crate::gate::strip_administrative_flags(&mut body);
     if let Err(response) = staff_admitted() {
         return response;
     }
+    let Some(document) = request_document(&headers).map(str::to_owned) else {
+        return ingress_refusal(StatusCode::BAD_REQUEST, "start", "caduceus-attendance-document-required");
+    };
+    let result = if document_attendance_admitted(&headers).is_ok() {
+        Ok(UploadBasis::Attendance)
+    } else if !upload_pin_required() {
+        Ok(UploadBasis::Open)
+    } else {
+        match pin.as_ref().and_then(Value::as_str).filter(|pin| !pin.is_empty()) {
+            Some(pin) => crate::shared::attendance::verify_administrative_pin(pin).map(|()| UploadBasis::Pin),
+            None => Err("exousia-pin-required".to_string()),
+        }
+    };
+    drop(pin);
+    let basis = match result {
+        Ok(basis) => basis,
+        Err(signal) => return ingress_refusal(StatusCode::FORBIDDEN, "start", &signal),
+    };
+    let body: UploadStart = match serde_json::from_value(body) {
+        Ok(body) => body,
+        Err(_) => return upload_error(StatusCode::BAD_REQUEST, "caduceus-file-ingress-request-invalid"),
+    };
     if !valid_filename(&body.filename) {
         return upload_error(
             StatusCode::BAD_REQUEST,
@@ -241,6 +303,8 @@ async fn file_ingress_start(
         "chunk_size": chunk_size,
     });
     let session = UploadSession {
+        document,
+        basis,
         spool_path: spool_path.clone(),
         target_path,
         total_size: body.total_size,
@@ -268,9 +332,6 @@ async fn file_ingress_chunk(
     Path((upload_id, index)): Path<(String, u64)>,
     request: Request<Body>,
 ) -> axum::response::Response {
-    if let Err(response) = document_attendance_admitted(request.headers()) {
-        return response;
-    }
     if let Err(response) = staff_admitted() {
         return response;
     }
@@ -294,6 +355,9 @@ async fn file_ingress_chunk(
             "caduceus-file-ingress-upload-id-unknown",
         );
     };
+    if !session_admitted(request.headers(), session) {
+        return ingress_refusal(StatusCode::FORBIDDEN, "chunk", "caduceus-attendance-not-current");
+    }
     let Some(offset) = index.checked_mul(session.chunk_size) else {
         return upload_error(
             StatusCode::BAD_REQUEST,
@@ -380,9 +444,6 @@ async fn file_ingress_complete(
     headers: HeaderMap,
     Path(upload_id): Path<String>,
 ) -> axum::response::Response {
-    if let Err(response) = document_attendance_admitted(&headers) {
-        return response;
-    }
     if let Err(response) = staff_admitted() {
         return response;
     }
@@ -393,6 +454,9 @@ async fn file_ingress_complete(
             "caduceus-file-ingress-upload-id-unknown",
         );
     };
+    if !session_admitted(&headers, session) {
+        return ingress_refusal(StatusCode::FORBIDDEN, "complete", "caduceus-attendance-not-current");
+    }
     if session.bytes_received != session.total_size {
         return upload_error(
             StatusCode::CONFLICT,
@@ -442,16 +506,18 @@ async fn file_ingress_abort(
     headers: HeaderMap,
     Path(upload_id): Path<String>,
 ) -> axum::response::Response {
-    if let Err(response) = document_attendance_admitted(&headers) {
-        return response;
-    }
     if let Err(response) = staff_admitted() {
         return response;
     }
-    let session = upload_sessions().lock().await.remove(&upload_id);
-    let Some(session) = session else {
-        return (StatusCode::OK, Json(json!({"ok": true}))).into_response();
+    let mut sessions = upload_sessions().lock().await;
+    let Some(session) = sessions.get(&upload_id) else {
+        return upload_error(StatusCode::NOT_FOUND, "caduceus-file-ingress-upload-id-unknown");
     };
+    if !session_admitted(&headers, session) {
+        return ingress_refusal(StatusCode::FORBIDDEN, "abort", "caduceus-attendance-not-current");
+    }
+    let session = sessions.remove(&upload_id).expect("session observed under lock");
+    drop(sessions);
     drop(session.file);
     match tokio::fs::remove_file(&session.spool_path).await {
         Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
