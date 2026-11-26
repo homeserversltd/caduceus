@@ -189,7 +189,7 @@ pub fn read_leases() -> Result<Vec<LeaseRow>, String> {
         .duration_since(UNIX_EPOCH)
         .map_err(|_| missing("clock-invalid"))?
         .as_secs();
-    let mut latest: BTreeMap<String, Option<LeaseRow>> = BTreeMap::new();
+    let mut latest: BTreeMap<String, Option<(u64, LeaseRow)>> = BTreeMap::new();
     let mut readable = false;
     let mut present = false;
     for path in candidates {
@@ -234,7 +234,7 @@ pub fn read_leases() -> Result<Vec<LeaseRow>, String> {
             };
             let ip = cell(&fields, column(&header, "address")).unwrap_or("");
             let row = if state == 0 && expiry > now {
-                Some(LeaseRow {
+                Some((expiry, LeaseRow {
                     mac: mac.clone(),
                     ip: ip.to_string(),
                     hostname: cell(&fields, column(&header, "hostname"))
@@ -246,18 +246,25 @@ pub fn read_leases() -> Result<Vec<LeaseRow>, String> {
                         .map(|renewal| renewal.to_string())
                         .unwrap_or_default(),
                     expires: expiry.to_string(),
-                })
+                }))
             } else {
                 None
             };
-            // Processing rollover files in Kea load order means each later occurrence wins.
-            latest.insert(mac, row);
+            // Processing rollover files in Kea load order means each later address occurrence wins.
+            latest.insert(ip.to_string(), row);
         }
     }
     if !readable {
         return Err(missing(if is_root || present { "leases-invalid" } else { "leases-missing" }));
     }
-    Ok(latest.into_values().flatten().collect())
+    let mut by_mac: BTreeMap<String, (u64, LeaseRow)> = BTreeMap::new();
+    for (expiry, row) in latest.into_values().flatten() {
+        let entry = by_mac.entry(row.mac.clone()).or_insert_with(|| (expiry, row.clone()));
+        if expiry > entry.0 {
+            *entry = (expiry, row);
+        }
+    }
+    Ok(by_mac.into_values().map(|(_, row)| row).collect())
 }
 
 fn reservation(value: &Value) -> Result<ReservationRow, String> {
