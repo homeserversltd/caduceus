@@ -2,7 +2,8 @@ use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -35,9 +36,24 @@ fn configuration_path() -> PathBuf {
     crate::shared::config::path("etc/kea/kea-dhcp4.conf")
 }
 
+fn read_kea_file(path: &Path) -> Option<Vec<u8>> {
+    if unsafe { libc::geteuid() } == 0 {
+        fs::read(path).ok()
+    } else {
+        let output = Command::new("/usr/bin/sudo")
+            .args(["-n", "/usr/bin/cat"])
+            .arg(path)
+            .output()
+            .ok()?;
+        output.status.success().then_some(output.stdout)
+    }
+}
+
 fn read_config() -> Result<Value, String> {
     let path = configuration_path();
-    let text = fs::read_to_string(&path).map_err(|_| missing("config-missing"))?;
+    let text = read_kea_file(&path)
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .ok_or_else(|| missing("config-missing"))?;
     let stripped = strip_comments(&text).ok_or_else(|| missing("config-invalid"))?;
     let root: Value = serde_json::from_str(&stripped).map_err(|_| missing("config-invalid"))?;
     root.get("Dhcp4")
@@ -165,7 +181,8 @@ pub fn read_leases() -> Result<Vec<LeaseRow>, String> {
         PathBuf::from(format!("{}.1", base.display())),
         base,
     ];
-    if candidates.iter().all(|path| !path.exists()) {
+    let is_root = unsafe { libc::geteuid() } == 0;
+    if is_root && candidates.iter().all(|path| !path.exists()) {
         return Err(missing("leases-missing"));
     }
     let now = SystemTime::now()
@@ -174,8 +191,13 @@ pub fn read_leases() -> Result<Vec<LeaseRow>, String> {
         .as_secs();
     let mut latest: BTreeMap<String, Option<LeaseRow>> = BTreeMap::new();
     let mut readable = false;
+    let mut present = false;
     for path in candidates {
-        let Ok(text) = fs::read_to_string(&path) else {
+        let Some(bytes) = read_kea_file(&path) else {
+            continue;
+        };
+        present = true;
+        let Ok(text) = String::from_utf8(bytes) else {
             continue;
         };
         readable = true;
@@ -233,7 +255,7 @@ pub fn read_leases() -> Result<Vec<LeaseRow>, String> {
         }
     }
     if !readable {
-        return Err(missing("leases-invalid"));
+        return Err(missing(if is_root || present { "leases-invalid" } else { "leases-missing" }));
     }
     Ok(latest.into_values().flatten().collect())
 }
