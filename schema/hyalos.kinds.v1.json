@@ -139,6 +139,16 @@
    }
   },
   {
+   "organ": "backup-pair",
+   "verb": [
+    "copy-now"
+   ],
+   "row": {
+    "kind": "run",
+    "level": 1
+   }
+  },
+  {
    "organ": "sbin",
    "verb": [
     "forgejo-backup-b2",

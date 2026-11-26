@@ -1,0 +1,33 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/pair/list",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the pairs were listed."},
+    "firstMissingSignal": {"type": "string", "enum": ["none", "backup-pair-unavailable"], "meaning": "List outcome or the first missing condition."},
+    "pairs": {
+      "type": "array",
+      "meaning": "Paired boxes and their most recent copy reports.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "mac": {"type": "string", "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", "meaning": "Lower-case address identifying the paired box."},
+          "hostname": {"type": ["string", "null"], "meaning": "The box's hostname, if known."},
+          "ipv4": {"type": ["string", "null"], "meaning": "The box's IPv4 address, if known."},
+          "state": {"type": "string", "enum": ["pending", "accepted"], "meaning": "Pairing state."},
+          "requested_at": {"type": ["integer", "null"], "meaning": "Pair request time in epoch seconds, if known."},
+          "accepted_at": {"type": ["integer", "null"], "meaning": "Pair acceptance time in epoch seconds, if accepted."},
+          "report_outcome": {"type": ["string", "null"], "enum": ["ok", "failed", "refused", null], "meaning": "Last reported copy outcome, or null before a report."},
+          "report_signal": {"type": ["string", "null"], "meaning": "Last reported copy signal, or null before a report."},
+          "report_at": {"type": ["string", "null"], "format": "date-time", "pattern": "(?:Z|\\+00:00)$", "meaning": "The box's UTC time of its last report, or null before a report."},
+          "report_duration_ms": {"type": ["integer", "null"], "minimum": 0, "meaning": "Last reported copy duration in milliseconds, or null before a report."}
+        }
+      }
+    }
+  }
+}

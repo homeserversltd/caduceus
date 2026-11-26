@@ -52,7 +52,7 @@
           "expires_at": {"type": ["string", "null"]},
           "acted_at": {"type": ["string", "null"]},
           "actions": {"type": ["array", "null"], "items": {"type": "object", "additionalProperties": true}},
-          "act": {"type": ["object", "null"], "description": "The row's one pressable act, absent when it has nothing to do; an update-available row declares update-now with the posting body itself as target.", "fields": {"verb": {"type": "string"}, "label": {"type": "string"}, "fields": {"type": ["object", "null"]}, "target": {"type": "object", "fields": {"mac": {"type": "string"}, "hostname": {"type": ["string", "null"]}}}}},
+          "act": {"type": ["object", "null"], "description": "The row's one pressable act, absent when it has nothing to do; an update-available row declares update-now with the posting body itself as target; a backup-box-missed row declares copy-now with that box as target.", "fields": {"verb": {"type": "string"}, "label": {"type": "string"}, "fields": {"type": ["object", "null"]}, "target": {"type": "object", "fields": {"mac": {"type": "string"}, "hostname": {"type": ["string", "null"]}}}}},
           "max_rows": {"type": ["integer", "null"], "description": "Per-kind history bound; factory 50"},
           "received_from": {"type": ["string", "null"], "description": "Address observed by the receiving Caduceus socket"},
           "from": {

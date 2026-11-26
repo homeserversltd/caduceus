@@ -1,0 +1,34 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup/pair/copy-now",
+  "description": "Queue a copy on one paired box. The household PIN is carried by the gate, not in the payload.",
+  "payload": {
+    "fields": {
+      "mac": {"type": "string", "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", "meaning": "Lower-case address identifying the paired box."}
+    },
+    "required": ["mac"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the box queued the copy."},
+    "state": {"type": "string", "const": "Queued", "meaning": "The box has queued its copy."},
+    "mac": {"type": "string", "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", "meaning": "Lower-case address of the box asked to copy."},
+    "firstMissingSignal": {
+      "type": "string",
+      "enum": ["none", "backup-pair-unknown", "backup-copy-night-running", "pin-inlet-missing", "backup-pull-not-enrolled", "pid2-schedule-fire-running", "backup-pair-box-unreachable", "road-act-failed", "backup-pair-unavailable"],
+      "meaning": "Copy request outcome or the first missing condition.",
+      "signals": {
+        "none": {"meaning": "No condition is missing."},
+        "backup-pair-unknown": {"meaning": "The requested accepted pair is unknown."},
+        "backup-copy-night-running": {"meaning": "The night's backup fire is queued or running."},
+        "pin-inlet-missing": {"meaning": "The box's stored PIN inlet is missing."},
+        "backup-pull-not-enrolled": {"meaning": "The box is not enrolled for backup pull."},
+        "pid2-schedule-fire-running": {"meaning": "The box's schedule fire is already running."},
+        "backup-pair-box-unreachable": {"meaning": "The paired box could not be reached."},
+        "road-act-failed": {"meaning": "The road act to the box failed."},
+        "backup-pair-unavailable": {"meaning": "The pair store is unavailable."}
+      }
+    }
+  }
+}
