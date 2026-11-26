@@ -83,7 +83,7 @@
     "caduceus.staff.v1": {"file": "schema/caduceus.staff.v1.json", "schema_version": null},
     "intents/": {"folder": "schema/intents", "note": "one seat per intent, walked at start by both snakes", "schema_version": null},
     "caduceus.agathodaimon.crossings.v1": {"file": "schema/caduceus.agathodaimon.crossings.v1.json", "schema_version": null},
-    "caduceus.notifications.v1": {"file": "schema/caduceus.notifications.v1.json", "schema_version": "1.2.0"},
+    "caduceus.notifications.v1": {"file": "schema/caduceus.notifications.v1.json", "schema_version": "1.3.0"},
     "caduceus.thyrsus.admit.v1": {"file": "schema/caduceus.thyrsus.admit.v1.json", "schema_version": "1.0.0"},
     "caduceus.thyrsus.forge-token.v1": {"file": "schema/caduceus.thyrsus.forge-token.v1.json", "schema_version": "1.0.0"},
     "caduceus.thyrsus.forge.v1": {"file": "schema/caduceus.thyrsus.forge.v1.json", "schema_version": "1.0.0"},

@@ -4,6 +4,9 @@ use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 use std::time::Duration;
 
+#[path = "conductor.rs"]
+mod conductor;
+
 const SCHEMA: &str = "caduceus.pid2.schedule.v1";
 
 pub(super) fn fire_deed(id:&str,fire:&str,outcome:&str,duration_ms:i64,signal:Option<&str>) {
@@ -296,6 +299,7 @@ pub fn execute(id:&str) -> Result<bool,String> {
     // Existing registrations keep their parent band and raw envelope.  Resolve
     // that legacy name only at the fire boundary, without rewriting the row.
     let nas_sync=matches!(band.as_str(),"storage/backup/nas-sync"|"storage/backup/nas-sync/sync");
+    let conduct=nas_sync && id=="nas-sync";
     let forgejo=matches!(band.as_str(),"storage/backup/forgejo/backup-b2"|"storage/backup/forgejo/backup-b2/run");
     let _nas_lease=if nas_sync {
         match super::swap_lease() {
@@ -313,6 +317,8 @@ pub fn execute(id:&str) -> Result<bool,String> {
             Err(signal)=>return Err(signal),
         }
     } else {None};
+    let started=std::time::Instant::now();
+    let deadline=started + Duration::from_secs(max as u64);
     let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;
     let tx=db.transaction().map_err(|e|e.to_string())?;
     let signal=unmet(&tx,&raw)?;let now=super::now();
@@ -324,7 +330,6 @@ pub fn execute(id:&str) -> Result<bool,String> {
     let baseline_query=if band=="storage/backup/mirror/pull" {"SELECT file_count,total_bytes FROM mirror_pull_baselines WHERE schedule_id=?1"} else {"SELECT file_count,total_bytes FROM pid2_sync_baselines WHERE schedule_id=?1"};
     let baseline:Option<(i64,i64)>=tx.query_row(baseline_query,[id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
     tx.commit().map_err(|e|e.to_string())?;drop(db);
-    let started=std::time::Instant::now();
     let baseline=baseline.map(|(f,b)|json!({"fileCount":f,"totalBytes":b}));
     let envelope:Value=serde_json::from_slice(&raw).map_err(|e|e.to_string())?;
     // Match the run stop's bucket grammar before crossing, without changing the row.
@@ -336,23 +341,32 @@ pub fn execute(id:&str) -> Result<bool,String> {
         let target=input.as_object_mut().ok_or("pid2-schedule-input-unusable")?;
         for (key,value) in payload { if !matches!(key.as_str(),"action"|"baseline"|"acceptShrink"|"dryRun") && !(nas_sync && key=="accept-shrink") {target.insert(key.clone(),value.clone());} }
     }}
+    let export_signal=if conduct {conductor::export(deadline)} else {None};
     let crossing_band=if nas_sync {"storage/backup/nas-sync/sync"} else if forgejo {"storage/backup/forgejo/backup-b2/run"} else {&band};
-    let (state,signal,exit,counts)=if forgejo && bucket.is_none() {
+    let (mut state,mut signal,exit,counts)=if forgejo && bucket.is_none() {
         ("Refused",Some("pid2-schedule-forgejo-bucket-invalid".to_owned()),None,None)
-    } else {match crate::gate::snake::schedule_crossing(crossing_band,&input,Duration::from_secs(max as u64)) {
+    } else {match crate::gate::snake::schedule_crossing(crossing_band,&input,if conduct {deadline.saturating_duration_since(std::time::Instant::now())} else {Duration::from_secs(max as u64)}) {
         Err(signal)=>("Failed",Some(signal),None,None),
         Ok(result)=>{
             let r=result.get("receiptPayload").unwrap_or(&Value::Null);
             let seat_ok=!nas_sync || (crate::routes::leaf_schema::bound(r,crossing_band) && r.get("action").and_then(Value::as_str)==Some("sync"));
-            let outcome_ok=!nas_sync || r.get("outcome").and_then(Value::as_str)==Some("ok");
-            let ok=seat_ok && outcome_ok && result.get("ok").and_then(Value::as_bool)==Some(true) && r.get("ok").and_then(Value::as_bool)==Some(true) && r.get("converged").and_then(Value::as_bool)!=Some(false);
-            let state=if ok {"Done"} else if r.get("outcome").and_then(Value::as_str)==Some("refused") {"Refused"} else {"Failed"};
+            let pull=band=="storage/backup/mirror/pull";
+            let outcome_ok=!(nas_sync || pull) || r.get("outcome").and_then(Value::as_str)==Some("ok");
+            let converged_ok=if pull {r.get("converged").and_then(Value::as_bool)==Some(true)} else {r.get("converged").and_then(Value::as_bool)!=Some(false)};
+            let ok=seat_ok && outcome_ok && result.get("ok").and_then(Value::as_bool)==Some(true) && r.get("ok").and_then(Value::as_bool)==Some(true) && converged_ok;
+            let state=if ok {"Done"} else if !pull && r.get("outcome").and_then(Value::as_str)==Some("refused") {"Refused"} else {"Failed"};
             let signal=if ok {None} else if !seat_ok {Some("pid2-schedule-receipt-schema-desync".to_owned())} else {Some(r.get("firstMissingSignal").or_else(||result.get("firstMissingSignal")).and_then(Value::as_str).filter(|s|!s.is_empty() && *s!="none").unwrap_or("pid2-schedule-crossing-failed").to_owned())};
             let baseline_ok=band!="storage/backup/mirror/pull" || (r.get("outcome").and_then(Value::as_str)==Some("ok") && r.get("converged").and_then(Value::as_bool)==Some(true));
             let counts=match (r.get("finalFileCount").and_then(Value::as_i64),r.get("finalTotalBytes").and_then(Value::as_i64)) {(Some(f),Some(b)) if ok && baseline_ok && f>=0 && b>=0=>Some((f,b)),_=>None};
             (state,signal,r.get("rsyncExitCode").and_then(Value::as_i64),counts)
         }
     }};
+    if conduct {
+        let boxes=conductor::boxes(deadline);
+        let first=export_signal.or_else(|| if state!="Done" {signal.clone()} else {None})
+            .or_else(|| match boxes {Ok(true)=>None,Ok(false)=>Some("backup-box-missed".into()),Err(ref s)=>Some(s.clone())});
+        if let Some(first)=first {state="Failed";signal=Some(first);} else {state="Done";signal=None;}
+    }
     let elapsed=started.elapsed().as_millis().min(i64::MAX as u128) as i64;
     let mut db=crate::stats::open_db()?.lock().map_err(|_|"pid2-database-lock-poisoned")?;let tx=db.transaction().map_err(|e|e.to_string())?;
     let changed=tx.execute("UPDATE pid2_fires SET state=?3,finished_at=?4,duration_ms=?5,first_missing_signal=?6,rsync_exit_code=?7,final_file_count=?8,final_total_bytes=?9 WHERE schedule_id=?1 AND fire_id=?2 AND state='Running'",params![id,fire,state,super::now(),elapsed,signal,exit,counts.map(|v|v.0),counts.map(|v|v.1)]).map_err(|e|e.to_string())?;

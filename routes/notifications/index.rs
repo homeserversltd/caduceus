@@ -678,13 +678,16 @@ async fn receive_post(
         if clearing {
             let row = envelope.get("notification").and_then(Value::as_object).ok_or((StatusCode::BAD_REQUEST,"notification-row-invalid"))?;
             let id = row.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or((StatusCode::BAD_REQUEST,"notification-row-invalid"))?.to_owned();
-            if row.get("kind").and_then(Value::as_str) != Some("update-available") { return Err((StatusCode::BAD_REQUEST,"notification-clear-kind-unsupported")); }
+            let kind = row.get("kind").and_then(Value::as_str)
+                .filter(|kind| matches!(*kind, "update-available" | "backup-box-missed"))
+                .ok_or((StatusCode::BAD_REQUEST,"notification-clear-kind-unsupported"))?
+                .to_owned();
             if !gateway_profile() {
                 let mut receipt = house::gateway_post(&envelope).await.ok_or(unavailable("notification-gateway-unreachable"))?;
                 receipt["forwarded"] = json!(true);
                 return Ok(receipt);
             }
-            return tokio::task::spawn_blocking(move || ledger::clear(&id,"update-available")).await.map_err(|_| unavailable("notification-state-unavailable"))?;
+            return tokio::task::spawn_blocking(move || ledger::clear(&id,&kind)).await.map_err(|_| unavailable("notification-state-unavailable"))?;
         }
         let row = envelope.get_mut("notification").and_then(Value::as_object_mut).ok_or((StatusCode::BAD_REQUEST,"notification-row-invalid"))?;
         for key in ["id","kind","title"] { if !row.get(key).and_then(Value::as_str).is_some_and(|s| !s.is_empty()) { return Err((StatusCode::BAD_REQUEST,"notification-row-invalid")); } }

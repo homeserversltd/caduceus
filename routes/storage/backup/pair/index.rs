@@ -5,6 +5,54 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::{io::Write, process::{Command, Stdio}, time::{Instant, SystemTime, UNIX_EPOCH}};
 
+// A report and its generation are serialized under this mutex. Waiters read
+// the store only after a changed generation, never on a timer.
+type WakeMap = std::collections::HashMap<String, (u64, Instant)>;
+static REPORT_WAKE: std::sync::OnceLock<(std::sync::Mutex<WakeMap>, std::sync::Condvar)> = std::sync::OnceLock::new();
+fn report_wake() -> &'static (std::sync::Mutex<WakeMap>, std::sync::Condvar) {
+    REPORT_WAKE.get_or_init(|| (std::sync::Mutex::new(WakeMap::new()), std::sync::Condvar::new()))
+}
+
+pub(crate) struct ConductorPair { pub mac: String, pub hostname: String, pub inlet_name: Option<String> }
+pub(crate) struct ConductorReport { pub outcome: String, pub signal: String }
+
+pub(crate) fn conductor_pairs() -> Result<Vec<ConductorPair>, String> {
+    with_db(|db| {
+        let mut q = db.prepare("SELECT mac,hostname,inlet_name FROM backup_pairs WHERE state='accepted' ORDER BY accepted_at,mac").map_err(|_| UNAVAILABLE)?;
+        let rows = q.query_map([], |r| Ok(ConductorPair { mac:r.get(0)?, hostname:r.get::<_,Option<String>>(1)?.unwrap_or_default(), inlet_name:r.get(2)? })).map_err(|_| UNAVAILABLE)?;
+        rows.collect::<Result<Vec<_>,_>>().map_err(|_| UNAVAILABLE)
+    }).map_err(|_| "backup-pair-unavailable".into())
+}
+
+pub(crate) fn report_counter(mac: &str) -> Result<u64, String> {
+    let guard = report_wake().0.lock().map_err(|_| "backup-pair-unavailable")?;
+    Ok(guard.get(mac).map_or(0, |row| row.0))
+}
+
+pub(crate) fn wait_report(mac: &str, mut seen: u64, started: i64, act_started: Instant, deadline: Instant) -> Result<Option<ConductorReport>, String> {
+    let (mutex, wake) = report_wake();
+    let mut guard = mutex.lock().map_err(|_| "backup-pair-unavailable")?;
+    loop {
+        if let Some(&(generation, committed)) = guard.get(mac) {
+            if generation != seen {
+                seen = generation;
+                if committed >= act_started {
+                    let report = with_db(|db| {
+                        db.query_row("SELECT report_outcome,report_signal,report_received_at FROM backup_pairs WHERE mac=?1 AND state='accepted'", [mac], |r| Ok((r.get::<_,Option<String>>(0)?,r.get::<_,Option<String>>(1)?,r.get::<_,Option<i64>>(2)?))).optional().map_err(|_| UNAVAILABLE)
+                    }).map_err(|_| "backup-pair-unavailable")?;
+                    if let Some((Some(outcome),Some(signal),Some(received))) = report {
+                        if received >= started { return Ok(Some(ConductorReport { outcome, signal })); }
+                    }
+                }
+            }
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() { return Ok(None); }
+        let (next, _) = wake.wait_timeout(guard, remaining).map_err(|_| "backup-pair-unavailable")?;
+        guard = next;
+    }
+}
+
 type Failure = (StatusCode, &'static str);
 const UNAVAILABLE: Failure = (StatusCode::SERVICE_UNAVAILABLE, "backup-pair-unavailable");
 const INVALID: Failure = (StatusCode::BAD_REQUEST, "backup-pair-invalid");
@@ -251,11 +299,18 @@ fn report(body: &Value) -> Result<(Value, bool), Failure> {
     if !valid_mac(mac) { return Err(INVALID); }
     if !matches!(matching_state(mac, credential)?, Some(state) if state == "accepted") { return Err(UNKNOWN); }
     if signal.contains(credential) { return Err(INVALID); }
-    with_db(|db| {
+    let (mutex, wake) = report_wake();
+    let mut guard = mutex.lock().map_err(|_| UNAVAILABLE)?;
+    let result = with_db(|db| {
         let count = db.execute("UPDATE backup_pairs SET report_outcome=?2,report_signal=?3,report_at=?4,report_duration_ms=?5,report_received_at=?6 WHERE mac=?1 AND state='accepted'", params![mac,outcome,signal,at,duration,now()]).map_err(|_| UNAVAILABLE)?;
         if count != 1 { return Err(UNKNOWN); }
         Ok((json!({"ok":true}), true))
-    })
+    })?;
+    let entry = guard.entry(mac.to_owned()).or_insert((0, Instant::now()));
+    entry.0 = entry.0.wrapping_add(1);
+    entry.1 = Instant::now();
+    wake.notify_all();
+    Ok(result)
 }
 
 fn basic(verb: &str, body: &Value, peer: Option<ConnectInfo<crate::gate::ConnectionInfo>>) -> Result<(Value, bool), Failure> {
