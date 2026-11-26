@@ -737,16 +737,24 @@ fn record_hyalos_change(kind: &str, mut attributes: Value, mode: OfferMode, star
 
 pub(crate) fn clear_json(body: &Value) -> DoorResult {
     let body = body.as_object().ok_or(CLEAR_INVALID)?;
-    // Only the gate's PIN container may accompany a clear. A misplaced
-    // selector must not be mistaken for an unfiltered clear.
+    // A misplaced selector must not be mistaken for an unfiltered clear.
     if body.keys().any(|key| !matches!(key.as_str(), "kind" | "verb" | "flags")) {
         return Err(CLEAR_INVALID);
     }
+    let mut no_clobber = false;
     if let Some(flags) = body.get("flags") {
         let flags = flags.as_object().ok_or(CLEAR_INVALID)?;
-        let exousia = flags.get("exousia").and_then(Value::as_object).ok_or(CLEAR_INVALID)?;
-        if flags.len() != 1 || exousia.len() != 1 || !exousia.contains_key("pin") {
+        if flags.is_empty() || flags.keys().any(|key| !matches!(key.as_str(), "exousia" | "no_clobber")) {
             return Err(CLEAR_INVALID);
+        }
+        if let Some(exousia) = flags.get("exousia") {
+            let exousia = exousia.as_object().ok_or(CLEAR_INVALID)?;
+            if exousia.len() != 1 || !exousia.contains_key("pin") {
+                return Err(CLEAR_INVALID);
+            }
+        }
+        if let Some(flag) = flags.get("no_clobber") {
+            no_clobber = flag.as_bool().ok_or(CLEAR_INVALID)?;
         }
     }
     let filter = match (body.get("kind"), body.get("verb")) {
@@ -760,11 +768,31 @@ pub(crate) fn clear_json(body: &Value) -> DoorResult {
             match store::recognizes_kind(kind) {
                 Ok(true) => Some((kind, verb)),
                 Ok(false) => return Err(CLEAR_INVALID),
-                Err(signal) => return Ok(door_error(signal)),
+                Err(signal) => {
+                    return Ok(if no_clobber {
+                        json!({"ok": false, "deleted": 0, "restored": true, "changed": false, "firstMissingSignal": signal})
+                    } else {
+                        door_error(signal)
+                    });
+                }
             }
         }
         _ => return Err(CLEAR_INVALID),
     };
+
+    if no_clobber {
+        let (deleted, signal, restored) = match store::rehearse_clear(filter) {
+            Ok(deleted) => (deleted, "none", true),
+            Err(signal) => (0, signal, signal != "caduceus-hyalos-rehearsal-rollback-failed"),
+        };
+        return Ok(json!({
+            "ok": signal == "none",
+            "deleted": deleted,
+            "restored": restored,
+            "changed": false,
+            "firstMissingSignal": signal,
+        }));
+    }
 
     let started = Instant::now();
     let (deleted, interruption) = match store::clear(filter) {

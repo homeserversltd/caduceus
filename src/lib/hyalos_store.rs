@@ -895,6 +895,23 @@ pub(crate) fn prune_expired() -> StoreResult<usize> {
     Ok(deleted)
 }
 
+// A rehearsal never commits, copies rows, or invalidates the writer's cache.
+// Check rollback even after a failed delete, before returning either result.
+pub(super) fn rehearse_clear(filter: Option<(&str, &str)>) -> StoreResult<usize> {
+    let Some(mut writer) = existing_writer()? else {
+        return Ok(0);
+    };
+    let tx = writer
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| "sqlite-prune-begin-failed")?;
+    let deleted = match filter {
+        Some((kind, verb)) => tx.execute("DELETE FROM deeds WHERE kind = ? AND verb = ?", params![kind, verb]),
+        None => tx.execute("DELETE FROM deeds", []),
+    }.map_err(|_| "sqlite-prune-delete-failed");
+    tx.rollback().map_err(|_| "caduceus-hyalos-rehearsal-rollback-failed")?;
+    deleted
+}
+
 pub(super) fn clear(filter: Option<(&str, &str)>) -> StoreResult<Deletion> {
     let Some((reader, _)) = open_existing(OpenFlags::SQLITE_OPEN_READ_ONLY)? else {
         return Ok(Deletion::default());
