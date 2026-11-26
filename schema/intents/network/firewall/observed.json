@@ -62,11 +62,23 @@
           },
           "enforcement": {
             "type": "string",
-            "meaning": "Whether enforcement is applied or the observed lease still differs from the reservation.",
+            "meaning": "applied once the child's rule reads back; for way allowlist, pending-renewal until a live lease exists and equals the reservation",
             "enum": [
               "applied",
               "pending-renewal"
             ]
+          },
+          "way": {
+            "type": [
+              "string",
+              null
+            ],
+            "enum": [
+              "blocked",
+              "allowlist",
+              null
+            ],
+            "meaning": "The registered child's way, null when the MAC is not registered."
           }
         }
       }

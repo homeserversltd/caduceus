@@ -46,7 +46,7 @@
     },
     "enforcement": {
       "type": "string",
-      "meaning": "Whether enforcement is applied or the observed lease still differs from the reservation.",
+      "meaning": "applied once the child's rule reads back; for way allowlist, pending-renewal until a live lease exists and equals the reservation",
       "enum": [
         "applied",
         "pending-renewal"

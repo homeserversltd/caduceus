@@ -65,7 +65,7 @@
     },
     "enforcement": {
       "type": "string",
-      "meaning": "Whether enforcement is applied or the observed lease still differs from the reservation.",
+      "meaning": "applied once the child's rule reads back; for way allowlist, pending-renewal until a live lease exists and equals the reservation",
       "enum": [
         "applied",
         "pending-renewal"
@@ -204,8 +204,17 @@
         "firewall-unbound-owned-file-foreign-content",
         "firewall-unbound-owned-file-invalid",
         "firewall-unbound-policy-mismatch",
-        "agathodaimon-stop-raised"
+        "agathodaimon-stop-raised",
+        "firewall-child-way-mismatch"
       ]
+    },
+    "way": {
+      "type": "string",
+      "enum": [
+        "blocked",
+        "allowlist"
+      ],
+      "meaning": "The child's way."
     }
   }
 }
