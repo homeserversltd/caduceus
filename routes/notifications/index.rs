@@ -731,21 +731,27 @@ async fn forward(peer: Option<axum::extract::ConnectInfo<crate::gate::Connection
 
 // The check runs on a blocking worker, so enter the same local post path as
 // HTTP without calling the live listener or bypassing peer forwarding.
-pub(crate) fn post_update_check(envelope: Value) {
-    update_check_envelope(envelope, "post");
+pub(crate) fn post_update_check(envelope: Value) -> bool {
+    update_check_envelope(envelope, "post")
 }
 
-pub(crate) fn clear_update_check(envelope: Value) {
-    update_check_envelope(envelope, "clear");
+pub(crate) fn clear_update_check(envelope: Value) -> bool {
+    update_check_envelope(envelope, "clear")
 }
 
-fn update_check_envelope(envelope: Value, verb: &str) {
+fn update_check_envelope(envelope: Value, verb: &str) -> bool {
     match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(runtime) => {
             let bytes = axum::body::Bytes::from(envelope.to_string());
-            let _ = runtime.block_on(receive_post(false, None, bytes));
+            runtime.block_on(async {
+                let response = receive_post(false, None, bytes).await;
+                let status = response.status().is_success();
+                let body = axum::body::to_bytes(response.into_body(), 65536).await.ok();
+                status && body.and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                    .and_then(|value| value.get("ok").and_then(Value::as_bool)) == Some(true)
+            })
         }
-        Err(_) => record("update-available", verb, &json!({"ok":false,"firstMissingSignal":"notification-runtime-unavailable"}), Instant::now()),
+        Err(_) => { record("update-available", verb, &json!({"ok":false,"firstMissingSignal":"notification-runtime-unavailable"}), Instant::now()); false },
     }
 }
 

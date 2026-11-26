@@ -364,7 +364,7 @@ pub fn execute(id:&str) -> Result<bool,String> {
     if conduct {
         let boxes=conductor::boxes(deadline);
         let first=export_signal.or_else(|| if state!="Done" {signal.clone()} else {None})
-            .or_else(|| match boxes {Ok(true)=>None,Ok(false)=>Some("backup-box-missed".into()),Err(ref s)=>Some(s.clone())});
+            .or_else(|| match boxes {Ok(None)=>None,Ok(Some(ref mac))=>Some(format!("backup-box-missed:{mac}")),Err(ref s)=>Some(s.clone())});
         if let Some(first)=first {state="Failed";signal=Some(first);} else {state="Done";signal=None;}
     }
     let elapsed=started.elapsed().as_millis().min(i64::MAX as u128) as i64;

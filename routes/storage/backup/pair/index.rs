@@ -16,6 +16,49 @@ fn report_wake() -> &'static (std::sync::Mutex<WakeMap>, std::sync::Condvar) {
 pub(crate) struct ConductorPair { pub mac: String, pub hostname: String, pub inlet_name: Option<String> }
 pub(crate) struct ConductorReport { pub outcome: String, pub signal: String }
 
+// Ask the existing schema door's startup registry, rather than carrying a
+// second copy of the pull seat. A missing or unusable seat fails closed.
+fn pull_signal_seat() -> Option<&'static Value> {
+    static SEAT: std::sync::OnceLock<Option<Value>> = std::sync::OnceLock::new();
+    SEAT.get_or_init(|| {
+        use tower::ServiceExt;
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+        runtime.block_on(async {
+            let request = axum::http::Request::builder().uri("/api/v1/schema/intents/storage/backup/mirror/pull").body(axum::body::Body::empty()).ok()?;
+            let response = crate::routes::leaf_schema::register(Router::new()).oneshot(request).await.ok()?;
+            if !response.status().is_success() { return None; }
+            let bytes = axum::body::to_bytes(response.into_body(), 65536).await.ok()?;
+            serde_json::from_slice::<Value>(&bytes).ok()
+        })
+    }).as_ref()
+}
+
+// The seat uses JSON Schema regular expressions. Translate noncapturing
+// groups to POSIX ERE; unsupported extensions fail closed rather than being
+// interpreted as a broader expression.
+fn declared_pattern(pattern: &str, value: &str) -> bool {
+    let translated = pattern.replace("(?:", "(");
+    if translated.contains("(?") || translated.contains('\\') { return false; }
+    let (Ok(pattern), Ok(value)) = (std::ffi::CString::new(translated), std::ffi::CString::new(value)) else { return false; };
+    unsafe {
+        let mut compiled: libc::regex_t = std::mem::zeroed();
+        if libc::regcomp(&mut compiled, pattern.as_ptr(), libc::REG_EXTENDED | libc::REG_NOSUB) != 0 { return false; }
+        let matched = libc::regexec(&compiled, value.as_ptr(), 0, std::ptr::null_mut(), 0) == 0;
+        libc::regfree(&mut compiled);
+        matched
+    }
+}
+
+fn report_signal(value: &str) -> &str {
+    if matches!(value, "none" | "pull-failed" | "kernel-error-on-backup-drive") { return value; }
+    let allowed = pull_signal_seat().and_then(|seat| seat.pointer("/returns/firstMissingSignal/anyOf"))
+        .and_then(Value::as_array).is_some_and(|rules| rules.iter().any(|rule| {
+            rule.get("enum").and_then(Value::as_array).is_some_and(|items| items.iter().any(|item| item.as_str() == Some(value)))
+                || rule.get("pattern").and_then(Value::as_str).is_some_and(|pattern| declared_pattern(pattern,value))
+        }));
+    if allowed { value } else { "box-signal-undeclared" }
+}
+
 pub(crate) fn conductor_pairs() -> Result<Vec<ConductorPair>, String> {
     with_db(|db| {
         let mut q = db.prepare("SELECT mac,hostname,inlet_name FROM backup_pairs WHERE state='accepted' ORDER BY accepted_at,mac").map_err(|_| UNAVAILABLE)?;
@@ -299,6 +342,7 @@ fn report(body: &Value) -> Result<(Value, bool), Failure> {
     if !valid_mac(mac) { return Err(INVALID); }
     if !matches!(matching_state(mac, credential)?, Some(state) if state == "accepted") { return Err(UNKNOWN); }
     if signal.contains(credential) { return Err(INVALID); }
+    let signal = report_signal(signal);
     let (mutex, wake) = report_wake();
     let mut guard = mutex.lock().map_err(|_| UNAVAILABLE)?;
     let result = with_db(|db| {

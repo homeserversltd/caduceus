@@ -1042,7 +1042,7 @@ pub fn schedule_crossing(path: &str, metadata: &Value, timeout: Duration) -> Res
         return Err("pid2-schedule-timeout-out-of-range".into());
     }
     let band = safe_band_path(path)?;
-    let envelope = if matches!(band.as_str(), "storage/backup/nas-sync/sync" | "storage/backup/forgejo/backup-b2/run") {
+    let envelope = if matches!(band.as_str(), "storage/backup/nas-sync/sync" | "storage/backup/forgejo/backup-b2/run" | "storage/backup/forgejo/nas-export") {
         crossing_envelope(&band, metadata)
     } else {
         let actuator = band.rsplit('/').next().unwrap_or(&band);
