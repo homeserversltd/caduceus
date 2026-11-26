@@ -14,7 +14,7 @@
         "type": "object",
         "fields": {
           "mac": {"type": ["string", "null"], "meaning": "Normalized MAC, or null for a DNS-only row."},
-          "observed_lease": {"type": ["object", "null"], "meaning": "Observed lease for the device, or null.", "fields": {"ip": {"type": "string"}, "hostname": {"type": "string"}, "last_activity": {"type": "string"}, "provenance": {"type": "string", "const": "observed"}}},
+          "observed_lease": {"type": ["object", "null"], "meaning": "Observed lease for the device, or null.", "fields": {"ip": {"type": "string"}, "hostname": {"type": "string"}, "last_activity": {"type": "string", "meaning": "Unix seconds, as a string, of the client's last DHCP renewal (Kea expire minus valid_lifetime); empty when unknown"}, "provenance": {"type": "string", "const": "observed"}}},
           "declared_reservation": {"type": ["object", "null"], "meaning": "Declared reservation for the device, or null.", "fields": {"ip": {"type": "string"}, "hostname": {"type": "string"}, "provenance": {"type": "string", "const": "declared"}}},
           "dns_names": {"type": "array", "items": {"type": "string"}, "meaning": "Sorted distinct DNS names for the device addresses."},
           "dns_name_records": {"type": "array", "items": {"type": "object", "fields": {"name": {"type": "string"}, "provenance": {"type": "string"}}}, "meaning": "Name and provenance pairs matching device addresses."},

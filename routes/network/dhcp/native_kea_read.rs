@@ -17,6 +17,7 @@ pub struct LeaseRow {
     pub ip: String,
     pub hostname: String,
     pub last_activity: String,
+    pub expires: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,7 +218,12 @@ pub fn read_leases() -> Result<Vec<LeaseRow>, String> {
                     hostname: cell(&fields, column(&header, "hostname"))
                         .unwrap_or("")
                         .to_string(),
-                    last_activity: expiry.to_string(),
+                    last_activity: cell(&fields, column(&header, "valid_lifetime"))
+                        .and_then(|value| value.parse::<u64>().ok())
+                        .and_then(|lifetime| expiry.checked_sub(lifetime))
+                        .map(|renewal| renewal.to_string())
+                        .unwrap_or_default(),
+                    expires: expiry.to_string(),
                 })
             } else {
                 None

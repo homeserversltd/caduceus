@@ -95,7 +95,7 @@ fn answer() -> Value {
         json!({
             "mac": mac,
             "reservation": device.reservation.as_ref().map(|r| json!({"ip":r.ip,"hostname":r.hostname})),
-            "lease": device.lease.as_ref().map(|r| json!({"ip":r.ip,"hostname":r.hostname,"expires":r.last_activity})),
+            "lease": device.lease.as_ref().map(|r| json!({"ip":r.ip,"hostname":r.hostname,"expires":r.expires})),
             "neighbour": device.neighbour,
             "names": device_names, "aliases": aliases, "address": address, "address_source": source,
             "online": online, "claim_state": claim, "mismatches": mismatches
