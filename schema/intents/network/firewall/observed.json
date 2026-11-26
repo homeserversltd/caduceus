@@ -71,7 +71,7 @@
           "way": {
             "type": [
               "string",
-              null
+              "null"
             ],
             "enum": [
               "blocked",

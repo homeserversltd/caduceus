@@ -18,7 +18,7 @@
       },
       "hostnames": {
         "type": "array",
-        "meaning": "Required non-empty with way allowlist; refused with way blocked; refused firewall-intent-shape-invalid with no way.",
+        "meaning": "Required non-empty with way allowlist; refused with way blocked.",
         "maxItems": 64,
         "items": {
           "type": "string",
