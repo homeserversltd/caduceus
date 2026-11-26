@@ -2,7 +2,13 @@
   "schema": "caduceus.staff.v1",
   "intent": "storage/backup/forgejo/nas-export",
   "payload": {
-    "fields": {},
+    "fields": {
+      "wait": {
+        "type": "boolean",
+        "default": false,
+        "meaning": "When true, wait for the worker unit to end and answer its outcome."
+      }
+    },
     "required": []
   },
   "exousia": false,
@@ -14,8 +20,8 @@
     },
     "status": {
       "type": "string",
-      "meaning": "The transient worker was accepted; this does not assert a finished export.",
-      "const": "accepted"
+      "meaning": "Accepted without waiting; done when the worker unit has ended after waiting.",
+      "enum": ["accepted", "done"]
     },
     "unit": {
       "type": "string",
@@ -40,8 +46,13 @@
         "forgejo-nas-export-dump-failed",
         "forgejo-nas-export-copy-failed",
         "forgejo-nas-export-start-failed",
-        "forgejo-nas-export-launch-failed"
+        "forgejo-nas-export-launch-failed",
+        "forgejo-nas-export-run-failed"
       ]
+    },
+    "result": {
+      "type": ["string", "null"],
+      "meaning": "The waited unit's systemd Result, such as success or exit-code; null when not waited."
     }
   }
 }

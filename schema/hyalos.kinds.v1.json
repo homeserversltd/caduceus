@@ -129,6 +129,16 @@
    }
   },
   {
+   "organ": "backup-conduct",
+   "verb": [
+    "conduct-box"
+   ],
+   "row": {
+    "kind": "run",
+    "level": 1
+   }
+  },
+  {
    "organ": "sbin",
    "verb": [
     "forgejo-backup-b2",
