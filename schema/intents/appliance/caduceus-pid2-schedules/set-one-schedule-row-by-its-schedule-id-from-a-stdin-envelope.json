@@ -164,7 +164,7 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: <raw SQLite or filesystem error text>, <stored JSON parser error text>, and pid2-invalid-json: <parser message> on HTTP. Also pid2-schedule-json-invalid: <parser message>, pid2-schedule-kernel-unusable: <kernel field>, and pid2-command-wake-persist-failed: <error>.",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: <raw SQLite or filesystem error text>, <stored JSON parser error text>, and pid2-invalid-json: <parser message> on HTTP. Also pid2-schedule-kernel-unusable: <kernel field>, and pid2-command-wake-persist-failed: <error>.",
       "enum": [
         "none",
         "pid2-door-busy",
@@ -184,8 +184,7 @@
         "pid2-schedule-frequency-unusable",
         "pid2-schedule-time-unusable",
         "pid2-schedule-weekday-unusable",
-        "pid2-database-lock-poisoned",
-        "pid2-envelope-too-large"
+        "pid2-database-lock-poisoned"
       ]
     },
     "first_missing_signal": {
