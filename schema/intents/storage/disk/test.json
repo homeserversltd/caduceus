@@ -8,7 +8,7 @@
     },
     "required": ["device", "test_type"]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "started": {"type": "boolean", "const": true, "meaning": "The transient unit was observed active; this does not report the eventual test verdict."},

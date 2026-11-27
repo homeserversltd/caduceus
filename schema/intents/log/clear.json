@@ -8,7 +8,7 @@
     },
     "required": []
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "dry-run": false,
   "no_clobber": true,
