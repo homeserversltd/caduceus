@@ -1,0 +1,75 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/harmonia-module-profile/set-one-module-enabled-state-by-its-id",
+  "payload": {
+    "fields": {
+      "id": {
+        "type": "string",
+        "pattern": "^(?!list$)[a-z][a-z0-9-]{0,63}$",
+        "meaning": "The module id. The word list is the stop's read and is not a module."
+      },
+      "state": {
+        "type": "string",
+        "enum": ["on", "off"],
+        "meaning": "on takes the module out of harmonia.disabled_modules; off puts it in."
+      }
+    },
+    "required": ["id", "state"]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "module": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Module ID as supplied for a toggle; null for list."
+    },
+    "state": {
+      "type": "string",
+      "meaning": "Action returned by the parser.",
+      "enum": [
+        "list",
+        "on",
+        "off"
+      ]
+    },
+    "disabled_modules": {
+      "type": "array",
+      "meaning": "Deduplicated disabled module IDs on success; empty when the stop cannot observe them.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "False on the argument-parser refusal.",
+      "const": false
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class when the front door catches an unhandled stop exception."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Argument/configuration outcome; OS and UTF-8 decoding exceptions are returned as diagnostic text.",
+      "enum": [
+        "agathodaimon-update-module-toggle-arguments-invalid",
+        "agathodaimon-harmonia-module-toggle-module-invalid",
+        "agathodaimon-harmonia-module-toggle-config-missing",
+        "agathodaimon-harmonia-module-toggle-config-invalid",
+        "agathodaimon-harmonia-module-toggle-config-not-object",
+        "agathodaimon-harmonia-module-toggle-harmonia-not-object",
+        "agathodaimon-harmonia-module-toggle-disabled-modules-invalid",
+        "household-config-lock-unavailable",
+        "agathodaimon-stop-raised",
+        "none"
+      ],
+      "patterns": [
+        "^\\[Errno [0-9]+\\] [\\s\\S]+$",
+        "^'utf-8' codec can't decode [\\s\\S]+$"
+      ]
+    }
+  }
+}
