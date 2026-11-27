@@ -6,7 +6,7 @@
   "mutation_allowed": false,
   "returns": {
     "ok": {"type": "boolean", "meaning": "The read reports true even when the configuration value cannot be read."},
-    "pin_required": {"type": "boolean", "meaning": "The configured global.admin.pin_required; false if unreadable or invalid."},
-    "firstMissingSignal": {"type": "string", "meaning": "Read or task outcome.", "enum": ["none", "caduceus-blocking-task-join-failed"]}
+    "pin_required": {"type": "boolean", "meaning": "The boolean global.admin.pin_required; false when the file or key is absent, true when an existing file is unreadable or invalid or the key is not boolean."},
+    "firstMissingSignal": {"type": "string", "meaning": "Read or task outcome.", "enum": ["none", "exousia-config-unreadable", "caduceus-blocking-task-join-failed"]}
   }
 }

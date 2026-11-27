@@ -14,8 +14,8 @@
       "readable": {"type": "boolean", "meaning": "The vault posture read succeeded."}
     }},
     "pin": {"type": "object", "meaning": "PIN requirement and readability.", "fields": {
-      "pin_required": {"type": "boolean", "meaning": "The PIN-required setting, false on an unreadable value."},
-      "readable": {"type": "boolean", "meaning": "The PIN mode read succeeded."}
+      "pin_required": {"type": "boolean", "meaning": "The boolean PIN-required setting; false when the file or key is absent, true when an existing file is unreadable or invalid or the key is not boolean."},
+      "readable": {"type": "boolean", "meaning": "The interpreted PIN mode is available, including its fail-closed value; this does not assert the file is readable."}
     }}
   }
 }

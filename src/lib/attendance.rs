@@ -69,22 +69,40 @@ fn envelope(ok: bool, code: &'static str) -> Value {
     })
 }
 
+/// Interpret the household switch for all administrative readers.
+pub(crate) fn pin_mode_checked() -> Result<bool, String> {
+    let path = crate::shared::config::path("/etc/appliance/config.json");
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return match fs::symlink_metadata(&path) {
+                Err(missing) if missing.kind() == std::io::ErrorKind::NotFound => Ok(false),
+                _ => Err("exousia-config-unreadable".into()),
+            };
+        }
+        Err(_) => return Err("exousia-config-unreadable".into()),
+    };
+    let document: Value = serde_json::from_str(&text)
+        .map_err(|_| "exousia-config-unreadable".to_string())?;
+    match document.pointer("/global/admin/pin_required") {
+        None => Ok(false),
+        Some(value) => value.as_bool().ok_or_else(|| "exousia-config-unreadable".into()),
+    }
+}
+
 pub(crate) fn pin_mode_read() -> Result<bool, String> {
-    let value = crate::shared::config::get_json("global.admin.pin_required")
-        .map_err(|_| "caduceus-access-pin-mode-unreadable".to_string())?;
-    value
-        .get("value")
-        .and_then(Value::as_bool)
-        .ok_or_else(|| "caduceus-access-pin-mode-invalid".to_string())
+    // Existing callers treat Err as false; project the closed state as required.
+    Ok(pin_mode_checked().unwrap_or(true))
 }
 
 pub fn pin_mode_json() -> Value {
-    let pin_required = pin_mode_read().unwrap_or(false);
+    let mode = pin_mode_checked();
+    let pin_required = mode.as_ref().copied().unwrap_or(true);
     json!({
         "schema": "caduceus.access.pin.mode.v1",
         "ok": true,
         "pin_required": pin_required,
-        "firstMissingSignal": "none",
+        "firstMissingSignal": mode.err().unwrap_or_else(|| "none".to_string()),
     })
 }
 
@@ -239,6 +257,7 @@ const PIN_DEFAULT_RESET_FAILED: &str = "exousia-pin-default-reset-failed";
 
 /// Read the live PIN seat for each operation; never cache or delegate verification.
 fn configured_pin() -> Result<String, String> {
+    pin_mode_checked()?;
     let value = crate::shared::config::get_json("global.admin.pin")
         .map_err(|_| PIN_NOT_PROVISIONED.to_string())?;
     value

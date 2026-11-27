@@ -56,8 +56,7 @@ fn prompt_pin() -> Result<Option<String>, String> {
 }
 
 fn pin_required() -> bool {
-    crate::shared::config::get_json("global.admin.pin_required").ok()
-        .and_then(|value| value.get("value").and_then(Value::as_bool)).unwrap_or(false)
+    crate::shared::attendance::pin_mode_checked().unwrap_or(true)
 }
 fn attendance_input() -> Result<Option<Vec<u8>>, String> {
     if pin_required() && std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty").is_err() {

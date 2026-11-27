@@ -764,11 +764,8 @@ fn administrative_routes_match(method: Option<&str>, path: &str) -> Result<bool,
     })
 }
 
-fn administrative_pin_required() -> bool {
-    crate::shared::config::get_json("global.admin.pin_required")
-        .ok()
-        .and_then(|value| value.get("value").and_then(Value::as_bool))
-        .unwrap_or(false)
+fn administrative_pin_required() -> Result<bool, String> {
+    crate::shared::attendance::pin_mode_checked()
 }
 
 fn administrative_attendance_admits(headers: &HeaderMap) -> bool {
@@ -783,7 +780,7 @@ fn administrative_attendance_admits(headers: &HeaderMap) -> bool {
 }
 
 fn administrative_credentials_admit(headers: &HeaderMap, body: &Value) -> Result<(), String> {
-    if !administrative_pin_required() || administrative_attendance_admits(headers) {
+    if !administrative_pin_required()? || administrative_attendance_admits(headers) {
         return Ok(());
     }
     let pin = body

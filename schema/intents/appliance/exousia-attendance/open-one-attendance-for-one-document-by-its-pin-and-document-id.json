@@ -18,6 +18,6 @@
     "attendance": {"type": "string", "meaning": "New in-memory attendance identifier on success."},
     "documentId": {"type": "string", "meaning": "Document to which attendance is bound on success."},
     "documentIncarnation": {"type": "string", "meaning": "Document incarnation to which attendance is bound on success."},
-    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed literal outcomes of the direct PIN act; common gate refusals may also appear.", "enum": ["none", "caduceus-attendance-documentId-missing", "caduceus-attendance-documentIncarnation-missing", "exousia-pin-required", "exousia-pin-not-yet-provisioned", "exousia-pin-wrong", "caduceus-attendance-unavailable"]}
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed literal outcomes of the direct PIN act; common gate refusals may also appear.", "enum": ["none", "caduceus-attendance-documentId-missing", "caduceus-attendance-documentIncarnation-missing", "exousia-pin-required", "exousia-config-unreadable", "exousia-pin-not-yet-provisioned", "exousia-pin-wrong", "caduceus-attendance-unavailable"]}
   }
 }

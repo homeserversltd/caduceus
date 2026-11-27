@@ -6,7 +6,7 @@
   "mutation_allowed": true,
   "returns": {
     "ok": {"type": "boolean", "meaning": "Whether the configuration patch completed."},
-    "pin_required": {"type": "boolean", "meaning": "The PIN requirement read after the patch; false if unreadable."},
-    "firstMissingSignal": {"type": "string", "meaning": "Outcome, admission or patch failure.", "enum": ["none", "caduceus-access-pin-mode-invalid", "caduceus-access-pin-mode-unavailable", "caduceus-blocking-task-join-failed", "caduceus-administrative-profile-invalid", "caduceus-administrative-config-unavailable", "caduceus-administrative-config-invalid", "caduceus-administrative-routes-invalid", "caduceus-administrative-request-too-large", "caduceus-administrative-request-invalid", "exousia-pin-required", "exousia-pin-wrong", "exousia-pin-not-yet-provisioned"]}
+    "pin_required": {"type": "boolean", "meaning": "The PIN requirement read after the patch: false for an absent file or key, true for an unreadable or invalid existing file or a non-boolean key, otherwise the boolean value."},
+    "firstMissingSignal": {"type": "string", "meaning": "Outcome, admission or patch failure.", "enum": ["none", "caduceus-access-pin-mode-invalid", "caduceus-access-pin-mode-unavailable", "caduceus-blocking-task-join-failed", "caduceus-administrative-profile-invalid", "caduceus-administrative-config-unavailable", "caduceus-administrative-config-invalid", "caduceus-administrative-routes-invalid", "caduceus-administrative-request-too-large", "caduceus-administrative-request-invalid", "exousia-config-unreadable", "exousia-pin-required", "exousia-pin-wrong", "exousia-pin-not-yet-provisioned"]}
   }
 }
