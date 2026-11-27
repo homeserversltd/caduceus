@@ -1,0 +1,51 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/unbound-resolver/set-the-unbound-adblock-blocklist-include-off",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "action": {
+      "type": "string",
+      "meaning": "Resolver control operation.",
+      "const": "adblock"
+    },
+    "enabled": {
+      "type": "boolean",
+      "meaning": "Requested blocklist include state."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "Whether the stop reports a mutation."
+    },
+    "reload": {
+      "type": "string",
+      "meaning": "Success reports reloaded, including when the candidate was unchanged.",
+      "const": "reloaded"
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class named by the front door when the stop raises instead of answering."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop outcome; none names an unblocked result. The envelope reader names missing kernel fields in seat order (the single missing timestamp is listed). An exception that escapes the stop is named by the front door, with its exception type.",
+      "enum": [
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: timestamp",
+        "resolver-adblock-enabled-invalid",
+        "resolver-config-unreadable",
+        "resolver-blocklist-include-ambiguous",
+        "resolver-command-unavailable",
+        "resolver-command-failed",
+        "agathodaimon-stop-raised",
+        "none"
+      ]
+    }
+  }
+}
