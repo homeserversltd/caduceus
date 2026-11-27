@@ -14,6 +14,6 @@
     "internet": {"type": "object", "meaning": "Attended public IP indicator."},
     "services": {"type": "object", "meaning": "Attended service indicator."},
     "vpn": {"type": "object", "meaning": "Attended VPN indicator."},
-    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed literal gate and operation outcomes; the handler also requires document and attendance headers. Successful samples carry individual indicator signals inside their blocks.", "enum": ["exousia-pin-required", "exousia-pin-wrong", "exousia-pin-not-yet-provisioned", "caduceus-administrative-request-too-large", "caduceus-administrative-request-invalid", "caduceus-attendance-not-current", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-identity-missing", "caduceus-operation-failed", "caduceus-blocking-task-join-failed"]}
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed attendance and operation refusals; the handler requires document and attendance headers. Runtime collector errors are mapped to a fixed signal, not passed through. Successful samples carry individual indicator signals inside their blocks. Common gate refusals are not listed.", "enum": ["caduceus-attendance-not-current", "caduceus-identity-missing", "caduceus-operation-failed"]}
   }
 }

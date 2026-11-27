@@ -39,6 +39,6 @@
     "vpn": {"type": "object", "meaning": "VPN indicator block."},
     "model_lanes": {"type": "array", "meaning": "Cached model lanes spliced into the latest sample."},
     "update": {"type": ["object", "null"], "meaning": "Last update check with checked_at and answer, or null."},
-    "firstMissingSignal": {"type": "string", "meaning": "Fixed literal outcomes on a gate refusal; a successful sample does not supply this top-level field.", "enum": ["caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-identity-missing", "caduceus-operation-failed", "caduceus-blocking-task-join-failed"]}
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed operation refusals. Runtime collector errors are mapped to a fixed signal, not passed through; a successful sample does not supply this top-level field. Common gate refusals are not listed.", "enum": ["caduceus-identity-missing", "caduceus-operation-failed"]}
   }
 }

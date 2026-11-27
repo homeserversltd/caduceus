@@ -7,6 +7,6 @@
   "returns": {
     "load_context": {"type": "object", "meaning": "Optional load trace attached by the gate when context is present."},
     "result": {"type": "array", "meaning": "When load context is present, the gate wraps the current cached model lanes in result; otherwise the array is the whole success response. The requested scan occurs on a later tick."},
-    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed literal gate and operation outcomes. The success response is the current array and does not supply this field.", "enum": ["caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-operation-failed", "caduceus-blocking-task-join-failed"]}
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists the fixed operation refusal; the success response is the current array and does not supply this field. Common gate refusals are not listed.", "enum": ["caduceus-operation-failed"]}
   }
 }

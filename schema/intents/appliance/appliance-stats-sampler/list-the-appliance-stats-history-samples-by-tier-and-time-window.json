@@ -19,6 +19,6 @@
     "consolidation": {"type": "object", "meaning": "Description of the raw and minute sample consolidation."},
     "window": {"type": "object", "meaning": "Selected tier, since, until and effective per-tier limit."},
     "tiers": {"type": "object", "meaning": "raw, minute and self arrays of selected samples, oldest first."},
-    "firstMissingSignal": {"type": "string", "meaning": "The enum lists the fixed literal gate and operation outcomes, including the gate's normalization of an invalid query.", "enum": ["caduceus-request-query-invalid", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-identity-missing", "caduceus-operation-failed", "caduceus-blocking-task-join-failed"]}
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists the fixed operation outcomes and the gate's normalization of an invalid query. Runtime error text is mapped to a fixed signal, not passed through. Common gate refusals are not listed.", "enum": ["caduceus-request-query-invalid", "caduceus-identity-missing", "caduceus-operation-failed"]}
   }
 }
