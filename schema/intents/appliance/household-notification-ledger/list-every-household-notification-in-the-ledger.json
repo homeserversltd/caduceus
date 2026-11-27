@@ -1,0 +1,17 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/household-notification-ledger/list-every-household-notification-in-the-ledger",
+  "payload": {
+    "fields": {"all": {"type": "string", "const": "1", "meaning": "The old query selects all ledger rows only for the exact component all=1."}},
+    "required": ["all"]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "schema": {"type": "string", "meaning": "The notification response's schema.", "const": "caduceus.notifications.v1"},
+    "notifications": {"type": "array", "meaning": "Ledger rows on the gateway, including hidden rows and projected expiry; empty off the gateway for all=1."},
+    "gateway": {"type": "string", "meaning": "On a non-gateway all=1 request, history-on-homeserver.", "const": "history-on-homeserver"},
+    "ok": {"type": "boolean", "meaning": "False on a locally generated refusal; success need not contain ok."},
+    "firstMissingSignal": {"type": "string", "meaning": "Locally generated refusal.", "enum": ["link-up-busy", "link-up-admin-required", "notification-state-unavailable"]}
+  }
+}

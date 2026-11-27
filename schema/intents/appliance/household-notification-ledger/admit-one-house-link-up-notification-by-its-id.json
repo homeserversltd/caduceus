@@ -1,0 +1,29 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/household-notification-ledger/admit-one-house-link-up-notification-by-its-id",
+  "payload": {
+    "fields": {
+      "id": {"type": "string", "meaning": "Identifier from the accept route path; the selected ledger row must be a pending house-link-up."},
+      "schema": {"type": ["string", "null"], "meaning": "When present and non-null, the old request's schema must equal caduceus.notifications.v1.", "enum": ["caduceus.notifications.v1", null]},
+      "names": {"type": ["array", "null"], "meaning": "Unique .home.arpa names; absent or null uses the candidate's names. Each label is 1–63 lowercase ASCII letters, digits or hyphens, with no leading or trailing hyphen.", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string"}},
+      "dry_run": {"type": "boolean", "meaning": "Only the literal true selects the portal-admit plan instead of the write."}
+    },
+    "required": ["id"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "dry-run": true,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Success or refusal of the composite operation."},
+    "id": {"type": "string", "meaning": "Accepted ledger row ID on successful mutation."},
+    "state": {"type": "string", "const": "accepted", "meaning": "Ledger state after a successful admission."},
+    "portal": {"type": "string", "meaning": "The first selected name."},
+    "names": {"type": "array", "items": {"type": "string"}, "meaning": "The selected names."},
+    "staff": {"type": "object", "meaning": "The in-process portal-admit receipt, preserved on the composite return."},
+    "dry_run": {"type": "boolean", "const": true, "meaning": "Present on a planned admission."},
+    "attempted": {"type": "boolean", "const": false, "meaning": "The planned admission has not been attempted."},
+    "argv": {"type": "array", "items": {"type": "string"}, "meaning": "The planned portal-admit argument vector on dry run."},
+    "child_portals": {"type": "array", "meaning": "The child-portal plan on dry run; actual child results are nested in staff on success."},
+    "firstMissingSignal": {"type": "string", "meaning": "A local refusal or a portal-admit receipt signal; downstream receipt fields and signal are passed through without a closed vocabulary."}
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/appliance-health-report/read-the-appliance-health-report-of-profile-presence",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "schema": {"type": "string", "meaning": "The health report's schema.", "const": "caduceus.health.v1"},
+    "profilePresent": {"type": "boolean", "meaning": "Whether the embedded carapace is an object."},
+    "privateLandOrgansExposed": {"type": "boolean", "meaning": "The report states false.", "const": false},
+    "ok": {"type": "boolean", "meaning": "The carapace object check on success, or false on a gate refusal."},
+    "firstMissingSignal": {"type": "string", "meaning": "A gate refusal or blocking worker failure; the report itself supplies no signal.", "enum": ["caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-blocking-task-join-failed"]}
+  }
+}

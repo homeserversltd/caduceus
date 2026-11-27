@@ -1,0 +1,21 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/harmonia-module-profile/list-all-modules-with-enabled-state-and-metadata",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "True on a completed module list; false on a local refusal."},
+    "modules": {
+      "type": "array",
+      "meaning": "Sorted union of valid profile and manifest identifiers, joined with disabled module IDs and available manifest metadata.",
+      "items": {"type": "object", "fields": {
+        "id": {"type": "string", "meaning": "Module identifier."},
+        "enabled": {"type": "boolean", "meaning": "The profile includes this ID and it is not in the staff disabled list."},
+        "title": {"type": ["string", "null"], "meaning": "Manifest title if available."},
+        "summary": {"type": ["string", "null"], "meaning": "Manifest summary if available."}
+      }}
+    },
+    "firstMissingSignal": {"type": "string", "meaning": "none on success; profile, blocking, policy or crossing errors on refusal. The staff receipt's signal is passed through without a closed vocabulary."}
+  }
+}
