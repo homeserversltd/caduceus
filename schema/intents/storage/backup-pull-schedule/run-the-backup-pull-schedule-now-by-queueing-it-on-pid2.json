@@ -1,0 +1,66 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup-pull-schedule/run-the-backup-pull-schedule-now-by-queueing-it-on-pid2",
+  "payload": {
+    "fields": {
+      "target": {
+        "type": "string",
+        "meaning": "Target device MAC, normalized by the road handler before matching."
+      }
+    },
+    "required": [
+      "target"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the road wrapper answered, not a guarantee of remote act success."
+    },
+    "service": {
+      "type": "string",
+      "meaning": "The service answering the road.",
+      "const": "caduceus"
+    },
+    "seat": {
+      "type": "object",
+      "meaning": "The answering device MAC and hostname."
+    },
+    "thing": {
+      "type": "string",
+      "meaning": "The road act requested."
+    },
+    "answers": {
+      "type": "array",
+      "meaning": "Per-target answer rows; a remote result can contain peerStatus and its own signal and answer."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists literal route and scheduling outcomes. PID 2 database and seat errors and remote peer signals may also pass through as open error text.",
+      "enum": [
+        "road-act-body-invalid",
+        "road-act-pin-carrier-duplicated",
+        "payload-invalid",
+        "pid2-unavailable",
+        "backup-pull-not-enrolled",
+        "pid2-schedule-disabled",
+        "pid2-schedule-fire-running",
+        "thing-undeclared",
+        "target-unknown",
+        "unreachable",
+        "timeout",
+        "seat-mac-unknown",
+        "seat-mac-mismatch",
+        "act-door-absent",
+        "exousia-pin-required",
+        "exousia-pin-wrong",
+        "exousia-pin-not-yet-provisioned",
+        "caduceus-ruyi-store-failed",
+        "caduceus-ruyi-row-invalid",
+        "caduceus-blocking-task-failed"
+      ]
+    }
+  }
+}

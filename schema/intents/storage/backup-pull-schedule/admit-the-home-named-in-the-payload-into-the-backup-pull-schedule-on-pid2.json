@@ -1,0 +1,81 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup-pull-schedule/admit-the-home-named-in-the-payload-into-the-backup-pull-schedule-on-pid2",
+  "payload": {
+    "fields": {
+      "target": {
+        "type": "string",
+        "meaning": "Target device MAC, normalized by the road handler before matching."
+      },
+      "home": {
+        "type": "object",
+        "meaning": "Home identity: exactly one mac field, a lowercase colon MAC. The old road wraps home in payload, which has no other fields and serializes to at most 1024 bytes.",
+        "fields": {
+          "mac": {
+            "type": "string",
+            "meaning": "Lowercase colon-separated MAC address, exactly 17 ASCII bytes.",
+            "pattern": "^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$"
+          }
+        },
+        "required": [
+          "mac"
+        ]
+      }
+    },
+    "required": [
+      "target",
+      "home"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the road wrapper answered, not a guarantee of remote act success."
+    },
+    "service": {
+      "type": "string",
+      "meaning": "The service answering the road.",
+      "const": "caduceus"
+    },
+    "seat": {
+      "type": "object",
+      "meaning": "The answering device MAC and hostname."
+    },
+    "thing": {
+      "type": "string",
+      "meaning": "The road act requested."
+    },
+    "answers": {
+      "type": "array",
+      "meaning": "Per-target answer rows; a remote result can contain peerStatus and its own signal and answer."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists literal route and scheduling outcomes. PID 2 database and seat errors and remote peer signals may also pass through as open error text.",
+      "enum": [
+        "road-act-body-invalid",
+        "road-act-pin-carrier-duplicated",
+        "payload-invalid",
+        "pid2-unavailable",
+        "backup-pull-not-enrolled",
+        "pid2-schedule-disabled",
+        "pid2-schedule-fire-running",
+        "thing-undeclared",
+        "target-unknown",
+        "unreachable",
+        "timeout",
+        "seat-mac-unknown",
+        "seat-mac-mismatch",
+        "act-door-absent",
+        "exousia-pin-required",
+        "exousia-pin-wrong",
+        "exousia-pin-not-yet-provisioned",
+        "caduceus-ruyi-store-failed",
+        "caduceus-ruyi-row-invalid",
+        "caduceus-blocking-task-failed"
+      ]
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/backup-box-pairing/add-a-pending-member-for-a-lan-box-that-requests-pairing",
+  "payload": {
+    "fields": {
+      "mac": {
+        "type": "string",
+        "meaning": "Lowercase colon-separated MAC address, exactly 17 ASCII bytes.",
+        "pattern": "^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$"
+      },
+      "hostname": {
+        "type": "string",
+        "meaning": "Nonempty hostname, at most 253 UTF-8 bytes."
+      },
+      "credential_sha256": {
+        "type": "string",
+        "meaning": "Lowercase 64-character hexadecimal digest.",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "required": [
+      "mac",
+      "hostname",
+      "credential_sha256"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the pair operation succeeded."
+    },
+    "state": {
+      "type": "string",
+      "meaning": "Pair state on success.",
+      "enum": [
+        "pending",
+        "accepted"
+      ]
+    },
+    "signal": {
+      "type": "string",
+      "meaning": "Literal handler refusal; absent on success."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed handler refusals. The handler itself returns them as signal; the common door stamp supplies the receipt surface.",
+      "enum": [
+        "backup-pair-invalid",
+        "backup-pair-already-accepted",
+        "backup-pair-unavailable"
+      ]
+    }
+  }
+}

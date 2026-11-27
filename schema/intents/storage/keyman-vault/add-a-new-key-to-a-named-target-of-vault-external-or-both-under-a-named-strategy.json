@@ -1,0 +1,111 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/keyman-vault/add-a-new-key-to-a-named-target-of-vault-external-or-both-under-a-named-strategy",
+  "payload": {
+    "fields": {
+      "target": {
+        "type": "string",
+        "meaning": "Key target.",
+        "enum": [
+          "vault",
+          "external",
+          "both"
+        ]
+      },
+      "strategy": {
+        "type": "string",
+        "meaning": "Rotation strategy; nonblank and no NUL.",
+        "enum": [
+          "safe_rotation",
+          "replace_primary",
+          "flexible_addition"
+        ]
+      },
+      "password": {
+        "type": "string",
+        "meaning": "Password; nonblank after trimming and containing no NUL. Sent on stdin; the aggregate serialized child document has a 65536-byte cap."
+      },
+      "planned": {
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "meaning": "Optional plan request; null or absent becomes false. The child is still dispatched; a reported planned mutation is refused.",
+        "default": false
+      }
+    },
+    "required": [
+      "target",
+      "strategy",
+      "password"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "backend": {
+      "type": "string",
+      "meaning": "Custody adapter identifier.",
+      "const": "keyman-rust-crown"
+    },
+    "operation": {
+      "type": "string",
+      "meaning": "The requested Keyman vault verb."
+    },
+    "planned": {
+      "type": "boolean",
+      "meaning": "The requested plan flag."
+    },
+    "changed": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "meaning": "Backend-reported change, or null when unknown."
+    },
+    "mutationPerformed": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "meaning": "Backend-reported change, or null when unknown."
+    },
+    "details": {
+      "meaning": "Scrubbed backend details, or null."
+    },
+    "observed": {
+      "meaning": "Scrubbed backend observation, or null."
+    },
+    "could-change": {
+      "meaning": "Backend affordance or a default array containing the operation."
+    },
+    "attempt": {
+      "meaning": "Backend attempt or the adapter default."
+    },
+    "final": {
+      "meaning": "Backend final result or the adapter default."
+    },
+    "attempted-operation": {
+      "type": "string",
+      "meaning": "Operation after dispatch, absent before dispatch."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists literal adapter outcomes. The backend may also pass through its own signal: a nonempty lowercase-or-digit-starting token of at most 128 bytes using lowercase letters, digits, underscore, period, colon or hyphen.",
+      "enum": [
+        "none",
+        "keyman-field-invalid",
+        "keyman-request-too-large",
+        "keyman-crown-timeout-or-unavailable",
+        "keyman-crown-command-failed",
+        "keyman-crown-output-too-large",
+        "keyman-crown-receipt-invalid",
+        "keyman-crown-command-refused",
+        "keyman-planned-mutation-reported",
+        "caduceus-carapace-desync",
+        "caduceus-public-action-not-allowed",
+        "caduceus-blocking-task-failed"
+      ]
+    }
+  }
+}
