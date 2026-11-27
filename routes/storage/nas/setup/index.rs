@@ -104,7 +104,7 @@ async fn setup_route(
         }
     }
 
-    let payload = json!({"device": body.device, "role": body.role.as_str()});
+    let payload = json!({"device": body.device, "role": body.role.as_str(), "flash": body.flash});
     let projection_request = payload.clone();
     #[cfg(leaf_storage_nas_prefire)]
     let flash = body.flash;
