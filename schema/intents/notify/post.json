@@ -12,7 +12,7 @@
     "required": [],
     "anyOf": [{"required": ["notification"]}, {"required": ["id", "kind", "title", "color"]}]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "id": {"type": "string", "meaning": "Notification identity read back from the door."},

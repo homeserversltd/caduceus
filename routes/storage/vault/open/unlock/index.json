@@ -1,0 +1,21 @@
+{
+  "namespace": "storage/vault/open/unlock",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/vault/open/unlock"
+    }
+  ],
+  "commands": [
+    "storage vault open unlock"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/vault/open/unlock",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "deadline_seconds": 300
+}

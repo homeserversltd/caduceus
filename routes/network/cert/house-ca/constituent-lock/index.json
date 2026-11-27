@@ -1,0 +1,25 @@
+{
+  "namespace": "network/cert/house-ca/constituent-lock",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/cert/house-ca/constituent-lock"
+    }
+  ],
+  "commands": [
+    "network cert house-ca constituent-lock"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/cert/house-ca/constituent-lock",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

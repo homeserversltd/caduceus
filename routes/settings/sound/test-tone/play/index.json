@@ -1,0 +1,26 @@
+{
+  "namespace": "settings/sound/test-tone/play",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/sound/test-tone/play"
+    }
+  ],
+  "commands": [
+    "settings sound test-tone play"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi",
+    "hometv",
+    "homeconsole",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/sound/test-tone/play",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

@@ -1,0 +1,25 @@
+{
+  "namespace": "network/cert/refresh",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/cert/refresh"
+    }
+  ],
+  "commands": [
+    "network cert refresh"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/cert/refresh",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

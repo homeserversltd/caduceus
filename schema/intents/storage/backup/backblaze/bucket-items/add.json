@@ -9,7 +9,7 @@
     },
     "required": ["bucket", "path"]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "step": {"type": "string", "meaning": "Failing Backblaze phase when the shared helper refused.", "enum": ["shape", "config", "scratch", "stale", "run", "status", "items", "request"]},

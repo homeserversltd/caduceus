@@ -1,0 +1,24 @@
+{
+  "namespace": "storage/backup/backblaze/bucket-items/add",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/backblaze/bucket-items/add"
+    }
+  ],
+  "commands": [
+    "storage backup backblaze bucket-items add"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/backblaze/bucket-items/add",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

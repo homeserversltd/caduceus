@@ -1,0 +1,20 @@
+{
+  "namespace": "storage/upload/force-permissions",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/upload/force-permissions"
+    }
+  ],
+  "commands": [
+    "storage upload force-permissions"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/upload/force-permissions",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

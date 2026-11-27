@@ -1,0 +1,25 @@
+{
+  "namespace": "unit/disable",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "unit/disable"
+    }
+  ],
+  "commands": [
+    "unit disable"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "homesi",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/unit/disable",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

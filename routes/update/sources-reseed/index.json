@@ -1,0 +1,20 @@
+{
+  "namespace": "update/sources-reseed",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "update/sources-reseed"
+    }
+  ],
+  "commands": [
+    "update sources-reseed"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/update/sources-reseed",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

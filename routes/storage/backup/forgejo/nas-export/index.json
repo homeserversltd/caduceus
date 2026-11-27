@@ -1,0 +1,24 @@
+{
+  "namespace": "storage/backup/forgejo/nas-export",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/forgejo/nas-export"
+    }
+  ],
+  "commands": [
+    "storage backup forgejo nas-export"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/forgejo/nas-export",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

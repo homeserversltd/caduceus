@@ -1,0 +1,21 @@
+{
+  "namespace": "update/module-toggle",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "update/module-toggle"
+    }
+  ],
+  "commands": [
+    "update module-toggle"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/update/module-toggle",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

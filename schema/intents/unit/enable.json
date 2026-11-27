@@ -14,7 +14,7 @@
     },
     "required": ["unit", "scope"]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "action": {"type": "string", "const": "enable", "meaning": "The requested systemctl verb."},

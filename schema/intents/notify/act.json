@@ -9,7 +9,7 @@
     },
     "required": ["verb"]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": false,
   "returns": {
     "id": {"meaning": "Unvalidated id from the request; null when absent."},

@@ -16,7 +16,7 @@
       "state"
     ]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "original": {

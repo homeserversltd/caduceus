@@ -1,0 +1,25 @@
+{
+  "namespace": "unit/stop",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "unit/stop"
+    }
+  ],
+  "commands": [
+    "unit stop"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "homesi",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/unit/stop",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

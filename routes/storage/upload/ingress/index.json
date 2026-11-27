@@ -1,0 +1,20 @@
+{
+  "namespace": "storage/upload/ingress",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/upload/ingress"
+    }
+  ],
+  "commands": [
+    "storage upload ingress"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/upload/ingress",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

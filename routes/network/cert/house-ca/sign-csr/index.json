@@ -1,0 +1,24 @@
+{
+  "namespace": "network/cert/house-ca/sign-csr",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/cert/house-ca/sign-csr"
+    }
+  ],
+  "commands": [
+    "network cert house-ca sign-csr"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/cert/house-ca/sign-csr",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

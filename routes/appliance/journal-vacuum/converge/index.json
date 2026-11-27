@@ -1,0 +1,21 @@
+{
+  "namespace": "appliance/journal-vacuum/converge",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "appliance/journal-vacuum/converge"
+    }
+  ],
+  "commands": [
+    "appliance journal-vacuum converge"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/journal-vacuum/converge",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

@@ -1,0 +1,24 @@
+{
+  "namespace": "network/cert/house-ca/state-commit",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/cert/house-ca/state-commit"
+    }
+  ],
+  "commands": [
+    "network cert house-ca state-commit"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/cert/house-ca/state-commit",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

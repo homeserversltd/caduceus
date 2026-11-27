@@ -7,7 +7,7 @@
     },
     "required": ["i-understand-clients-reinstall"]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "primitive": {"type": "string", "meaning": "The certificate operation (rotate_ca), or error for the stop-level exception arm."},

@@ -1,0 +1,20 @@
+{
+  "namespace": "notify/post",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "notify/post"
+    }
+  ],
+  "commands": [
+    "notify post"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/notify/post",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

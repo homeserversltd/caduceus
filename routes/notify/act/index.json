@@ -1,0 +1,20 @@
+{
+  "namespace": "notify/act",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "notify/act"
+    }
+  ],
+  "commands": [
+    "notify act"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/notify/act",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

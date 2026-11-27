@@ -15,7 +15,7 @@
       "bucket"
     ]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "status": {

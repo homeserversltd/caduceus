@@ -1,0 +1,24 @@
+{
+  "namespace": "network/time-upstream",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/time-upstream"
+    }
+  ],
+  "commands": [
+    "network time-upstream"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "hometv"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/time-upstream",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

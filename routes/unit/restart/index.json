@@ -1,0 +1,25 @@
+{
+  "namespace": "unit/restart",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "unit/restart"
+    }
+  ],
+  "commands": [
+    "unit restart"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "homesi",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/unit/restart",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

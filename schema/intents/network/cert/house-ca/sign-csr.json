@@ -10,7 +10,7 @@
     },
     "required": ["csrPem"]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "primitive": {"type": "string", "meaning": "The certificate operation (csr_sign), or error for the stop-level exception arm."},

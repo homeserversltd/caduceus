@@ -2,7 +2,7 @@
   "schema": "caduceus.staff.v1",
   "intent": "storage/upload/ingress",
   "payload": {"fields": {}, "required": []},
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "action": {"type": "string", "const": "file-ingress", "meaning": "The operation this stop handled."},

@@ -1,0 +1,21 @@
+{
+  "namespace": "update/service",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "update/service"
+    }
+  ],
+  "commands": [
+    "update service"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/update/service",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

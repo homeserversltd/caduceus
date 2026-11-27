@@ -1,0 +1,24 @@
+{
+  "namespace": "network/cert/house-ca/rotate-ca",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/cert/house-ca/rotate-ca"
+    }
+  ],
+  "commands": [
+    "network cert house-ca rotate-ca"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/cert/house-ca/rotate-ca",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

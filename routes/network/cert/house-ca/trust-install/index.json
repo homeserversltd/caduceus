@@ -1,0 +1,21 @@
+{
+  "namespace": "network/cert/house-ca/trust-install",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/cert/house-ca/trust-install"
+    }
+  ],
+  "commands": [
+    "network cert house-ca trust-install"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/cert/house-ca/trust-install",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

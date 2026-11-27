@@ -6,7 +6,7 @@
     "required": [],
     "meaning": "This wrapper always selects reseed and ignores argv. The map comes from a fixed staged file, not the request."
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "changed": {
