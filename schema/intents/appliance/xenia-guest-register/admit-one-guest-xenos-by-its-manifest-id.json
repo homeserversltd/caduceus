@@ -1,0 +1,37 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/xenia-guest-register/admit-one-guest-xenos-by-its-manifest-id",
+  "payload": {
+    "fields": {
+      "manifest": {"type": "object", "meaning": "Guest declaration; its id identifies the guest. It is governed by the manifest or own-service-manifest form of appliance.xenia.v1. Alternatively supply source to fetch the manifest."},
+      "source": {"type": "object", "meaning": "When manifest is absent, release_repo and optional ref identify the release from which to obtain the manifest."},
+      "id": {"type": "string", "meaning": "Optional identity, if present it must equal the manifest id."},
+      "slug": {"type": "string", "meaning": "Optional identity, if present it must equal the manifest id."},
+      "tabs": {"type": "object", "meaning": "Optional proposed tab row; absent selects a default derived from the manifest."},
+      "choices": {"type": "object", "meaning": "Optional choices envelope; enabled and priority here take precedence over the corresponding top-level fields."},
+      "enabled": {"type": "boolean", "meaning": "Fallback enabled choice."},
+      "priority": {"type": "integer", "minimum": 0, "meaning": "Fallback nonnegative priority choice."}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether admission succeeded."},
+    "verdict": {"type": "string", "meaning": "admitted or refused."},
+    "entry": {"type": "object", "meaning": "Admitted guest entry when available."},
+    "tabs": {"type": "object", "meaning": "Admitted tab row when available."},
+    "changed": {"type": "boolean", "meaning": "Whether the register, tab, process seat or installation changed."},
+    "attempt": {"type": "object", "meaning": "Entry, row and when applicable process-seat attempt."},
+    "final": {"type": "object", "meaning": "Admission presence and convergence observation."},
+    "seat": {"type": "object", "meaning": "Process seat result when one was used."},
+    "observed": {"type": "object", "meaning": "Process-seat or prior outcome observation when present."},
+    "receipt": {"type": "object", "meaning": "Launcher receipt when present, including on some refusals."},
+    "translated": {"type": "array", "meaning": "Names of declaration translations applied."},
+    "check": {"type": "string", "meaning": "Refusal check when admission fails."},
+    "field": {"type": "string", "meaning": "Field named by a refusal."},
+    "message": {"type": "string", "meaning": "Refusal message; can include runtime error detail."},
+    "suggestion": {"type": "string", "meaning": "Suggested correction on refusal."},
+    "firstMissingSignal": {"type": "string", "meaning": "The handler places refusal tokens and open error detail in message, not firstMissingSignal; the receipt stamp leaves its final signal null when none is supplied. The enum lists fixed signal literals supplied by this handler.", "enum": []}
+  }
+}

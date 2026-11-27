@@ -1,0 +1,23 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/xenia-guest-register/uninstall-one-guest-xenos-and-drop-its-register-and-tab-rows-by-its-id",
+  "payload": {"fields": {"id": {"type": "string", "meaning": "Guest identity to remove.", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 64}}, "required": ["id"]},
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether removal succeeded."},
+    "verdict": {"type": "string", "meaning": "removed or refused."},
+    "entry": {"type": "object", "meaning": "Removed entry when one existed."},
+    "changed": {"type": "boolean", "meaning": "Whether an entry was removed."},
+    "seat_retained": {"type": "boolean", "meaning": "The native process seat is retained."},
+    "attempt": {"type": "object", "meaning": "Row and entry removal outcomes when an entry existed."},
+    "final": {"type": "object", "meaning": "Presence and convergence observations."},
+    "receipt": {"type": "object", "meaning": "Uninstall launcher receipt when applicable or carried by a refusal."},
+    "observed": {"type": "object", "meaning": "Prior outcome if the outcome form check fails."},
+    "check": {"type": "string", "meaning": "Refusal check."},
+    "field": {"type": "string", "meaning": "Field named by a refusal."},
+    "message": {"type": "string", "meaning": "Refusal message; can include runtime error detail."},
+    "suggestion": {"type": "string", "meaning": "Suggested correction on refusal."},
+    "firstMissingSignal": {"type": "string", "meaning": "The handler places refusal tokens and open error detail in message, not firstMissingSignal; the receipt stamp leaves its final signal null when none is supplied. The enum lists fixed signal literals supplied by this handler.", "enum": []}
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/hermes-agent-processes/status-the-live-hermes-agent-count-by-proc-scan",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the process observation succeeded."},
+    "alive": {"type": "integer", "meaning": "Count of matching top-level Hermes processes in the cached observation."},
+    "observed_at": {"type": "string", "meaning": "UTC timestamp of the observation, cached for three seconds."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The fixed outcome tokens listed here are returned on refusal; success does not supply this field.",
+      "enum": ["caduceus-hermes-proc-unavailable", "caduceus-hermes-cmdline-unavailable", "caduceus-hermes-cache-unavailable", "caduceus-hermes-observation-unavailable", "caduceus-hermes-schema-desync", "caduceus-blocking-task-join-failed"]
+    }
+  }
+}

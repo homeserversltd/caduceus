@@ -1,0 +1,22 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/local-ai-runtime/status-the-llama-binaries-route-and-receipt",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the update route and both binaries are present."},
+    "routePresent": {"type": "boolean", "meaning": "Whether the local_ai_update_now Harmonia route resolves."},
+    "installed": {"type": "boolean", "meaning": "Whether both llama binaries are files."},
+    "serverPresent": {"type": "boolean", "meaning": "Whether llama-server is a file."},
+    "cliPresent": {"type": "boolean", "meaning": "Whether llama-cli is a file."},
+    "receiptPresent": {"type": "boolean", "meaning": "Whether the selected runtime receipt can be read."},
+    "receiptOk": {"type": "boolean", "meaning": "Whether the readable receipt has boolean ok true."},
+    "receiptPath": {"type": "string", "meaning": "Configured runtime receipt path, or the default receipt path."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed runtime or HTTP gate outcome token; none means the route and both binaries are present.",
+      "enum": ["none", "caduceus-harmonia-route-missing:local_ai_update_now", "local-ai-runtime-incomplete", "local-ai-runtime-missing", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-blocking-task-join-failed"]
+    }
+  }
+}

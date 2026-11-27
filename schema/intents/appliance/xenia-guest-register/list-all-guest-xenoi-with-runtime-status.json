@@ -1,0 +1,21 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/xenia-guest-register/list-all-guest-xenoi-with-runtime-status",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the observation succeeded."},
+    "verdict": {"type": "string", "meaning": "status or refused."},
+    "xenoi": {"type": "object", "meaning": "Entries keyed by guest identity."},
+    "register": {"type": "object", "meaning": "The full guest register including household extensions."},
+    "runtime": {"type": "object", "meaning": "Runtime census and health keyed by guest identity."},
+    "runtime_observation_failed": {"type": "boolean", "meaning": "Whether any runtime observation failed."},
+    "observed": {"type": "object", "meaning": "Prior outcome if the outcome form check fails."},
+    "check": {"type": "string", "meaning": "Refusal check."},
+    "field": {"type": "string", "meaning": "Field named by a refusal."},
+    "message": {"type": "string", "meaning": "Refusal message; can include runtime error detail."},
+    "suggestion": {"type": "string", "meaning": "Suggested correction on refusal."},
+    "firstMissingSignal": {"type": "string", "meaning": "The handler places refusal tokens and open error detail in message, not firstMissingSignal; the receipt stamp leaves its final signal null when none is supplied. The enum lists fixed signal literals supplied by this handler.", "enum": []}
+  }
+}

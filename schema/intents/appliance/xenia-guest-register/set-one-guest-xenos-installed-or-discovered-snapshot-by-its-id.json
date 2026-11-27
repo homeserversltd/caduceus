@@ -1,0 +1,29 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/xenia-guest-register/set-one-guest-xenos-installed-or-discovered-snapshot-by-its-id",
+  "payload": {
+    "fields": {
+      "id": {"type": "string", "meaning": "Path parameter naming the guest.", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 64},
+      "installed": {"type": ["object", "null"], "meaning": "Installed snapshot per appliance.xenia.v1; the request body contains exactly this or discovered."},
+      "discovered": {"type": ["object", "null"], "meaning": "Discovered snapshot per appliance.xenia.v1; the request body contains exactly this or installed."}
+    },
+    "required": ["id"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the snapshot was written."},
+    "verdict": {"type": "string", "meaning": "admissible or refused."},
+    "entry": {"type": "object", "meaning": "Entry after the snapshot update."},
+    "tabs": {"type": "object", "meaning": "Existing tab row."},
+    "changed": {"type": "boolean", "meaning": "Whether the snapshot differs from the prior value; the register is written even when false."},
+    "attempt": {"type": "object", "meaning": "Snapshot replacement and timestamp movement."},
+    "final": {"type": "object", "meaning": "Entry, selected snapshot and convergence observations."},
+    "observed": {"type": "object", "meaning": "Prior outcome if the outcome form check fails."},
+    "check": {"type": "string", "meaning": "Refusal check."},
+    "field": {"type": "string", "meaning": "Field named by a refusal."},
+    "message": {"type": "string", "meaning": "Refusal message; can include runtime error detail."},
+    "suggestion": {"type": "string", "meaning": "Suggested correction on refusal."},
+    "firstMissingSignal": {"type": "string", "meaning": "The handler places refusal tokens and open error detail in message, not firstMissingSignal; the receipt stamp leaves its final signal null when none is supplied. The enum lists fixed signal literals supplied by this handler.", "enum": []}
+  }
+}

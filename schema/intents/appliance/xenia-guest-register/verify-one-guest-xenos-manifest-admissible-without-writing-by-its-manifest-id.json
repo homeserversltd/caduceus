@@ -1,0 +1,33 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/xenia-guest-register/verify-one-guest-xenos-manifest-admissible-without-writing-by-its-manifest-id",
+  "payload": {
+    "fields": {
+      "manifest": {"type": "object", "meaning": "Guest declaration; its id identifies the guest. It is governed by the manifest or own-service-manifest form of appliance.xenia.v1. Alternatively supply source to fetch the manifest."},
+      "source": {"type": "object", "meaning": "When manifest is absent, release_repo and optional ref identify the release from which to obtain the manifest."},
+      "id": {"type": "string", "meaning": "Optional identity, if present it must equal the manifest id."},
+      "slug": {"type": "string", "meaning": "Optional identity, if present it must equal the manifest id."},
+      "tabs": {"type": "object", "meaning": "Optional proposed tab row; absent selects a default derived from the manifest."},
+      "choices": {"type": "object", "meaning": "Optional choices envelope; enabled and priority here take precedence over the corresponding top-level fields."},
+      "enabled": {"type": "boolean", "meaning": "Fallback enabled choice."},
+      "priority": {"type": "integer", "minimum": 0, "meaning": "Fallback nonnegative priority choice."}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether validation succeeded."},
+    "verdict": {"type": "string", "meaning": "admissible or refused."},
+    "entry": {"type": "object", "meaning": "Proposed guest entry on success."},
+    "tabs": {"type": "object", "meaning": "Proposed tab row on success."},
+    "observed": {"type": "object", "meaning": "Validation observations or prior outcome when present."},
+    "translated": {"type": "array", "meaning": "Names of declaration translations applied."},
+    "receipt": {"type": "object", "meaning": "Child receipt when a refusal carries one."},
+    "check": {"type": "string", "meaning": "Refusal check when validation fails."},
+    "field": {"type": "string", "meaning": "Field named by a refusal."},
+    "message": {"type": "string", "meaning": "Refusal message; can include runtime error detail."},
+    "suggestion": {"type": "string", "meaning": "Suggested correction on refusal."},
+    "firstMissingSignal": {"type": "string", "meaning": "The handler places refusal tokens and open error detail in message, not firstMissingSignal; the receipt stamp leaves its final signal null when none is supplied. The enum lists fixed signal literals supplied by this handler.", "enum": []}
+  }
+}

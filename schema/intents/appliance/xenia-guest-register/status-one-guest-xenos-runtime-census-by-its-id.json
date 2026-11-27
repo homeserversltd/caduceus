@@ -1,0 +1,21 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/xenia-guest-register/status-one-guest-xenos-runtime-census-by-its-id",
+  "payload": {"fields": {"id": {"type": "string", "meaning": "Path parameter naming the guest.", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 64}}, "required": ["id"]},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the observation succeeded."},
+    "verdict": {"type": "string", "meaning": "status or refused."},
+    "id": {"type": "string", "meaning": "Guest identity."},
+    "entry": {"type": "object", "meaning": "Guest register entry if present."},
+    "runtime": {"type": "object", "meaning": "Runtime census and health, or entry-absent state if the guest is absent."},
+    "observed": {"type": "object", "meaning": "Tab-row presence for an existing entry, or prior outcome after an outcome-form refusal."},
+    "runtime_observation_failed": {"type": "boolean", "meaning": "True when a runtime observation failed."},
+    "check": {"type": "string", "meaning": "Refusal check."},
+    "field": {"type": "string", "meaning": "Field named by a refusal."},
+    "message": {"type": "string", "meaning": "Refusal message; can include runtime error detail."},
+    "suggestion": {"type": "string", "meaning": "Suggested correction on refusal."},
+    "firstMissingSignal": {"type": "string", "meaning": "The handler places refusal tokens and open error detail in message, not firstMissingSignal; the receipt stamp leaves its final signal null when none is supplied. The enum lists fixed signal literals supplied by this handler.", "enum": []}
+  }
+}
