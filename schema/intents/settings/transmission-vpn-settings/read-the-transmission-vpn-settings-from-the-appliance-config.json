@@ -7,13 +7,13 @@
   "returns": {
     "ok": {"type": "boolean", "meaning": "Whether the settings read succeeded."},
     "vpn": {"type": "object", "meaning": "The transmission.vpn object, with missing declared settings defaulted to null; other stored VPN properties are preserved.", "fields": {
-      "provider": {"type": ["string", "null"], "meaning": "VPN provider."},
-      "protocol": {"type": ["string", "null"], "meaning": "VPN protocol.", "enum": ["openvpn", "wireguard", null]},
-      "region": {"type": ["string", "null"], "meaning": "VPN region."},
-      "dip": {"type": ["boolean", "null"], "meaning": "Dedicated IP setting."},
-      "dns": {"type": ["string", "null"], "meaning": "VPN DNS setting.", "enum": ["provider", null]}
+      "provider": {"meaning": "Stored VPN provider, or null when absent; existing values are not type-validated here."},
+      "protocol": {"meaning": "Stored VPN protocol, or null when absent; existing values are not type-validated here."},
+      "region": {"meaning": "Stored VPN region, or null when absent; existing values are not type-validated here."},
+      "dip": {"meaning": "Stored dedicated IP setting, or null when absent; existing values are not type-validated here."},
+      "dns": {"meaning": "Stored VPN DNS setting, or null when absent; existing values are not type-validated here."}
     }},
-    "rescan": {"type": ["boolean", "null"], "meaning": "Stored transmission rescan setting or its null default."},
+    "rescan": {"meaning": "Stored transmission rescan setting or its null default; an existing value is not type-validated here."},
     "command": {"type": "string", "meaning": "Command named on a handler refusal."},
     "firstMissingSignal": {"type": "string", "meaning": "Literal handler outcomes, with none on success.", "enum": ["none", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-schema-desync", "caduceus-administrative-config-unavailable", "caduceus-administrative-config-invalid", "caduceus-administrative-profile-invalid", "caduceus-administrative-routes-invalid", "caduceus-household-config-unavailable", "caduceus-household-config-invalid"]}
   }
