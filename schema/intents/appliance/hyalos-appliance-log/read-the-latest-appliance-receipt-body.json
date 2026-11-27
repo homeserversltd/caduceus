@@ -1,0 +1,34 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/hyalos-appliance-log/read-the-latest-appliance-receipt-body",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the receipt body was read."
+    },
+    "body": {
+      "type": "string",
+      "meaning": "The latest run receipt text when readable."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. ",
+      "enum": [
+        "none",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-receipt-missing",
+        "caduceus-operation-failed",
+        "caduceus-identity-missing",
+        "caduceus-pjlink-catalog-import-required"
+      ]
+    }
+  }
+}

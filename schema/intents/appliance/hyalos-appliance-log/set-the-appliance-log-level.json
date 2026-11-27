@@ -1,0 +1,61 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/hyalos-appliance-log/set-the-appliance-log-level",
+  "payload": {
+    "fields": {
+      "level": {
+        "type": "integer",
+        "meaning": "Requested level, constrained by the current kinds seat."
+      }
+    },
+    "required": [
+      "level"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the request completed."
+    },
+    "level": {
+      "type": "integer",
+      "meaning": "Configured level or the lowest default."
+    },
+    "lowest": {
+      "type": "integer",
+      "meaning": "Lowest permitted level from the kinds seat."
+    },
+    "highest": {
+      "type": "integer",
+      "meaning": "Highest permitted level from the kinds seat."
+    },
+    "source": {
+      "type": "string",
+      "meaning": "set if configured, otherwise default."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "On set, whether the config changed."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Set can also pass through configuration-update error text from the config writer.",
+      "enum": [
+        "none",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "seat-unreadable",
+        "seat-invalid",
+        "seat-schema-foreign",
+        "seat-kind-undeclared",
+        "seat-empty",
+        "caduceus-hyalos-read-admin-required",
+        "caduceus-hyalos-level-invalid",
+        "caduceus-household-config-path-invalid"
+      ]
+    }
+  }
+}

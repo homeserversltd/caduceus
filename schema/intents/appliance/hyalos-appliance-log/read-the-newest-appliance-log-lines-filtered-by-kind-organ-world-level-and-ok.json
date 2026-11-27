@@ -1,0 +1,97 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/hyalos-appliance-log/read-the-newest-appliance-log-lines-filtered-by-kind-organ-world-level-and-ok",
+  "payload": {
+    "fields": {
+      "count": {
+        "type": "integer",
+        "meaning": "Malformed or absent query defaults to 20; effective window clamps to 1..1000.",
+        "minimum": 0,
+        "default": 20
+      },
+      "kind": {
+        "type": "string",
+        "meaning": "Kind or verb filter."
+      },
+      "organ": {
+        "type": "string",
+        "meaning": "Organ filter."
+      },
+      "world": {
+        "type": "string",
+        "meaning": "Legacy filter; any supplied value returns hyalos-tail-world-unavailable."
+      },
+      "correlation_id": {
+        "type": "string",
+        "meaning": "Routine filter; alias correlationId is accepted."
+      },
+      "correlationId": {
+        "type": "string",
+        "meaning": "Alias for correlation_id."
+      },
+      "level": {
+        "type": "string",
+        "meaning": "Integer level encoded as query text."
+      },
+      "ok": {
+        "type": "boolean",
+        "meaning": "Outcome filter; an unparseable value is ignored."
+      }
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the read succeeded."
+    },
+    "channelPath": {
+      "type": "string",
+      "meaning": "Hyalos database path."
+    },
+    "count": {
+      "type": "integer",
+      "meaning": "Number of events returned."
+    },
+    "filters": {
+      "type": "object",
+      "meaning": "Effective request filters."
+    },
+    "events": {
+      "type": "array",
+      "meaning": "Matching events, oldest first within the newest window."
+    },
+    "has_more": {
+      "type": "boolean",
+      "meaning": "Further results exist or the output limit was reached."
+    },
+    "scan": {
+      "type": "object",
+      "meaning": "SQL row count, size, and output-limit diagnostics."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. ",
+      "enum": [
+        "none",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "sqlite-path-check-failed",
+        "sqlite-read-open-failed",
+        "sqlite-busy-timeout-failed",
+        "sqlite-read-begin-failed",
+        "sqlite-schema-read-failed",
+        "sqlite-deed-select-failed",
+        "sqlite-deed-row-invalid",
+        "sqlite-path-unavailable",
+        "sqlite-open-failed",
+        "caduceus-hyalos-read-admin-required",
+        "hyalos-tail-world-unavailable",
+        "hyalos-tail-level-invalid"
+      ]
+    }
+  }
+}

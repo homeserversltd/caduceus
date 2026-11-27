@@ -1,0 +1,110 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/hyalos-appliance-log/list-one-page-of-the-appliance-log-by-its-offset-and-limit",
+  "payload": {
+    "fields": {
+      "offset": {
+        "type": "integer",
+        "meaning": "Query row offset; malformed values default to 0.",
+        "minimum": 0,
+        "default": 0
+      },
+      "limit": {
+        "type": "integer",
+        "meaning": "Query page limit; malformed values default to 1000 and the result is capped at 5000.",
+        "minimum": 0,
+        "default": 1000
+      },
+      "kind": {
+        "type": "string",
+        "meaning": "Exact row kind filter."
+      },
+      "organ": {
+        "type": "string",
+        "meaning": "Exact organ filter."
+      },
+      "verb": {
+        "type": "string",
+        "meaning": "Exact verb filter."
+      },
+      "level": {
+        "type": "integer",
+        "meaning": "Maximum row level; a non-integer query is refused."
+      },
+      "since": {
+        "type": "string",
+        "meaning": "SQLite date/time lower bound."
+      }
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether reading succeeded."
+    },
+    "status": {
+      "type": "string",
+      "meaning": "success or error."
+    },
+    "lines": {
+      "type": "array",
+      "meaning": "Rows serialized as lines with newline terminators."
+    },
+    "logs": {
+      "type": "array",
+      "meaning": "The same serialized lines as lines."
+    },
+    "rows": {
+      "type": "array",
+      "meaning": "Matching deed rows."
+    },
+    "offset": {
+      "type": "integer",
+      "meaning": "Requested offset."
+    },
+    "limit": {
+      "type": "integer",
+      "meaning": "Effective capped limit."
+    },
+    "returned_lines": {
+      "type": "integer",
+      "meaning": "Number of returned rows."
+    },
+    "total_lines": {
+      "type": "integer",
+      "meaning": "Count of matching rows."
+    },
+    "file_size": {
+      "type": "integer",
+      "meaning": "Database file size."
+    },
+    "file_path": {
+      "type": "string",
+      "meaning": "The Hyalos database path."
+    },
+    "last_rotation_timestamp": {
+      "type": "null",
+      "meaning": "Always null."
+    },
+    "message": {
+      "type": "string",
+      "meaning": "Diagnostic present on database read failure."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. ",
+      "enum": [
+        "none",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-hyalos-read-level-invalid",
+        "caduceus-appliance-log-unavailable",
+        "caduceus-hyalos-read-admin-required"
+      ]
+    }
+  }
+}

@@ -1,0 +1,251 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/hyalos-appliance-log/add-one-reflection-deed-to-the-appliance-log-by-offering-it",
+  "payload": {
+    "fields": {
+      "organ": {
+        "type": "string",
+        "meaning": "Nonblank reflection organ."
+      },
+      "kind": {
+        "type": "string",
+        "meaning": "Nonblank reflection kind."
+      },
+      "message": {
+        "type": "string",
+        "meaning": "Nonblank reflection message."
+      },
+      "timestamp": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "stamp": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Epoch milliseconds as text; ignored when timestamp is supplied."
+      },
+      "body_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "bodyId": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "level": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "world": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "correlation_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "session_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "work_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "review_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "strike_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "correlationId": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "sessionId": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "workId": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "reviewId": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "strikeId": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional reflection metadata; aliases are accepted by the handler."
+      },
+      "ok": {
+        "type": "boolean",
+        "meaning": "Reflection outcome; defaults to true.",
+        "default": true
+      },
+      "debug": {
+        "type": [
+          "string",
+          "number",
+          "object",
+          "array",
+          "boolean",
+          "null"
+        ],
+        "meaning": "Only boolean true selects debug offer mode."
+      },
+      "attributes_redacted": {
+        "type": [
+          "string",
+          "number",
+          "object",
+          "array",
+          "boolean",
+          "null"
+        ],
+        "meaning": "Attributes, recursively redacted; these spellings are aliases."
+      },
+      "attributesRedacted": {
+        "type": [
+          "string",
+          "number",
+          "object",
+          "array",
+          "boolean",
+          "null"
+        ],
+        "meaning": "Attributes, recursively redacted; these spellings are aliases."
+      },
+      "payloadRedacted": {
+        "type": [
+          "string",
+          "number",
+          "object",
+          "array",
+          "boolean",
+          "null"
+        ],
+        "meaning": "Attributes, recursively redacted; these spellings are aliases."
+      },
+      "payload_redacted": {
+        "type": [
+          "string",
+          "number",
+          "object",
+          "array",
+          "boolean",
+          "null"
+        ],
+        "meaning": "Attributes, recursively redacted; these spellings are aliases."
+      },
+      "payload": {
+        "type": [
+          "string",
+          "number",
+          "object",
+          "array",
+          "boolean",
+          "null"
+        ],
+        "meaning": "Attributes, recursively redacted; these spellings are aliases."
+      }
+    },
+    "required": [
+      "organ",
+      "kind",
+      "message"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Request accepted; stored may still be failed or dropped."
+    },
+    "channelPath": {
+      "type": "string",
+      "meaning": "Hyalos database path."
+    },
+    "stored": {
+      "type": "string",
+      "meaning": "Offer disposition: written, dropped or failed.",
+      "enum": [
+        "written",
+        "dropped",
+        "failed"
+      ]
+    },
+    "event": {
+      "type": "object",
+      "meaning": "Normalized event with redacted attributes."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. The open form hyalos-stamp-invalid: <integer parser error> can also appear.",
+      "enum": [
+        "none",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-hyalos-write-local-only",
+        "hyalos-reflection-invalid",
+        "hyalos-reflection-required-field-missing",
+        "hyalos-level-invalid",
+        "hyalos-stamp-invalid",
+        "hyalos-run-profile-run-id-missing",
+        "hyalos-channel-serialize-failed",
+        "hyalos-channel-event-too-large"
+      ]
+    }
+  }
+}

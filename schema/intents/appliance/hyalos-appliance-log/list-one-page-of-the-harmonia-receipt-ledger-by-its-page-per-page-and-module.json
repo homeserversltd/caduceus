@@ -1,0 +1,81 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/hyalos-appliance-log/list-one-page-of-the-harmonia-receipt-ledger-by-its-page-per-page-and-module",
+  "payload": {
+    "fields": {
+      "page": {
+        "type": "integer",
+        "meaning": "Page; malformed query defaults to 1 and values below 1 are raised to 1.",
+        "minimum": 0,
+        "default": 1
+      },
+      "per_page": {
+        "type": "integer",
+        "meaning": "Page size; malformed query defaults to 10 and the value is clamped to 1..25.",
+        "minimum": 0,
+        "default": 10
+      },
+      "perPage": {
+        "type": "integer",
+        "meaning": "Alias for per_page.",
+        "minimum": 0
+      },
+      "module": {
+        "type": "string",
+        "meaning": "Optional module selector."
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Producer page outcome."
+    },
+    "ledgerPath": {
+      "type": "null",
+      "meaning": "Always null at this door."
+    },
+    "module": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Producer module filter."
+    },
+    "page": {
+      "type": "integer",
+      "meaning": "One-based page."
+    },
+    "perPage": {
+      "type": "integer",
+      "meaning": "Effective page size."
+    },
+    "totalEntries": {
+      "type": "integer",
+      "meaning": "Matching entry count."
+    },
+    "totalPages": {
+      "type": "integer",
+      "meaning": "Number of pages."
+    },
+    "entries": {
+      "type": "array",
+      "meaning": "Producer ledger rows with ordinal and entry."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. ",
+      "enum": [
+        "none",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-harmonia-ledger-unreadable",
+        "caduceus-ledger-empty"
+      ]
+    }
+  }
+}

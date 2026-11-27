@@ -1,0 +1,157 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/hyalos-appliance-log/add-one-schema-stamped-channel-event-to-the-appliance-log-by-appending-it",
+  "payload": {
+    "fields": {
+      "schema": {
+        "type": "string",
+        "meaning": "The channel event schema id; must match the built event seat.",
+        "const": "hyalos.channel.event.v2"
+      },
+      "timestamp": {
+        "type": "string",
+        "meaning": "Event timestamp."
+      },
+      "body_id": {
+        "type": "string",
+        "meaning": "Source body id."
+      },
+      "level": {
+        "type": "string",
+        "meaning": "Level; matched case-insensitively.",
+        "enum": [
+          "trace",
+          "debug",
+          "info",
+          "warn",
+          "error",
+          "fatal"
+        ]
+      },
+      "organ": {
+        "type": "string",
+        "meaning": "Nonblank source organ."
+      },
+      "kind": {
+        "type": "string",
+        "meaning": "Nonblank event kind."
+      },
+      "world": {
+        "type": "string",
+        "meaning": "Source world."
+      },
+      "ok": {
+        "type": "boolean",
+        "meaning": "Reported outcome."
+      },
+      "message": {
+        "type": "string",
+        "meaning": "Nonblank message."
+      },
+      "attributes_redacted": {
+        "type": [
+          "object",
+          "array",
+          "string",
+          "number",
+          "boolean",
+          "null"
+        ],
+        "meaning": "Attribute value, redacted recursively."
+      },
+      "correlation_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional event correlation identifier."
+      },
+      "session_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional event correlation identifier."
+      },
+      "work_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional event correlation identifier."
+      },
+      "review_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional event correlation identifier."
+      },
+      "strike_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional event correlation identifier."
+      },
+      "debug": {
+        "type": "boolean",
+        "meaning": "True selects debug offer mode; other values do not."
+      }
+    },
+    "required": [
+      "schema",
+      "timestamp",
+      "body_id",
+      "level",
+      "organ",
+      "kind",
+      "world",
+      "ok",
+      "message",
+      "attributes_redacted"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Request accepted; stored may still be failed or dropped."
+    },
+    "channelPath": {
+      "type": "string",
+      "meaning": "Hyalos database path."
+    },
+    "stored": {
+      "type": "string",
+      "meaning": "Offer disposition: written, dropped or failed.",
+      "enum": [
+        "written",
+        "dropped",
+        "failed"
+      ]
+    },
+    "event": {
+      "type": "object",
+      "meaning": "Normalized event with redacted attributes."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. The open form hyalos-channel-event-invalid: <serde error> can also appear.",
+      "enum": [
+        "none",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-hyalos-write-local-only",
+        "hyalos-channel-event-schema-invalid",
+        "hyalos-channel-event-required-field-missing",
+        "hyalos-level-invalid",
+        "hyalos-run-profile-run-id-missing",
+        "hyalos-channel-serialize-failed",
+        "hyalos-channel-event-too-large"
+      ]
+    }
+  }
+}
