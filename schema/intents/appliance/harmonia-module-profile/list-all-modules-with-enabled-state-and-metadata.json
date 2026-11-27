@@ -10,7 +10,7 @@
       "type": "array",
       "meaning": "Sorted union of valid profile and manifest identifiers, joined with disabled module IDs and available manifest metadata.",
       "items": {"type": "object", "fields": {
-        "id": {"type": "string", "meaning": "Module identifier."},
+        "id": {"type": "string", "minLength": 1, "maxLength": 96, "pattern": "^[a-z0-9-]+$", "meaning": "Module identifier."},
         "enabled": {"type": "boolean", "meaning": "The profile includes this ID and it is not in the staff disabled list."},
         "title": {"type": ["string", "null"], "meaning": "Manifest title if available."},
         "summary": {"type": ["string", "null"], "meaning": "Manifest summary if available."}

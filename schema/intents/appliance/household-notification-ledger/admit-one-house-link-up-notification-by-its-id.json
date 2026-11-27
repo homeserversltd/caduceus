@@ -5,8 +5,8 @@
     "fields": {
       "id": {"type": "string", "meaning": "Identifier from the accept route path; the selected ledger row must be a pending house-link-up."},
       "schema": {"type": ["string", "null"], "meaning": "When present and non-null, the old request's schema must equal caduceus.notifications.v1.", "enum": ["caduceus.notifications.v1", null]},
-      "names": {"type": ["array", "null"], "meaning": "Unique .home.arpa names; absent or null uses the candidate's names. Each label is 1–63 lowercase ASCII letters, digits or hyphens, with no leading or trailing hyphen.", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string"}},
-      "dry_run": {"type": "boolean", "meaning": "Only the literal true selects the portal-admit plan instead of the write."}
+      "names": {"type": ["array", "null"], "meaning": "Unique .home.arpa names; absent or null uses the candidate's names. Each label is 1–63 lowercase ASCII letters, digits or hyphens, with no leading or trailing hyphen.", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 11, "maxLength": 73, "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.home\\.arpa$"}},
+      "dry_run": {"type": ["boolean", "null", "string", "number", "object", "array"], "meaning": "Only the literal true selects the portal-admit plan instead of the write. All other JSON values, including null, proceed as non-dry-run; the existing notification schema declares boolean or null."}
     },
     "required": ["id"]
   },
