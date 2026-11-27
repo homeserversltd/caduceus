@@ -1,0 +1,58 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/ruyi-road-relay/read-the-stats-of-a-ruyi-seat-by-its-mac",
+  "payload": {
+    "fields": {
+      "target": {
+        "type": "string",
+        "meaning": "MAC, normalized by trimming, lowercasing and converting hyphens to colons; the literal every is also accepted."
+      },
+      "thing": {
+        "type": "string",
+        "meaning": "Literal stats selects the stats reader.",
+        "const": "stats"
+      }
+    },
+    "required": [
+      "target",
+      "thing"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "The outer relay completed, even if a target entry signals failure."
+    },
+    "service": {
+      "type": "string",
+      "meaning": "Service identity.",
+      "const": "caduceus"
+    },
+    "seat": {
+      "type": "object",
+      "meaning": "Local MAC and hostname."
+    },
+    "thing": {
+      "type": "string",
+      "meaning": "Requested thing."
+    },
+    "answers": {
+      "type": "array",
+      "meaning": "Entries contain mac, hostname, proven, signal and answer; signal can be null or a peer/local outcome and answer can be null."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed literal outcomes are enumerated; The enum lists fixed top-level refusals. Nested answer signals include timeout, unreachable, too-large, malformed, target-unknown, seat-mac-unknown, seat-mac-mismatch and road-task-failed; refused-<HTTP status> is an open form.",
+      "enum": [
+        "target-invalid",
+        "caduceus-ruyi-store-failed",
+        "caduceus-ruyi-row-invalid",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-seat-foreign",
+        "caduceus-schema-desync"
+      ]
+    }
+  }
+}

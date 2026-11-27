@@ -1,0 +1,303 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/ruyi-staff-roster/set-the-stored-row-of-a-ruyi-seat-by-its-mac",
+  "payload": {
+    "fields": {
+      "schema": {
+        "type": "string",
+        "meaning": "The row schema.",
+        "const": "caduceus.ruyi.v1"
+      },
+      "mac": {
+        "type": "string",
+        "meaning": "The URL MAC and, for a row, its equal body MAC: six lowercase hexadecimal octets separated by colons.",
+        "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$"
+      },
+      "hostname": {
+        "type": "string",
+        "meaning": "Lowercase ASCII hostname label, at most 63 bytes; no leading or trailing hyphen.",
+        "minLength": 1,
+        "maxLength": 63,
+        "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+      },
+      "canonical_name": {
+        "type": "string",
+        "meaning": "Must match hostname: home.arpa for home, otherwise <hostname>.home.arpa."
+      },
+      "ipv4": {
+        "type": "string",
+        "meaning": "IPv4 address accepted by the Rust IPv4 parser.",
+        "format": "ipv4"
+      },
+      "profile": {
+        "type": "string",
+        "meaning": "Lowercase ASCII label, at most 63 bytes, no leading or trailing hyphen.",
+        "minLength": 1,
+        "maxLength": 63
+      },
+      "caduceus_sha": {
+        "type": "string",
+        "meaning": "Caduceus source SHA in lowercase hexadecimal.",
+        "pattern": "^[0-9a-f]{40}$"
+      },
+      "env_sha": {
+        "type": "string",
+        "meaning": "Build environment SHA in lowercase hexadecimal.",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "harmonia_sha": {
+        "type": "string",
+        "meaning": "Harmonia SHA in lowercase hexadecimal.",
+        "pattern": "^[0-9a-f]{40}$"
+      },
+      "last_update": {
+        "type": "object",
+        "meaning": "Non-null update record with run_id 1–64 bytes and boolean converged.",
+        "fields": {
+          "run_id": {
+            "type": "string",
+            "meaning": "Run id, measured in bytes.",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "converged": {
+            "type": "boolean",
+            "meaning": "Convergence result."
+          }
+        },
+        "required": [
+          "run_id",
+          "converged"
+        ]
+      },
+      "caduceus_port": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "meaning": "Optional nonzero u16 peer port.",
+        "minimum": 1,
+        "maximum": 65535
+      },
+      "gui_face": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional known GUI face.",
+        "enum": [
+          "Hyprland",
+          "Arcadia",
+          "Coronatio",
+          "Sway",
+          "Noesis",
+          null
+        ]
+      },
+      "ipv4_source": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Input source is overwritten by the server."
+      },
+      "services": {
+        "meaning": "Optional service declarations; non-array means empty and invalid entries are dropped rather than refusing the row. Accepted entries preserve their unknown fields."
+      },
+      "syzygy_sha": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional syzygy digest.",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "stamp_sha": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional stamp digest.",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "fire_seal": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "meaning": "Optional object with 64-hex band, string licensee and RFC3339 issued; unknown fields retained."
+      },
+      "rustc_version": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional compiler version."
+      },
+      "harmonia_rustc_version": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional Harmonia compiler version."
+      },
+      "rustc_installed": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Optional installed compiler version."
+      },
+      "last_seen": {
+        "type": "integer",
+        "meaning": "Optional unsigned timestamp; overwritten by the server.",
+        "minimum": 0
+      },
+      "perspective": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "meaning": "Optional harmonia.ruyi-perspective.v1 with self row of the same MAC; supplied separately in the store. Null or absence removes the stored perspective."
+      }
+    },
+    "required": [
+      "schema",
+      "mac",
+      "hostname",
+      "canonical_name",
+      "ipv4",
+      "profile",
+      "caduceus_sha",
+      "env_sha",
+      "harmonia_sha",
+      "last_update"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "schema": {
+      "type": "string",
+      "meaning": "Returned stored row field schema."
+    },
+    "mac": {
+      "type": "string",
+      "meaning": "Returned stored row field mac."
+    },
+    "hostname": {
+      "type": "string",
+      "meaning": "Returned stored row field hostname."
+    },
+    "canonical_name": {
+      "type": "string",
+      "meaning": "Returned stored row field canonical_name."
+    },
+    "ipv4": {
+      "type": "string",
+      "meaning": "Returned stored row field ipv4."
+    },
+    "profile": {
+      "type": "string",
+      "meaning": "Returned stored row field profile."
+    },
+    "caduceus_sha": {
+      "type": "string",
+      "meaning": "Returned stored row field caduceus_sha."
+    },
+    "env_sha": {
+      "type": "string",
+      "meaning": "Returned stored row field env_sha."
+    },
+    "harmonia_sha": {
+      "type": "string",
+      "meaning": "Returned stored row field harmonia_sha."
+    },
+    "last_update": {
+      "type": "object",
+      "meaning": "Returned stored row field last_update."
+    },
+    "caduceus_port": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "meaning": "Returned stored row field caduceus_port."
+    },
+    "gui_face": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Returned stored row field gui_face."
+    },
+    "ipv4_source": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Returned stored row field ipv4_source."
+    },
+    "services": {
+      "type": "array",
+      "meaning": "Normalized accepted service declarations, omitted if empty."
+    },
+    "syzygy_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Returned stored row field syzygy_sha."
+    },
+    "stamp_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Returned stored row field stamp_sha."
+    },
+    "fire_seal": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Returned stored row field fire_seal."
+    },
+    "rustc_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Returned stored row field rustc_version."
+    },
+    "harmonia_rustc_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Returned stored row field harmonia_rustc_version."
+    },
+    "rustc_installed": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Returned stored row field rustc_installed."
+    },
+    "last_seen": {
+      "type": "integer",
+      "meaning": "Returned stored row field last_seen."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed literal outcomes are enumerated; Success may have no signal.",
+      "enum": [
+        "caduceus-ruyi-row-invalid",
+        "caduceus-ruyi-mac-mismatch",
+        "caduceus-ruyi-perspective-mac-mismatch",
+        "caduceus-ruyi-store-failed",
+        "caduceus-blocking-task-join-failed"
+      ]
+    }
+  }
+}

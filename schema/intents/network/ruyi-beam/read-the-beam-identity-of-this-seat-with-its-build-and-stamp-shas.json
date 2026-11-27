@@ -1,0 +1,76 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/ruyi-beam/read-the-beam-identity-of-this-seat-with-its-build-and-stamp-shas",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Success."
+    },
+    "service": {
+      "type": "string",
+      "meaning": "Service identity.",
+      "const": "caduceus"
+    },
+    "profile": {
+      "type": "string",
+      "meaning": "Compiled active profile."
+    },
+    "hostname": {
+      "type": "string",
+      "meaning": "Nonempty trimmed hostname, omitted when unavailable."
+    },
+    "caduceus_sha": {
+      "type": "string",
+      "meaning": "Build SHA, or unset."
+    },
+    "env_sha": {
+      "type": "string",
+      "meaning": "Build environment SHA."
+    },
+    "rustc_version": {
+      "type": "string",
+      "meaning": "Compiler version or unset."
+    },
+    "gui_face": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Compiled GUI face, or null."
+    },
+    "syzygy_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Digest from local MAC row, or null."
+    },
+    "stamp_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Stamp digest from local MAC row, or null."
+    },
+    "seats": {
+      "type": "object",
+      "meaning": "Shared and intent seat startup census."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed literal outcomes are enumerated; Success may have no signal.",
+      "enum": [
+        "caduceus-ruyi-store-failed",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-seat-foreign",
+        "caduceus-schema-desync"
+      ]
+    }
+  }
+}

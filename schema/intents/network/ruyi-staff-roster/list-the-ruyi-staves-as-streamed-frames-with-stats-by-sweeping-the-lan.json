@@ -1,0 +1,78 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/ruyi-staff-roster/list-the-ruyi-staves-as-streamed-frames-with-stats-by-sweeping-the-lan",
+  "payload": {
+    "fields": {
+      "stats": {
+        "type": "string",
+        "meaning": "Literal query stats=1 selects stats.",
+        "const": "1"
+      },
+      "stream": {
+        "type": "string",
+        "meaning": "Literal query stream=1 selects the stream only alongside stats=1.",
+        "const": "1"
+      }
+    },
+    "required": [
+      "stats",
+      "stream"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "event": {
+      "type": "string",
+      "meaning": "Each NDJSON frame is begin, member, complete or failed.",
+      "enum": [
+        "begin",
+        "member",
+        "complete",
+        "failed"
+      ]
+    },
+    "sequence": {
+      "type": "integer",
+      "meaning": "Zero-based request-local frame sequence."
+    },
+    "snapshot_at": {
+      "type": "integer",
+      "meaning": "Begin frame timestamp."
+    },
+    "seat": {
+      "type": "object",
+      "meaning": "Begin frame local identity and stats."
+    },
+    "member": {
+      "type": "object",
+      "meaning": "Member frame observed row."
+    },
+    "perspective": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Member perspective, or null; begin may include own perspective."
+    },
+    "roster": {
+      "type": "object",
+      "meaning": "Complete frame final full roster."
+    },
+    "signal": {
+      "type": "string",
+      "meaning": "Failed frame signal: sweep-timeout, backpressure-timeout, probe-task-failed, probe-result-unmatched or serialization-failed."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed literal outcomes are enumerated; The enum lists fixed top-level refusals; terminal frame signals occur in frame signal, not firstMissingSignal. Peer stats signals may have open form refused-<HTTP status>.",
+      "enum": [
+        "caduceus-ruyi-store-failed",
+        "caduceus-ruyi-row-invalid",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-seat-foreign",
+        "caduceus-schema-desync"
+      ]
+    }
+  }
+}

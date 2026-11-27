@@ -1,0 +1,57 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/ruyi-staff-roster/list-the-ruyi-staves-of-the-lan-with-their-trust-by-reading-the-store-and-sweeping-the-peers",
+  "payload": {
+    "fields": {
+      "stats": {
+        "type": "string",
+        "meaning": "The literal query component stats=1 includes local and peer stats; any other spelling does not."
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "seat": {
+      "type": "object",
+      "meaning": "Local MAC, hostname, IPv4 and optional ipv4_source, stats and stats_signal; missing identity values are unknown."
+    },
+    "staves": {
+      "type": "array",
+      "meaning": "Responding stored and discovered rows."
+    },
+    "perspectives": {
+      "type": "object",
+      "meaning": "Stored perspectives keyed by responding MAC."
+    },
+    "trust": {
+      "type": "array",
+      "meaning": "Derived syzygy and stamp trust evidence."
+    },
+    "dns_unresolved": {
+      "type": "array",
+      "meaning": "Rows whose address remains declared when DNS data exists."
+    },
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the request succeeded."
+    },
+    "service": {
+      "type": "string",
+      "meaning": "Service identity.",
+      "const": "caduceus"
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed literal outcomes are enumerated; The enum lists fixed top-level refusal tokens. Peer stats signals may also have the open form refused-<HTTP status>.",
+      "enum": [
+        "caduceus-ruyi-store-failed",
+        "caduceus-ruyi-row-invalid",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-seat-foreign",
+        "caduceus-schema-desync"
+      ]
+    }
+  }
+}

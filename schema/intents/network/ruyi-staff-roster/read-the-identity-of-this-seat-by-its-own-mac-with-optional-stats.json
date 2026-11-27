@@ -1,0 +1,63 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/ruyi-staff-roster/read-the-identity-of-this-seat-by-its-own-mac-with-optional-stats",
+  "payload": {
+    "fields": {
+      "seat": {
+        "type": "string",
+        "meaning": "Literal query seat=1 selects this branch.",
+        "const": "1"
+      },
+      "stats": {
+        "type": "string",
+        "meaning": "The literal query component stats=1 includes local stats; any other spelling does not."
+      }
+    },
+    "required": [
+      "seat"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "seat": {
+      "type": "object",
+      "meaning": "Local MAC, hostname, IPv4 and optional ipv4_source, stats and stats_signal; missing identity values are unknown."
+    },
+    "staves": {
+      "type": "array",
+      "meaning": "Always empty for the local identity branch."
+    },
+    "perspectives": {
+      "type": "object",
+      "meaning": "Always empty for the local identity branch."
+    },
+    "trust": {
+      "type": "array",
+      "meaning": "Always empty for the local identity branch."
+    },
+    "dns_unresolved": {
+      "type": "array",
+      "meaning": "Always empty for the local identity branch."
+    },
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the request succeeded."
+    },
+    "service": {
+      "type": "string",
+      "meaning": "Service identity.",
+      "const": "caduceus"
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed literal outcomes are enumerated; Success may have no signal.",
+      "enum": [
+        "caduceus-ruyi-store-failed",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-seat-foreign",
+        "caduceus-schema-desync"
+      ]
+    }
+  }
+}

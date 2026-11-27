@@ -1,0 +1,38 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/ruyi-staff-roster/remove-the-stored-row-of-a-ruyi-seat-by-its-mac",
+  "payload": {
+    "fields": {
+      "mac": {
+        "type": "string",
+        "meaning": "The URL MAC and, for a row, its equal body MAC: six lowercase hexadecimal octets separated by colons.",
+        "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$"
+      }
+    },
+    "required": [
+      "mac"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Success."
+    },
+    "removed": {
+      "type": "string",
+      "meaning": "Removed MAC."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed literal outcomes are enumerated; Success may have no signal.",
+      "enum": [
+        "caduceus-ruyi-row-invalid",
+        "caduceus-ruyi-row-absent",
+        "caduceus-ruyi-store-failed",
+        "caduceus-blocking-task-join-failed"
+      ]
+    }
+  }
+}

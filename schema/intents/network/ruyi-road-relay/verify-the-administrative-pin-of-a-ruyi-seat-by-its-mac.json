@@ -1,0 +1,73 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/ruyi-road-relay/verify-the-administrative-pin-of-a-ruyi-seat-by-its-mac",
+  "payload": {
+    "fields": {
+      "schema": {
+        "type": "string",
+        "meaning": "Required road schema.",
+        "const": "caduceus.ruyi.v1"
+      },
+      "target": {
+        "type": "string",
+        "meaning": "Target MAC normalized by trimming, lowercasing and converting hyphens to colons."
+      },
+      "thing": {
+        "type": "string",
+        "meaning": "Select PIN check.",
+        "const": "pin-check"
+      },
+      "flags": {
+        "type": "object",
+        "meaning": "flags.exousia.pin carries the administrative PIN, never in command-line arguments; local verifier accepts a nonempty string at most 512 bytes. On a remote target it is forwarded."
+      }
+    },
+    "required": [
+      "schema",
+      "target",
+      "thing"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "The outer relay completed, even if a target entry signals failure."
+    },
+    "service": {
+      "type": "string",
+      "meaning": "Service identity.",
+      "const": "caduceus"
+    },
+    "seat": {
+      "type": "object",
+      "meaning": "Local MAC and hostname."
+    },
+    "thing": {
+      "type": "string",
+      "meaning": "Requested thing."
+    },
+    "answers": {
+      "type": "array",
+      "meaning": "Entries contain mac, hostname, proven, signal and answer; signal can be null or a peer/local outcome and answer can be null."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed literal outcomes are enumerated; The enum lists fixed top-level refusals. Peer reply and nested answer signal can pass through arbitrary peer text; remote path also records a Hyalos deed.",
+      "enum": [
+        "road-act-body-invalid",
+        "road-act-pin-carrier-duplicated",
+        "payload-invalid",
+        "exousia-pin-required",
+        "exousia-pin-not-yet-provisioned",
+        "exousia-pin-wrong",
+        "caduceus-ruyi-store-failed",
+        "caduceus-ruyi-row-invalid",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-seat-foreign",
+        "caduceus-schema-desync"
+      ]
+    }
+  }
+}
