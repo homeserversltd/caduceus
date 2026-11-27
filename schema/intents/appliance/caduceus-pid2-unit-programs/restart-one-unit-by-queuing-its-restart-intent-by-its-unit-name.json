@@ -1,0 +1,22 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-pid2-unit-programs/restart-one-unit-by-queuing-its-restart-intent-by-its-unit-name",
+  "payload": {
+    "fields": {
+      "unit": {"type": "string", "meaning": "A unit in the PID 2 routine seat's unit_enum, not observe-only, named in exactly one registered routine. Used only when routine_id is absent."},
+      "routine_id": {"type": "string", "meaning": "Alternative target field; when present it takes precedence over unit, and its value is looked up as a unit name, not a routine identifier."}
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the queue request completed successfully."},
+    "unit": {"type": "string", "meaning": "The selected unit name."},
+    "scope": {"type": "string", "meaning": "The selected unit's scope from the PID 2 routine seat."},
+    "desired": {"type": "string", "meaning": "The desired program state, Run."},
+    "life": {"type": "string", "meaning": "The program lifecycle state queued by this request, Stopping."},
+    "readback": {"type": "object", "meaning": "PID 2 status for the unit, including its registration, hold, lines and programs when available."},
+    "firstMissingSignal": {"type": "string", "meaning": "Outcome signal. Fixed refusals include pid2-door-busy, pid2-door-task-failed, protocol-envelope-not-object, protocol-schema-mismatch, pid2-schema-seat-missing, pid2-unit-not-declared, pid2-unit-observe-only, pid2-unit-scope-missing, pid2-action-lock-poisoned, pid2-database-lock-poisoned, pid2-unit-registration-ambiguous, pid2-unit-not-registered and pid2-routine-held. Parsing, lock, storage, wake and status errors can also contain variable diagnostic text; success uses none in final_receipt."}
+  }
+}
