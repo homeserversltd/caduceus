@@ -2,6 +2,7 @@
 // Names are concrete leaf operations, never generic router façades.
 pub static RUST_PRIMITIVES: &[&str] = &[
     "appliance/appliance-stats-sampler/list-the-appliance-stats-history-samples-by-tier-and-time-window",
+    "appliance/caduceus-pid2-routines/hold-one-routine-by-its-routine-id",
     "appliance/caduceus-pid2-routines/status-one-routine-by-its-routine-id",
     "appliance/caduceus-doors/read-the-door-route-list-of-the-active-profile",
     "face_meter_read",
@@ -64,6 +65,8 @@ enum NativeCommand {
     StatsHistory,
     #[cfg(leaf_pid2)]
     RoutineStatus,
+    #[cfg(leaf_pid2)]
+    RoutineHold,
 }
 
 fn command(name: &str) -> Option<NativeCommand> {
@@ -74,6 +77,8 @@ fn command(name: &str) -> Option<NativeCommand> {
         "appliance/appliance-stats-sampler/list-the-appliance-stats-history-samples-by-tier-and-time-window" => Some(NativeCommand::StatsHistory),
         #[cfg(leaf_pid2)]
         "appliance/caduceus-pid2-routines/status-one-routine-by-its-routine-id" => Some(NativeCommand::RoutineStatus),
+        #[cfg(leaf_pid2)]
+        "appliance/caduceus-pid2-routines/hold-one-routine-by-its-routine-id" => Some(NativeCommand::RoutineHold),
         _ => None,
     }
 }
@@ -130,6 +135,17 @@ pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_j
                 return Ok(receipt);
             };
             let receipt = match crate::routes::leaf_pid2::status_read(id.to_owned(), noun, verb, route).await {
+                Ok(axum::Json(receipt)) | Err((_, axum::Json(receipt))) => receipt,
+            };
+            Ok(receipt)
+        }
+        #[cfg(leaf_pid2)]
+        Some(NativeCommand::RoutineHold) => {
+            let noun = "appliance/caduceus-pid2-routines";
+            let verb = "hold-one-routine-by-its-routine-id";
+            let route = "POST /api/v1/appliance/caduceus-pid2-routines/hold-one-routine-by-its-routine-id";
+            let payload = envelope.get("payload").cloned().unwrap_or(serde_json::Value::Null);
+            let receipt = match crate::routes::leaf_pid2::command_payload("hold".to_owned(), payload, envelope.clone(), noun, verb, route).await {
                 Ok(axum::Json(receipt)) | Err((_, axum::Json(receipt))) => receipt,
             };
             Ok(receipt)

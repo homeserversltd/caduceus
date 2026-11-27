@@ -46,7 +46,7 @@ pub mod keyman;
 pub mod snake;
 #[path = "door.rs"]
 pub mod door;
-pub mod one_name;
+
 
 pub(crate) struct ApiErrorBody {
     pub(crate) ok: bool,
@@ -635,8 +635,8 @@ fn generic_path_matches(pattern: &str, path: &str) -> bool {
 
 fn record_admission_refusal(method: &str, path: &str, signal: &str, started: Instant) {
     let Some(declaration) = declared_http_route(method, path) else { return; };
-    if generic_http_declaration(&declaration) {
-        // The generic request was refused before any act, so it leaves no deed.
+    if generic_http_declaration(&declaration) && declaration.get("ledger_deed").is_none() {
+        // A generic request without a declared deed leaves none before any act.
         return;
     }
     let Some(deed) = declaration.get("ledger_deed") else {
@@ -1280,7 +1280,7 @@ pub fn router() -> Router {
             .route("/health", get(health_route))
             .route("/api/v1/doors", get(doors_route)),
     );
-    one_name::keep_router(router.clone());
+
     router
         .layer(middleware::from_fn(administrative_route_gate))
         .layer(middleware::from_fn(answer_client_refusal))

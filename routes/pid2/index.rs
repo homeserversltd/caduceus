@@ -64,6 +64,9 @@ async fn command(Path(verb): Path<String>, body: Bytes) -> Response {
     if verb == "enable" { return respond(work(move || crate::pid2::enable(&body)).await,Some(value),"pid2-enable","pid2",stop_verb,route,None); }
     if let Err(signal)=crate::protocol::Envelope::parse(value.clone()) { return respond(Err(signal),Some(value),&verb,"pid2",stop_verb,route,Some(false)); }
     let payload=value.get("payload").filter(|v|v.is_object()).unwrap_or(&value).clone();
+    command_payload(verb,payload,value,"pid2",stop_verb,route).await
+}
+pub(crate) async fn command_payload(verb: String, payload: Value, request: Value, noun: &str, stop_verb: &str, route: &str) -> Response {
     let transition=format!("pid2-{verb}");
     let result=work(move || {
         let target=payload.get("routine_id").or_else(||payload.get("unit")).and_then(Value::as_str).unwrap_or("");
@@ -76,7 +79,7 @@ async fn command(Path(verb): Path<String>, body: Bytes) -> Response {
             _ => Err("pid2-action-unknown".into()),
         }
     }).await;
-    respond(result,Some(value),&transition,"pid2",stop_verb,route,if stop_verb == "unplaced-verb" {Some(false)} else {None})
+    respond(result,Some(request),&transition,noun,stop_verb,route,if stop_verb == "unplaced-verb" {Some(false)} else {None})
 }
 pub(crate) fn unit_control(payload: &Value) -> Result<Value,String> {
     unit_control_with_timeout(payload,std::time::Duration::from_secs(300))
