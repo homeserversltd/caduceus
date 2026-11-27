@@ -52,13 +52,15 @@
                 "type": "array",
                 "items": {
                   "type": "string"
-                }
+                },
+                "meaning": "Sorted unique non-alias Unbound names whose IP matches the reservation or lease IP."
               },
               "aliases": {
                 "type": "array",
                 "items": {
                   "type": "string"
-                }
+                },
+                "meaning": "Sorted unique alias Unbound names whose IP matches the reservation or lease IP."
               },
               "address": {
                 "type": [
@@ -92,7 +94,8 @@
                   "claimed",
                   "partial",
                   "unclaimed"
-                ]
+                ],
+                "meaning": "Claimed when a reservation has a matching non-alias DNS record; partial when a reservation, lease or ordinary name exists; otherwise unclaimed."
               },
               "mismatches": {
                 "type": "array",
@@ -187,6 +190,22 @@
         "caduceus-administrative-profile-invalid",
         "caduceus-administrative-routes-invalid"
       ]
+    },
+    "stop": {
+      "type": "object",
+      "meaning": "The composite receipt identifies network/devices.",
+      "fields": {
+        "noun": {
+          "type": "string",
+          "const": "network",
+          "meaning": "Receipt noun."
+        },
+        "verb": {
+          "type": "string",
+          "const": "devices",
+          "meaning": "Receipt verb."
+        }
+      }
     }
   }
 }

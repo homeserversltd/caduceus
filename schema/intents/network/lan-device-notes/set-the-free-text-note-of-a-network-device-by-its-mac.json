@@ -75,7 +75,11 @@
         "exousia-pin-wrong",
         "exousia-pin-not-yet-provisioned",
         "caduceus-administrative-request-too-large",
-        "caduceus-administrative-request-invalid"
+        "caduceus-administrative-request-invalid",
+        "caduceus-request-body-invalid",
+        "caduceus-request-content-type-invalid",
+        "caduceus-request-body-too-large",
+        "caduceus-request-invalid"
       ]
     }
   }
