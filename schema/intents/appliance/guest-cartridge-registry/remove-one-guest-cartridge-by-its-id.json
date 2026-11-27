@@ -1,0 +1,20 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/guest-cartridge-registry/remove-one-guest-cartridge-by-its-id",
+  "payload": {
+    "fields": {
+      "id": {"type": "string", "meaning": "Nonempty ASCII lowercase letters, digits and single hyphens; no leading, trailing or consecutive hyphens; at most 64 bytes."}
+    },
+    "required": ["id"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the operation succeeded."},
+    "operation": {"type": "string", "meaning": "Operation performed on success.", "enum": ["remove"]},
+    "cartridge": {"type": "object", "meaning": "The removed cartridge on success, containing id, title, url, guest_class and admin_only."},
+    "cartridgeCount": {"type": "integer", "meaning": "Number of registry entries after removal."},
+    "command": {"type": "string", "meaning": "Command named in a handler error response."},
+    "firstMissingSignal": {"type": "string", "meaning": "Success or handler error signal. JSON extraction errors can occur before the handler and need not carry this field.", "enum": ["none", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-blocking-task-join-failed", "caduceus-cartridge-id-invalid", "caduceus-cartridge-title-invalid", "caduceus-cartridge-url-invalid", "caduceus-cartridge-guest-class-invalid", "caduceus-cartridge-registry-schema-invalid", "caduceus-cartridge-registry-duplicate-id", "caduceus-cartridge-registry-read-failed", "caduceus-cartridge-registry-invalid", "caduceus-cartridge-registry-parent-create-failed", "caduceus-cartridge-registry-render-failed", "caduceus-cartridge-registry-write-failed", "caduceus-cartridge-not-found"]}
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/guest-cartridge-registry/list-all-guest-cartridges-from-the-registry-file",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "body": {"meaning": "The registry file's raw bytes as application/json, without parsing or validation; if absent, a serialized empty appliance.cartridges.v1 registry."},
+    "ok": {"type": "boolean", "meaning": "False in the handler's JSON error response."},
+    "command": {"type": "string", "meaning": "The command named in a handler error response."},
+    "firstMissingSignal": {"type": "string", "meaning": "Handler error signal when the raw read or its blocking task fails; the raw successful body need not contain a signal.", "enum": ["caduceus-cartridge-registry-render-failed", "caduceus-cartridge-registry-read-failed", "caduceus-blocking-task-join-failed"]}
+  }
+}
