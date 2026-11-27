@@ -89,8 +89,7 @@
         "sqlite-open-failed",
         "caduceus-hyalos-read-admin-required",
         "hyalos-tail-world-unavailable",
-        "hyalos-tail-level-invalid",
-        "sqlite-deed-count-failed"
+        "hyalos-tail-level-invalid"
       ]
     },
     "schema": {
