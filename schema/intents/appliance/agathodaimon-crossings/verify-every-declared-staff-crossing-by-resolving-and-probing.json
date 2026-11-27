@@ -1,0 +1,48 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/agathodaimon-crossings/verify-every-declared-staff-crossing-by-resolving-and-probing",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "observed": {
+      "type": "array",
+      "meaning": "One resolution result per declared crossing, with noun, verb, attempt, ok and result; a failed result also carries class, exit and stderr."
+    },
+    "sentinel": {
+      "type": "object",
+      "meaning": "Result of the nonexistent-noun CLI sentinel probe."
+    },
+    "couldChange": {
+      "type": "boolean",
+      "meaning": "The handler reports false even though it writes the hyalos self-check record."
+    },
+    "attemptPerStep": {
+      "type": "boolean",
+      "meaning": "Whether the handler reports attempting each step."
+    },
+    "final": {
+      "type": "object",
+      "meaning": "Resolved status and firstMissingSignal for the overall probe."
+    },
+    "ok": {
+      "type": "boolean",
+      "meaning": "True when the sentinel and all crossing resolutions succeed."
+    },
+    "hyalos": {
+      "type": "object",
+      "meaning": "Result of projecting the crossings-self-check record; a projection failure is contained here."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Overall completed-probe result; malformed or missing manifests instead return an error on stderr without this field.",
+      "enum": [
+        "none",
+        "caduceus-crossings-probe-failed"
+      ]
+    }
+  }
+}

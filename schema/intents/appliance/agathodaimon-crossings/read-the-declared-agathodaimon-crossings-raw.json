@@ -1,0 +1,41 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/agathodaimon-crossings/read-the-declared-agathodaimon-crossings-raw",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "schema": {
+      "type": "string",
+      "meaning": "Schema identifier in the raw embedded declaration.",
+      "const": "appliance.crossings.v1"
+    },
+    "profile": {
+      "type": "string",
+      "meaning": "Profile named by the embedded declaration."
+    },
+    "bands": {
+      "type": "array",
+      "meaning": "Declared staff bands."
+    },
+    "verbs": {
+      "type": "array",
+      "meaning": "Declared staff verb pairs."
+    },
+    "routes": {
+      "type": "array",
+      "meaning": "Declared routes."
+    },
+    "administrative": {
+      "type": "object",
+      "meaning": "Declared administrative bands, verbs and routes."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "On a declaration failure, the caduceus-crossings-declaration-invalid diagnostic includes reason, expected and observed details; its text is not a finite set."
+    }
+  }
+}

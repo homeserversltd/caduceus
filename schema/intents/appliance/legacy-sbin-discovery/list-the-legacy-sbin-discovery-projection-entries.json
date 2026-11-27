@@ -1,0 +1,35 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/legacy-sbin-discovery/list-the-legacy-sbin-discovery-projection-entries",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the projection or admission succeeded."
+    },
+    "count": {
+      "type": "integer",
+      "meaning": "The projection entry count, always zero on success.",
+      "const": 0
+    },
+    "entries": {
+      "type": "array",
+      "meaning": "The projection entries, always empty on success."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Projection outcome or the HTTP policy or blocking-task refusal.",
+      "enum": [
+        "none",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed"
+      ]
+    }
+  }
+}

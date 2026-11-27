@@ -1,0 +1,37 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/homeserver-sbin-discovery/read-the-homeserver-sbin-discovery-projection-entry-for-one-id-by-its-id",
+  "payload": {
+    "fields": {
+      "id": {
+        "type": "string",
+        "meaning": "The id supplied in the HTTP query or as the CLI argument, echoed as the entry id and name."
+      }
+    },
+    "required": [
+      "id"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the projection or admission succeeded."
+    },
+    "entry": {
+      "type": "object",
+      "meaning": "Echo projection with id, name, classification, execution, legacyIntent and conversionStatus; no script is opened."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Projection outcome or HTTP query/policy refusal.",
+      "enum": [
+        "none",
+        "caduceus-homeserver-sbin-script-id-missing",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync"
+      ]
+    }
+  }
+}
