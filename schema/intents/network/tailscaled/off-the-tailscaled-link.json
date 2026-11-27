@@ -1,0 +1,23 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/tailscaled/off-the-tailscaled-link",
+  "payload": {"fields": {}, "required": []},
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "action": {"type": "string", "const": "down", "meaning": "Tailscale disconnect operation."},
+    "observed": {"type": ["object", "null"], "meaning": "Initial connection status, or status unreadable if the preflight failed."},
+    "could-change": {"type": "array", "items": {"type": "string"}, "meaning": "Tailscaled login state when the stop tried to bring it down."},
+    "attempt": {"type": ["string", "object", "null"], "meaning": "Named preflight phase or the tailscale down command and its returnCode, which can be null."},
+    "final": {"type": ["object", "null"], "meaning": "Readback status, connected, loginUrl, interface, ip, tailnet and backendState when available."},
+    "connected": {"type": "boolean", "meaning": "Readback connection flag when final carries it."},
+    "loginUrl": {"type": ["string", "null"], "meaning": "Readback login URL if seen, copied from final when available."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Whether status changed, or whether the command was dispatched when readback failed."},
+    "changed": {"type": "boolean", "meaning": "Whether preflight and readback connection status labels differed; absent without readback."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Disconnect or status outcome; none on successful dispatch with a disconnected readback.",
+      "enum": ["none", "tailscale-envelope-invalid", "tailscale-down-failed", "tailscale-status-launch-or-timeout", "tailscale-status-command-failed", "tailscale-status-output-too-large", "tailscale-status-json-invalid", "tailscale-status-shape-invalid", "tailscale-status-state-unusable", "tailscale-down-readback-failed"]
+    }
+  }
+}

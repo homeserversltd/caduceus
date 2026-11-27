@@ -1,0 +1,38 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/tailscaled/status-the-tailscale-backend-state-live-tailnet-and-declared-tailnet",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "action": {"type": "string", "const": "status", "meaning": "Tailscale status observation."},
+    "observed": {"type": ["object", "null"], "meaning": "Backend state, liveTailnet and declaredTailnet on success, or the source command when the status probe fails."},
+    "could-change": {"type": "array", "items": {"type": "string"}, "meaning": "Empty because status does not request a change."},
+    "attempt": {"type": "string", "meaning": "Status read or the named envelope or bounded-operation refusal phase."},
+    "final": {
+      "type": ["object", "null"],
+      "meaning": "Live state, declared tailnet and preference readback. The latter two observations can fail without refusing live status.",
+      "fields": {
+        "status": {"type": "string", "enum": ["connected", "needs-login", "disconnected"], "meaning": "Normalized backend posture."},
+        "connected": {"type": "boolean", "meaning": "True only for Running."},
+        "loginUrl": {"type": ["string", "null"], "meaning": "Matched Tailscale login URL, or null when no URL matched."},
+        "interface": {"type": ["string", "null"], "enum": ["tailscale0", null], "meaning": "Tailscale interface name when connected."},
+        "ip": {"type": ["string", "null"], "meaning": "First string from Self.TailscaleIPs, when available."},
+        "tailnet": {"type": ["string", "null"], "meaning": "CurrentTailnet.Name if returned as a string."},
+        "backendState": {"type": "string", "enum": ["Running", "NeedsLogin", "Stopped", "NoState", "Starting", "NeedsMachineAuth"], "meaning": "Recognized backend state."},
+        "declaredTailnet": {"type": ["string", "null"], "meaning": "Label in the declared home Tailscale origin, or null if unavailable."},
+        "declaredTailnetSignal": {"type": "string", "meaning": "Local config or origin diagnostic, distinct from the status verdict.", "enum": ["none", "tailscale-config-canonical-unavailable", "tailscale-config-factory-selected", "tailscale-config-selection-unreadable", "tailscale-config-unreadable", "tailscale-config-invalid", "tailscale-config-too-large", "tailscale-config-cors-invalid", "tailscale-origin-invalid", "tailscale-origin-label-invalid", "tailscale-declared-tailnet-origin-missing"]},
+        "preferences": {"type": ["object", "null"], "meaning": "Observed preference object or null.", "fields": {"advertiseRoutes": {"type": "array", "items": {"type": "string"}}, "hostname": {"type": "string"}}},
+        "preferencesSignal": {"type": "string", "meaning": "Preference read signal, distinct from the status verdict.", "enum": ["none", "tailscale-prefs-unreadable", "tailscale-prefs-invalid"]}
+      }
+    },
+    "connected": {"type": "boolean", "meaning": "Connection flag copied from final when available."},
+    "loginUrl": {"type": ["string", "null"], "meaning": "Login URL copied from final when available."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Status never performs a mutation."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Live status probe outcome. A successful read, including a disconnected state, answers none.",
+      "enum": ["none", "tailscale-envelope-invalid", "tailscale-status-failed", "tailscale-status-launch-or-timeout", "tailscale-status-command-failed", "tailscale-status-output-too-large", "tailscale-status-json-invalid", "tailscale-status-shape-invalid", "tailscale-status-state-unusable"]
+    }
+  }
+}

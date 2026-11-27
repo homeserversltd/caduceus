@@ -1,0 +1,28 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/tailscaled/connect-the-tailscaled-link-to-the-tailnet-with-an-auth-key-read-from-stdin",
+  "payload": {
+    "fields": {
+      "key": {"type": "string", "meaning": "Tailscale auth or client key. The stop sends it only on the tool's stdin and redacts it from its reply.", "pattern": "^tskey-(auth|client)-[A-Za-z0-9-]+$(?![\\s\\S])", "maxLength": 1024}
+    },
+    "required": ["key"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "action": {"type": "string", "const": "authkey", "meaning": "Tailscale authentication operation."},
+    "observed": {"type": ["object", "null"], "meaning": "Key presence on validation refusal; otherwise preflight connection and preferences when read, without key material."},
+    "could-change": {"type": "array", "items": {"type": "string"}, "meaning": "Login state and/or home preferences the operation could change."},
+    "attempt": {"type": ["string", "object", "null"], "meaning": "The named phase or dispatched command, preference flags and returnCode. Never carries the supplied key."},
+    "final": {"type": ["object", "null"], "meaning": "Connection readback or partial preferences evidence; may carry status, connected, loginUrl, interface, ip, tailnet, backendState, preferences, requestedPreferences, lastVerifiedPreferencesBeforeUp and homeRouteSignal as available."},
+    "connected": {"type": "boolean", "meaning": "Readback connection flag when final carries it."},
+    "loginUrl": {"type": ["string", "null"], "meaning": "Readback Tailscale login URL if seen, copied from final when available."},
+    "mutationPerformed": {"type": "boolean", "meaning": "Records observed change or dispatch depending on the path; not a success assertion."},
+    "changed": {"type": ["boolean", "null"], "meaning": "Observed change when known, null when uncertain, absent in receipts with no assessment."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Authentication, preflight or readback outcome; none when connected after a successful dispatch. An unknown home route is a subordinate homeRouteSignal, not a top-level refusal.",
+      "enum": ["none", "tailscale-envelope-invalid", "tailscale-authkey-failed", "tailscale-authkey-pattern-refused", "tailscale-status-launch-or-timeout", "tailscale-status-command-failed", "tailscale-status-output-too-large", "tailscale-status-json-invalid", "tailscale-status-shape-invalid", "tailscale-status-state-unusable", "tailscale-prefs-unreadable", "tailscale-prefs-invalid", "tailscale-home-preferences-set-failed", "tailscale-home-preferences-mismatch", "tailscale-authkey-authentication-failed"]
+    }
+  }
+}
