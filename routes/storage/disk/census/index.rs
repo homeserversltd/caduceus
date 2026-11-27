@@ -33,7 +33,7 @@ pub fn census_json() -> Result<Value, String> {
 }
 
 /// Collector/explicit CLI observation, never called by the HTTP read path.
-pub(crate) fn collect_json() -> Result<Value, String> {
+fn block_devices() -> Result<Vec<Value>, String> {
     let output = Command::new("lsblk")
         .args([
             "--json",
@@ -51,13 +51,36 @@ pub(crate) fn collect_json() -> Result<Value, String> {
     }
     let tree: Value = serde_json::from_slice(&output.stdout)
         .map_err(|err| format!("caduceus-disk-census-lsblk-invalid-json:{err}"))?;
-    let devices = tree
-        .get("blockdevices")
+    tree.get("blockdevices")
         .and_then(Value::as_array)
-        .ok_or_else(|| "caduceus-disk-census-blockdevices-missing".to_string())?;
+        .cloned()
+        .ok_or_else(|| "caduceus-disk-census-blockdevices-missing".to_string())
+}
 
+// Adoption needs the real PARTLABEL and its own mount, not the projected
+// display label or a different partition's diskMounted flag.
+pub(crate) fn mounted_role_disk(partlabel: &str) -> Result<Option<String>, String> {
+    let devices = block_devices()?;
+    let mut found = None;
+    for disk in &devices {
+        if string(disk, "type") != Some("disk") { continue; }
+        for partition in descendants(disk) {
+            if string(partition, "type") != Some("part") || string(partition, "partlabel") != Some(partlabel) { continue; }
+            if !descendants(partition).any(|entry| !mountpoints(entry).is_empty()) { continue; }
+            let parent = string(partition, "pkname").ok_or("nas-lock-in-parent-missing")?;
+            if string(disk, "kname") != Some(parent) && string(disk, "name") != Some(parent) { continue; }
+            if parent.is_empty() || parent.len() > 128 || !parent.bytes().all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c)) { return Err("nas-lock-in-parent-invalid".into()); }
+            if found.is_some() { return Err("nas-lock-in-role-ambiguous".into()); }
+            found = Some(format!("/dev/{parent}"));
+        }
+    }
+    Ok(found)
+}
+
+pub(crate) fn collect_json() -> Result<Value, String> {
+    let devices = block_devices()?;
     let space = space_usage();
-    let census = project_devices(devices, &space);
+    let census = project_devices(&devices, &space);
     Ok(json!({
         "schema": "caduceus.disk.census.v1",
         "ok": true,

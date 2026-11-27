@@ -1,0 +1,14 @@
+{
+  "namespace": "storage/nas/locked-in/list",
+  "admittance": "open",
+  "flags": {},
+  "serve": [],
+  "commands": ["storage nas locked-in list"],
+  "needs": ["nas"],
+  "profiles": ["homeserver"],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/nas/locked-in/list",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "mutation_allowed": false
+}
