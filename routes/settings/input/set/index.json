@@ -1,0 +1,26 @@
+{
+  "namespace": "settings/input/set",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/input/set"
+    }
+  ],
+  "commands": [
+    "settings input set"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi",
+    "hometv",
+    "homeconsole",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/input/set",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

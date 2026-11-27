@@ -1,0 +1,24 @@
+{
+  "namespace": "storage/nas/setup/plan",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/nas/setup/plan"
+    }
+  ],
+  "commands": [
+    "storage nas setup plan"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/nas/setup/plan",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

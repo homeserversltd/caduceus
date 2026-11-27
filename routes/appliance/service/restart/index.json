@@ -1,0 +1,24 @@
+{
+  "namespace": "appliance/service/restart",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "appliance/service/restart"
+    }
+  ],
+  "commands": [
+    "appliance service restart"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/service/restart",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

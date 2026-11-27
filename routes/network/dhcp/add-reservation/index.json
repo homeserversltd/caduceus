@@ -1,0 +1,24 @@
+{
+  "namespace": "network/dhcp/add-reservation",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/dhcp/add-reservation"
+    }
+  ],
+  "commands": [
+    "network dhcp add-reservation"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/dhcp/add-reservation",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

@@ -1,0 +1,25 @@
+{
+  "namespace": "unit/status",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "unit/status"
+    }
+  ],
+  "commands": [
+    "unit status"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "homesi",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/unit/status",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

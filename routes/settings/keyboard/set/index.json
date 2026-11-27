@@ -1,0 +1,26 @@
+{
+  "namespace": "settings/keyboard/set",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/keyboard/set"
+    }
+  ],
+  "commands": [
+    "settings keyboard set"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi",
+    "hometv",
+    "homeconsole",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/keyboard/set",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

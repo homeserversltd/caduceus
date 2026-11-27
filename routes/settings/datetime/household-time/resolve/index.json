@@ -1,0 +1,20 @@
+{
+  "namespace": "settings/datetime/household-time/resolve",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/datetime/household-time/resolve"
+    }
+  ],
+  "commands": [
+    "settings datetime household-time resolve"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/datetime/household-time/resolve",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

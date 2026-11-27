@@ -1,0 +1,24 @@
+{
+  "namespace": "network/dhcp/remove-reservation",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/dhcp/remove-reservation"
+    }
+  ],
+  "commands": [
+    "network dhcp remove-reservation"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/dhcp/remove-reservation",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

@@ -1,0 +1,24 @@
+{
+  "namespace": "network/firewall/whitelist/set",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/firewall/whitelist/set"
+    }
+  ],
+  "commands": [
+    "network firewall whitelist set"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/firewall/whitelist/set",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

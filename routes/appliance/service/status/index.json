@@ -1,0 +1,24 @@
+{
+  "namespace": "appliance/service/status",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "appliance/service/status"
+    }
+  ],
+  "commands": [
+    "appliance service status"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/service/status",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

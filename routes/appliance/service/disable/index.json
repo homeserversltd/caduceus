@@ -1,0 +1,24 @@
+{
+  "namespace": "appliance/service/disable",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "appliance/service/disable"
+    }
+  ],
+  "commands": [
+    "appliance service disable"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/service/disable",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

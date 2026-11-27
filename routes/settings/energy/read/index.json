@@ -1,0 +1,26 @@
+{
+  "namespace": "settings/energy/read",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/energy/read"
+    }
+  ],
+  "commands": [
+    "settings energy read"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi",
+    "hometv",
+    "homeconsole",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/energy/read",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

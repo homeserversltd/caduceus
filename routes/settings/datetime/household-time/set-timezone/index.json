@@ -1,0 +1,26 @@
+{
+  "namespace": "settings/datetime/household-time/set-timezone",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/datetime/household-time/set-timezone"
+    }
+  ],
+  "commands": [
+    "settings datetime household-time set-timezone"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi",
+    "hometv",
+    "homeconsole",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/datetime/household-time/set-timezone",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

@@ -1,0 +1,20 @@
+{
+  "namespace": "settings/ssh/unit/resolve",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/ssh/unit/resolve"
+    }
+  ],
+  "commands": [
+    "settings ssh unit resolve"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/ssh/unit/resolve",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

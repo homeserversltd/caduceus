@@ -1,0 +1,24 @@
+{
+  "namespace": "network/dhcp/update-pool-boundary",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/dhcp/update-pool-boundary"
+    }
+  ],
+  "commands": [
+    "network dhcp update-pool-boundary"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/dhcp/update-pool-boundary",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

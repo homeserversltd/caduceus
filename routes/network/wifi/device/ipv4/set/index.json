@@ -1,0 +1,23 @@
+{
+  "namespace": "network/wifi/device/ipv4/set",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/wifi/device/ipv4/set"
+    }
+  ],
+  "commands": [
+    "network wifi device ipv4 set"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/wifi/device/ipv4/set",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

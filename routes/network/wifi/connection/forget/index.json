@@ -1,0 +1,23 @@
+{
+  "namespace": "network/wifi/connection/forget",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/wifi/connection/forget"
+    }
+  ],
+  "commands": [
+    "network wifi connection forget"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/wifi/connection/forget",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

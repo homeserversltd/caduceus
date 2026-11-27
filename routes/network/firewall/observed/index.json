@@ -1,0 +1,24 @@
+{
+  "namespace": "network/firewall/observed",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/firewall/observed"
+    }
+  ],
+  "commands": [
+    "network firewall observed"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/firewall/observed",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

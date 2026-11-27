@@ -1,0 +1,24 @@
+{
+  "namespace": "network/dns/resolver/upstream",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/dns/resolver/upstream"
+    }
+  ],
+  "commands": [
+    "network dns resolver upstream"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/dns/resolver/upstream",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

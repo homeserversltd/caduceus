@@ -1,0 +1,25 @@
+{
+  "namespace": "thyrsus/new-tab",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "thyrsus/new-tab"
+    }
+  ],
+  "commands": [
+    "thyrsus new-tab"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "homesi",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/thyrsus/new-tab",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

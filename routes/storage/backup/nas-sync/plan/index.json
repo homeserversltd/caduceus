@@ -1,0 +1,24 @@
+{
+  "namespace": "storage/backup/nas-sync/plan",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/nas-sync/plan"
+    }
+  ],
+  "commands": [
+    "storage backup nas-sync plan"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/nas-sync/plan",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

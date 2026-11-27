@@ -1,0 +1,26 @@
+{
+  "namespace": "settings/sound/set",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/sound/set"
+    }
+  ],
+  "commands": [
+    "settings sound set"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi",
+    "hometv",
+    "homeconsole",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/sound/set",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

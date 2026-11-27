@@ -1,0 +1,26 @@
+{
+  "namespace": "settings/datetime/zone-mode/read",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/datetime/zone-mode/read"
+    }
+  ],
+  "commands": [
+    "settings datetime zone-mode read"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi",
+    "hometv",
+    "homeconsole",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/datetime/zone-mode/read",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

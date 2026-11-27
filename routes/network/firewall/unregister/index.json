@@ -1,0 +1,24 @@
+{
+  "namespace": "network/firewall/unregister",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/firewall/unregister"
+    }
+  ],
+  "commands": [
+    "network firewall unregister"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/firewall/unregister",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

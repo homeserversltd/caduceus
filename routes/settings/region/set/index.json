@@ -1,0 +1,20 @@
+{
+  "namespace": "settings/region/set",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/region/set"
+    }
+  ],
+  "commands": [
+    "settings region set"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/region/set",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

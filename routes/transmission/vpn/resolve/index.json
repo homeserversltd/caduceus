@@ -1,0 +1,24 @@
+{
+  "namespace": "transmission/vpn/resolve",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "transmission/vpn/resolve"
+    }
+  ],
+  "commands": [
+    "transmission vpn resolve"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/transmission/vpn/resolve",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

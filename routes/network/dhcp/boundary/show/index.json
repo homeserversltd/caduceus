@@ -1,0 +1,24 @@
+{
+  "namespace": "network/dhcp/boundary/show",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/dhcp/boundary/show"
+    }
+  ],
+  "commands": [
+    "network dhcp boundary show"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/dhcp/boundary/show",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

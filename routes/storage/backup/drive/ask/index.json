@@ -1,0 +1,26 @@
+{
+  "namespace": "storage/backup/drive/ask",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/drive/ask"
+    }
+  ],
+  "commands": [
+    "storage backup drive ask"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi",
+    "hometv",
+    "homeconsole",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/drive/ask",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

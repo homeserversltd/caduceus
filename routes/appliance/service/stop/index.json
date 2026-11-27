@@ -1,0 +1,24 @@
+{
+  "namespace": "appliance/service/stop",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "appliance/service/stop"
+    }
+  ],
+  "commands": [
+    "appliance service stop"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/service/stop",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

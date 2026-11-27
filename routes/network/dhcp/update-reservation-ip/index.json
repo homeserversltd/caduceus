@@ -1,0 +1,24 @@
+{
+  "namespace": "network/dhcp/update-reservation-ip",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/dhcp/update-reservation-ip"
+    }
+  ],
+  "commands": [
+    "network dhcp update-reservation-ip"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/dhcp/update-reservation-ip",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

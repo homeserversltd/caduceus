@@ -1,0 +1,26 @@
+{
+  "namespace": "settings/default-apps/read",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/default-apps/read"
+    }
+  ],
+  "commands": [
+    "settings default-apps read"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi",
+    "hometv",
+    "homeconsole",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/default-apps/read",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

@@ -1,0 +1,20 @@
+{
+  "namespace": "settings/ssh/config/read",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/ssh/config/read"
+    }
+  ],
+  "commands": [
+    "settings ssh config read"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/ssh/config/read",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

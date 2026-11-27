@@ -1,0 +1,24 @@
+{
+  "namespace": "storage/nas/folders",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/nas/folders"
+    }
+  ],
+  "commands": [
+    "storage nas folders"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/nas/folders",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

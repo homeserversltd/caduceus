@@ -1,0 +1,20 @@
+{
+  "namespace": "appliance/service/reload",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "appliance/service/reload"
+    }
+  ],
+  "commands": [
+    "appliance service reload"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/service/reload",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

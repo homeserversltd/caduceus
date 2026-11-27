@@ -1,0 +1,23 @@
+{
+  "namespace": "network/wifi/device/connect",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/wifi/device/connect"
+    }
+  ],
+  "commands": [
+    "network wifi device connect"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/wifi/device/connect",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

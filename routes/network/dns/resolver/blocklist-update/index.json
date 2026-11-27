@@ -1,0 +1,24 @@
+{
+  "namespace": "network/dns/resolver/blocklist-update",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/dns/resolver/blocklist-update"
+    }
+  ],
+  "commands": [
+    "network dns resolver blocklist-update"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/dns/resolver/blocklist-update",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

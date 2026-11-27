@@ -1,0 +1,24 @@
+{
+  "namespace": "network/dns/resolver/adblock",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/dns/resolver/adblock"
+    }
+  ],
+  "commands": [
+    "network dns resolver adblock"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/dns/resolver/adblock",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

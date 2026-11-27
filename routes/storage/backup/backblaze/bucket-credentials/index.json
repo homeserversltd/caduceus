@@ -1,0 +1,25 @@
+{
+  "namespace": "storage/backup/backblaze/bucket-credentials",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/backblaze/bucket-credentials"
+    }
+  ],
+  "commands": [
+    "storage backup backblaze bucket-credentials"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/backblaze/bucket-credentials",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "deadline_seconds": 250
+}

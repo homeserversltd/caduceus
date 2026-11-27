@@ -1,0 +1,24 @@
+{
+  "namespace": "network/cert/house-ca/bundle-read",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/cert/house-ca/bundle-read"
+    }
+  ],
+  "commands": [
+    "network cert house-ca bundle-read"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/cert/house-ca/bundle-read",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

@@ -1,0 +1,20 @@
+{
+  "namespace": "settings/datetime/household-time/ensure-ntp",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/datetime/household-time/ensure-ntp"
+    }
+  ],
+  "commands": [
+    "settings datetime household-time ensure-ntp"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/datetime/household-time/ensure-ntp",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

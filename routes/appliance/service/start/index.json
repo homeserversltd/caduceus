@@ -1,0 +1,24 @@
+{
+  "namespace": "appliance/service/start",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "appliance/service/start"
+    }
+  ],
+  "commands": [
+    "appliance service start"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/service/start",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

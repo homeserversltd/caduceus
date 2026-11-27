@@ -1,0 +1,24 @@
+{
+  "namespace": "appliance/service/enable",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "appliance/service/enable"
+    }
+  ],
+  "commands": [
+    "appliance service enable"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/service/enable",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

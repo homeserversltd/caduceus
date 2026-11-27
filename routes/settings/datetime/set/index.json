@@ -1,0 +1,20 @@
+{
+  "namespace": "settings/datetime/set",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/datetime/set"
+    }
+  ],
+  "commands": [
+    "settings datetime set"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/datetime/set",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

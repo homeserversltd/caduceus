@@ -1,0 +1,24 @@
+{
+  "namespace": "network/identity/device/list",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/identity/device/list"
+    }
+  ],
+  "commands": [
+    "network identity device list"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/identity/device/list",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

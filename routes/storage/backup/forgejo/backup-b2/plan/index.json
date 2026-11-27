@@ -1,0 +1,24 @@
+{
+  "namespace": "storage/backup/forgejo/backup-b2/plan",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "storage/backup/forgejo/backup-b2/plan"
+    }
+  ],
+  "commands": [
+    "storage backup forgejo backup-b2 plan"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/backup/forgejo/backup-b2/plan",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

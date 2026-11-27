@@ -1,0 +1,24 @@
+{
+  "namespace": "network/neighbor/read",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/neighbor/read"
+    }
+  ],
+  "commands": [
+    "network neighbor read"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/neighbor/read",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

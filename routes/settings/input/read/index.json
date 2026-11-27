@@ -1,0 +1,26 @@
+{
+  "namespace": "settings/input/read",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/input/read"
+    }
+  ],
+  "commands": [
+    "settings input read"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi",
+    "hometv",
+    "homeconsole",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/input/read",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

@@ -1,0 +1,26 @@
+{
+  "namespace": "settings/display/apply",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/display/apply"
+    }
+  ],
+  "commands": [
+    "settings display apply"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi",
+    "hometv",
+    "homeconsole",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/display/apply",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

@@ -1,0 +1,20 @@
+{
+  "namespace": "settings/region/read",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "settings/region/read"
+    }
+  ],
+  "commands": [
+    "settings region read"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/settings/region/read",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

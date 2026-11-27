@@ -1,0 +1,23 @@
+{
+  "namespace": "network/wifi/radio/set",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/wifi/radio/set"
+    }
+  ],
+  "commands": [
+    "network wifi radio set"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/wifi/radio/set",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}
