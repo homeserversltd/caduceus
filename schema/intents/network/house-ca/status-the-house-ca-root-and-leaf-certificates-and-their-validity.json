@@ -1,0 +1,31 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/house-ca/status-the-house-ca-root-and-leaf-certificates-and-their-validity",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "primitive": {"type": "string", "meaning": "The certificate operation (status), or error for the stop-level exception arm."},
+    "role": {"type": "string", "meaning": "Normalized appliance profile used by the certificate operation."},
+    "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
+    "state_generation": {"meaning": "Ledger generation as stored; defaults to 0 when absent."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "Whether clients must reinstall trust for the reported operation.", "const": false},
+    "profile": {"type": "string", "meaning": "Certificate role resolved from the appliance profile."},
+    "root_present": {"type": "boolean", "meaning": "Whether the local root certificate file is present."},
+    "bundle_installed": {"meaning": "Installed trust status, read from the ledger when present, otherwise observed on non-HomeServer roles; normally boolean."},
+    "portals": {"meaning": "HomeServer portal inventory as held in the ledger; defaults to an empty array."},
+    "constituents": {"meaning": "HomeServer constituent inventory as held in the ledger; defaults to an empty array."},
+    "browser_trust": {"type": ["boolean", "string"], "meaning": "For non-HomeServer roles, whether the browser trust bridge is active, or unsupported."},
+    "ca_fingerprint": {"type": "string", "meaning": "Fingerprint of the local CA, or the recorded root fingerprint when the file is absent."},
+    "ca_not_after": {"type": "string", "meaning": "OpenSSL notAfter text for the House CA certificate."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success.",
+      "enum": ["none", "agathodaimon-house-ca-refused", "agathodaimon-house-ca-busy", "agathodaimon-house-ca-timeout"]
+    }
+  }
+}

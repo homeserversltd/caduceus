@@ -1,0 +1,50 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/house-ca/issue-one-leaf-certificate-for-named-subject-alternative-names",
+  "payload": {
+    "fields": {
+      "identity": {
+        "type": "string",
+        "meaning": "Nonblank leaf identity and primary SAN. The SAN parser accepts IPs or DNS text made of ASCII letters, digits, hyphen, asterisk, dot and underscore.",
+        "pattern": "\\S"
+      },
+      "sans": {
+        "type": ["array", "string", "object"],
+        "meaning": "Supplemental SAN names as an array of strings, comma-separated text, or iterable object keys. Trimmed names are deduplicated and classified as DNS or IP by the same parser.",
+        "items": {"type": "string"}
+      },
+      "ips": {
+        "type": ["array", "string", "object"],
+        "meaning": "Supplemental SAN names as an array of strings, comma-separated text, or iterable object keys. Trimmed names are deduplicated and classified as DNS or IP by the same parser.",
+        "items": {"type": "string"}
+      },
+      "dry-run": {"type": "boolean", "meaning": "Inspect the standing leaf or plan issuance without writing a key or certificate.", "default": false}
+    },
+    "required": ["identity"]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "dry-run": true,
+  "returns": {
+    "primitive": {"type": "string", "meaning": "The certificate operation (issue_leaf), or error for the stop-level exception arm."},
+    "role": {"type": "string", "meaning": "Normalized appliance profile used by the certificate operation."},
+    "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
+    "state_generation": {"type": "integer", "meaning": "Reported generation of the certificate state, or 0 when not available."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "Whether clients must reinstall trust for the reported operation.", "const": false},
+    "identity": {"type": "string", "meaning": "Requested leaf identity."},
+    "sans": {"type": "array", "meaning": "Observed standing SANs or the normalized requested DNS names and IP addresses.", "items": {"type": "string"}},
+    "ca_fingerprint": {"type": ["string", "null"], "meaning": "Root fingerprint, which can be null if dry-run only plans to create the root."},
+    "leaf_fingerprint": {"type": "string", "meaning": "Leaf certificate fingerprint when a standing or newly signed leaf was read."},
+    "leaf_not_after": {"type": "string", "meaning": "OpenSSL notAfter text for the verified leaf."},
+    "bundle_fingerprint": {"type": ["string", "null"], "meaning": "Fingerprint of the preserved Linux CA bundle, or null when absent."},
+    "bundle_preserved": {"type": "boolean", "meaning": "The existing public CA bundle was not changed.", "const": true},
+    "plan": {"type": "array", "meaning": "Ordered action names describing the proposed operation.", "items": {"type": "string"}},
+    "proof": {"type": "string", "meaning": "Evidence named by the primitive for this outcome."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success.",
+      "enum": ["none", "agathodaimon-house-ca-identity-required", "agathodaimon-house-ca-refused", "agathodaimon-house-ca-busy", "agathodaimon-house-ca-timeout"]
+    }
+  }
+}

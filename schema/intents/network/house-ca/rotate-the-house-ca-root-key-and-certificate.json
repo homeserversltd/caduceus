@@ -1,0 +1,30 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/house-ca/rotate-the-house-ca-root-key-and-certificate",
+  "payload": {
+    "fields": {
+      "i-understand-clients-reinstall": {"type": "boolean", "meaning": "Explicit confirmation that clients must reinstall trust. Absence is treated as false and refused.", "enum": [true]}
+    },
+    "required": ["i-understand-clients-reinstall"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "primitive": {"type": "string", "meaning": "The certificate operation (rotate_ca), or error for the stop-level exception arm."},
+    "role": {"type": "string", "meaning": "Normalized appliance profile used by the certificate operation."},
+    "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
+    "state_generation": {"type": "integer", "meaning": "Reported generation of the certificate state, or 0 when not available."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "True after a successful rotation; false on a refusal."},
+    "message": {"type": "string", "meaning": "Instruction returned when confirmation is absent or false."},
+    "ca_fingerprint_before": {"type": ["string", "null"], "meaning": "Fingerprint of the previous root, if any."},
+    "ca_fingerprint": {"type": "string", "meaning": "SHA-256 fingerprint reported for the House CA certificate."},
+    "leaf_fingerprint": {"type": "string", "meaning": "Fingerprint of the new leaf after rotation."},
+    "proof": {"type": "string", "meaning": "Evidence named by the primitive for this outcome."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success.",
+      "enum": ["none", "agathodaimon-house-ca-rotate-confirmation-required", "agathodaimon-house-ca-refused", "agathodaimon-house-ca-busy", "agathodaimon-house-ca-timeout"]
+    }
+  }
+}

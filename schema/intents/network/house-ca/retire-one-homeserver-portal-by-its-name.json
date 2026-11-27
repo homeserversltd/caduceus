@@ -1,0 +1,41 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/house-ca/retire-one-homeserver-portal-by-its-name",
+  "payload": {
+    "fields": {
+      "portal": {
+        "type": "string",
+        "meaning": "Name of a recorded, tile-origin portal below home.arpa.",
+        "pattern": "^(?!home\\.*\\.home\\.arpa$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.*\\.home\\.arpa$"
+      },
+      "owner-mac": {
+        "meaning": "Nonempty owner value that must equal the recorded portal owner. The admission path writes a MAC string; retirement compares the stored value without validating its type or syntax."
+      },
+      "dry-run": {"type": "boolean", "meaning": "Validate ownership and return the four withdrawal steps without making changes.", "default": false}
+    },
+    "required": ["portal", "owner-mac"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "dry-run": true,
+  "returns": {
+    "primitive": {"type": "string", "meaning": "The certificate operation (portal_retire), or error for the stop-level exception arm."},
+    "role": {"type": "string", "meaning": "Normalized appliance profile used by the certificate operation."},
+    "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
+    "state_generation": {"type": "integer", "meaning": "Reported generation of the certificate state, or 0 when not available."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "Whether clients must reinstall trust for the reported operation.", "const": false},
+    "portal": {"meaning": "The portal name; an early refusal can echo the supplied value or null."},
+    "failed_child": {"type": "string", "meaning": "Profile gate or child at which withdrawal stopped."},
+    "child_signal": {"type": "string", "meaning": "Failure detail from the child, not the outer outcome token."},
+    "rollback_errors": {"type": "array", "meaning": "Failures encountered while restoring DNS, Nginx or leaf files.", "items": {"type": "string"}},
+    "children": {"type": "array", "meaning": "Completed child rows, each naming the step and its ok value.", "items": {"type": "object"}},
+    "plan": {"type": "array", "meaning": "Ordered action names describing the proposed operation.", "items": {"type": "string"}},
+    "proof": {"type": "string", "meaning": "Evidence named by the primitive for this outcome."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success.",
+      "enum": ["none", "agathodaimon-portal-retire-refused", "agathodaimon-portal-retire-child-failed", "agathodaimon-house-ca-refused", "agathodaimon-house-ca-busy", "agathodaimon-house-ca-timeout"]
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/house-ca/hold-the-house-ca-constituent-lock-for-one-portal-by-its-name-and-lan-ip",
+  "payload": {
+    "fields": {
+      "portal": {
+        "type": "string",
+        "meaning": "Lowercase home.arpa apex or admitted alias under home.arpa. The DNS adapter strips trailing dots from the alias label and rejects the reserved label home.",
+        "pattern": "^(?!home\\.*\\.home\\.arpa$)(?:home\\.arpa|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.*\\.home\\.arpa)$"
+      },
+      "lan-ip": {
+        "type": ["string", "integer", "boolean"],
+        "meaning": "Address accepted by Python ipaddress.ip_address and rendered as IP text. DNS aliases bind to home.arpa, not to this address."
+      },
+      "aliases": {
+        "type": ["array", "string", "object"],
+        "meaning": "Additional DNS names as string elements, comma-separated text or iterable object keys. Only names ending in .home.arpa are bound; these must pass the DNS alias label rule.",
+        "items": {"type": "string"}
+      },
+      "dry-run": {"type": "boolean", "meaning": "Validate names and address and plan bindings without writing DNS aliases.", "default": false}
+    },
+    "required": ["portal", "lan-ip"]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "dry-run": true,
+  "returns": {
+    "primitive": {"type": "string", "meaning": "The certificate operation (constituent_lock), or error for the stop-level exception arm."},
+    "role": {"type": "string", "meaning": "Normalized appliance profile used by the certificate operation."},
+    "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
+    "state_generation": {"type": "integer", "meaning": "Reported generation of the certificate state, or 0 when not available."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "Whether clients must reinstall trust for the reported operation.", "const": false},
+    "portal": {"type": "string", "meaning": "Primary portal name."},
+    "aliases": {"type": "array", "meaning": "Deduplicated normalized names after the primary name.", "items": {"type": "string"}},
+    "lan_ip": {"type": "string", "meaning": "Normalized LAN IP text."},
+    "dns_target": {"type": "string", "meaning": "Canonical target for each alias.", "const": "home.arpa"},
+    "dns_names": {"type": "array", "meaning": "Names eligible for DNS alias binding.", "items": {"type": "string"}},
+    "names_bound": {"type": "array", "meaning": "Names bound successfully before any refusal.", "items": {"type": "string"}},
+    "dns_aliases": {"type": "array", "meaning": "DNS adapter results, in attempt order, including a failed attempt when present.", "items": {"type": "object"}},
+    "dhcp_dns_applied": {"type": "boolean", "meaning": "Whether at least one name was eligible and all DNS attempts succeeded outside a dry run."},
+    "dhcp_reservation_applied": {"type": "boolean", "meaning": "No DHCP reservation is made by this stop.", "const": false},
+    "dhcp_reservation": {"type": "string", "meaning": "Reservation is only declared in the plan.", "const": "declared-only"},
+    "first_failing_boundary": {"type": "string", "meaning": "DNS adapter refusal or diagnostic copied on a failed binding."},
+    "failed_name": {"type": "string", "meaning": "Alias at the first failed binding."},
+    "plan": {"type": "array", "meaning": "Ordered action names describing the proposed operation.", "items": {"type": "string"}},
+    "proof": {"type": "string", "meaning": "Evidence named by the primitive for this outcome."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success.",
+      "enum": ["none", "agathodaimon-constituent-dns-alias-failed", "agathodaimon-house-ca-refused", "agathodaimon-house-ca-busy", "agathodaimon-house-ca-timeout"]
+    }
+  }
+}

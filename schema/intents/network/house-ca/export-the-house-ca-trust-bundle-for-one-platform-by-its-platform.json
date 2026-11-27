@@ -1,0 +1,34 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/house-ca/export-the-house-ca-trust-bundle-for-one-platform-by-its-platform",
+  "payload": {
+    "fields": {
+      "platform": {"type": "string", "meaning": "Platform selecting the exported CA bundle encoding and filename.", "enum": ["android", "chromeos", "linux", "macos", "windows"]},
+      "dry-run": {"type": "boolean", "meaning": "Report CA-only export steps without writing a bundle.", "default": false}
+    },
+    "required": ["platform"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "dry-run": true,
+  "returns": {
+    "primitive": {"type": "string", "meaning": "The certificate operation (bundle_export), or error for the stop-level exception arm."},
+    "role": {"type": "string", "meaning": "Normalized appliance profile used by the certificate operation."},
+    "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
+    "state_generation": {"type": "integer", "meaning": "Reported generation of the certificate state, or 0 when not available."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "Whether clients must reinstall trust for the reported operation.", "const": false},
+    "platform": {"type": "string", "meaning": "Platform selecting the exported CA bundle encoding and filename.", "enum": ["android", "chromeos", "linux", "macos", "windows"]},
+    "path": {"type": "string", "meaning": "Path of the written platform bundle."},
+    "ca_fingerprint": {"type": ["string", "null"], "meaning": "Root fingerprint; a dry run planning to create the root can have no fingerprint yet."},
+    "bundle_fingerprint": {"type": "string", "meaning": "Fingerprint confirmed on the exported CA-only bundle."},
+    "ca_only": {"type": "boolean", "meaning": "Whether the exported material was verified as CA-only.", "const": true},
+    "plan": {"type": "array", "meaning": "Ordered action names describing the proposed operation.", "items": {"type": "string"}},
+    "proof": {"type": "string", "meaning": "Evidence named by the primitive for this outcome."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success.",
+      "enum": ["none", "agathodaimon-house-ca-refused", "agathodaimon-house-ca-busy", "agathodaimon-house-ca-timeout"]
+    }
+  }
+}

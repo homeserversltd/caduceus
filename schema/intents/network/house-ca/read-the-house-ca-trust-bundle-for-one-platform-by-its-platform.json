@@ -1,0 +1,31 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/house-ca/read-the-house-ca-trust-bundle-for-one-platform-by-its-platform",
+  "payload": {
+    "fields": {
+      "platform": {"type": "string", "meaning": "Platform selecting the exported CA bundle encoding and filename.", "enum": ["android", "chromeos", "linux", "macos", "windows"]}
+    },
+    "required": ["platform"]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "primitive": {"type": "string", "meaning": "The certificate operation (bundle_read), or error for the stop-level exception arm."},
+    "role": {"type": "string", "meaning": "Normalized appliance profile used by the certificate operation."},
+    "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
+    "state_generation": {"type": "integer", "meaning": "Reported generation of the certificate state, or 0 when not available."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "Whether clients must reinstall trust for the reported operation.", "const": false},
+    "platform": {"type": "string", "meaning": "Platform selecting the exported CA bundle encoding and filename.", "enum": ["android", "chromeos", "linux", "macos", "windows"]},
+    "filename": {"type": "string", "meaning": "Download filename for the requested platform."},
+    "mime_type": {"type": "string", "meaning": "Bundle media type.", "const": "application/x-x509-ca-cert"},
+    "fingerprint": {"type": "string", "meaning": "Fingerprint read back from the CA-only bundle."},
+    "content_base64": {"type": "string", "meaning": "Public CA bundle bytes encoded as Base64, never a private key."},
+    "proof": {"type": "string", "meaning": "Evidence named by the primitive for this outcome."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success.",
+      "enum": ["none", "agathodaimon-house-ca-refused", "agathodaimon-house-ca-busy", "agathodaimon-house-ca-timeout"]
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/house-ca/sign-one-certificate-signing-request-by-its-pem",
+  "payload": {
+    "fields": {
+      "csrPem": {
+        "type": "string",
+        "meaning": "PEM certificate signing request with subject and exactly the SANs of the appliance declaration. At most 65536 UTF-8 bytes; there is no separate character limit. Private-key text and control characters other than newline and tab are refused."
+      }
+    },
+    "required": ["csrPem"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "primitive": {"type": "string", "meaning": "The certificate operation (csr_sign), or error for the stop-level exception arm."},
+    "role": {"type": "string", "meaning": "Normalized appliance profile used by the certificate operation."},
+    "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
+    "state_generation": {"type": "integer", "meaning": "Reported generation of the certificate state, or 0 when not available."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "Whether clients must reinstall trust for the reported operation.", "const": false},
+    "identity": {"type": "string", "meaning": "Appliance identity proven against the CSR subject."},
+    "sans": {"type": "array", "meaning": "DNS and IP SANs verified against the appliance declaration.", "items": {"type": "string"}},
+    "leaf_pem": {"type": "string", "meaning": "Signed public leaf certificate in PEM."},
+    "ca_pem": {"type": "string", "meaning": "Public signing CA certificate in PEM."},
+    "ca_fingerprint": {"type": "string", "meaning": "SHA-256 fingerprint reported for the House CA certificate."},
+    "leaf_fingerprint": {"type": "string", "meaning": "Fingerprint of the chain-verified leaf."},
+    "leaf_expiry": {"type": "string", "meaning": "OpenSSL notAfter text for the signed leaf."},
+    "proof": {"type": "string", "meaning": "Evidence named by the primitive for this outcome."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success.",
+      "enum": ["none", "agathodaimon-house-ca-refused", "agathodaimon-house-ca-busy", "agathodaimon-house-ca-timeout"]
+    }
+  }
+}

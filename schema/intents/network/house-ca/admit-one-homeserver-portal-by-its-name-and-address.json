@@ -1,0 +1,112 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/house-ca/admit-one-homeserver-portal-by-its-name-and-address",
+  "payload": {
+    "fields": {
+      "portal": {
+        "type": "string",
+        "meaning": "Lowercase home.arpa apex or admitted alias under home.arpa. The DNS adapter strips trailing dots from the alias label and rejects the reserved label home.",
+        "pattern": "^(?!home\\.*\\.home\\.arpa$)(?:home\\.arpa|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.*\\.home\\.arpa)$"
+      },
+      "lan-ip": {"type": "string", "meaning": "IPv4 or IPv6 text for the constituent and leaf. The DNS aliases themselves bind to home.arpa, not to this address."},
+      "upstream": {
+        "type": "string",
+        "meaning": "Primary destination for proxy templates. Required for proxy if no prior upstream exists; static and PHP require no upstream.",
+        "pattern": "^https?://[^\\s;{}\"'\\\\]*$"
+      },
+      "aliases": {
+        "type": ["array", "string", "object"],
+        "meaning": "Additional names supplied as an array of strings, comma-separated text, or iterable object keys. Empty names are skipped. Omission on a portal route keeps prior aliases, when present.",
+        "items": {"type": "string"}
+      },
+      "tailnet-port": {
+        "type": ["integer", "string"],
+        "meaning": "Optional tailnet listener port as an integer or an unsigned decimal string in the same range; omission keeps a prior port.",
+        "pattern": "^[0-9]+$",
+        "minimum": 1,
+        "maximum": 65535
+      },
+      "locations": {
+        "type": ["array", "string"],
+        "meaning": "Additional distinct locations, as an array of location objects or text that decodes to that array.",
+        "items": {
+          "type": "object",
+          "required": ["path", "upstream"],
+          "properties": {
+            "path": {"type": "string", "meaning": "Distinct location other than bare /; may be prefixed with = or ^~.", "pattern": "^(?:=|\\^~)?/[^\\s;{}\"'\\\\]*$"},
+            "upstream": {"type": "string", "meaning": "HTTP(S) destination for this location.", "pattern": "^https?://[^\\s;{}\"'\\\\]*$"},
+            "strip_authorization": {"type": "boolean", "meaning": "Suppress the Authorization header for this location.", "default": false}
+          }
+        }
+      },
+      "max-body-size": {"type": "string", "meaning": "Nginx body size; omission keeps the prior setting, otherwise defaults to 1m.", "pattern": "^[0-9]+[kKmMgG]?$", "default": "1m"},
+      "read-timeout": {
+        "type": ["integer", "string"],
+        "meaning": "Proxy read timeout in seconds, as an integer or unsigned decimal string in the same range. Omission keeps the prior setting or defaults to 60.",
+        "pattern": "^[0-9]+$",
+        "minimum": 1,
+        "maximum": 86400,
+        "default": 60
+      },
+      "template": {
+        "type": "string",
+        "meaning": "Template selected by the loaded Hestia seat. Omission keeps any prior template or uses the seat default when present.",
+        "enum": ["proxy", "static", "php"],
+        "default": "proxy"
+      },
+      "cors": {"type": "string", "meaning": "Hestia CORS include selected by name.", "enum": ["open", "echo"]},
+      "cache-static": {"type": "boolean", "meaning": "Use the Hestia cache-static include on static or PHP templates."},
+      "upload-stream": {"type": "boolean", "meaning": "Use the Hestia upload-stream include."},
+      "root": {"type": "string", "meaning": "Absolute document root required by a static or PHP template if not already held.", "pattern": "^/[^\\s;{}\"'\\\\]*$"},
+      "fpm": {"type": "string", "meaning": "PHP backend, required if not already held: unix:/ with a socket path, or host:port (including bracketed IPv6) with port 1–65535."},
+      "path": {
+        "type": ["string", "array", "object"],
+        "meaning": "Append Hestia proxied locations: location=upstream text or a location object, singly or in an array. Uses the same path and upstream rules as locations."
+      },
+      "alias": {
+        "type": ["string", "array", "object"],
+        "meaning": "Add local aliases to a static or PHP template: location=file text or a path/file object, singly or in an array. Both paths start with / and the location cannot duplicate another exact location."
+      },
+      "fallback": {"type": "string", "meaning": "Absolute fallback page for a static template.", "pattern": "^/[^\\s;{}\"'\\\\]*$"},
+      "owner-mac": {
+        "type": "string",
+        "meaning": "Optional lowercase MAC of the owner. Omission keeps a previous owner; a different existing owner is refused.",
+        "pattern": "^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$"
+      },
+      "origin": {"type": "string", "meaning": "Optional origin for portal ownership; omission keeps the previous value.", "enum": ["face", "tile"]},
+      "claim-tiles": {
+        "type": ["array", "string", "object"],
+        "meaning": "Portal names to mark as tiles when claiming unowned rows on the same LAN IP. Accepts an array, comma-separated names, or object keys; used only for an explicit face claim with an owner.",
+        "items": {"type": "string"}
+      },
+      "dry-run": {"type": "boolean", "meaning": "Run the four child plans without writing certificate, DNS, Nginx or the state ledger.", "default": false}
+    },
+    "required": ["portal", "lan-ip"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "dry-run": true,
+  "returns": {
+    "primitive": {"type": "string", "meaning": "The certificate operation (portal_admit), or error for the stop-level exception arm."},
+    "role": {"type": "string", "meaning": "Normalized appliance profile used by the certificate operation."},
+    "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
+    "state_generation": {"type": "integer", "meaning": "Reported generation of the certificate state, or 0 when not available."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "Whether clients must reinstall trust for the reported operation.", "const": false},
+    "portal": {"meaning": "The portal name; some pre-validation refusals echo the supplied value."},
+    "generation": {"type": "integer", "meaning": "Generation reported by the state-commit child on a completed composition."},
+    "children": {"type": "array", "meaning": "Results of constituent locking, leaf issuance, Nginx apply and state commit, in order as far as reached.", "items": {"type": "object"}},
+    "failed_child": {"type": "string", "meaning": "First child or profile gate that did not complete."},
+    "child_signal": {"type": "string", "meaning": "First failed child signal or exception text, distinct from the outer outcome token."},
+    "held_generation": {"type": "integer", "meaning": "Observed ledger generation after a child refusal."},
+    "hestia_seat": {"type": "string", "meaning": "Hestia seat status from the Nginx child.", "enum": ["present", "absent"]},
+    "skipped_fields": {"type": "array", "meaning": "Fields the Nginx child reported as not described by the Hestia seat.", "items": {"type": "string"}},
+    "served_fields": {"type": "array", "meaning": "On wrapper refusal, payload field names served, including notes from the active Hestia seat.", "items": {"type": "string"}},
+    "proof": {"type": "string", "meaning": "Evidence named by the primitive for this outcome."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success. Hestia also forwards the open forms unknown-field:<key>, agathodaimon-hestia-template-unknown:<value>, agathodaimon-hestia-file-absent:<key-or-path>, agathodaimon-hestia-template-hole-unfilled:<hole>, and agathodaimon-hestia-note-refused:<note> from the loaded seat or template. The enum lists fixed tokens and named note/required-hole tokens from the pinned Hestia seat, not unbounded suffixes. A second preflight can also return its raw ValueError text.",
+      "enum": ["none", "agathodaimon-nginx-input-invalid", "agathodaimon-hestia-seat-absent", "agathodaimon-hestia-seat-invalid", "agathodaimon-hestia-seat-foreign", "agathodaimon-portal-tailnet-name-unavailable", "agathodaimon-hestia-note-refused:alias", "agathodaimon-hestia-note-refused:cache-static", "agathodaimon-hestia-note-refused:cors", "agathodaimon-hestia-note-refused:fallback", "agathodaimon-hestia-note-refused:fpm", "agathodaimon-hestia-note-refused:root", "agathodaimon-hestia-template-hole-unfilled:root", "agathodaimon-hestia-template-hole-unfilled:fpm", "agathodaimon-portal-admit-profile-refused", "agathodaimon-portal-owner-conflict", "agathodaimon-portal-child-failed", "agathodaimon-house-ca-refused", "agathodaimon-house-ca-busy", "agathodaimon-house-ca-timeout"]
+    }
+  }
+}

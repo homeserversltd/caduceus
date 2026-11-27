@@ -1,0 +1,47 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/house-ca/converge-the-house-ca-state-to-one-named-transition",
+  "payload": {
+    "fields": {
+      "transition": {
+        "type": "object",
+        "meaning": "Merge requested portal or constituent rows and trust state into the house CA ledger. Empty is valid and still advances the generation outside a dry run. Portal and constituent inventories are accepted only on HomeServer.",
+        "properties": {
+          "root_fingerprint": {"meaning": "Replacement root fingerprint (including null); omitted keeps the stored value. Not type-checked by the merger."},
+          "bundle_installed": {"meaning": "Value coerced to a boolean; omission keeps the existing value or starts false."},
+          "portals": {
+            "type": "array",
+            "meaning": "Rows merged by a nonempty string fqdn; other members are kept.",
+            "items": {"type": "object", "required": ["fqdn"], "properties": {"fqdn": {"type": "string", "minLength": 1}}}
+          },
+          "constituents": {
+            "type": "array",
+            "meaning": "Rows merged by a nonempty string identity; other members are kept.",
+            "items": {"type": "object", "required": ["identity"], "properties": {"identity": {"type": "string", "minLength": 1}}}
+          }
+        }
+      },
+      "dry-run": {"type": "boolean", "meaning": "Validate the transition and report the next generation without writing the ledger.", "default": false}
+    },
+    "required": ["transition"]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "dry-run": true,
+  "returns": {
+    "primitive": {"type": "string", "meaning": "The certificate operation (state_commit), or error for the stop-level exception arm."},
+    "role": {"type": "string", "meaning": "Normalized appliance profile used by the certificate operation."},
+    "changed": {"type": "boolean", "meaning": "Whether the primitive reports a change; some failure paths may report partial effects."},
+    "dry_run": {"type": "boolean", "meaning": "Whether the primitive returned a dry-run receipt; a refusal before planning can report false."},
+    "state_generation": {"meaning": "Committed integer generation, or the previous uncoerced ledger value (default 0) on dry run."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "Whether clients must reinstall trust for the reported operation.", "const": false},
+    "next_generation": {"type": "integer", "meaning": "Generation the dry run would commit."},
+    "plan": {"type": "array", "meaning": "Ordered action names describing the proposed operation.", "items": {"type": "string"}},
+    "proof": {"type": "string", "meaning": "Evidence named by the primitive for this outcome."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none on success.",
+      "enum": ["none", "agathodaimon-house-ca-refused", "agathodaimon-house-ca-busy", "agathodaimon-house-ca-timeout"]
+    }
+  }
+}
