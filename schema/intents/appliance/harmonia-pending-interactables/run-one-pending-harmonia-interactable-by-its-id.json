@@ -1,0 +1,43 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/harmonia-pending-interactables/run-one-pending-harmonia-interactable-by-its-id",
+  "payload": {
+    "fields": {
+      "id": {
+        "type": "string",
+        "meaning": "Interactable id taken from the URL path."
+      }
+    },
+    "required": [
+      "id"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Wrapped child result."
+    },
+    "route": {
+      "type": "string",
+      "meaning": "interactable_run route key."
+    },
+    "exitCode": {
+      "type": "integer",
+      "meaning": "Child exit status."
+    },
+    "body": {
+      "type": "string",
+      "meaning": "Raw JSON or key=value child body."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed literal outcomes are enumerated; child first_missing_signal may pass through as <child signal text> and invocation errors as caduceus-harmonia-command-failed:<error text>. Child error text such as interactable-unknown-id <id> may instead be in body.",
+      "enum": [
+        "none",
+        "caduceus-harmonia-command-failed"
+      ]
+    }
+  }
+}

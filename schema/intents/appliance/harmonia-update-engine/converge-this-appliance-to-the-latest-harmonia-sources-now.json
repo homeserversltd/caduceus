@@ -1,0 +1,85 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/harmonia-update-engine/converge-this-appliance-to-the-latest-harmonia-sources-now",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "The detached launch was accepted or started; this does not establish convergence."
+    },
+    "route": {
+      "type": "string",
+      "meaning": "The update_now route key."
+    },
+    "exitCode": {
+      "type": "integer",
+      "meaning": "Launch response code."
+    },
+    "body": {
+      "type": "string",
+      "meaning": "Key=value launch response."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed launch outcomes are enumerated. Open forms include caduceus-harmonia-route-missing:<route>, caduceus-index-child-missing:<name>, caduceus-index-child-invalid:<name>, and crossing or operating-system error text.",
+      "enum": [
+        "none",
+        "caduceus-harmonia-update-argv-invalid",
+        "caduceus-update-cgroup-unavailable",
+        "caduceus-update-handoff-lock-unavailable",
+        "caduceus-update-handoff-lock-invalid",
+        "harmonia-update-lock-unreadable",
+        "harmonia-update-lock-invalid",
+        "harmonia-update-lock-pid-unavailable",
+        "harmonia-update-busy",
+        "caduceus-update-launch-handoff-unconfirmed",
+        "harmonia-update-start-unconfirmed",
+        "caduceus-agathodaimon-cli-missing",
+        "caduceus-snake-band-not-profile-lit",
+        "caduceus-agathodaimon-index-missing",
+        "caduceus-agathodaimon-index-invalid",
+        "caduceus-agathodaimon-index-children-invalid",
+        "caduceus-agathodaimon-index-children-missing",
+        "caduceus-index-child-invalid",
+        "caduceus-agathodaimon-cli-unavailable",
+        "caduceus-agathodaimon-cli-stdin-unavailable",
+        "caduceus-agathodaimon-cli-stdin-write-failed"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "meaning": "started, busy, unknown or failed."
+    },
+    "outcome": {
+      "type": "null",
+      "meaning": "The detached completion is not yet known."
+    },
+    "startedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Launch timestamp when available."
+    },
+    "runId": {
+      "type": "null",
+      "meaning": "No completed run id is provided."
+    },
+    "invocationId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Transient invocation correlation id."
+    },
+    "history": {
+      "type": "string",
+      "meaning": "Update history path."
+    }
+  }
+}

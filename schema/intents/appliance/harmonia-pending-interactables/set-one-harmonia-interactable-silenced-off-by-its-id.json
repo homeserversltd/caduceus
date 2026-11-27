@@ -1,0 +1,53 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-off-by-its-id",
+  "payload": {
+    "fields": {
+      "id": {
+        "type": "string",
+        "meaning": "Interactable id taken from the URL path."
+      }
+    },
+    "required": [
+      "id"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the silence operation succeeded."
+    },
+    "converged": {
+      "type": "boolean",
+      "meaning": "Whether the selected silence state was set."
+    },
+    "id": {
+      "type": "string",
+      "meaning": "Selected interactable id."
+    },
+    "silenced": {
+      "type": "boolean",
+      "meaning": "Resulting silence state."
+    },
+    "silenced_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Silence time or null."
+    },
+    "stamps": {
+      "type": "array",
+      "meaning": "Harmonia stamps."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The handler maps nonzero child and invalid JSON to this fixed literal; successful child JSON has no signal field.",
+      "enum": [
+        "caduceus-harmonia-command-failed"
+      ]
+    }
+  }
+}

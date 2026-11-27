@@ -1,0 +1,27 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/harmonia-pending-interactables/list-every-pending-harmonia-interactable",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "interactables": {
+      "type": "array",
+      "meaning": "The raw pending interactable feed, including silenced unsatisfied items on the JSON list path."
+    },
+    "receipts": {
+      "type": "array",
+      "meaning": "Feed receipts."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed refusal from the list handler; a successful raw feed supplies no signal field.",
+      "enum": [
+        "caduceus-harmonia-command-failed"
+      ]
+    }
+  }
+}

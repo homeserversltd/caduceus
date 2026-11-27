@@ -1,0 +1,84 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/harmonia-update-engine/converge-one-named-harmonia-module-on-this-appliance-now",
+  "payload": {
+    "fields": {
+      "target": {
+        "type": "object",
+        "meaning": "The module selected by the door.",
+        "fields": {
+          "module": {
+            "type": "string",
+            "meaning": "Module id selected by target.module."
+          }
+        },
+        "required": [
+          "module"
+        ]
+      },
+      "flags": {
+        "type": "object",
+        "meaning": "Apply is true for this act.",
+        "fields": {
+          "apply": {
+            "type": "boolean",
+            "meaning": "Select software application.",
+            "const": true
+          }
+        },
+        "required": [
+          "apply"
+        ]
+      }
+    },
+    "required": [
+      "target",
+      "flags"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the selected module invocation completed successfully."
+    },
+    "exitCode": {
+      "type": "integer",
+      "meaning": "Child status."
+    },
+    "receiptPayload": {
+      "type": [
+        "object",
+        "string"
+      ],
+      "meaning": "Parsed child JSON or the unparsed key=value body."
+    },
+    "rawChildStdout": {
+      "type": "string",
+      "meaning": "The child output as returned by the crossing."
+    },
+    "harmoniaReceipt": {
+      "type": "object",
+      "meaning": "Wrapped child response, including its own firstMissingSignal. When a non-raw invocation is used the body stamps mutation=true even for the observe-only act."
+    },
+    "first_missing_signal": {
+      "type": "string",
+      "meaning": "Outer route signal; the enum lists fixed literal outcomes. The nested harmoniaReceipt.firstMissingSignal can carry open module-unregistered-<id>, module-invalid <detail>, <module_id>-<operation_id>-failed, caduceus-harmonia-route-missing:<route>, or caduceus-harmonia-command-failed:<error text>. On homeserver and hometv update_module is absent and the child body carries caduceus-harmonia-route-missing:update_module.",
+      "enum": [
+        "none",
+        "caduceus-harmonia-command-failed"
+      ]
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed gate or request refusal signals; success ordinarily answers first_missing_signal instead.",
+      "enum": [
+        "caduceus-update-module-target-missing",
+        "caduceus-update-module-declaration-missing",
+        "caduceus-update-module-declaration-invalid",
+        "caduceus-update-module-serve-missing"
+      ]
+    }
+  }
+}

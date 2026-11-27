@@ -1,0 +1,117 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/harmonia-update-engine/verify-whether-a-harmonia-update-is-available-and-record-the-check",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the check answered successfully."
+    },
+    "pending": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "meaning": "Whether the check found pending software."
+    },
+    "first_missing_signal": {
+      "type": "string",
+      "meaning": "Fixed literals from the JSON child and stats store; absent on some gate refusals. The child can also pass through open error or tool text when the non-JSON fallback is used.",
+      "enum": [
+        "none",
+        "update-check-profile-unavailable",
+        "update-check-module-projection-failed",
+        "update-check-sidecar-unobserved",
+        "update-check-routine-unobserved",
+        "update-check-step-unobserved",
+        "update-check-index-refresh-failed",
+        "update-check-package-unobserved",
+        "update-check-ledger-unavailable",
+        "update-check-ledger-unobserved",
+        "caduceus-stats-store-unavailable"
+      ]
+    },
+    "checked_at": {
+      "type": "integer",
+      "meaning": "Check time."
+    },
+    "wearing": {
+      "type": "object",
+      "meaning": "Profile and source identity observed."
+    },
+    "modules": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Module observation summary."
+    },
+    "software": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Software observation summary."
+    },
+    "config": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Configuration proposal summary."
+    },
+    "interactables": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Pending interactable summary."
+    },
+    "interactables_signal": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Ledger observation signal."
+    },
+    "last_run": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Last run summary."
+    },
+    "unobserved_steps": {
+      "type": "array",
+      "meaning": "Unobserved step rows when supplied."
+    },
+    "index_refresh": {
+      "type": "string",
+      "meaning": "Package-index refresh state."
+    },
+    "freshness": {
+      "type": "string",
+      "meaning": "Observation freshness."
+    },
+    "cached_index_roots_consulted": {
+      "type": "array",
+      "meaning": "Consulted cached index roots."
+    },
+    "coverage": {
+      "type": "string",
+      "meaning": "Observation coverage."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Gate-stamped refusal field when present. The non-JSON fallback may additionally carry caduceus-harmonia-command-failed:<error text> or another passed-through child signal.",
+      "enum": [
+        "caduceus-harmonia-command-failed"
+      ]
+    }
+  }
+}
