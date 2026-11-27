@@ -31,7 +31,15 @@
         "transmission-key-file-unsafe",
         "transmission-key-path-unsafe",
         "transmission-key-presence-unobservable",
-        "transmission-root-required"
+        "transmission-portal-config-invalid",
+        "transmission-portal-config-read-failed",
+        "transmission-provider-metadata-invalid",
+        "transmission-provider-metadata-unreadable",
+        "transmission-request-invalid",
+        "transmission-root-required",
+        "transmission-vault-locked",
+        "transmission-vpn-config-invalid",
+        "transmission-vpn-provider-unknown"
       ]
     }
   }
