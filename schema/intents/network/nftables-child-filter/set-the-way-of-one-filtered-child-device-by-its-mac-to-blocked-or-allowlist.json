@@ -1,0 +1,256 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/nftables-child-filter/set-the-way-of-one-filtered-child-device-by-its-mac-to-blocked-or-allowlist",
+  "payload": {
+    "fields": {
+      "mac": {
+        "type": "string",
+        "meaning": "Device MAC address, with surrounding whitespace stripped. Accepted in compact or six-pair colon/dash form, case-insensitive; the all-zero and broadcast addresses are refused.",
+        "pattern": "^[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?!(?:0{12}|[fF]{12}|00(?:[:-]00){5}|[fF]{2}(?:[:-][fF]{2}){5})[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?![\\s\\S]))(?:[0-9A-Fa-f]{12}|[0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5})[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?![\\s\\S])"
+      },
+      "way": {
+        "type": "string",
+        "enum": [
+          "blocked",
+          "allowlist"
+        ],
+        "meaning": "The way the registered child moves to; moving to blocked forgets the list."
+      },
+      "hostnames": {
+        "type": "array",
+        "meaning": "Required non-empty with way allowlist; refused with way blocked.",
+        "maxItems": 64,
+        "items": {
+          "type": "string",
+          "meaning": "At most 253 input UTF-8 bytes. Requires two or more valid labels; IP literals, home.arpa and its subdomains are refused.",
+          "maxLength": 253,
+          "pattern": "^(?!(?:[A-Za-z0-9K-]+\\.)*[Hh][Oo][Mm][Ee]\\.[Aa][Rr][Pp][Aa]\\.*(?![\\s\\S]))(?!(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.*(?![\\s\\S]))[A-Za-z0-9K](?:[A-Za-z0-9K-]{0,61}[A-Za-z0-9K])?(?:\\.[A-Za-z0-9K](?:[A-Za-z0-9K-]{0,61}[A-Za-z0-9K])?)+\\.*(?![\\s\\S])"
+        }
+      },
+      "revision": {
+        "type": "string",
+        "meaning": "Expected current revision of the two owned drop-ins, as 64 lowercase hexadecimal characters.",
+        "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
+        "maxLength": 64
+      }
+    },
+    "required": [
+      "mac",
+      "way",
+      "revision"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "action": {
+      "type": "string",
+      "meaning": "The fixed action, or invalid before dispatch when the stop cannot read the envelope.",
+      "enum": [
+        "way-set",
+        "invalid"
+      ]
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Whether the stop reports a change, including effects not fully rolled back."
+    },
+    "message": {
+      "type": "string",
+      "meaning": "Human-readable outcome from the firewall actuator."
+    },
+    "revision": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Digest of the two owned files including presence, or null when no revision could be established.",
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "mac": {
+      "type": "string",
+      "meaning": "Device MAC in lowercase colon-separated form."
+    },
+    "enforcement": {
+      "type": "string",
+      "meaning": "applied once the child's rule reads back; for way allowlist, pending-renewal until a live lease exists and equals the reservation",
+      "enum": [
+        "applied",
+        "pending-renewal"
+      ]
+    },
+    "pinned": {
+      "type": "object",
+      "meaning": "Address binding and whether Kea created the reservation.",
+      "fields": {
+        "ip": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "Pinned reservation IPv4 address, or null if none was established."
+        },
+        "created": {
+          "type": "boolean",
+          "meaning": "Whether reservation handling reported a creation."
+        }
+      }
+    },
+    "rollback": {
+      "type": "string",
+      "meaning": "Whether rollback was unnecessary, restored the previous state, or was incomplete.",
+      "enum": [
+        "not-needed",
+        "restored",
+        "failed"
+      ]
+    },
+    "rollbackFiles": {
+      "type": "array",
+      "meaning": "Restoration outcomes for files the transaction touched; empty on success.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "path": {
+            "type": "string",
+            "meaning": "Owned file handled by the transaction."
+          },
+          "state": {
+            "type": "string",
+            "meaning": "Result of restoring this file.",
+            "enum": [
+              "restored",
+              "failed",
+              "restore-readback-failed",
+              "refused-identity-content-metadata-changed"
+            ]
+          }
+        }
+      }
+    },
+    "rollbackLiveNft": {
+      "type": "boolean",
+      "meaning": "On transaction failure, whether the previous live nftables state was confirmed or restored."
+    },
+    "rollbackUnboundReload": {
+      "type": "boolean",
+      "meaning": "On transaction failure, whether the rollback reload succeeded or was unnecessary."
+    },
+    "rollbackDnsReadback": {
+      "type": "boolean",
+      "meaning": "On transaction failure, whether the restored DNS view observations agreed."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Class of an unhandled exception reported by the staff front door, if any."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Outcome token; none means the stop completed. The stop rejects a raw envelope larger than 8192 UTF-8 bytes; a kernel omission names the missing seat keys in order.",
+      "enum": [
+        "none",
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: intent_id",
+        "missing envelope kernel keys: transition",
+        "missing envelope kernel keys: version",
+        "missing envelope kernel keys: timestamp",
+        "missing envelope kernel keys: intent_id,transition",
+        "missing envelope kernel keys: intent_id,version",
+        "missing envelope kernel keys: intent_id,timestamp",
+        "missing envelope kernel keys: transition,version",
+        "missing envelope kernel keys: transition,timestamp",
+        "missing envelope kernel keys: version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version",
+        "missing envelope kernel keys: intent_id,transition,timestamp",
+        "missing envelope kernel keys: intent_id,version,timestamp",
+        "missing envelope kernel keys: transition,version,timestamp",
+        "missing envelope kernel keys: intent_id,transition,version,timestamp",
+        "firewall-command-refused",
+        "firewall-command-unavailable",
+        "firewall-dhcp-binding-mismatch",
+        "firewall-dhcp-config-readback-unavailable",
+        "firewall-dhcp-lease-ambiguous",
+        "firewall-dhcp-leases-unavailable",
+        "firewall-dhcp-manager-unavailable",
+        "firewall-dhcp-reservation-ambiguous",
+        "firewall-dhcp-reservation-invalid",
+        "firewall-dhcp-reservation-readback-mismatch",
+        "firewall-dhcp-reservation-readback-unavailable",
+        "firewall-dhcp-reservation-update-failed",
+        "firewall-dhcp-reservation-update-readback-failed",
+        "firewall-dhcp-router-ambiguous",
+        "firewall-dhcp-router-binding-mismatch",
+        "firewall-dhcp-router-invalid",
+        "firewall-dhcp-subnets-invalid",
+        "firewall-file-cas-conflict",
+        "firewall-file-identity-changed",
+        "firewall-file-install-readback-failed",
+        "firewall-file-metadata-readback-failed",
+        "firewall-file-not-regular",
+        "firewall-file-open-refused",
+        "firewall-file-readback-failed",
+        "firewall-file-too-large",
+        "firewall-hostname-invalid",
+        "firewall-input-too-large",
+        "firewall-installed-readback-mismatch",
+        "firewall-mac-invalid",
+        "firewall-mac-not-observed",
+        "firewall-neighbor-readback-invalid",
+        "firewall-nft-live-policy-mismatch",
+        "firewall-nft-live-readback-invalid",
+        "firewall-nft-live-rule-mismatch",
+        "firewall-nft-live-table-mismatch",
+        "firewall-nft-live-table-presence-mismatch",
+        "firewall-nft-owned-file-foreign-content",
+        "firewall-nft-owned-file-invalid",
+        "firewall-operation-failed",
+        "firewall-operation-unavailable",
+        "firewall-owned-policy-mismatch",
+        "firewall-temp-create-refused",
+        "firewall-transaction-failed",
+        "firewall-unbound-live-readback-invalid",
+        "firewall-unbound-live-view-missing",
+        "firewall-unbound-live-zone-mismatch",
+        "firewall-unbound-owned-file-foreign-content",
+        "firewall-unbound-owned-file-invalid",
+        "firewall-unbound-policy-mismatch",
+        "agathodaimon-stop-raised",
+        "firewall-way-invalid",
+        "firewall-allowlist-empty",
+        "firewall-way-hostnames-refused",
+        "firewall-hostnames-invalid",
+        "firewall-intent-shape-invalid",
+        "firewall-child-not-registered",
+        "firewall-revision-conflict",
+        "firewall-revision-invalid",
+        "firewall-hostname-global-zone-conflict",
+        "firewall-nft-live-set-mismatch",
+        "firewall-nft-resolver-presets-invalid"
+      ]
+    },
+    "way": {
+      "type": "string",
+      "enum": [
+        "blocked",
+        "allowlist"
+      ],
+      "meaning": "The child's way."
+    },
+    "hostnames": {
+      "type": "array",
+      "meaning": "Sorted exact allowed FQDNs with a trailing dot.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "attemptedHostnames": {
+      "type": "array",
+      "meaning": "Requested FQDNs when the transaction fails and restoration could not be confirmed.",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

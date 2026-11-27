@@ -1,0 +1,52 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/lan0-neighbor-table/list-the-ipv4-neighbors-on-lan0-from-the-kernel-neighbour-table-without-sending-packets",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "neighbors": {
+      "type": "array",
+      "meaning": "The passive snapshot of IPv4 neighbors on lan0, sorted by numeric IP address.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "mac": {
+            "type": "string",
+            "meaning": "Lowercase colon-separated MAC address."
+          },
+          "ip": {
+            "type": "string",
+            "meaning": "Canonical IPv4 address."
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "First kernel neighbor-state word, or null when no state was reported."
+          }
+        }
+      }
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "No managed mutation is reported.",
+      "const": false
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop's outcome token; none when no signal is missing.",
+      "enum": [
+        "agathodaimon-neighbor-ip-failed",
+        "agathodaimon-neighbor-ip-output-invalid",
+        "agathodaimon-neighbor-ip-timeout",
+        "invalid-envelope",
+        "none"
+      ]
+    }
+  }
+}

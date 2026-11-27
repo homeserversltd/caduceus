@@ -1,0 +1,49 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/wake-on-lan/send-a-wake-on-lan-magic-packet-to-one-lan-device-by-its-mac-and-broadcast",
+  "payload": {
+    "fields": {
+      "mac": {
+        "type": "string",
+        "meaning": "Target MAC address: six hexadecimal octets separated consistently by colons or by hyphens.",
+        "pattern": "^[0-9A-Fa-f]{2}(?:(?::[0-9A-Fa-f]{2}){5}|(?:-[0-9A-Fa-f]{2}){5})$(?![\\s\\S])",
+        "maxLength": 17
+      },
+      "broadcast": {
+        "type": "string",
+        "meaning": "Destination IPv4 address for the wake datagram; omission uses the limited broadcast address.",
+        "default": "255.255.255.255"
+      }
+    },
+    "required": [
+      "mac"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "mac": {
+      "type": "string",
+      "meaning": "Normalized lowercase colon-separated target MAC."
+    },
+    "broadcast": {
+      "type": "string",
+      "meaning": "Canonical destination IPv4 address used for the send."
+    },
+    "error": {
+      "type": "string",
+      "meaning": "Input diagnostic or datagram-send error on refusal."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop's outcome token; none when no signal is missing.",
+      "enum": [
+        "none",
+        "wake-broadcast-invalid",
+        "wake-envelope-invalid",
+        "wake-mac-invalid",
+        "wake-send-failed"
+      ]
+    }
+  }
+}
