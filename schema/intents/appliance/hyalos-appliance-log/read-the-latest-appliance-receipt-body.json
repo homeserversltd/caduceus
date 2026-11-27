@@ -21,8 +21,6 @@
       "meaning": "The enum lists fixed literal outcomes. ",
       "enum": [
         "none",
-        "caduceus-public-action-not-allowed",
-        "caduceus-carapace-desync",
         "caduceus-blocking-task-join-failed",
         "caduceus-receipt-missing"
       ]

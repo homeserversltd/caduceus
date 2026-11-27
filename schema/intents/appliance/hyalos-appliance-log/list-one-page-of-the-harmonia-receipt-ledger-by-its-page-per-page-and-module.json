@@ -67,14 +67,10 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "The enum lists fixed literal outcomes. ",
+      "meaning": "The enum lists fixed literal outcomes from this door. A successful producer page passes through its firstMissingSignal as <producer signal text>; the ledger page seat describes none and caduceus-ledger-empty, but the producer value is not constrained by this door.",
       "enum": [
-        "none",
-        "caduceus-public-action-not-allowed",
-        "caduceus-carapace-desync",
         "caduceus-blocking-task-join-failed",
-        "caduceus-harmonia-ledger-unreadable",
-        "caduceus-ledger-empty"
+        "caduceus-harmonia-ledger-unreadable"
       ]
     },
     "schema": {

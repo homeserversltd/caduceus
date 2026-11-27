@@ -234,8 +234,6 @@
       "meaning": "The enum lists fixed literal outcomes. The open form hyalos-stamp-invalid: <integer parser error> can also appear.",
       "enum": [
         "none",
-        "caduceus-public-action-not-allowed",
-        "caduceus-carapace-desync",
         "caduceus-blocking-task-join-failed",
         "caduceus-hyalos-write-local-only",
         "hyalos-reflection-invalid",
@@ -243,7 +241,6 @@
         "hyalos-level-invalid",
         "hyalos-stamp-invalid",
         "hyalos-run-profile-run-id-missing",
-        "hyalos-channel-serialize-failed",
         "hyalos-channel-event-too-large"
       ]
     },

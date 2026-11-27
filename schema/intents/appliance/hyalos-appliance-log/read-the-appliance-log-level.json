@@ -32,8 +32,6 @@
       "type": "string",
       "meaning": "The enum lists fixed literal outcomes. Set can also pass through configuration-update error text from the config writer.",
       "enum": [
-        "caduceus-public-action-not-allowed",
-        "caduceus-carapace-desync",
         "caduceus-blocking-task-join-failed",
         "seat-unreadable",
         "seat-invalid",

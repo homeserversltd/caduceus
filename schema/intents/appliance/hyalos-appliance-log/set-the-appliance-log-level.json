@@ -13,7 +13,7 @@
     ]
   },
   "exousia": true,
-  "mutation_allowed": null,
+  "mutation_allowed": true,
   "returns": {
     "ok": {
       "type": "boolean",
@@ -43,8 +43,6 @@
       "type": "string",
       "meaning": "The enum lists fixed literal outcomes. Set can also pass through configuration-update error text from the config writer.",
       "enum": [
-        "caduceus-public-action-not-allowed",
-        "caduceus-carapace-desync",
         "caduceus-blocking-task-join-failed",
         "seat-unreadable",
         "seat-invalid",
@@ -55,13 +53,13 @@
         "caduceus-household-config-path-invalid",
         "exousia-pin-required",
         "caduceus-administrative-request-too-large",
-        "caduceus-administrative-request-invalid",
         "caduceus-household-config-lock-unavailable",
         "caduceus-household-config-installed-path-missing",
         "caduceus-household-config-missing",
         "caduceus-household-config-invalid",
-        "caduceus-household-config-render-failed",
-        "caduceus-household-config-write-failed"
+        "caduceus-household-config-write-failed",
+        "caduceus-config-target-symlink",
+        "caduceus-household-config-profile-unknown: /etc/appliance/profile.json"
       ]
     }
   }
