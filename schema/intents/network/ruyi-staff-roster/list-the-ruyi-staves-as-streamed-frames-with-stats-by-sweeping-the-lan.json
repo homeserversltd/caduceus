@@ -22,6 +22,11 @@
   "exousia": false,
   "mutation_allowed": null,
   "returns": {
+    "schema": {
+      "type": "string",
+      "meaning": "Each streamed frame carries this schema identifier.",
+      "const": "caduceus.ruyi.stream.v1"
+    },
     "event": {
       "type": "string",
       "meaning": "Each NDJSON frame is begin, member, complete or failed.",
@@ -34,7 +39,8 @@
     },
     "sequence": {
       "type": "integer",
-      "meaning": "Zero-based request-local frame sequence."
+      "meaning": "Zero-based request-local frame sequence.",
+      "minimum": 0
     },
     "snapshot_at": {
       "type": "integer",
@@ -61,7 +67,8 @@
     },
     "signal": {
       "type": "string",
-      "meaning": "Failed frame signal: sweep-timeout, backpressure-timeout, probe-task-failed, probe-result-unmatched or serialization-failed."
+      "meaning": "Failed frame signal.",
+      "enum": ["sweep-timeout", "backpressure-timeout", "probe-task-failed", "probe-result-unmatched", "serialization-failed"]
     },
     "firstMissingSignal": {
       "type": "string",

@@ -18,8 +18,8 @@
         "const": "pin-check"
       },
       "flags": {
-        "type": "object",
-        "meaning": "flags.exousia.pin carries the administrative PIN, never in command-line arguments; local verifier accepts a nonempty string at most 512 bytes. On a remote target it is forwarded."
+        "type": ["array", "object", "string", "number", "boolean", "null"],
+        "meaning": "The flags.exousia.pin value carries the administrative PIN, never in command-line arguments; local verifier accepts a nonempty string at most 512 bytes. Other flags shapes supply no PIN. On a remote target the extracted PIN is forwarded, including null when absent. The entire raw POST body is at most 4096 bytes and is refused when the exact byte sequence \"pin\": occurs more than once."
       }
     },
     "required": [
@@ -50,7 +50,7 @@
     },
     "answers": {
       "type": "array",
-      "meaning": "Entries contain mac, hostname, proven, signal and answer; signal can be null or a peer/local outcome and answer can be null."
+      "meaning": "Entries contain mac, hostname, proven, signal and answer; signal can be null or a peer/local outcome and answer can be null. A proven remote POST includes peerStatus, the parsed HTTP status as an integer or null."
     },
     "firstMissingSignal": {
       "type": "string",
