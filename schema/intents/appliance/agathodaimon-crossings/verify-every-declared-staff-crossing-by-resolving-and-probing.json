@@ -6,7 +6,7 @@
     "required": []
   },
   "exousia": false,
-  "mutation_allowed": null,
+  "mutation_allowed": false,
   "returns": {
     "observed": {
       "type": "array",
