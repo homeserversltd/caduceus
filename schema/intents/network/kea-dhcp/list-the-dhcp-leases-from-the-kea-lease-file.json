@@ -1,0 +1,27 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/kea-dhcp/list-the-dhcp-leases-from-the-kea-lease-file",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the lease read succeeded."},
+    "command": {"type": "string", "meaning": "The old command identifying the read."},
+    "actuatorId": {"type": "string", "meaning": "The DHCP leases actuator identifier."},
+    "payload": {"type": "object", "meaning": "The native read's action, actuator, outcome, mutation flag and result.", "fields": {
+      "action": {"type": "string", "const": "leases", "meaning": "The read action."},
+      "actuator": {"type": "string", "const": "network.dhcp.leases", "meaning": "The native actuator identifier."},
+      "ok": {"type": "boolean", "meaning": "Whether the native read succeeded."},
+      "firstMissingSignal": {"type": "string", "meaning": "The native read outcome token."},
+      "mutationPerformed": {"type": "boolean", "const": false, "meaning": "The read reports no mutation."},
+      "result": {"type": ["array", "null"], "meaning": "Current leases, or null on native read failure.", "items": {"type": "object", "fields": {
+        "mac": {"type": "string", "meaning": "Normalized hardware address."},
+        "ip": {"type": "string", "meaning": "Lease address."},
+        "hostname": {"type": "string", "meaning": "Lease hostname or empty string."},
+        "last_activity": {"type": "string", "meaning": "Expiry less valid lifetime in epoch seconds, or empty string when unavailable."},
+        "provenance": {"type": "string", "const": "observed", "meaning": "The row comes from the lease file."}
+      }}}
+    }},
+    "firstMissingSignal": {"type": "string", "meaning": "Outcome or refusal token.", "enum": ["none", "not-the-gateway", "caduceus-network-dhcp-config-missing", "caduceus-network-dhcp-config-invalid", "caduceus-network-dhcp-leases-missing", "caduceus-network-dhcp-leases-invalid", "caduceus-network-dhcp-clock-invalid", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-blocking-task-join-failed"]}
+  }
+}

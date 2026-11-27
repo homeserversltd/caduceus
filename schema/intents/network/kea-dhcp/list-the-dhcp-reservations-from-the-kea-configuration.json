@@ -1,0 +1,26 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/kea-dhcp/list-the-dhcp-reservations-from-the-kea-configuration",
+  "payload": {"fields": {}, "required": []},
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the reservation read succeeded."},
+    "command": {"type": "string", "meaning": "The old command identifying the read."},
+    "actuatorId": {"type": "string", "meaning": "The DHCP reservations actuator identifier."},
+    "payload": {"type": "object", "meaning": "The native read's action, actuator, outcome, mutation flag and result.", "fields": {
+      "action": {"type": "string", "const": "reservations", "meaning": "The read action."},
+      "actuator": {"type": "string", "const": "network.dhcp.reservations", "meaning": "The native actuator identifier."},
+      "ok": {"type": "boolean", "meaning": "Whether the native read succeeded."},
+      "firstMissingSignal": {"type": "string", "meaning": "The native read outcome token."},
+      "mutationPerformed": {"type": "boolean", "const": false, "meaning": "The read reports no mutation."},
+      "result": {"type": ["array", "null"], "meaning": "Reservations, or null on native read failure.", "items": {"type": "object", "fields": {
+        "mac": {"type": "string", "meaning": "Normalized hardware address."},
+        "ip": {"type": "string", "meaning": "Configured address."},
+        "hostname": {"type": "string", "meaning": "Configured hostname or empty string."},
+        "provenance": {"type": "string", "const": "declared", "meaning": "The row comes from the configuration."}
+      }}}
+    }},
+    "firstMissingSignal": {"type": "string", "meaning": "Outcome or refusal token.", "enum": ["none", "not-the-gateway", "caduceus-network-dhcp-config-missing", "caduceus-network-dhcp-config-invalid", "caduceus-network-dhcp-reservations-invalid", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-blocking-task-join-failed"]}
+  }
+}

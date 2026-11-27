@@ -1,0 +1,24 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/kea-dhcp/list-the-dhcp-doorways-from-the-kea-configuration",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the doorway read succeeded."},
+    "command": {"type": "string", "meaning": "The old command identifying the read."},
+    "actuatorId": {"type": "string", "meaning": "The DHCP doorways actuator identifier."},
+    "payload": {"type": "object", "meaning": "The native read's action, actuator, outcome, mutation flag and result.", "fields": {
+      "action": {"type": "string", "const": "doorways", "meaning": "The read action."},
+      "actuator": {"type": "string", "const": "network.dhcp.doorways", "meaning": "The native actuator identifier."},
+      "ok": {"type": "boolean", "meaning": "Whether the native read succeeded."},
+      "firstMissingSignal": {"type": "string", "meaning": "The native read outcome token."},
+      "mutationPerformed": {"type": "boolean", "const": false, "meaning": "The read reports no mutation."},
+      "result": {"type": ["array", "null"], "meaning": "MAC and class pairs parsed from client classes, or null on failure.", "items": {"type": "object", "fields": {
+        "mac": {"type": "string", "meaning": "MAC parsed from a class test."},
+        "class": {"type": "string", "meaning": "Configured client-class name."}
+      }}}
+    }},
+    "firstMissingSignal": {"type": "string", "meaning": "Outcome or refusal token.", "enum": ["none", "not-the-gateway", "caduceus-network-dhcp-config-missing", "caduceus-network-dhcp-config-invalid", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-blocking-task-join-failed"]}
+  }
+}
