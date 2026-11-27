@@ -172,6 +172,14 @@ pub(crate) fn intent_exousia(intent: &str) -> Option<bool> {
     declaration.get("exousia")?.as_bool()
 }
 
+/// Required payload fields from a readable, valid intent seat, if declared.
+pub(crate) fn intent_required_payload(intent: &str) -> Option<Vec<String>> {
+    let bytes = registry().ok()?.intents.get(&format!("intents/{intent}"))?;
+    let declaration: Value = serde_json::from_str(bytes).ok()?;
+    declaration.pointer("/payload/required")?.as_array()?.iter()
+        .map(|field| field.as_str().map(str::to_owned)).collect()
+}
+
 fn loaded_registry() -> &'static Registry {
     registry().expect("caduceus-seat-foreign: startup initialization failed")
 }
