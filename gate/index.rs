@@ -678,7 +678,9 @@ fn intent_seat_administrative(method: &str, path: &str) -> Option<bool> {
             None => crate::routes::SELECTED_UNIVERSAL_DOORS.contains(name).then_some("POST"),
         };
         if declaration["namespace"].as_str() != Some(*name)
-            || declared_path != path || declared_method != Some(method)
+            || declared_path != path
+            || !(declared_method == Some(method)
+                || (method == "HEAD" && declared_method == Some("GET")))
         {
             continue;
         }
