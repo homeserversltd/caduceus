@@ -48,7 +48,7 @@
     ]
   },
   "exousia": true,
-  "mutation_allowed": true,
+  "mutation_allowed": null,
   "returns": {
     "ok": {
       "type": "boolean",
