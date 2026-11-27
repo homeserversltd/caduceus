@@ -70,13 +70,13 @@ fn envelope(ok: bool, code: &'static str) -> Value {
 }
 
 /// Interpret the household switch for all administrative readers.
-pub(crate) fn pin_mode_checked() -> Result<bool, String> {
+fn pin_mode_value() -> Result<Option<bool>, String> {
     let path = crate::shared::config::path("/etc/appliance/config.json");
     let text = match fs::read_to_string(&path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return match fs::symlink_metadata(&path) {
-                Err(missing) if missing.kind() == std::io::ErrorKind::NotFound => Ok(false),
+                Err(missing) if missing.kind() == std::io::ErrorKind::NotFound => Ok(None),
                 _ => Err("exousia-config-unreadable".into()),
             };
         }
@@ -85,14 +85,23 @@ pub(crate) fn pin_mode_checked() -> Result<bool, String> {
     let document: Value = serde_json::from_str(&text)
         .map_err(|_| "exousia-config-unreadable".to_string())?;
     match document.pointer("/global/admin/pin_required") {
-        None => Ok(false),
-        Some(value) => value.as_bool().ok_or_else(|| "exousia-config-unreadable".into()),
+        None => Ok(None),
+        Some(value) => value.as_bool().map(Some).ok_or_else(|| "exousia-config-unreadable".into()),
     }
 }
 
+pub(crate) fn pin_mode_checked() -> Result<bool, String> {
+    pin_mode_value().map(|value| value.unwrap_or(false))
+}
+
 pub(crate) fn pin_mode_read() -> Result<bool, String> {
-    // Existing callers treat Err as false; project the closed state as required.
-    Ok(pin_mode_checked().unwrap_or(true))
+    // Existing callers treat Err as false; project untrusted state as required,
+    // but preserve their readability indication for absent files and keys.
+    match pin_mode_value() {
+        Err(_) => Ok(true),
+        Ok(Some(value)) => Ok(value),
+        Ok(None) => Err("caduceus-access-pin-mode-unreadable".into()),
+    }
 }
 
 pub fn pin_mode_json() -> Value {
