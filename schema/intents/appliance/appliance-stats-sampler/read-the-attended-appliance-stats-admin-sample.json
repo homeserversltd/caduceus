@@ -1,0 +1,17 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/appliance-stats-sampler/read-the-attended-appliance-stats-admin-sample",
+  "payload": {"fields": {}, "required": []},
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the admin indicator sample was produced."},
+    "ts": {"type": "integer", "meaning": "Admin indicator sample timestamp."},
+    "power": {"type": "object", "meaning": "Power watts, sources, time and source signal."},
+    "tailscale": {"type": "object", "meaning": "Attended Tailscale indicator."},
+    "internet": {"type": "object", "meaning": "Attended public IP indicator."},
+    "services": {"meaning": "Attended service indicator."},
+    "vpn": {"meaning": "Attended VPN indicator."},
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed literal gate and operation outcomes; the handler also requires document and attendance headers. Successful samples carry individual indicator signals inside their blocks.", "enum": ["exousia-pin-required", "exousia-pin-wrong", "exousia-pin-not-yet-provisioned", "caduceus-administrative-request-too-large", "caduceus-administrative-request-invalid", "caduceus-attendance-not-current", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-identity-missing", "caduceus-operation-failed", "caduceus-blocking-task-join-failed"]}
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-carapace/read-the-build-time-carapace-feature-tree-of-one-named-profile-by-its-name",
+  "payload": {"fields": {"profile": {"type": "string", "meaning": "Name of the profile whose build-time feature tree is requested."}}, "required": ["profile"]},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed literal outcomes of this CLI act; none are emitted as this field. An unknown profile exits 2 and prints the open form caduceus-profile-unknown:<profile> to stderr.", "enum": []}
+  }
+}

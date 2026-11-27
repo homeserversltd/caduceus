@@ -1,0 +1,11 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/appliance-stats-sampler/ask-the-stats-sampler-to-verify-model-lanes-on-its-next-tick",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "result": {"type": "array", "meaning": "When load context is present, the gate wraps the current cached model lanes in result; otherwise the array is the whole success response. The requested scan occurs on a later tick."},
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed literal gate and operation outcomes. The success response is the current array and does not supply this field.", "enum": ["caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-identity-missing", "caduceus-operation-failed", "caduceus-blocking-task-join-failed"]}
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/appliance-stats-sampler/list-the-appliance-stats-history-samples-by-tier-and-time-window",
+  "payload": {
+    "fields": {
+      "tier": {"type": "string", "meaning": "History tier; omission selects both.", "enum": ["raw", "minute", "both", "self"], "default": "both"},
+      "since": {"type": "integer", "meaning": "Inclusive lower Unix-second bound. Omission uses until minus the raw retention for raw tier, otherwise the minute retention."},
+      "until": {"type": "integer", "meaning": "Inclusive upper Unix-second bound; omission selects the current time."},
+      "limit": {"type": "integer", "meaning": "Unsigned per-tier count, clamped to 1 through 20000. Omission selects 3600 raw points and 10080 minute or self points.", "minimum": 0}
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "retention": {"type": "object", "meaning": "Raw, minute and self retention seconds and maximum points."},
+    "consolidation": {"type": "object", "meaning": "Description of the raw and minute sample consolidation."},
+    "window": {"type": "object", "meaning": "Selected tier, since, until and effective per-tier limit."},
+    "tiers": {"type": "object", "meaning": "raw, minute and self arrays of selected samples, oldest first."},
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists the fixed literal gate and operation outcomes, including the gate's normalization of an invalid query.", "enum": ["caduceus-request-query-invalid", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-identity-missing", "caduceus-operation-failed", "caduceus-blocking-task-join-failed"]}
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-carapace/read-the-active-carapace-profile-with-its-build-identity",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "profile": {"type": "string", "meaning": "Active embedded carapace profile."},
+    "gui_face": {"meaning": "The embedded profile's GUI face, when supplied."},
+    "mode": {"meaning": "The embedded profile's mode, when supplied."},
+    "services": {"meaning": "The embedded profile's service declarations, when supplied."},
+    "harmonia_routes": {"meaning": "The embedded profile's Harmonia route declarations, when supplied."},
+    "sclerites": {"meaning": "The embedded profile's sclerite selections, when supplied."},
+    "source_sha": {"type": ["string", "null"], "meaning": "Build-time Caduceus source identity, or null when absent."},
+    "build_env_sha": {"type": ["string", "null"], "meaning": "Build-time environment identity, or null when absent."},
+    "firstMissingSignal": {"type": "string", "meaning": "The handler returns the embedded profile with build identity and does not itself return a firstMissingSignal; the enum lists its fixed literal outcomes, of which there are none.", "enum": []}
+  }
+}
