@@ -44,23 +44,24 @@
               "weekday": {
                 "type": [
                   "string",
-                  "null"
+                  "null",
+                  "boolean",
+                  "number",
+                  "array",
+                  "object"
                 ],
-                "meaning": "Weekly requires Mon through Sun; daily ignores weekday, including null.",
-                "enum": [
-                  "Mon",
-                  "Tue",
-                  "Wed",
-                  "Thu",
-                  "Fri",
-                  "Sat",
-                  "Sun",
-                  null
-                ]
+                "meaning": "The daily calendar ignores this value of any JSON type. Weekly requires Mon, Tue, Wed, Thu, Fri, Sat, or Sun. weekday takes precedence over day when present."
               },
               "day": {
-                "type": "string",
-                "meaning": "Fallback for weekday; weekly accepts Mon through Sun."
+                "type": [
+                  "string",
+                  "null",
+                  "boolean",
+                  "number",
+                  "array",
+                  "object"
+                ],
+                "meaning": "The daily calendar ignores this value of any JSON type. Weekly requires Mon, Tue, Wed, Thu, Fri, Sat, or Sun. This is the fallback only when weekday is absent."
               }
             }
           },
@@ -185,6 +186,30 @@
         "pid2-schedule-weekday-unusable",
         "pid2-database-lock-poisoned",
         "pid2-envelope-too-large"
+      ]
+    },
+    "first_missing_signal": {
+      "type": "string",
+      "meaning": "HTTP refusal field, identical to firstMissingSignal on that refusal. Open forms are the same HTTP refusal forms described for firstMissingSignal.",
+      "enum": [
+        "pid2-door-busy",
+        "pid2-door-task-failed",
+        "pid2-schedule-seat-absent",
+        "pid2-schedule-seat-invalid",
+        "pid2-schedule-seat-foreign",
+        "pid2-schedule-seat-fields-invalid",
+        "pid2-schedule-schema-desync",
+        "pid2-schedule-schema-kernel-missing",
+        "pid2-schedule-schema-kernel-invalid",
+        "pid2-schedule-unusable",
+        "pid2-schedule-id-unusable",
+        "pid2-schedule-band-unusable",
+        "pid2-schedule-action-unusable",
+        "pid2-schedule-deadline-unusable",
+        "pid2-schedule-frequency-unusable",
+        "pid2-schedule-time-unusable",
+        "pid2-schedule-weekday-unusable",
+        "pid2-database-lock-poisoned"
       ]
     }
   }

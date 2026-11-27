@@ -55,6 +55,18 @@
         "pid2-schedule-seat-foreign",
         "pid2-schedule-seat-fields-invalid"
       ]
+    },
+    "first_missing_signal": {
+      "type": "string",
+      "meaning": "HTTP refusal field, identical to firstMissingSignal on that refusal. Open forms are the same HTTP refusal forms described for firstMissingSignal.",
+      "enum": [
+        "pid2-door-busy",
+        "pid2-door-task-failed",
+        "pid2-schedule-seat-absent",
+        "pid2-schedule-seat-invalid",
+        "pid2-schedule-seat-foreign",
+        "pid2-schedule-seat-fields-invalid"
+      ]
     }
   }
 }
