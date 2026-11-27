@@ -3,7 +3,7 @@
   "intent": "appliance/household-notification-ledger/admit-one-house-link-up-notification-by-its-id",
   "payload": {
     "fields": {
-      "id": {"type": "string", "meaning": "Identifier from the accept route path; the selected ledger row must be a pending house-link-up."},
+      "id": {"type": "string", "meaning": "Identifier from the accept route path. A pending house-link-up enters admission; another pending row follows the existing generic accept action."},
       "schema": {"type": ["string", "null"], "meaning": "When present and non-null, the old request's schema must equal caduceus.notifications.v1.", "enum": ["caduceus.notifications.v1", null]},
       "names": {"type": ["array", "null"], "meaning": "Unique .home.arpa names; absent or null uses the candidate's names. Each label is 1–63 lowercase ASCII letters, digits or hyphens, with no leading or trailing hyphen.", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 11, "maxLength": 73, "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.home\\.arpa$"}},
       "dry_run": {"type": ["boolean", "null", "string", "number", "object", "array"], "meaning": "Only the literal true selects the portal-admit plan instead of the write. All other JSON values, including null, proceed as non-dry-run; the existing notification schema declares boolean or null."}
@@ -14,20 +14,35 @@
   "mutation_allowed": true,
   "dry-run": true,
   "returns": {
-    "schema": {"type": "string", "const": "caduceus.notifications.v1", "meaning": "Schema on local success and refusal; a failed portal-admit receipt is passed through whole instead."},
+    "schema": {"type": ["string", "number", "boolean", "null", "array", "object"], "meaning": "Local success and refusal use caduceus.notifications.v1. A failed portal-admit receipt is passed through whole, including its own schema if present."},
     "ok": {"type": "boolean", "meaning": "Success or refusal of the composite operation."},
     "id": {"type": "string", "meaning": "Accepted ledger row ID on successful mutation."},
     "state": {"type": "string", "meaning": "Accepted after a successful house-link-up admission; another notification kind follows notify act and may return its resulting or prior state."},
     "portal": {"type": "string", "meaning": "The first selected name."},
     "names": {"type": "array", "items": {"type": "string"}, "meaning": "The selected names."},
     "staff": {"type": ["string", "number", "boolean", "null", "array", "object"], "meaning": "The portal-admit receipt on successful or incomplete house-link-up convergence, or the notify-act receipt for another notification kind; a failed portal-admit receipt instead becomes the whole top-level return."},
-    "dry_run": {"type": "boolean", "const": true, "meaning": "Present on a planned admission."},
+    "dry_run": {"type": "boolean", "meaning": "True on a locally planned admission; a passed-through portal-admit refusal may report false."},
     "attempted": {"type": "boolean", "const": false, "meaning": "The planned admission has not been attempted."},
     "argv": {"type": "array", "items": {"type": "string"}, "meaning": "The planned portal-admit argument vector on dry run."},
     "child_portals": {"type": "array", "meaning": "The child-portal plan on dry run; actual child results are nested in staff on success."},
+    "primitive": {"type": "string", "meaning": "Portal-admit primitive on a passed-through receipt."},
+    "role": {"type": "string", "meaning": "Appliance profile on a passed-through portal-admit receipt."},
+    "changed": {"type": "boolean", "meaning": "Change reported by a passed-through portal-admit receipt, including partial effects."},
+    "state_generation": {"type": "integer", "meaning": "Certificate state generation from a passed-through receipt."},
+    "client_reinstall_required": {"type": "boolean", "meaning": "Trust reinstall posture from a passed-through receipt."},
+    "generation": {"type": "integer", "meaning": "Certificate commit generation on a passed-through receipt."},
+    "children": {"type": "array", "meaning": "Composition children returned by a passed-through receipt."},
+    "failed_child": {"type": "string", "meaning": "First failed child from a passed-through receipt."},
+    "child_signal": {"type": "string", "meaning": "Child signal or exception text from a passed-through receipt."},
+    "held_generation": {"type": "integer", "meaning": "Held generation on a passed-through receipt."},
+    "hestia_seat": {"type": "string", "meaning": "Hestia seat status from a passed-through receipt."},
+    "skipped_fields": {"type": "array", "meaning": "Skipped Hestia fields from a passed-through receipt."},
+    "served_fields": {"type": "array", "meaning": "Served field names from a passed-through receipt."},
+    "proof": {"type": "string", "meaning": "Evidence named in a passed-through receipt."},
+    "error": {"type": ["string", "number", "boolean", "null", "array", "object"], "meaning": "An error value carried by a passed-through receipt; it is not renamed firstMissingSignal."},
     "firstMissingSignal": {
       "type": ["string", "number", "boolean", "null", "array", "object"],
-      "meaning": "The enum lists fixed literal outcomes. The returned portal-admit receipt is passed through whole and can carry arbitrary firstMissingSignal of any JSON type or error text.",
+      "meaning": "The enum lists fixed literal outcomes. The returned portal-admit receipt is passed through whole and can carry firstMissingSignal of any JSON type or open text; its separate error field is not renamed.",
       "enum": ["link-up-accept-on-homeserver", "notification-act-on-homeserver", "link-up-admin-required", "link-up-busy", "link-up-request-invalid", "link-up-schema-desync", "notification-state-unavailable", "notification-absent", "notification-not-pending", "notification-verb-unknown", "notification-staff-forbidden", "notification-staff-unavailable", "link-up-roster-unavailable", "link-up-name-invalid", "link-up-name-taken", "link-up-name-observation-failed", "link-up-portal-status-unavailable", "link-up-child-mac-unavailable", "link-up-child-address-unavailable", "link-up-bind-memory-unavailable", "link-up-portal-admit-unavailable", "link-up-portal-admit-incomplete"]
     }
   }
