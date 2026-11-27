@@ -1014,15 +1014,18 @@ async fn administrative_route_gate(mut request: Request<Body>, next: middleware:
     if !administrative || hyalos_read {
         // The staff socket keeps its original read path. Off it the log
         // requires current Admin Mode, even where ordinary doors waive the PIN.
-        if hyalos_read
-            && !matches!(request_connection(&request), Some(ConnectionInfo::Unix { .. }))
-            && !administrative_attendance_admits(request.headers())
-        {
-            return api_error_signal(
-                "administrative route gate",
-                "caduceus-hyalos-read-admin-required",
-            )
-            .into_response();
+        if hyalos_read && !matches!(request_connection(&request), Some(ConnectionInfo::Unix { .. })) {
+            // Existing attendance cannot make an untrusted config trustworthy.
+            if let Err(signal) = administrative_pin_required() {
+                return api_error_signal("administrative route gate", &signal).into_response();
+            }
+            if !administrative_attendance_admits(request.headers()) {
+                return api_error_signal(
+                    "administrative route gate",
+                    "caduceus-hyalos-read-admin-required",
+                )
+                .into_response();
+            }
         }
         request.headers_mut().insert(
             INTERNAL_ADMIN_GATE_HEADER,
