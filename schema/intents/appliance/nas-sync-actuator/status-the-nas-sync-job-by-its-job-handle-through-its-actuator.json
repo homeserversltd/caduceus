@@ -5,11 +5,11 @@
     "fields": {
       "jobHandle": {
         "type": "string",
-        "meaning": "Job handle; handle is the fallback when jobHandle is absent."
+        "meaning": "Job handle; handle is the fallback when jobHandle is absent. A successful lookup requires a handle matching the most recent fire; absent both aliases becomes an empty string."
       },
       "handle": {
         "type": "string",
-        "meaning": "Fallback for jobHandle."
+        "meaning": "Fallback for jobHandle. It must match the most recent fire when jobHandle is absent."
       },
       "action": {
         "type": "string",

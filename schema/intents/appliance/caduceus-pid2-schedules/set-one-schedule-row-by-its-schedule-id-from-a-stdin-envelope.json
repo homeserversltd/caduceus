@@ -42,8 +42,11 @@
                 "meaning": "Fallback for time in HH:MM."
               },
               "weekday": {
-                "type": "string",
-                "meaning": "Required for weekly; ignored for daily.",
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "meaning": "Weekly requires Mon through Sun; daily ignores weekday, including null.",
                 "enum": [
                   "Mon",
                   "Tue",
@@ -51,7 +54,8 @@
                   "Thu",
                   "Fri",
                   "Sat",
-                  "Sun"
+                  "Sun",
+                  null
                 ]
               },
               "day": {
@@ -84,7 +88,7 @@
                   "object",
                   "null"
                 ],
-                "meaning": "Job payload carried with the registration."
+                "meaning": "Job payload carried with the registration. During execution, dryRun is not a control: it is filtered and non-NAS jobs force false."
               }
             },
             "required": [

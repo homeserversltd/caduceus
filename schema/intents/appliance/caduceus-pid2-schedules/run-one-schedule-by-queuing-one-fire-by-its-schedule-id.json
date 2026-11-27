@@ -9,15 +9,17 @@
       },
       "round": {
         "type": "boolean",
-        "meaning": "CLI --round selects round rather than owner trigger; a disabled schedule is refused for round."
+        "meaning": "CLI --round selects round rather than owner trigger; a disabled schedule is refused for round.",
+        "default": false
       },
       "wait": {
         "type": "boolean",
-        "meaning": "CLI --wait waits for the queued fire to reach a terminal state."
+        "meaning": "CLI --wait waits for the queued fire to reach a terminal state.",
+        "default": false
       },
       "deadline_seconds": {
         "type": "integer",
-        "meaning": "CLI --deadline-seconds requires --wait and a positive integer.",
+        "meaning": "CLI --deadline-seconds requires --wait and a positive integer. Without an explicit deadline, --wait uses max_seconds + 300 seconds.",
         "minimum": 1
       }
     },
@@ -50,7 +52,7 @@
     },
     "signal": {
       "type": "string",
-      "meaning": "CLI wait or argument failure signal."
+      "meaning": "CLI argument or wait failure, or a queue refusal when --round is selected."
     },
     "firstMissingSignal": {
       "type": "string",

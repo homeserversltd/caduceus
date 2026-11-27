@@ -8,8 +8,15 @@
         "meaning": "Schedule id; HTTP reads schedule_id and the CLI uses its positional id."
       },
       "calendar": {
-        "type": "object",
-        "meaning": "Optional nested calendar patch; otherwise calendar keys are read from the patch itself.",
+        "type": [
+          "object",
+          "null",
+          "array",
+          "string",
+          "number",
+          "boolean"
+        ],
+        "meaning": "If calendar is an object its fields are used; otherwise the patch itself supplies calendar fields.",
         "fields": {
           "frequency": {
             "type": "string",
@@ -28,8 +35,11 @@
             "meaning": "Fallback for time in HH:MM."
           },
           "weekday": {
-            "type": "string",
-            "meaning": "Required for weekly; ignored for daily.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Weekly requires Mon through Sun; daily ignores weekday, including null.",
             "enum": [
               "Mon",
               "Tue",
@@ -37,7 +47,8 @@
               "Thu",
               "Fri",
               "Sat",
-              "Sun"
+              "Sun",
+              null
             ]
           },
           "day": {
@@ -77,8 +88,11 @@
         "meaning": "Fallback for time in HH:MM."
       },
       "weekday": {
-        "type": "string",
-        "meaning": "Required for weekly; ignored for daily.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "meaning": "Weekly requires Mon through Sun; daily ignores weekday, including null.",
         "enum": [
           "Mon",
           "Tue",
@@ -86,7 +100,8 @@
           "Thu",
           "Fri",
           "Sat",
-          "Sun"
+          "Sun",
+          null
         ]
       },
       "day": {
@@ -111,7 +126,7 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: <raw SQLite or filesystem error text>, <stored JSON parser error text>, and pid2-invalid-json: <parser message> on HTTP. Also protocol-kernel-field-missing:<field>, protocol-kernel-definition-missing:<index>, and pid2-command-wake-persist-failed: <error>.",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: <raw SQLite or filesystem error text>, <stored JSON parser error text>, and pid2-invalid-json: <parser message> on HTTP. Also protocol-kernel-field-missing:<field>, protocol-kernel-definition-missing:<index>, and pid2-command-wake-persist-failed: <error>. The CLI update also passes through <raw stdin JSON parser error text>.",
       "enum": [
         "none",
         "pid2-door-busy",
