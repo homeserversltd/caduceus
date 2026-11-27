@@ -13,7 +13,7 @@
     ]
   },
   "exousia": false,
-  "mutation_allowed": null,
+  "mutation_allowed": true,
   "returns": {
     "ok": {
       "type": "boolean",
@@ -35,15 +35,16 @@
       "type": "integer",
       "meaning": "Remaining catalog entries."
     },
-    "firstMissingSignal": {
+    "first_missing_signal": {
       "type": "string",
-      "meaning": "The enum lists fixed literal outcomes. The CLI can print <raw filesystem or SQLite error text>.",
+      "meaning": "CLI spelling of the outcome or refusal signal. The enum lists fixed literal outcomes. The CLI can print <raw filesystem or SQLite error text>.",
       "enum": [
         "none",
         "caduceus-pjlink-catalog-import-required",
         "caduceus-pjlink-catalog-lock-poisoned",
         "caduceus-public-action-not-allowed",
-        "caduceus-carapace-desync"
+        "caduceus-carapace-desync",
+        "caduceus-pjlink-catalog-unreadable"
       ]
     }
   }

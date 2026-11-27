@@ -100,7 +100,6 @@
       "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: caduceus-pjlink-device-invalid:<serde error>, caduceus-pjlink-resolve-failed:<OS error>, caduceus-pjlink-connect-failed:<OS error>, caduceus-pjlink-read-timeout-set-failed:<OS error>, caduceus-pjlink-write-timeout-set-failed:<OS error>, caduceus-pjlink-stream-clone-failed:<OS error>, caduceus-pjlink-greeting-read-failed:<OS error>, caduceus-pjlink-write-failed:<OS error>, caduceus-pjlink-flush-failed:<OS error>, caduceus-pjlink-response-read-failed:<OS error>. Also caduceus-pjlink-product-scan-invalid:<serialization error>. Also <raw filesystem or SQLite error text>.",
       "enum": [
         "none",
-        "caduceus-pjlink-devices-missing",
         "caduceus-pjlink-device-missing",
         "caduceus-pjlink-resolve-empty",
         "caduceus-pjlink-password-required",
@@ -115,7 +114,31 @@
         "caduceus-pjlink-catalog-lock-poisoned",
         "caduceus-public-action-not-allowed",
         "caduceus-carapace-desync",
-        "caduceus-blocking-task-join-failed"
+        "caduceus-blocking-task-join-failed",
+        "caduceus-pjlink-catalog-unreadable"
+      ]
+    },
+    "first_missing_signal": {
+      "type": "string",
+      "meaning": "CLI spelling of the outcome or refusal signal. The enum lists fixed literal outcomes. Open forms can also appear: caduceus-pjlink-device-invalid:<serde error>, caduceus-pjlink-resolve-failed:<OS error>, caduceus-pjlink-connect-failed:<OS error>, caduceus-pjlink-read-timeout-set-failed:<OS error>, caduceus-pjlink-write-timeout-set-failed:<OS error>, caduceus-pjlink-stream-clone-failed:<OS error>, caduceus-pjlink-greeting-read-failed:<OS error>, caduceus-pjlink-write-failed:<OS error>, caduceus-pjlink-flush-failed:<OS error>, caduceus-pjlink-response-read-failed:<OS error>. Also caduceus-pjlink-product-scan-invalid:<serialization error>. Also <raw filesystem or SQLite error text>.",
+      "enum": [
+        "none",
+        "caduceus-pjlink-device-missing",
+        "caduceus-pjlink-resolve-empty",
+        "caduceus-pjlink-password-required",
+        "caduceus-pjlink-greeting-invalid",
+        "caduceus-pjlink-manufacturer-unexpected-response",
+        "caduceus-pjlink-product_name-unexpected-response",
+        "caduceus-pjlink-other_info-unexpected-response",
+        "caduceus-pjlink-class-unexpected-response",
+        "caduceus-pjlink-product-scan-empty",
+        "caduceus-pjlink-catalog-schema-desync",
+        "caduceus-pjlink-catalog-import-required",
+        "caduceus-pjlink-catalog-lock-poisoned",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-pjlink-catalog-unreadable"
       ]
     }
   }

@@ -30,16 +30,16 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "The enum lists fixed literal outcomes. The CLI also prints <raw filesystem or SQLite error text> and caduceus-pjlink-catalog-schema-desync; the HTTP gated read maps errors to the listed tokens.",
+      "meaning": "The enum lists fixed literal outcomes. The CLI also prints <raw filesystem or SQLite error text>; the HTTP gated read maps errors to the listed tokens.",
       "enum": [
         "none",
         "caduceus-pjlink-catalog-import-required",
-        "caduceus-identity-missing",
         "caduceus-operation-failed",
         "caduceus-public-action-not-allowed",
         "caduceus-carapace-desync",
         "caduceus-blocking-task-join-failed",
-        "caduceus-pjlink-catalog-schema-desync"
+        "caduceus-pjlink-catalog-schema-desync",
+        "caduceus-pjlink-catalog-unreadable"
       ]
     }
   }
