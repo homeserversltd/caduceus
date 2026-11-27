@@ -87,15 +87,25 @@ fn https(url: &str, token: &str) -> Result<HttpsResponse> {
         return Err(observation("F", "forge.credential", "forge-credential-unavailable"));
     }
     let escaped = token.replace('\\', "\\\\").replace('"', "\\\"");
+    let system_ca = Path::new("/etc/ssl/certs/ca-certificates.crt");
+    let house_ca = std::env::var_os("CADUCEUS_CERT_DIR")
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| crate::shared::config::path("var/lib/caduceus/certs"))
+        .join("ca.pem");
     let mut loopback = true;
     loop {
         let mut command = Command::new("/usr/bin/curl");
         command.arg("--disable");
         if loopback {
-            // Force a direct connection even when a proxy is configured; keep the URL
-            // and its TLS name unchanged and use the same CA bundle on both attempts.
+            // Force a direct connection while preserving the URL and TLS name.
             command.args(["--noproxy", "git.home.arpa", "--resolve", "git.home.arpa:443:127.0.0.1"]);
         }
+        let ca = if loopback && house_ca.is_file() && std::fs::File::open(&house_ca).is_ok() {
+            house_ca.as_path()
+        } else {
+            system_ca
+        };
         let mut child = command
             .args([
                 "--silent",
@@ -113,7 +123,9 @@ fn https(url: &str, token: &str) -> Result<HttpsResponse> {
                 "--write-out",
                 "%{http_code}",
                 "--cacert",
-                "/etc/ssl/certs/ca-certificates.crt",
+            ])
+            .arg(ca)
+            .args([
                 "--config",
                 "-",
                 "--url",
