@@ -1,0 +1,14 @@
+{
+  "namespace": "storage/nas/prefire",
+  "admittance": "open",
+  "flags": {},
+  "serve": [],
+  "commands": ["storage nas prefire"],
+  "needs": ["nas"],
+  "profiles": ["homeserver"],
+  "http_method": "POST",
+  "http_path": "/api/v1/storage/nas/prefire",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "mutation_allowed": false
+}

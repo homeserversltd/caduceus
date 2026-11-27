@@ -73,6 +73,8 @@ impl NasRole {
 struct NasSetupBody {
     device: String,
     role: NasRole,
+    #[serde(default)]
+    flash: bool,
 }
 
 async fn setup_route(
@@ -104,9 +106,33 @@ async fn setup_route(
 
     let payload = json!({"device": body.device, "role": body.role.as_str()});
     let projection_request = payload.clone();
+    #[cfg(leaf_storage_nas_prefire)]
+    let flash = body.flash;
+    #[cfg(not(leaf_storage_nas_prefire))]
+    let _ = body.flash;
     let context = crate::shared::load_trace::current();
     let task = tokio::spawn(async move {
         let response = async {
+            #[cfg(leaf_storage_nas_prefire)]
+            let prefire = {
+                let device = projection_request["device"].as_str().unwrap_or("").to_owned();
+                let role = projection_request["role"].as_str().unwrap_or("").to_owned();
+                crate::gate::blocking_task(COMMAND, move || crate::routes::leaf_storage_nas_prefire::judge(&device, &role)).await
+                    .unwrap_or_else(|_| crate::routes::leaf_storage_nas_prefire::answer("nas-prefire-unavailable"))
+            };
+            #[cfg(leaf_storage_nas_prefire)]
+            {
+                let signal = prefire["firstMissingSignal"].as_str().unwrap_or("nas-prefire-unavailable");
+                let refusal = if signal != "none" { Some(signal) }
+                    else if prefire["blank"] != true && !flash { Some("nas-drive-not-blank") }
+                    else { None };
+                if let Some(signal) = refusal {
+                    let mut face = project_chord(&json!({"ok":false,"firstMissingSignal":signal}), &projection_request);
+                    face["prefire"] = prefire.clone();
+                    face["lockedIn"] = json!(false);
+                    return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(face)));
+                }
+            }
             let crossed = crate::gate::blocking_task(COMMAND, move || {
                 crate::shared::load_trace::with_blocking_context(context, || {
                     crate::gate::snake::crossing_path_with_chord_grace(
@@ -129,7 +155,26 @@ async fn setup_route(
             if crate::routes::leaf_schema::accepts("caduceus.chord.receipt.v1", &receipt)
                 && receipt.get("routine_id").and_then(Value::as_str) == Some("storage/nas/setup")
             {
-                let face = project_chord(&receipt, &projection_request);
+                let mut face = project_chord(&receipt, &projection_request);
+                #[cfg(leaf_storage_nas_prefire)]
+                if receipt.get("ok").and_then(Value::as_bool) == Some(true) {
+                    let device = projection_request["device"].as_str().unwrap_or("").to_owned();
+                    let role = projection_request["role"].as_str().unwrap_or("").to_owned();
+                    let verb = if prefire["blank"] == false && flash { "flash" } else { "stamp" };
+                    let written = crate::gate::blocking_task(COMMAND, move || {
+                        use crate::routes::leaf_storage_nas_locked_in_list as table;
+                        let started = std::time::Instant::now();
+                        let observation = crate::routes::leaf_storage_nas_prefire::observe(&device, &role)?;
+                        let uuid = observation["partUuid"].as_str().filter(|s| !s.is_empty())?;
+                        let size = observation["sizeBytes"].as_i64().filter(|n| *n > 0)?;
+                        let drive = table::LockedInDrive { part_uuid: uuid.to_owned(), role: role.clone(), holder: "this".into(), size_bytes: size, locked_in_at: chrono::Utc::now().to_rfc3339() };
+                        if !table::insert_row(&drive).ok()? { return None; }
+                        let _ = crate::shared::hyalos::reflect_json_with_stderr_fallback(json!({"organ":"nas-lock-in","kind":"deed","ok":true,"message":"nas lock-in deed","attributes_redacted":{"who":role,"verb":verb,"target":uuid,"outcome":"complete","signal":"none","duration_ms":started.elapsed().as_millis().min(u64::MAX as u128) as u64}}));
+                        Some(())
+                    }).await.ok().flatten().is_some();
+                    face["lockedIn"] = json!(written);
+                    if written { face["prefire"] = prefire; }
+                }
                 if let Some(object) = receipt.as_object_mut() {
                     object.entry("face").or_insert(face);
                 }

@@ -381,7 +381,15 @@ async fn revoke(mac: String) -> Result<(Value, bool), Failure> {
             Ok(())
         }).await?;
     }
-    blocking(move || change(&mac, false)).await
+    blocking(move || {
+        let (mut value, changed) = change(&mac, false)?;
+        #[cfg(leaf_storage_nas_locked_in_list)]
+        {
+            let signal = if crate::routes::leaf_storage_nas_locked_in_list::delete_by_holder(&mac).is_err() { "nas-lock-in-unavailable" } else { "none" };
+            value["firstMissingSignal"] = json!(signal);
+        }
+        Ok((value, changed))
+    }).await
 }
 
 fn report(body: &Value) -> Result<(Value, bool), Failure> {
@@ -497,7 +505,7 @@ async fn handle(OriginalUri(uri): OriginalUri, peer: Option<ConnectInfo<crate::g
         } else { blocking(move || basic(&verb, &body, peer)).await };
         if mutation {
             let deed_outcome = match &result {
-                Ok((_, true)) => Some((true, "none")),
+                Ok((value, true)) => Some((true, if deed == "revoke" && value["firstMissingSignal"] == "nas-lock-in-unavailable" { "nas-lock-in-unavailable" } else { "none" })),
                 Err((_, signal)) => Some((false, *signal)),
                 _ => None,
             };
