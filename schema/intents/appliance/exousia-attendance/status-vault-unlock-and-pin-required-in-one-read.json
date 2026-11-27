@@ -1,0 +1,21 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/exousia-attendance/status-vault-unlock-and-pin-required-in-one-read",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "The combined read returns true even when either source is unreadable."},
+    "vault": {"type": "object", "meaning": "Vault posture and readability.", "fields": {
+      "present": {"type": "boolean", "meaning": "A vault is declared."},
+      "mounted": {"type": "boolean", "meaning": "The declared vault is mounted."},
+      "auto_decrypt_enabled": {"type": "boolean", "meaning": "Automatic decryption is enabled."},
+      "unlock_required": {"type": "boolean", "meaning": "A present unmounted vault without automatic decryption needs unlock."},
+      "readable": {"type": "boolean", "meaning": "The vault posture read succeeded."}
+    }},
+    "pin": {"type": "object", "meaning": "PIN requirement and readability.", "fields": {
+      "pin_required": {"type": "boolean", "meaning": "The PIN-required setting, false on an unreadable value."},
+      "readable": {"type": "boolean", "meaning": "The PIN mode read succeeded."}
+    }}
+  }
+}

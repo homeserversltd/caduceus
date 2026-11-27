@@ -1,0 +1,16 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/exousia-attendance/reset-the-exousia-attendance-posture-by-ending-the-current-attendance",
+  "payload": {"fields": {
+    "attendance": {"type": "string", "meaning": "Current attendance identifier; nonempty, at most 512 UTF-8 bytes."},
+    "documentId": {"type": "string", "meaning": "Document identifier; nonempty, at most 512 UTF-8 bytes."},
+    "documentIncarnation": {"type": "string", "meaning": "Document incarnation; nonempty, at most 512 UTF-8 bytes."}
+  }, "required": ["attendance", "documentId", "documentIncarnation"]},
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the matching attendance was removed."},
+    "code": {"type": "string", "meaning": "Attendance outcome on the underlying successful result."},
+    "firstMissingSignal": {"type": "string", "meaning": "Outcome or refusal token.", "enum": ["none", "caduceus-attendance-attendance-missing", "caduceus-attendance-documentId-missing", "caduceus-attendance-documentIncarnation-missing", "caduceus-attendance-unavailable", "caduceus-attendance-not-current", "caduceus-attendance-document-incarnation-mismatch", "caduceus-attendance-refused", "caduceus-blocking-task-join-failed"]}
+  }
+}

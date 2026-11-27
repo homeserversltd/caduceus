@@ -1,0 +1,20 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/agathodaimon-staff-library/read-the-staff-library-status-and-one-band-by-its-band-path",
+  "payload": {"fields": {"bandPath": {"type": "string", "meaning": "Optional query name of a band; invalid or absent names do not produce a band result."}}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "The status result reports true even when the shelf index is unavailable."},
+    "profile": {"type": "string", "meaning": "Active build profile."},
+    "shelfRoot": {"type": "string", "meaning": "Staff library root."},
+    "shelfPresent": {"type": "boolean", "meaning": "Whether the shelf root is a directory."},
+    "cliEntry": {"type": "string", "meaning": "Selected staff CLI path."},
+    "cliEntryResolved": {"type": "boolean", "meaning": "Whether the CLI path names a file."},
+    "indexedBands": {"type": "array", "meaning": "Index entries, when the index can be read."},
+    "bandPath": {"type": "string", "meaning": "Matched active-profile band, when present."},
+    "facePath": {"type": ["string", "null"], "meaning": "Matched band's face path, when present."},
+    "bandPresent": {"type": "boolean", "meaning": "Whether the matched face is a file."},
+    "firstMissingSignal": {"type": "string", "meaning": "Status or blocking-task outcome.", "enum": ["none", "caduceus-agathodaimon-index-missing", "caduceus-blocking-task-join-failed"]}
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/exousia-attendance/read-exousia-posture-bound-or-unbound",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether posture was read."},
+    "posture": {"type": "string", "meaning": "Whether a configured PIN is readable.", "enum": ["BOUND", "UNBOUND"]},
+    "bound": {"type": "boolean", "meaning": "Whether a configured PIN is readable."},
+    "storedVerifierPresent": {"type": "boolean", "meaning": "Retired verifier field, always false."},
+    "currentPresent": {"type": "boolean", "meaning": "Retired verifier field, always false."},
+    "epochMatches": {"type": "boolean", "meaning": "Retired verifier field, always false."},
+    "firstMissingSignal": {"type": "string", "meaning": "Gate or task refusal; the underlying successful posture object does not set it.", "enum": ["caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-blocking-task-join-failed"]}
+  }
+}

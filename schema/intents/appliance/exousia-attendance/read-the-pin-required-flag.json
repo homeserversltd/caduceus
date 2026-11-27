@@ -1,0 +1,12 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/exousia-attendance/read-the-pin-required-flag",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "The read reports true even when the configuration value cannot be read."},
+    "pin_required": {"type": "boolean", "meaning": "The configured global.admin.pin_required; false if unreadable or invalid."},
+    "firstMissingSignal": {"type": "string", "meaning": "Read or task outcome.", "enum": ["none", "caduceus-blocking-task-join-failed"]}
+  }
+}
