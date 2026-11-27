@@ -19,7 +19,7 @@
     },
     "required": ["bundle"]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": null,
   "dry-run": true,
   "returns": {

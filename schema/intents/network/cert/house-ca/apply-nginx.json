@@ -73,7 +73,7 @@
     },
     "required": ["portal"]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "dry-run": true,
   "returns": {

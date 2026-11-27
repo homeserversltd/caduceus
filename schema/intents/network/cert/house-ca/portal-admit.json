@@ -83,7 +83,7 @@
     },
     "required": ["portal", "lan-ip"]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "dry-run": true,
   "returns": {

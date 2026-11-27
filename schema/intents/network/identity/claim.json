@@ -18,7 +18,7 @@
     },
     "required": ["mac", "hostname"]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": null,
   "returns": {
     "actuator": {"type": "string", "const": "network.identity.claim", "meaning": "Identity claim coordinator, when it returned a transaction result."},

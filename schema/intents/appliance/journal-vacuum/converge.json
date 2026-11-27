@@ -5,7 +5,7 @@
     "fields": {},
     "required": []
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "freed_bytes": {

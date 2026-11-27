@@ -15,7 +15,7 @@
     },
     "required": ["portal", "owner-mac"]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "dry-run": true,
   "returns": {

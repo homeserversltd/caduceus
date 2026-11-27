@@ -10,7 +10,7 @@
     },
     "required": []
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": true,
   "returns": {
     "action": {"type": "string", "meaning": "Fixed certificate action.", "const": "refresh"},
