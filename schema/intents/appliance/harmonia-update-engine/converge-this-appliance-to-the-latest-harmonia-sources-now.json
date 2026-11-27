@@ -26,7 +26,7 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "Fixed launch outcomes are enumerated. Open forms include caduceus-harmonia-route-missing:<route>, caduceus-index-child-missing:<name>, caduceus-index-child-invalid:<name>, and crossing or operating-system error text. A gate refusal is a caduceus.staff.receipt.v1, not the successful leaf response; admission configuration errors are also fixed literals. The Ruyi road local target verifies a PIN even though its route is open; remote peer refusal text is carried instead as answers[0].signal.",
+      "meaning": "Fixed launch outcomes are enumerated. Open forms include caduceus-harmonia-route-missing:<route>, caduceus-index-child-missing:<name>, caduceus-index-child-invalid:<name>, and crossing or operating-system error text. A gate refusal is a caduceus.staff.receipt.v1, not the successful leaf response; admission configuration errors are also fixed literals. These fields describe the direct update-now door; the Ruyi road wraps its answer separately.",
       "enum": [
         "none",
         "caduceus-harmonia-update-argv-invalid",
@@ -53,15 +53,7 @@
         "caduceus-administrative-config-unavailable",
         "caduceus-administrative-config-invalid",
         "caduceus-administrative-profile-invalid",
-        "caduceus-administrative-routes-invalid",
-        "road-act-body-invalid",
-        "road-act-pin-carrier-duplicated",
-        "payload-invalid",
-        "exousia-pin-required",
-        "exousia-pin-not-yet-provisioned",
-        "exousia-pin-wrong",
-        "caduceus-ruyi-store-failed",
-        "caduceus-ruyi-row-invalid"
+        "caduceus-administrative-routes-invalid"
       ]
     },
     "state": {
@@ -93,22 +85,6 @@
     "history": {
       "type": "string",
       "meaning": "Update history path."
-    },
-    "service": {
-      "type": "string",
-      "meaning": "Ruyi road response identifies caduceus."
-    },
-    "seat": {
-      "type": "object",
-      "meaning": "Ruyi road answering seat identity."
-    },
-    "thing": {
-      "type": "string",
-      "meaning": "Ruyi road thing, update-now."
-    },
-    "answers": {
-      "type": "array",
-      "meaning": "Ruyi road answers entries contain mac, hostname, proven, signal and answer; remote entries also include peerStatus. signal may be null or a fixed target-unknown, timeout, unreachable, seat-mac-unknown, seat-mac-mismatch, or act-door-absent, or the open peer-returned <signal text>. Outer ok=true does not imply that the nested signal is null."
     }
   }
 }
