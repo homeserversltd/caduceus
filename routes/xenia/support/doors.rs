@@ -158,6 +158,9 @@ pub async fn admit(body: Body) -> Reply {
 }
 
 pub async fn observe(Path(id): Path<String>, body: Body) -> Reply {
+    if let Err(error) = authorized() {
+        return finish(&id, "observe", true, 0, result_value(Err(error), "admissible"));
+    }
     let started = Instant::now();
     let parsed = input(body);
     let worker_id = id.clone();
@@ -232,6 +235,9 @@ pub async fn observe(Path(id): Path<String>, body: Body) -> Reply {
 }
 
 pub async fn run(Path(id): Path<String>, body: Body) -> Reply {
+    if let Err(error) = authorized() {
+        return finish(&id, "run", true, 0, result_value(Err(error), "ran"));
+    }
     let started = Instant::now();
     let parsed = input(body);
     let worker_id = id.clone();

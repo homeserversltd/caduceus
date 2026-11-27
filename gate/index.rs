@@ -655,6 +655,51 @@ fn record_admission_refusal(method: &str, path: &str, signal: &str, started: Ins
     }));
 }
 
+// Resolve only a leaf's own declared method and path, not a parent, alias,
+// operation, parameter pattern, or another method on the same path.
+fn intent_seat_administrative(method: &str, path: &str) -> Option<bool> {
+    const FUSED: &[&str] = &[
+        "local-ai/slot", "transmission/keys", "appliance/service",
+        "portals/service-control", "appliance/sudo-passwordless",
+    ];
+    let mut matched = None;
+    for name in crate::routes::SELECTED_LEAF_MODULES {
+        let Some(source) = crate::routes::selected_declaration(name) else { continue; };
+        let Ok(declaration) = serde_json::from_str::<Value>(source) else { continue; };
+        let declared_path = match declaration.get("http_path") {
+            Some(value) => match value.as_str() {
+                Some(path) => path.to_owned(),
+                None => continue,
+            },
+            None => format!("/api/v1/{name}"),
+        };
+        let declared_method = match declaration.get("http_method") {
+            Some(value) => value.as_str(),
+            None => crate::routes::SELECTED_UNIVERSAL_DOORS.contains(name).then_some("POST"),
+        };
+        if declaration["namespace"].as_str() != Some(*name)
+            || declared_path != path || declared_method != Some(method)
+        {
+            continue;
+        }
+        // Ambiguous declarations cannot name one intent.
+        if matched.is_some() { return None; }
+        matched = Some((*name, declaration));
+    }
+    let (name, declaration) = matched?;
+    let snakes: Vec<&str> = declaration["serve"].as_array().into_iter().flatten()
+        .filter_map(|step| step.get("snake").and_then(Value::as_str)).collect();
+    if snakes.len() > 1 || FUSED.contains(&name) { return None; }
+    let (seat, exousia) = if let Some(value) = crate::routes::leaf_schema::intent_exousia(name) {
+        (name, value)
+    } else {
+        let seat = *snakes.first()?;
+        (seat, crate::routes::leaf_schema::intent_exousia(seat)?)
+    };
+    if FUSED.contains(&seat) { return None; }
+    Some(exousia || declaration["administrative"].as_bool() == Some(true))
+}
+
 fn administrative_routes_match(method: Option<&str>, path: &str) -> Result<bool, String> {
     // Exact path precedence covers both middleware (Some(method)) and direct
     // administrative admission (None); do not widen it to a vault namespace.
@@ -665,6 +710,9 @@ fn administrative_routes_match(method: Option<&str>, path: &str) -> Result<bool,
     }
     if path == "/api/v1/storage/vault/auto-decrypt" {
         return Ok(true);
+    }
+    if let Some(answer) = method.and_then(|method| intent_seat_administrative(method, path)) {
+        return Ok(answer);
     }
     // The compiled leaf owns its classification. An older staff mirror cannot
     // turn a newly declared administrative deed into an unattended request.
