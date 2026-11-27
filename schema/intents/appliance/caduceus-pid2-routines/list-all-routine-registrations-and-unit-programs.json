@@ -1,0 +1,39 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-pid2-routines/list-all-routine-registrations-and-unit-programs",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "registrations": {
+      "type": "array",
+      "meaning": "Registration rows include routine_id, enabled, registered_at, held, held_at, envelope and raw_envelope.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "programs": {
+      "type": "array",
+      "meaning": "Program rows include unit, scope, routine_id, desired, life, last_receipt, updated_at and the systemd cache observation.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: <raw SQLite error text>, <stored-envelope JSON parser message>. On success the final receipt reports none.",
+      "enum": [
+        "none",
+        "pid2-door-busy",
+        "pid2-door-task-failed",
+        "pid2-routine-seat-absent",
+        "pid2-routine-seat-invalid",
+        "pid2-routine-seat-foreign",
+        "pid2-routine-seat-fields-invalid"
+      ]
+    }
+  }
+}

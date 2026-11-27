@@ -1,0 +1,64 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-pid2-routines/status-one-routine-by-its-routine-id",
+  "payload": {
+    "fields": {
+      "id": {
+        "type": "string",
+        "meaning": "The id path parameter, matched against routine_id or unit in program rows."
+      }
+    },
+    "required": [
+      "id"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "registration": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "The registration, or null when no matching registration exists. Existing rows include routine_id, enabled, registered_at, envelope and raw_envelope."
+    },
+    "held": {
+      "type": "boolean",
+      "meaning": "Whether the routine is held, when the registration table exists."
+    },
+    "held_at": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "meaning": "Hold timestamp, or null if not held; absent if the database or registration table is missing."
+    },
+    "lines": {
+      "type": "array",
+      "meaning": "Line rows include routine_id, line, value, state, observed_at and reason.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "programs": {
+      "type": "array",
+      "meaning": "Program rows include unit, scope, routine_id, desired, life, last_receipt, updated_at and the systemd cache observation.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: <raw SQLite error text>, <stored-envelope JSON parser message>. On success the final receipt reports none.",
+      "enum": [
+        "none",
+        "pid2-door-busy",
+        "pid2-door-task-failed",
+        "pid2-routine-seat-absent",
+        "pid2-routine-seat-invalid",
+        "pid2-routine-seat-foreign",
+        "pid2-routine-seat-fields-invalid"
+      ]
+    }
+  }
+}

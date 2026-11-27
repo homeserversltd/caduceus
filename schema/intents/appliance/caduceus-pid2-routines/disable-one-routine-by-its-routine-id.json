@@ -1,0 +1,55 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-pid2-routines/disable-one-routine-by-its-routine-id",
+  "payload": {
+    "fields": {
+      "routine_id": {
+        "type": "string",
+        "meaning": "Routine identifier. Takes precedence over the legacy unit alias."
+      },
+      "unit": {
+        "type": "string",
+        "meaning": "Legacy alias for routine_id, used only when routine_id is absent; it is not the systemd unit stop."
+      }
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the request succeeded."
+    },
+    "routine_id": {
+      "type": "string",
+      "meaning": "Routine identifier used by the operation."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Whether an enabled registration was changed to disabled."
+    },
+    "readback": {
+      "type": "object",
+      "meaning": "The routine status read back after disabling."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: pid2-invalid-json: <parser message>, protocol-kernel-definition-missing:<index>, protocol-kernel-field-missing:<field>, pid2-lock-directory: <OS error>, pid2-lock-open: <OS error>, pid2-walk-lock: <OS error>, pid2-action-lock: <OS error>, pid2-command-wake-persist-failed: <detail>, <raw SQLite or stored-envelope parser error text>. On success the final receipt reports none.",
+      "enum": [
+        "none",
+        "pid2-door-busy",
+        "pid2-door-task-failed",
+        "protocol-envelope-not-object",
+        "protocol-schema-mismatch",
+        "pid2-routine-seat-absent",
+        "pid2-routine-seat-invalid",
+        "pid2-routine-seat-foreign",
+        "pid2-routine-seat-fields-invalid",
+        "pid2-database-lock-poisoned",
+        "pid2-action-lock-poisoned",
+        "pid2-swap-busy"
+      ]
+    }
+  }
+}

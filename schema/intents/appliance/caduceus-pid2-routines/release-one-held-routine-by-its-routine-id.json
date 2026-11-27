@@ -1,0 +1,56 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-pid2-routines/release-one-held-routine-by-its-routine-id",
+  "payload": {
+    "fields": {
+      "routine_id": {
+        "type": "string",
+        "meaning": "Routine identifier. If the routine_id key is present it takes precedence over unit even when not a string; unit is the legacy alias. An empty or non-string selected value is refused by hold and release."
+      },
+      "unit": {
+        "type": "string",
+        "meaning": "Legacy alias for routine_id, used only when routine_id is absent; it is not the systemd unit stop."
+      }
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the request succeeded."
+    },
+    "routine_id": {
+      "type": "string",
+      "meaning": "Routine identifier used by the operation."
+    },
+    "held": {
+      "type": "boolean",
+      "meaning": "True for hold when the routine is registered; release reports false."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Whether the hold or program rows changed."
+    },
+    "acquired": {
+      "type": "boolean",
+      "meaning": "True when a registered routine was not already held before the hold request."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: pid2-invalid-json: <parser message>, protocol-kernel-definition-missing:<index>, protocol-kernel-field-missing:<field>, pid2-lock-directory: <OS error>, pid2-lock-open: <OS error>, pid2-walk-lock: <OS error>, pid2-action-lock: <OS error>, pid2-command-wake-persist-failed: <detail>, <raw SQLite or stored-envelope parser error text>. On success the final receipt reports none.",
+      "enum": [
+        "none",
+        "pid2-door-busy",
+        "pid2-door-task-failed",
+        "protocol-envelope-not-object",
+        "protocol-schema-mismatch",
+        "pid2-database-lock-poisoned",
+        "pid2-action-lock-poisoned",
+        "pid2-swap-busy",
+        "pid2-routine-id-unavailable"
+      ]
+    }
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-pid2-routines/enable-one-routine-registration-from-its-envelope",
+  "payload": {
+    "fields": {
+      "schema": {
+        "type": "string",
+        "meaning": "The registration envelope schema, not the staff-envelope schema.",
+        "const": "caduceus.pid2.routine.v1"
+      },
+      "intent_id": {
+        "meaning": "Registration envelope kernel member; the code checks presence."
+      },
+      "transition": {
+        "meaning": "Registration envelope kernel member; the code checks presence."
+      },
+      "version": {
+        "meaning": "Registration envelope kernel member; the code checks presence."
+      },
+      "timestamp": {
+        "meaning": "Registration envelope kernel member; the code checks presence."
+      },
+      "routine": {
+        "type": "object",
+        "meaning": "Registration routine. routine_id must be a nonempty string. Stages are projected through caduceus.pid2.routine.v1; their content is not otherwise validated here.",
+        "fields": {
+          "routine_id": {
+            "type": "string",
+            "meaning": "Nonempty registration identifier.",
+            "minLength": 1
+          },
+          "stages": {
+            "meaning": "Stages passed through the routine seat projection."
+          }
+        }
+      }
+    },
+    "required": [
+      "schema",
+      "intent_id",
+      "transition",
+      "version",
+      "timestamp",
+      "routine"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the request succeeded."
+    },
+    "routine_id": {
+      "type": "string",
+      "meaning": "Routine identifier used by the operation."
+    },
+    "enabled": {
+      "type": "boolean",
+      "meaning": "The registration is enabled."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Whether the registration was inserted, enabled, or changed; an unchanged legacy row may still be normalized."
+    },
+    "readback": {
+      "type": "object",
+      "meaning": "The routine status read back after registration."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: pid2-invalid-json: <parser message>, pid2-schema-desync: expected caduceus.pid2.routine.v1, observed <value>, pid2-kernel-missing: <field>, pid2-lock-directory: <OS error>, pid2-lock-open: <OS error>, pid2-walk-lock: <OS error>, pid2-action-lock: <OS error>, pid2-command-wake-persist-failed: <detail>, <raw SQLite or stored-envelope parser error text>. On success the final receipt reports none.",
+      "enum": [
+        "none",
+        "pid2-door-busy",
+        "pid2-door-task-failed",
+        "pid2-routine-seat-absent",
+        "pid2-routine-seat-invalid",
+        "pid2-routine-seat-foreign",
+        "pid2-routine-seat-fields-invalid",
+        "pid2-database-lock-poisoned",
+        "pid2-action-lock-poisoned",
+        "pid2-swap-busy",
+        "pid2-schema-kernel-missing",
+        "pid2-schema-kernel-invalid",
+        "pid2-routine-id-unavailable"
+      ]
+    }
+  }
+}
