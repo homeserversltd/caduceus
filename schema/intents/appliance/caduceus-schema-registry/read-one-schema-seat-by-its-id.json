@@ -1,0 +1,17 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-schema-registry/read-one-schema-seat-by-its-id",
+  "payload": {
+    "fields": {
+      "id": {"type": "string", "meaning": "Schema seat ID from the old route path."}
+    },
+    "required": ["id"]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "firstMissingSignal": {"type": "string", "meaning": "A missing seat answers this signal; a found seat answers its JSON document instead.", "enum": ["caduceus-schema-absent"]},
+    "ok": {"type": "boolean", "meaning": "False on a missing seat; a found seat answers its own JSON document."},
+    "command": {"type": "string", "meaning": "On a missing seat, the command named by the refusal.", "const": "schema"}
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-schema-registry/read-one-schema-intent-by-its-intent-path",
+  "payload": {
+    "fields": {
+      "intent": {"type": "string", "meaning": "Intent path from the old wildcard route, without the intents/ prefix."}
+    },
+    "required": ["intent"]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "firstMissingSignal": {"type": "string", "meaning": "A missing intent answers this signal; a found intent answers its JSON document instead.", "enum": ["caduceus-schema-absent"]},
+    "ok": {"type": "boolean", "meaning": "False on a missing intent; a found intent answers its own JSON document."},
+    "command": {"type": "string", "meaning": "On a missing intent, the command named by the refusal.", "const": "schema"}
+  }
+}

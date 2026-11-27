@@ -1,0 +1,11 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-schema-registry/list-every-schema-seat-id",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "The registry list handler returns true."},
+    "schemas": {"type": "array", "items": {"type": "string"}, "meaning": "Keys of the schema seats map, not intent documents or schema bodies."}
+  }
+}
