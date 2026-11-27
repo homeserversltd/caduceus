@@ -30,8 +30,14 @@
         "none",
         "caduceus-legacy-sbin-script-id-missing",
         "caduceus-public-action-not-allowed",
-        "caduceus-carapace-desync"
+        "caduceus-carapace-desync",
+        "caduceus-request-query-invalid"
       ]
+    },
+    "schema": {
+      "type": "string",
+      "meaning": "The existing projection schema emitted by the handler before the common door stamp.",
+      "const": "caduceus.legacy_sbin.show.v1"
     }
   }
 }

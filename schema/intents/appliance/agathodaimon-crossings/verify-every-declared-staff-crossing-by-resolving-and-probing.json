@@ -6,7 +6,7 @@
     "required": []
   },
   "exousia": false,
-  "mutation_allowed": true,
+  "mutation_allowed": null,
   "returns": {
     "observed": {
       "type": "array",
@@ -18,7 +18,7 @@
     },
     "couldChange": {
       "type": "boolean",
-      "meaning": "The handler reports false even though it writes the hyalos self-check record."
+      "meaning": "The handler reports false. Hyalos project_json constructs a projection without recording it."
     },
     "attemptPerStep": {
       "type": "boolean",
@@ -34,15 +34,20 @@
     },
     "hyalos": {
       "type": "object",
-      "meaning": "Result of projecting the crossings-self-check record; a projection failure is contained here."
+      "meaning": "A crossings-self-check projection; no Hyalos record is written by project_json. A projection failure is contained here."
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "Overall completed-probe result; malformed or missing manifests instead return an error on stderr without this field.",
+      "meaning": "The enum lists the fixed literal outcomes of a completed probe. Before a result exists the CLI can instead print caduceus-staff-crossings-failed: caduceus-crossings-manifest-missing, caduceus-staff-crossings-failed: caduceus-crossings-manifest-empty, or the open forms caduceus-staff-crossings-failed: caduceus-crossings-manifest-entry-invalid:<index> and caduceus-staff-crossings-failed: caduceus-crossings-manifest-entry-invalid:<index>:<noun-or-verb> to stderr; those are not firstMissingSignal fields.",
       "enum": [
         "none",
         "caduceus-crossings-probe-failed"
       ]
+    },
+    "schema": {
+      "type": "string",
+      "meaning": "The existing CLI crossings result schema.",
+      "const": "caduceus.staff.crossings.v1"
     }
   }
 }

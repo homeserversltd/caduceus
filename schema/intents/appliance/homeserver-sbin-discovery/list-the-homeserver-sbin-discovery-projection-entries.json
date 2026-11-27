@@ -30,6 +30,11 @@
         "caduceus-carapace-desync",
         "caduceus-blocking-task-join-failed"
       ]
+    },
+    "schema": {
+      "type": "string",
+      "meaning": "The existing projection schema emitted by the handler before the common door stamp.",
+      "const": "caduceus.homeserver_sbin.list.v1"
     }
   }
 }

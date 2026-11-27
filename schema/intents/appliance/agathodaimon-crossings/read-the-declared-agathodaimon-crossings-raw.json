@@ -35,7 +35,8 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "On a declaration failure, the caduceus-crossings-declaration-invalid diagnostic includes reason, expected and observed details; its text is not a finite set."
+      "meaning": "The enum lists fixed literal outcomes; none are emitted by this handler. An HTTP declaration failure can instead answer the open form caduceus-crossings-declaration-invalid: reason=<reason>; expected=<expected>; observed=<runtime detail>. The CLI writes that diagnostic to stderr.",
+      "enum": []
     }
   }
 }
