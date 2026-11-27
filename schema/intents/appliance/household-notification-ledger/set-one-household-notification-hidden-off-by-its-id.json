@@ -8,6 +8,7 @@
   "exousia": false,
   "mutation_allowed": true,
   "returns": {
+    "schema": {"type": "string", "const": "caduceus.notifications.v1", "meaning": "Schema on local success and refusal; a forwarded gateway reply is preserved."},
     "ok": {"type": "boolean", "meaning": "True when the gateway updates the row, false on a local refusal."},
     "id": {"type": "string", "meaning": "The supplied notification identifier on gateway success."},
     "hidden": {"type": "boolean", "const": false, "meaning": "The fixed hidden value written on gateway success."},

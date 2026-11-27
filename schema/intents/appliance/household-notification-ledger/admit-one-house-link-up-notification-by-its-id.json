@@ -14,12 +14,13 @@
   "mutation_allowed": true,
   "dry-run": true,
   "returns": {
+    "schema": {"type": "string", "const": "caduceus.notifications.v1", "meaning": "Schema on local success and refusal; a failed portal-admit receipt is passed through whole instead."},
     "ok": {"type": "boolean", "meaning": "Success or refusal of the composite operation."},
     "id": {"type": "string", "meaning": "Accepted ledger row ID on successful mutation."},
     "state": {"type": "string", "const": "accepted", "meaning": "Ledger state after a successful admission."},
     "portal": {"type": "string", "meaning": "The first selected name."},
     "names": {"type": "array", "items": {"type": "string"}, "meaning": "The selected names."},
-    "staff": {"type": "object", "meaning": "The in-process portal-admit receipt, preserved on the composite return."},
+    "staff": {"type": "object", "meaning": "The in-process portal-admit receipt on success or incomplete convergence; a failed receipt instead becomes the whole top-level return."},
     "dry_run": {"type": "boolean", "const": true, "meaning": "Present on a planned admission."},
     "attempted": {"type": "boolean", "const": false, "meaning": "The planned admission has not been attempted."},
     "argv": {"type": "array", "items": {"type": "string"}, "meaning": "The planned portal-admit argument vector on dry run."},
@@ -27,7 +28,7 @@
     "firstMissingSignal": {
       "type": "string",
       "meaning": "The enum lists fixed literal outcomes. Open forms also include arbitrary firstMissingSignal or error text from the returned portal-admit receipt, which is passed through whole.",
-      "enum": ["link-up-accept-on-homeserver", "link-up-admin-required", "link-up-busy", "link-up-request-invalid", "link-up-schema-desync", "notification-state-unavailable", "notification-absent", "notification-not-pending", "notification-verb-unknown", "link-up-roster-unavailable", "link-up-name-invalid", "link-up-name-taken", "link-up-name-observation-failed", "link-up-portal-status-unavailable", "link-up-child-mac-unavailable", "link-up-child-address-unavailable", "link-up-bind-memory-unavailable", "link-up-portal-admit-unavailable", "link-up-portal-admit-incomplete"]
+      "enum": ["link-up-accept-on-homeserver", "notification-act-on-homeserver", "link-up-admin-required", "link-up-busy", "link-up-request-invalid", "link-up-schema-desync", "notification-state-unavailable", "notification-absent", "notification-not-pending", "notification-verb-unknown", "link-up-roster-unavailable", "link-up-name-invalid", "link-up-name-taken", "link-up-name-observation-failed", "link-up-portal-status-unavailable", "link-up-child-mac-unavailable", "link-up-child-address-unavailable", "link-up-bind-memory-unavailable", "link-up-portal-admit-unavailable", "link-up-portal-admit-incomplete"]
     }
   }
 }
