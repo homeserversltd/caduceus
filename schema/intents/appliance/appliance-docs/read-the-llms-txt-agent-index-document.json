@@ -13,11 +13,13 @@
     },
     "content_type": {
       "type": "string",
-      "meaning": "HTTP Content-Type selected from the file extension."
+      "meaning": "HTTP Content-Type selected from the file extension.",
+      "const": "text/plain; charset=utf-8"
     },
     "x_content_type_options": {
       "type": "string",
-      "meaning": "HTTP X-Content-Type-Options header, nosniff."
+      "meaning": "HTTP X-Content-Type-Options header, nosniff.",
+      "const": "nosniff"
     },
     "firstMissingSignal": {
       "type": "string",
@@ -29,7 +31,11 @@
         "caduceus-docs-page-absent",
         "caduceus-docs-page-unavailable",
         "caduceus-docs-page-not-regular",
-        "caduceus-docs-page-too-large"
+        "caduceus-docs-page-too-large",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid"
       ]
     }
   }

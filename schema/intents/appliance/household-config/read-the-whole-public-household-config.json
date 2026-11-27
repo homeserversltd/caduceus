@@ -14,7 +14,14 @@
     },
     "profile": {
       "type": "string",
-      "meaning": "Resolved appliance profile."
+      "meaning": "Resolved appliance profile.",
+      "enum": [
+        "homeserver",
+        "homeconsole",
+        "hometv",
+        "homesi",
+        "specula"
+      ]
     },
     "path": {
       "type": "string",
@@ -32,7 +39,11 @@
         "caduceus-blocking-task-join-failed",
         "caduceus-household-config-profile-unknown: /etc/appliance/profile.json",
         "caduceus-household-config-missing",
-        "caduceus-household-config-invalid"
+        "caduceus-household-config-invalid",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid"
       ]
     }
   }

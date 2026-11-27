@@ -21,11 +21,19 @@
     },
     "profile": {
       "type": "string",
-      "meaning": "Resolved appliance profile."
+      "meaning": "Resolved appliance profile.",
+      "enum": [
+        "homeserver",
+        "homeconsole",
+        "hometv",
+        "homesi",
+        "specula"
+      ]
     },
     "op": {
       "type": "string",
-      "meaning": "The requested operation."
+      "meaning": "The requested operation.",
+      "const": "patch"
     },
     "path": {
       "type": "string",
@@ -73,7 +81,13 @@
         "caduceus-portals-url-invalid",
         "caduceus-portals-port-invalid",
         "caduceus-portals-slug-duplicate",
-        "caduceus-household-config-patch-object-required"
+        "caduceus-household-config-patch-object-required",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid",
+        "caduceus-administrative-request-too-large",
+        "caduceus-administrative-request-invalid"
       ]
     }
   }

@@ -10,28 +10,37 @@
   "returns": {
     "profile": {
       "type": "string",
-      "meaning": "Compiled active appliance profile."
+      "meaning": "Compiled active appliance profile.",
+      "enum": [
+        "homeserver",
+        "homeconsole",
+        "hometv",
+        "homesi",
+        "specula"
+      ]
     },
     "stamp_sha": {
       "type": [
         "string",
         "null"
       ],
-      "meaning": "Optional 64-character lowercase hex stamp digest."
+      "meaning": "Optional 64-character lowercase hex stamp digest.",
+      "pattern": "^[0-9a-f]{64}$"
     },
     "fire_seal": {
       "type": [
         "object",
         "null"
       ],
-      "meaning": "Optional fire seal from the Ruyi perspective."
+      "meaning": "Optional fire seal from the Ruyi perspective; when present, band is 64 lowercase hex characters, licensee is a string and issued is RFC3339. Other fields are retained."
     },
     "documentation_sha": {
       "type": [
         "string",
         "null"
       ],
-      "meaning": "Optional 40-character lowercase hex documentation source digest."
+      "meaning": "Optional 40-character lowercase hex documentation source digest.",
+      "pattern": "^[0-9a-f]{40}$"
     },
     "observed_at": {
       "type": "string",
@@ -42,14 +51,22 @@
         "string",
         "null"
       ],
-      "meaning": "ruyi-perspective-absent if the perspective cannot be read or validated, otherwise null."
+      "meaning": "ruyi-perspective-absent if the perspective cannot be read or validated, otherwise null.",
+      "enum": [
+        "ruyi-perspective-absent",
+        null
+      ]
     },
     "firstMissingSignal": {
       "type": "string",
       "meaning": "The enum lists fixed literal outcomes; The success body also has its separate signal field for an absent Ruyi perspective.",
       "enum": [
         "caduceus-docs-peer-not-allowed",
-        "caduceus-docs-seal-schema-desync"
+        "caduceus-docs-seal-schema-desync",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid"
       ]
     }
   }

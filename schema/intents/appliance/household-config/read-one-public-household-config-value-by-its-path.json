@@ -21,7 +21,14 @@
     },
     "profile": {
       "type": "string",
-      "meaning": "Resolved appliance profile."
+      "meaning": "Resolved appliance profile.",
+      "enum": [
+        "homeserver",
+        "homeconsole",
+        "hometv",
+        "homesi",
+        "specula"
+      ]
     },
     "path": {
       "type": "string",
@@ -41,7 +48,11 @@
         "caduceus-household-config-missing",
         "caduceus-household-config-invalid",
         "caduceus-household-config-path-invalid",
-        "caduceus-household-config-key-missing"
+        "caduceus-household-config-key-missing",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid"
       ]
     }
   }
