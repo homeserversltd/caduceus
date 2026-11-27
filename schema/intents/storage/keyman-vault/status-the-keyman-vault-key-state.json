@@ -8,7 +8,7 @@
           "boolean",
           "null"
         ],
-        "meaning": "Optional plan request; null or absent becomes false. The child is still dispatched; a reported planned mutation is refused.",
+        "meaning": "Optional boolean or null, absent and null are false. The adapter does not send this flag to the status child; it requires the returned planned value to match, and refuses a reported change when planned is true.",
         "default": false
       }
     },
@@ -69,7 +69,6 @@
       "enum": [
         "none",
         "keyman-field-invalid",
-        "keyman-request-too-large",
         "keyman-crown-timeout-or-unavailable",
         "keyman-crown-command-failed",
         "keyman-crown-output-too-large",
@@ -77,8 +76,7 @@
         "keyman-crown-command-refused",
         "keyman-planned-mutation-reported",
         "caduceus-carapace-desync",
-        "caduceus-public-action-not-allowed",
-        "caduceus-blocking-task-failed"
+        "caduceus-public-action-not-allowed"
       ]
     }
   }

@@ -23,7 +23,8 @@
       },
       "password": {
         "type": "string",
-        "meaning": "Password; nonblank after trimming and containing no NUL. Sent on stdin; the aggregate serialized child document has a 65536-byte cap."
+        "meaning": "Password; nonblank after trimming and containing no NUL. Sent on stdin; the aggregate serialized child document has a 65536-byte cap.",
+        "secret": true
       },
       "planned": {
         "type": [
@@ -103,8 +104,7 @@
         "keyman-crown-command-refused",
         "keyman-planned-mutation-reported",
         "caduceus-carapace-desync",
-        "caduceus-public-action-not-allowed",
-        "caduceus-blocking-task-failed"
+        "caduceus-public-action-not-allowed"
       ]
     }
   }
