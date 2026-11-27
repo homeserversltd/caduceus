@@ -20,7 +20,7 @@
     "required": []
   },
   "exousia": true,
-  "mutation_allowed": null,
+  "mutation_allowed": true,
   "returns": {
     "ok": {"type": "boolean", "meaning": "Whether the settings update succeeded."},
     "vpn": {"type": "object", "meaning": "The resulting transmission.vpn object, with missing declared settings defaulted to null and other stored VPN properties preserved.", "fields": {
