@@ -16,6 +16,6 @@
     "field": {"type": "string", "meaning": "Field named by a refusal."},
     "message": {"type": "string", "meaning": "Refusal message; can include runtime error detail."},
     "suggestion": {"type": "string", "meaning": "Suggested correction on refusal."},
-    "firstMissingSignal": {"type": "string", "meaning": "The handler places refusal tokens and open error detail in message, not firstMissingSignal; the receipt stamp leaves its final signal null when none is supplied. The enum lists fixed signal literals supplied by this handler.", "enum": []}
+    "firstMissingSignal": {"type": "string", "meaning": "The handler places refusal tokens and open error detail in message, not firstMissingSignal. The enum lists fixed signal literals supplied by this handler.", "enum": []}
   }
 }
