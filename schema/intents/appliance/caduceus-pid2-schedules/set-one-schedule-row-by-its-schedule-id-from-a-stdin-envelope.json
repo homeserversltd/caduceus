@@ -1,0 +1,187 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-pid2-schedules/set-one-schedule-row-by-its-schedule-id-from-a-stdin-envelope",
+  "payload": {
+    "fields": {
+      "schedule": {
+        "type": "object",
+        "meaning": "Schedule registration from the stdin envelope.",
+        "fields": {
+          "schedule_id": {
+            "type": "string",
+            "meaning": "Nonempty schedule identifier."
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "meaning": "Missing or null keeps the existing state on update, defaults true for a new row; a non-boolean present value is treated as false."
+          },
+          "calendar": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "meaning": "Optional calendar; when present, frequency and time or at must be valid and weekly needs weekday or day.",
+            "fields": {
+              "frequency": {
+                "type": "string",
+                "meaning": "Calendar frequency.",
+                "enum": [
+                  "daily",
+                  "weekly"
+                ]
+              },
+              "time": {
+                "type": "string",
+                "meaning": "Local time in HH:MM; at is its fallback."
+              },
+              "at": {
+                "type": "string",
+                "meaning": "Fallback for time in HH:MM."
+              },
+              "weekday": {
+                "type": "string",
+                "meaning": "Required for weekly; ignored for daily.",
+                "enum": [
+                  "Mon",
+                  "Tue",
+                  "Wed",
+                  "Thu",
+                  "Fri",
+                  "Sat",
+                  "Sun"
+                ]
+              },
+              "day": {
+                "type": "string",
+                "meaning": "Fallback for weekday; weekly accepts Mon through Sun."
+              }
+            }
+          },
+          "job": {
+            "type": "object",
+            "meaning": "Scheduled job.",
+            "fields": {
+              "band": {
+                "type": "string",
+                "meaning": "Nonempty crossing band."
+              },
+              "action": {
+                "type": "string",
+                "meaning": "Nonempty action."
+              },
+              "max_seconds": {
+                "type": "integer",
+                "meaning": "Maximum job duration; null or absent defaults to 21600.",
+                "minimum": 1,
+                "maximum": 86400,
+                "default": 21600
+              },
+              "payload": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "meaning": "Job payload carried with the registration."
+              }
+            },
+            "required": [
+              "band",
+              "action"
+            ]
+          },
+          "needs": {
+            "type": "array",
+            "meaning": "Optional routine and line dependencies evaluated on queue.",
+            "items": {
+              "type": "object",
+              "fields": {
+                "routine_id": {
+                  "type": "string",
+                  "meaning": "Nonempty routine id for the dependency checked when the fire is queued."
+                },
+                "line": {
+                  "type": "string",
+                  "meaning": "Nonempty routine line for the dependency checked when the fire is queued."
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "schedule_id",
+          "job"
+        ]
+      },
+      "schema": {
+        "type": "string",
+        "const": "caduceus.pid2.schedule.v1",
+        "meaning": "The schedule registration envelope schema."
+      },
+      "intent_id": {
+        "type": "string",
+        "meaning": "Nonempty schedule envelope intent identifier."
+      },
+      "transition": {
+        "type": "string",
+        "meaning": "Nonempty schedule envelope transition."
+      },
+      "version": {
+        "type": "string",
+        "meaning": "Nonempty schedule envelope version."
+      },
+      "timestamp": {
+        "type": "string",
+        "meaning": "Nonempty schedule envelope timestamp."
+      }
+    },
+    "required": [
+      "schema",
+      "intent_id",
+      "transition",
+      "version",
+      "timestamp",
+      "schedule"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether registration succeeded."
+    },
+    "readback": {
+      "type": "object",
+      "meaning": "Status view after the operation, including schedule, next_fire, last_fire and baseline."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: <raw SQLite or filesystem error text>, <stored JSON parser error text>, and pid2-invalid-json: <parser message> on HTTP. Also pid2-schedule-json-invalid: <parser message>, pid2-schedule-kernel-unusable: <kernel field>, and pid2-command-wake-persist-failed: <error>.",
+      "enum": [
+        "none",
+        "pid2-door-busy",
+        "pid2-door-task-failed",
+        "pid2-schedule-seat-absent",
+        "pid2-schedule-seat-invalid",
+        "pid2-schedule-seat-foreign",
+        "pid2-schedule-seat-fields-invalid",
+        "pid2-schedule-schema-desync",
+        "pid2-schedule-schema-kernel-missing",
+        "pid2-schedule-schema-kernel-invalid",
+        "pid2-schedule-unusable",
+        "pid2-schedule-id-unusable",
+        "pid2-schedule-band-unusable",
+        "pid2-schedule-action-unusable",
+        "pid2-schedule-deadline-unusable",
+        "pid2-schedule-frequency-unusable",
+        "pid2-schedule-time-unusable",
+        "pid2-schedule-weekday-unusable",
+        "pid2-database-lock-poisoned",
+        "pid2-envelope-too-large"
+      ]
+    }
+  }
+}

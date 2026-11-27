@@ -1,0 +1,95 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/nas-sync-actuator/status-the-nas-sync-job-by-its-job-handle-through-its-actuator",
+  "payload": {
+    "fields": {
+      "jobHandle": {
+        "type": "string",
+        "meaning": "Job handle; handle is the fallback when jobHandle is absent."
+      },
+      "handle": {
+        "type": "string",
+        "meaning": "Fallback for jobHandle."
+      },
+      "action": {
+        "type": "string",
+        "const": "sync-job-status",
+        "meaning": "Selects the NAS sync job status face."
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the handle matched the last fire."
+    },
+    "action": {
+      "type": "string",
+      "meaning": "The actuator action sync-job-status."
+    },
+    "jobHandle": {
+      "type": "string",
+      "meaning": "Matched fire handle."
+    },
+    "status": {
+      "type": "string",
+      "meaning": "Mapped fire state.",
+      "enum": [
+        "queued",
+        "running",
+        "completed",
+        "refused",
+        "failed"
+      ]
+    },
+    "progress": {
+      "type": "integer",
+      "meaning": "100 for completed, failed or refused; otherwise 0."
+    },
+    "exitCode": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "meaning": "Rsync exit code when recorded."
+    },
+    "runOutcome": {
+      "type": "string",
+      "meaning": "Original fire state; defaults to Failed if missing."
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Fire first_missing_signal."
+    },
+    "runReceipt": {
+      "type": "null",
+      "meaning": "No run receipt is included."
+    },
+    "firstMissingSignal": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: <raw SQLite or filesystem error text> and <stored JSON parser error text>. Success returns null.",
+      "enum": [
+        "pid2-door-busy",
+        "pid2-door-task-failed",
+        "pid2-schedule-seat-absent",
+        "pid2-schedule-seat-invalid",
+        "pid2-schedule-seat-foreign",
+        "pid2-schedule-seat-fields-invalid",
+        "pid2-schedule-actuator-unknown",
+        "agathodaimon-nas-job-not-found",
+        "pid2-schedule-action-unknown"
+      ]
+    }
+  }
+}

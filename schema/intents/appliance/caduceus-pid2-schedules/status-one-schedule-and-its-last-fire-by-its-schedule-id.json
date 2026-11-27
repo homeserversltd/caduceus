@@ -1,0 +1,60 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-pid2-schedules/status-one-schedule-and-its-last-fire-by-its-schedule-id",
+  "payload": {
+    "fields": {
+      "id": {
+        "type": "string",
+        "meaning": "Schedule id from the old HTTP path, also the CLI positional id."
+      }
+    },
+    "required": [
+      "id"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "schedule": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "The schedule row, including enabled, calendar, frequency, time, weekday, band, action, max_seconds, registered_at, updated_at, last_fired_slot, envelope and raw_envelope; null if absent."
+    },
+    "next_fire": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Next local fire as RFC3339 when enabled and calculable; otherwise null."
+    },
+    "last_fire": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Stored fire with fire_id, trigger, state, queued_at, started_at, finished_at, duration_ms, first_missing_signal, rsync_exit_code, final_file_count and final_total_bytes, or null."
+    },
+    "baseline": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Prior sync baseline with fileCount, totalBytes, updated_at and fire_id, or null."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: <raw SQLite or filesystem error text> and <stored JSON parser error text>.",
+      "enum": [
+        "none",
+        "pid2-door-busy",
+        "pid2-door-task-failed",
+        "pid2-schedule-seat-absent",
+        "pid2-schedule-seat-invalid",
+        "pid2-schedule-seat-foreign",
+        "pid2-schedule-seat-fields-invalid"
+      ]
+    }
+  }
+}

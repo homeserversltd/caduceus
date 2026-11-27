@@ -1,0 +1,77 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-pid2-schedules/run-one-schedule-by-queuing-one-fire-by-its-schedule-id",
+  "payload": {
+    "fields": {
+      "schedule_id": {
+        "type": "string",
+        "meaning": "Schedule id; HTTP reads schedule_id and the CLI uses its positional id."
+      },
+      "round": {
+        "type": "boolean",
+        "meaning": "CLI --round selects round rather than owner trigger; a disabled schedule is refused for round."
+      },
+      "wait": {
+        "type": "boolean",
+        "meaning": "CLI --wait waits for the queued fire to reach a terminal state."
+      },
+      "deadline_seconds": {
+        "type": "integer",
+        "meaning": "CLI --deadline-seconds requires --wait and a positive integer.",
+        "minimum": 1
+      }
+    },
+    "required": [
+      "schedule_id"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether queuing or the requested wait succeeded."
+    },
+    "fire_id": {
+      "type": "string",
+      "meaning": "Identifier of the queued fire, on the non-waiting success path. The public queue wrapper removes its internal max_seconds before both CLI and HTTP replies."
+    },
+    "state": {
+      "type": "string",
+      "meaning": "Queued on a successful non-waiting queue.",
+      "const": "Queued"
+    },
+    "fire": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "On CLI --wait, the observed fire row, or null when not available."
+    },
+    "signal": {
+      "type": "string",
+      "meaning": "CLI wait or argument failure signal."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: <raw SQLite or filesystem error text>, <stored JSON parser error text>, and pid2-invalid-json: <parser message> on HTTP. Also pid2-schedule-needs-unmet: <routine>/<line>, pid2-schedule-wait-socket: <error>, protocol-kernel-field-missing:<field>, protocol-kernel-definition-missing:<index>, and pid2-command-wake-persist-failed: <error>.",
+      "enum": [
+        "none",
+        "pid2-door-busy",
+        "pid2-door-task-failed",
+        "pid2-database-lock-poisoned",
+        "pid2-schedule-not-found",
+        "pid2-schedule-disabled",
+        "pid2-schedule-fire-running",
+        "pid2-schedule-need-unusable",
+        "pid2-routine-held",
+        "pid2-schedule-arguments-invalid",
+        "pid2-schedule-deadline-unusable",
+        "pid2-schedule-database-unavailable",
+        "pid2-schedule-wait-deadline",
+        "protocol-envelope-not-object",
+        "protocol-schema-mismatch"
+      ]
+    }
+  }
+}

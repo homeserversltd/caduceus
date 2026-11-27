@@ -1,0 +1,48 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-pid2-schedules/enable-one-schedule-by-its-schedule-id",
+  "payload": {
+    "fields": {
+      "schedule_id": {
+        "type": "string",
+        "meaning": "Schedule id; HTTP reads schedule_id and the CLI uses its positional id."
+      }
+    },
+    "required": [
+      "schedule_id"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the operation succeeded."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Whether the row was changed, including removal of paused."
+    },
+    "readback": {
+      "type": "object",
+      "meaning": "Status view after the operation, including schedule, next_fire, last_fire and baseline."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: <raw SQLite or filesystem error text>, <stored JSON parser error text>, and pid2-invalid-json: <parser message> on HTTP. Also protocol-kernel-field-missing:<field>, protocol-kernel-definition-missing:<index> and pid2-command-wake-persist-failed: <error>.",
+      "enum": [
+        "none",
+        "pid2-door-busy",
+        "pid2-door-task-failed",
+        "pid2-schedule-seat-absent",
+        "pid2-schedule-seat-invalid",
+        "pid2-schedule-seat-foreign",
+        "pid2-schedule-seat-fields-invalid",
+        "pid2-database-lock-poisoned",
+        "pid2-schedule-not-found",
+        "protocol-envelope-not-object",
+        "protocol-schema-mismatch"
+      ]
+    }
+  }
+}

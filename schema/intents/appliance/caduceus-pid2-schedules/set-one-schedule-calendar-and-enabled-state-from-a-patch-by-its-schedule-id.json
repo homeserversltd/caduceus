@@ -1,0 +1,136 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-pid2-schedules/set-one-schedule-calendar-and-enabled-state-from-a-patch-by-its-schedule-id",
+  "payload": {
+    "fields": {
+      "schedule_id": {
+        "type": "string",
+        "meaning": "Schedule id; HTTP reads schedule_id and the CLI uses its positional id."
+      },
+      "calendar": {
+        "type": "object",
+        "meaning": "Optional nested calendar patch; otherwise calendar keys are read from the patch itself.",
+        "fields": {
+          "frequency": {
+            "type": "string",
+            "meaning": "Calendar frequency.",
+            "enum": [
+              "daily",
+              "weekly"
+            ]
+          },
+          "time": {
+            "type": "string",
+            "meaning": "Local time in HH:MM; at is its fallback."
+          },
+          "at": {
+            "type": "string",
+            "meaning": "Fallback for time in HH:MM."
+          },
+          "weekday": {
+            "type": "string",
+            "meaning": "Required for weekly; ignored for daily.",
+            "enum": [
+              "Mon",
+              "Tue",
+              "Wed",
+              "Thu",
+              "Fri",
+              "Sat",
+              "Sun"
+            ]
+          },
+          "day": {
+            "type": "string",
+            "meaning": "Fallback for weekday; weekly accepts Mon through Sun."
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "meaning": "Optional enabled state when the top-level enabled field is absent; null preserves the prior state and a malformed present value is treated as false."
+          }
+        }
+      },
+      "enabled": {
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "meaning": "Optional enabled state; null or missing preserves the prior state and a non-boolean present value is treated as false."
+      },
+      "frequency": {
+        "type": "string",
+        "meaning": "Calendar frequency.",
+        "enum": [
+          "daily",
+          "weekly"
+        ]
+      },
+      "time": {
+        "type": "string",
+        "meaning": "Local time in HH:MM; at is its fallback."
+      },
+      "at": {
+        "type": "string",
+        "meaning": "Fallback for time in HH:MM."
+      },
+      "weekday": {
+        "type": "string",
+        "meaning": "Required for weekly; ignored for daily.",
+        "enum": [
+          "Mon",
+          "Tue",
+          "Wed",
+          "Thu",
+          "Fri",
+          "Sat",
+          "Sun"
+        ]
+      },
+      "day": {
+        "type": "string",
+        "meaning": "Fallback for weekday; weekly accepts Mon through Sun."
+      }
+    },
+    "required": [
+      "schedule_id"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether update succeeded."
+    },
+    "readback": {
+      "type": "object",
+      "meaning": "Status view after the operation, including schedule, next_fire, last_fire and baseline."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: <raw SQLite or filesystem error text>, <stored JSON parser error text>, and pid2-invalid-json: <parser message> on HTTP. Also protocol-kernel-field-missing:<field>, protocol-kernel-definition-missing:<index>, and pid2-command-wake-persist-failed: <error>.",
+      "enum": [
+        "none",
+        "pid2-door-busy",
+        "pid2-door-task-failed",
+        "pid2-schedule-seat-absent",
+        "pid2-schedule-seat-invalid",
+        "pid2-schedule-seat-foreign",
+        "pid2-schedule-seat-fields-invalid",
+        "pid2-database-lock-poisoned",
+        "pid2-schedule-not-found",
+        "pid2-schedule-unusable",
+        "pid2-schedule-calendar-unusable",
+        "pid2-schedule-frequency-unusable",
+        "pid2-schedule-time-unusable",
+        "pid2-schedule-weekday-unusable",
+        "pid2-envelope-too-large",
+        "protocol-envelope-not-object",
+        "protocol-schema-mismatch"
+      ]
+    }
+  }
+}
