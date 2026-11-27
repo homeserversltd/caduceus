@@ -1,0 +1,173 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/transmission-vpn-tunnel/status-the-five-onness-conditions-of-the-transmission-vpn-tunnel",
+  "payload": {
+    "fields": {
+      "provider": {
+        "type": ["string", "null"],
+        "meaning": "Legacy provider override. Null selects the default provider; on omission the standing choice applies. A VPN flag wins over this alias.",
+        "enum": ["pia", null]
+      },
+      "flags": {
+        "type": "object",
+        "meaning": "Payload-carried flags; VPN options can also ride in the envelope flags. The envelope carrier wins over the payload carrier, and flags.vpn wins over flags.exousia.vpn within each carrier.",
+        "fields": {
+          "vpn": {
+            "type": ["object", "null"],
+            "meaning": "Overrides the standing Transmission VPN options field by field. A null family resets all options to the primitive.",
+            "fields": {
+              "provider": {
+                "type": ["string", "null"],
+                "meaning": "Provider override; null selects pia.",
+                "enum": ["pia", null]
+              },
+              "protocol": {
+                "type": ["string", "null"],
+                "meaning": "Provider protocol override; null selects openvpn for PIA.",
+                "enum": ["openvpn", "wireguard", null]
+              },
+              "region": {
+                "type": ["string", "null"],
+                "meaning": "Provider region ID. Null leaves automatic region selection; an explicit ID must resolve at the provider where a provider endpoint is selected.",
+                "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+                "maxLength": 64
+              },
+              "dip": {"type": ["boolean", "null"], "meaning": "Request a dedicated IP; null selects false."},
+              "dns": {
+                "type": ["string", "null"],
+                "meaning": "Use provider DNS; null selects the public resolver in the namespace setup.",
+                "enum": ["provider", null]
+              },
+              "rescan": {
+                "type": ["boolean", "null"],
+                "meaning": "Request the RPC torrent rescan after applying download settings; null selects false."
+              }
+            }
+          },
+          "exousia": {
+            "type": "object",
+            "meaning": "Legacy scoped VPN flag carrier.",
+            "fields": {
+              "vpn": {
+                "type": ["object", "null"],
+                "meaning": "Overrides the standing Transmission VPN options field by field. A null family resets all options to the primitive.",
+                "fields": {
+                  "provider": {
+                    "type": ["string", "null"],
+                    "meaning": "Provider override; null selects pia.",
+                    "enum": ["pia", null]
+                  },
+                  "protocol": {
+                    "type": ["string", "null"],
+                    "meaning": "Provider protocol override; null selects openvpn for PIA.",
+                    "enum": ["openvpn", "wireguard", null]
+                  },
+                  "region": {
+                    "type": ["string", "null"],
+                    "meaning": "Provider region ID. Null leaves automatic region selection; an explicit ID must resolve at the provider where a provider endpoint is selected.",
+                    "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+                    "maxLength": 64
+                  },
+                  "dip": {"type": ["boolean", "null"], "meaning": "Request a dedicated IP; null selects false."},
+                  "dns": {
+                    "type": ["string", "null"],
+                    "meaning": "Use provider DNS; null selects the public resolver in the namespace setup.",
+                    "enum": ["provider", null]
+                  },
+                  "rescan": {
+                    "type": ["boolean", "null"],
+                    "meaning": "Request the RPC torrent rescan after applying download settings; null selects false."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "provider": {"type": ["string", "null"], "meaning": "Selected provider, or null if selection did not complete."},
+    "steps": {
+      "type": "array",
+      "meaning": "Operation or observation rows, each carrying step, observed, could-change, attempt and finalState."
+    },
+    "field": {"type": "string", "meaning": "Name of the invalid VPN option."},
+    "providers": {"type": "array", "meaning": "Provider names from the VPN declaration."},
+    "on": {"type": "boolean", "meaning": "True only when all five conditions hold."},
+    "conditions": {
+      "type": "object",
+      "meaning": "The five onness checks.",
+      "fields": {
+        "namespace": {"type": "boolean", "meaning": "Namespace exists and its veth is up."},
+        "tunnel": {"type": "boolean", "meaning": "Recorded tunnel interface is up."},
+        "forward": {"type": "boolean", "meaning": "Hold is active and the forward state is fresh."},
+        "daemon": {"type": "boolean", "meaning": "The native daemon unit is active."},
+        "peerPort": {"type": "boolean", "meaning": "Fresh peer-port readback matches the forward port."}
+      }
+    },
+    "forwardPort": {"type": ["integer", "null"], "meaning": "Observed provider forward port."},
+    "peerPort": {"type": ["integer", "null"], "meaning": "Recorded daemon peer-port readback."},
+    "rpcPort": {
+      "type": ["integer", "null"],
+      "meaning": "RPC port from the Transmission portal row, or null if not read."
+    },
+    "protocol": {"type": ["string", "null"], "meaning": "Selected VPN protocol, or null if unavailable."},
+    "tunnelInterface": {"type": ["string", "null"], "meaning": "Tunnel interface name, or null if no interface was read."},
+    "freshUntil": {
+      "type": ["number", "null"],
+      "meaning": "Unix epoch deadline for the observed forward and peer-port freshness, or null when not established."
+    },
+    "failedStep": {"type": "string", "meaning": "Step where an observation could not be made."},
+    "unknownProvider": {
+      "meaning": "Unrecognized request value copied from the selected provider carrier; its type is not constrained on refusal."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "First unmet onness condition on a successful off observation; otherwise none or the read refusal.",
+      "enum": [
+        "daemon",
+        "forward",
+        "namespace",
+        "none",
+        "peerPort",
+        "provider-unknown",
+        "transmission-command-timeout",
+        "transmission-command-unavailable",
+        "transmission-forward-state-invalid",
+        "transmission-forward-state-permissions-invalid",
+        "transmission-forward-state-read-failed",
+        "transmission-interface-read-invalid",
+        "transmission-namespace-read-failed",
+        "transmission-namespace-read-invalid",
+        "transmission-portal-config-invalid",
+        "transmission-portal-config-read-failed",
+        "transmission-portal-map-invalid",
+        "transmission-portal-port-invalid",
+        "transmission-portal-row-missing-or-ambiguous",
+        "transmission-provider-band-unreadable",
+        "transmission-provider-face-incomplete",
+        "transmission-provider-metadata-invalid",
+        "transmission-provider-metadata-unreadable",
+        "transmission-provider-protocol-incomplete",
+        "transmission-provider-protocol-unreadable",
+        "transmission-request-invalid",
+        "transmission-scratch-path-escape",
+        "transmission-scratch-root-invalid",
+        "transmission-unit-state-unreadable",
+        "transmission-vpn-config-invalid",
+        "transmission-vpn-dip-unknown",
+        "transmission-vpn-dns-unknown",
+        "transmission-vpn-family-unknown",
+        "transmission-vpn-protocol-unknown",
+        "transmission-vpn-provider-unknown",
+        "transmission-vpn-region-unknown",
+        "transmission-vpn-rescan-unknown",
+        "tunnel"
+      ]
+    }
+  }
+}

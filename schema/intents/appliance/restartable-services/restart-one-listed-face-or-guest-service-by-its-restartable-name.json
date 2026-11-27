@@ -1,0 +1,42 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/restartable-services/restart-one-listed-face-or-guest-service-by-its-restartable-name",
+  "payload": {
+    "fields": {
+      "name": {
+        "type": "string",
+        "meaning": "Exact name from the appliance/restartable inventory. The inventory supplies the face or guest name; the request does not supply a systemd unit."
+      }
+    },
+    "required": [
+      "name"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "unit": {
+      "type": "string",
+      "meaning": "Restartable unit whose restart was scheduled, present on successful scheduling only."
+    },
+    "delayedSeconds": {
+      "type": "integer",
+      "meaning": "Delay in seconds before the scheduled restart, present on successful scheduling only.",
+      "const": 2
+    },
+    "output": {
+      "type": "string",
+      "meaning": "Trimmed scheduler stdout or, when it was empty, stderr; present if the scheduler produced a process result."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop’s outcome token; none means no signal is missing.",
+      "enum": [
+        "appliance-restart-request-invalid",
+        "appliance-restart-not-listed",
+        "appliance-restart-schedule-failed",
+        "none"
+      ]
+    }
+  }
+}
