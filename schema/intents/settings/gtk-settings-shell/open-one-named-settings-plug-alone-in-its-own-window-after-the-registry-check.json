@@ -1,0 +1,19 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/gtk-settings-shell/open-one-named-settings-plug-alone-in-its-own-window-after-the-registry-check",
+  "payload": {
+    "fields": {
+      "id": {"type": "string", "meaning": "Run the named plug alone. The installed plug registry is checked before launch. The enum mirrors the plug registry of this tree; the stop checks the installed registry at run time.", "enum": ["about-system", "appearance", "date-time", "default-applications", "displays", "energy-power", "fonts", "harmonia-updates", "input", "notifications", "region-language", "shortcuts", "sound"]}
+    },
+    "required": ["id"]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "stdout": {"type": "string", "meaning": "Self-check emits raw plug receipt lines (id, title, parent, depth, contract, widget), or a raw hierarchy error or no-plugs diagnostic. Running the window has no JSON success receipt."},
+    "stderr": {"type": "string", "meaning": "Usage, toolkit, or agathodaimon-gui-settings diagnostics; not an Alkahest refusal field."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "An argument refused before the UI launched."},
+    "exceptionType": {"type": "string", "meaning": "Type of an uncaught exception projected by the front door."},
+    "firstMissingSignal": {"type": "string", "meaning": "Named argument or unknown-plug refusal, or the front door's signal on an uncaught exception; not emitted by self-check.", "enum": ["agathodaimon-gui-shell-arguments-invalid", "agathodaimon-stop-raised"]}
+  }
+}
