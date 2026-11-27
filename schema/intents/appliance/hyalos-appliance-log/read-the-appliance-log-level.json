@@ -32,7 +32,6 @@
       "type": "string",
       "meaning": "The enum lists fixed literal outcomes. Set can also pass through configuration-update error text from the config writer.",
       "enum": [
-        "none",
         "caduceus-public-action-not-allowed",
         "caduceus-carapace-desync",
         "caduceus-blocking-task-join-failed",
@@ -41,9 +40,7 @@
         "seat-schema-foreign",
         "seat-kind-undeclared",
         "seat-empty",
-        "caduceus-hyalos-read-admin-required",
-        "caduceus-hyalos-level-invalid",
-        "caduceus-household-config-path-invalid"
+        "caduceus-hyalos-read-admin-required"
       ]
     }
   }

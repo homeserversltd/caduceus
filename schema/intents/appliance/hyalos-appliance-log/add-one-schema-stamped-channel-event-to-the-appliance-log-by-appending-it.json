@@ -152,6 +152,10 @@
         "hyalos-channel-serialize-failed",
         "hyalos-channel-event-too-large"
       ]
+    },
+    "schema": {
+      "type": "string",
+      "meaning": "Native response schema before the shared receipt stamp."
     }
   }
 }

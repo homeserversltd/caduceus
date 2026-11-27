@@ -79,7 +79,6 @@
         "caduceus-public-action-not-allowed",
         "caduceus-carapace-desync",
         "caduceus-blocking-task-join-failed",
-        "sqlite-path-check-failed",
         "sqlite-read-open-failed",
         "sqlite-busy-timeout-failed",
         "sqlite-read-begin-failed",
@@ -90,8 +89,13 @@
         "sqlite-open-failed",
         "caduceus-hyalos-read-admin-required",
         "hyalos-tail-world-unavailable",
-        "hyalos-tail-level-invalid"
+        "hyalos-tail-level-invalid",
+        "sqlite-deed-count-failed"
       ]
+    },
+    "schema": {
+      "type": "string",
+      "meaning": "Native response schema before the shared receipt stamp."
     }
   }
 }

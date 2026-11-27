@@ -76,6 +76,10 @@
         "caduceus-harmonia-ledger-unreadable",
         "caduceus-ledger-empty"
       ]
+    },
+    "schema": {
+      "type": "string",
+      "meaning": "Native response schema before the shared receipt stamp."
     }
   }
 }

@@ -105,6 +105,10 @@
         "caduceus-appliance-log-unavailable",
         "caduceus-hyalos-read-admin-required"
       ]
+    },
+    "schema": {
+      "type": "string",
+      "meaning": "Native response schema before the shared receipt stamp."
     }
   }
 }

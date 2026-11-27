@@ -24,11 +24,12 @@
         "caduceus-public-action-not-allowed",
         "caduceus-carapace-desync",
         "caduceus-blocking-task-join-failed",
-        "caduceus-receipt-missing",
-        "caduceus-operation-failed",
-        "caduceus-identity-missing",
-        "caduceus-pjlink-catalog-import-required"
+        "caduceus-receipt-missing"
       ]
+    },
+    "schema": {
+      "type": "string",
+      "meaning": "Native response schema before the shared receipt stamp."
     }
   }
 }

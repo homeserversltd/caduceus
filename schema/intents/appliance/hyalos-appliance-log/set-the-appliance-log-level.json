@@ -43,7 +43,6 @@
       "type": "string",
       "meaning": "The enum lists fixed literal outcomes. Set can also pass through configuration-update error text from the config writer.",
       "enum": [
-        "none",
         "caduceus-public-action-not-allowed",
         "caduceus-carapace-desync",
         "caduceus-blocking-task-join-failed",
@@ -52,9 +51,17 @@
         "seat-schema-foreign",
         "seat-kind-undeclared",
         "seat-empty",
-        "caduceus-hyalos-read-admin-required",
         "caduceus-hyalos-level-invalid",
-        "caduceus-household-config-path-invalid"
+        "caduceus-household-config-path-invalid",
+        "exousia-pin-required",
+        "caduceus-administrative-request-too-large",
+        "caduceus-administrative-request-invalid",
+        "caduceus-household-config-lock-unavailable",
+        "caduceus-household-config-installed-path-missing",
+        "caduceus-household-config-missing",
+        "caduceus-household-config-invalid",
+        "caduceus-household-config-render-failed",
+        "caduceus-household-config-write-failed"
       ]
     }
   }
