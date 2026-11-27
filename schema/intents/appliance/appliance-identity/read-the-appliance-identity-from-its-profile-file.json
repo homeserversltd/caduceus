@@ -5,6 +5,6 @@
   "exousia": false,
   "mutation_allowed": false,
   "returns": {
-    "firstMissingSignal": {"type": "string", "meaning": "A gate or identity read refusal; the identity value itself need not contain a signal.", "enum": ["caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-blocking-task-join-failed", "caduceus-identity-missing"]}
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed local gate and identity read refusals. The parsed profile JSON is returned directly and can itself contain arbitrary firstMissingSignal text.", "enum": ["caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-blocking-task-join-failed", "caduceus-identity-missing"]}
   }
 }

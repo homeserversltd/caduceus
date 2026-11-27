@@ -24,6 +24,10 @@
     "attempted": {"type": "boolean", "const": false, "meaning": "The planned admission has not been attempted."},
     "argv": {"type": "array", "items": {"type": "string"}, "meaning": "The planned portal-admit argument vector on dry run."},
     "child_portals": {"type": "array", "meaning": "The child-portal plan on dry run; actual child results are nested in staff on success."},
-    "firstMissingSignal": {"type": "string", "meaning": "A local refusal or a portal-admit receipt signal; downstream receipt fields and signal are passed through without a closed vocabulary."}
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Open forms also include arbitrary firstMissingSignal or error text from the returned portal-admit receipt, which is passed through whole.",
+      "enum": ["link-up-accept-on-homeserver", "link-up-admin-required", "link-up-busy", "link-up-request-invalid", "link-up-schema-desync", "notification-state-unavailable", "notification-absent", "notification-not-pending", "notification-verb-unknown", "link-up-roster-unavailable", "link-up-name-invalid", "link-up-name-taken", "link-up-name-observation-failed", "link-up-portal-status-unavailable", "link-up-child-mac-unavailable", "link-up-child-address-unavailable", "link-up-bind-memory-unavailable", "link-up-portal-admit-unavailable", "link-up-portal-admit-incomplete"]
+    }
   }
 }
