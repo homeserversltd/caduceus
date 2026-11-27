@@ -13,7 +13,7 @@
     "required": ["upload_id", "index", "body", "content-type", "x-caduceus-document"]
   },
   "exousia": false,
-  "mutation_allowed": null,
+  "mutation_allowed": true,
   "returns": {
     "bytes_received": {"type": "integer", "meaning": "Cumulative byte count after a successful chunk."},
     "ok": {"type": "boolean", "meaning": "False on an explicit handler refusal; the success body contains bytes_received."},

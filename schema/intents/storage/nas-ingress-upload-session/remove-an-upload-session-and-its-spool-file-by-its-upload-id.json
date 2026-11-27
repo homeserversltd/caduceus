@@ -10,7 +10,7 @@
     "required": ["upload_id"]
   },
   "exousia": false,
-  "mutation_allowed": null,
+  "mutation_allowed": true,
   "returns": {
     "ok": {"type": "boolean", "meaning": "True after removal, or when the session or spool is already absent; false on handler refusal."},
     "firstMissingSignal": {"type": "string", "meaning": "The enum lists the fixed literal handler refusals. The handler supplies no open-form signals; its success body does not supply this field.", "enum": ["caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-attendance-not-current", "caduceus-file-ingress-abort-cleanup-failed"]}
