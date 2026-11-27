@@ -1,0 +1,62 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/seat-tunnels/status-whether-the-openvpn-port-forwarding-and-tailscale-tunnels-are-up-on-this-seat",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether all five tunnel conditions are present."
+    },
+    "openvpnPresent": {
+      "type": "boolean",
+      "meaning": "Whether a tun interface is present."
+    },
+    "openvpnInterface": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "The first discovered tun interface, or null."
+    },
+    "openvpnHasAddress": {
+      "type": "boolean",
+      "meaning": "Whether the tun interface has an IPv4 address."
+    },
+    "portForwardingProcessPresent": {
+      "type": "boolean",
+      "meaning": "Whether a process command line contains port_forwarding.sh."
+    },
+    "tailscalePresent": {
+      "type": "boolean",
+      "meaning": "Whether tailscale0 exists."
+    },
+    "tailscaleHasAddress": {
+      "type": "boolean",
+      "meaning": "Whether tailscale0 has an IPv4 address."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The outcome token; none means no signal is missing. The enum lists fixed literal outcomes. ",
+      "enum": [
+        "none",
+        "caduceus-network-openvpn-interface-missing",
+        "caduceus-network-openvpn-address-missing",
+        "caduceus-network-port-forwarding-process-missing",
+        "caduceus-network-tailscale-interface-missing",
+        "caduceus-network-tailscale-address-missing",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid"
+      ]
+    }
+  }
+}

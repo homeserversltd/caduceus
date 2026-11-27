@@ -1,0 +1,82 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/lan-device-notes/set-the-free-text-note-of-a-network-device-by-its-mac",
+  "payload": {
+    "fields": {
+      "mac": {
+        "type": "string",
+        "meaning": "Six hexadecimal octets separated by colon or hyphen; normalized to uppercase colon-separated form."
+      },
+      "note": {
+        "type": "string",
+        "meaning": "Free-text note of at most 4096 UTF-8 bytes without NUL; empty text removes the MAC entry."
+      },
+      "flags": {
+        "meaning": "Optional flags value passed to administrative admission.",
+        "type": [
+          "object",
+          "array",
+          "string",
+          "number",
+          "boolean",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "mac",
+      "note"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the state file was written and its notes read back."
+    },
+    "notes": {
+      "type": "object",
+      "meaning": "MAC-keyed map of note strings read back from the state file."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "The state file write was performed.",
+      "const": true
+    },
+    "completed": {
+      "type": "boolean",
+      "meaning": "The write and readback completed.",
+      "const": true
+    },
+    "cleared": {
+      "type": "boolean",
+      "meaning": "True when the supplied note was empty."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The outcome token; none means no signal is missing. The enum lists fixed literal outcomes. ",
+      "enum": [
+        "none",
+        "caduceus-network-notes-mac-invalid",
+        "caduceus-network-notes-note-invalid",
+        "caduceus-network-notes-state-unreadable",
+        "caduceus-network-notes-state-invalid",
+        "caduceus-network-notes-state-write-failed",
+        "caduceus-network-notes-state-render-failed",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid",
+        "exousia-pin-required",
+        "exousia-pin-wrong",
+        "exousia-pin-not-yet-provisioned",
+        "caduceus-administrative-request-too-large",
+        "caduceus-administrative-request-invalid"
+      ]
+    }
+  }
+}

@@ -1,0 +1,192 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/lan-devices/list-the-lan-devices-by-joining-the-arp-neighbour-table-with-dhcp-leases-reservations-and-dns-names",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "The composite answer reports true even when sources are unavailable.",
+      "const": true
+    },
+    "observed": {
+      "type": "object",
+      "meaning": "Device rows with mac, reservation, lease, neighbour, names, aliases, address, address_source, online, claim_state and mismatches; also unavailable_parts and skipped_reservations.",
+      "fields": {
+        "devices": {
+          "type": "array",
+          "meaning": "Joined records, sorted by normalized MAC.",
+          "items": {
+            "type": "object",
+            "fields": {
+              "mac": {
+                "type": "string",
+                "meaning": "Lowercase colon-separated MAC."
+              },
+              "reservation": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "meaning": "Kea reservation with ip and hostname, or null."
+              },
+              "lease": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "meaning": "Kea lease with ip, hostname and expires, or null."
+              },
+              "neighbour": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "meaning": "Neighbour ip, state and interface, or null."
+              },
+              "names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "aliases": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "address": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "meaning": "First available neighbour, lease or reservation address."
+              },
+              "address_source": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "neighbour",
+                  "lease",
+                  "reservation",
+                  null
+                ]
+              },
+              "online": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "meaning": "Null when neighbour state is unavailable or unknown."
+              },
+              "claim_state": {
+                "type": "string",
+                "enum": [
+                  "claimed",
+                  "partial",
+                  "unclaimed"
+                ]
+              },
+              "mismatches": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "meaning": "Reservation and source-availability mismatches."
+              }
+            }
+          }
+        },
+        "unavailable_parts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "neighbour",
+              "unbound",
+              "leases",
+              "reservations"
+            ]
+          }
+        },
+        "skipped_reservations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "fields": {
+              "entry": {
+                "meaning": "The rejected original reservation entry."
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "invalid-or-missing-hw-address",
+                  "missing-ip-address"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "could_change_to": {
+      "type": "object",
+      "meaning": "Lists deferred fields outside this composite.",
+      "fields": {
+        "deferred": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "meaning": "Names of deferred fields, including aliases even though aliases are returned."
+        }
+      }
+    },
+    "attempt": {
+      "type": "null",
+      "meaning": "The composite does not attempt a managed mutation."
+    },
+    "final_receipt": {
+      "type": "object",
+      "meaning": "Final ok and firstMissingSignal for the first unavailable source, or none.",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        },
+        "firstMissingSignal": {
+          "type": "string",
+          "enum": [
+            "none",
+            "neighbour-unavailable",
+            "unbound-unavailable",
+            "leases-unavailable",
+            "reservations-unavailable"
+          ]
+        }
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The final_receipt firstMissingSignal is the first unavailable source or none; administrative gate failures use their own top-level firstMissingSignal. The enum lists fixed literal outcomes.",
+      "enum": [
+        "none",
+        "neighbour-unavailable",
+        "unbound-unavailable",
+        "leases-unavailable",
+        "reservations-unavailable",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid"
+      ]
+    }
+  }
+}

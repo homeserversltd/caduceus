@@ -1,0 +1,54 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/seat-bandwidth/capture-a-speedtest-of-download-upload-and-latency-from-this-seat",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether speedtest succeeded."
+    },
+    "download": {
+      "type": "number",
+      "meaning": "Download speed in Mbps rounded to one decimal place."
+    },
+    "upload": {
+      "type": "number",
+      "meaning": "Upload speed in Mbps rounded to one decimal place."
+    },
+    "latency": {
+      "type": "number",
+      "meaning": "Ping latency in milliseconds rounded to one decimal place."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "The handler reports no managed mutation.",
+      "const": false
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The outcome token; none means no signal is missing. The enum lists fixed literal outcomes. ",
+      "enum": [
+        "none",
+        "caduceus-operation-failed",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "exousia-pin-required",
+        "exousia-pin-wrong",
+        "exousia-pin-not-yet-provisioned",
+        "caduceus-administrative-request-too-large",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid",
+        "caduceus-administrative-request-invalid",
+        "caduceus-identity-missing"
+      ]
+    }
+  }
+}
