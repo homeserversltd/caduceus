@@ -42,7 +42,7 @@
     ]
   },
   "exousia": true,
-  "mutation_allowed": null,
+  "mutation_allowed": true,
   "returns": {
     "backend": {
       "type": "string",
