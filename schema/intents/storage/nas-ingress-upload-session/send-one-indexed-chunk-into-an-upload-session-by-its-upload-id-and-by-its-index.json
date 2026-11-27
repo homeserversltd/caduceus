@@ -1,0 +1,22 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas-ingress-upload-session/send-one-indexed-chunk-into-an-upload-session-by-its-upload-id-and-by-its-index",
+  "payload": {
+    "fields": {
+      "upload_id": {"type": "string", "meaning": "Upload session identifier from the HTTP path."},
+      "index": {"type": "integer", "minimum": 0, "maximum": 18446744073709551615, "meaning": "Chunk index from the HTTP path; its product with chunk size must equal bytes already received."},
+      "body": {"type": "bytes", "meaning": "Raw chunk bytes, not JSON; bounded by the smaller of remaining bytes and session chunk size. A nonfinal chunk must fill that bound."},
+      "content-type": {"type": "string", "meaning": "HTTP header whose trimmed media type before any semicolon must be application/octet-stream."},
+      "x-caduceus-document": {"type": "string", "meaning": "HTTP header matching the document bound to the session."},
+      "x-caduceus-attendance": {"type": "string", "meaning": "HTTP attendance header, required for a session started on attendance basis."}
+    },
+    "required": ["upload_id", "index", "body", "content-type", "x-caduceus-document"]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "bytes_received": {"type": "integer", "meaning": "Cumulative byte count after a successful chunk."},
+    "ok": {"type": "boolean", "meaning": "False on an explicit handler refusal; the success body contains bytes_received."},
+    "firstMissingSignal": {"type": "string", "meaning": "A handler refusal signal; the successful handler body does not supply this field.", "enum": ["caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-file-ingress-content-type-invalid", "caduceus-file-ingress-upload-id-unknown", "caduceus-attendance-not-current", "caduceus-file-ingress-chunk-offset-invalid", "caduceus-file-ingress-chunk-out-of-order", "caduceus-file-ingress-spool-seek-failed", "caduceus-file-ingress-chunk-read-failed", "caduceus-file-ingress-chunk-too-large", "caduceus-file-ingress-spool-write-failed", "caduceus-file-ingress-chunk-empty", "caduceus-file-ingress-chunk-size-mismatch", "caduceus-file-ingress-spool-flush-failed"]}
+  }
+}

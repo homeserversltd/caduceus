@@ -1,0 +1,22 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas-ingress-upload-session/start-a-chunked-upload-session-for-a-named-filename-total-size-and-target-directory",
+  "payload": {
+    "fields": {
+      "filename": {"type": "string", "meaning": "Nonempty filename equal to its final path component."},
+      "total_size": {"type": "integer", "minimum": 0, "maximum": 18446744073709551615, "meaning": "Total byte length for the preallocated spool."},
+      "target_dir": {"type": "string", "meaning": "Target directory; the resulting target must be under the ingress root, have an existing parent and not be a symlink."},
+      "chunk_size": {"type": ["integer", "null"], "minimum": 1, "maximum": 8388608, "default": 4194304, "meaning": "Optional chunk size in bytes; absent or null uses 4 MiB."},
+      "x-caduceus-document": {"type": "string", "meaning": "Required nonblank document identity carried in the HTTP header, not the JSON body."},
+      "x-caduceus-attendance": {"type": "string", "meaning": "Optional attendance HTTP header for the document; otherwise the upload policy admits an open or PIN-authorized start."}
+    },
+    "required": ["filename", "total_size", "target_dir", "x-caduceus-document"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "upload_id": {"type": "string", "meaning": "New UUID identifying the in-memory session."},
+    "ok": {"type": "boolean", "meaning": "False on an explicit handler refusal; the success body contains upload_id."},
+    "firstMissingSignal": {"type": "string", "meaning": "A handler refusal signal; the successful handler body does not supply this field.", "enum": ["caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-attendance-document-required", "exousia-pin-required", "exousia-pin-wrong", "exousia-pin-not-yet-provisioned", "caduceus-file-ingress-request-invalid", "caduceus-file-ingress-filename-invalid", "caduceus-file-ingress-chunk-size-invalid", "caduceus-file-ingress-destination-outside-root", "caduceus-file-ingress-destination-invalid", "caduceus-file-ingress-destination-missing", "caduceus-file-ingress-target-symlink", "caduceus-blocking-task-join-failed", "caduceus-file-ingress-spool-unavailable", "caduceus-file-ingress-spool-clock-invalid", "caduceus-file-ingress-spool-open-failed", "caduceus-file-ingress-spool-preallocate-failed", "caduceus-file-ingress-upload-id-collision"]}
+  }
+}
