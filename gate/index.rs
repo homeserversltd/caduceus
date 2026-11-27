@@ -46,6 +46,7 @@ pub mod keyman;
 pub mod snake;
 #[path = "door.rs"]
 pub mod door;
+pub mod one_name;
 
 pub(crate) struct ApiErrorBody {
     pub(crate) ok: bool,
@@ -1254,6 +1255,7 @@ pub fn router() -> Router {
             .route("/health", get(health_route))
             .route("/api/v1/doors", get(doors_route)),
     );
+    one_name::keep_router(router.clone());
     router
         .layer(middleware::from_fn(administrative_route_gate))
         .layer(middleware::from_fn(answer_client_refusal))

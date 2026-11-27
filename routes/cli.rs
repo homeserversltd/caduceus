@@ -81,7 +81,12 @@ where
         && !args.is_empty() && args.iter().all(|word| !word.is_empty() && !word.contains('/'))
     {
         let namespace = args.join("/");
-        if crate::routes::SELECTED_UNIVERSAL_DOORS.contains(&namespace.as_str()) {
+        if crate::routes::SELECTED_UNIVERSAL_DOORS.contains(&namespace.as_str())
+            || crate::routes::selected_declaration(&namespace)
+                .and_then(|source| serde_json::from_str::<serde_json::Value>(source).ok())
+                .and_then(|declaration| declaration.get("http_method").and_then(serde_json::Value::as_str).map(str::to_owned))
+                .is_some()
+        {
             if let Some(exousia) = crate::routes::leaf_schema::intent_exousia(&namespace) {
                 if let Some(source) = crate::routes::selected_declaration(&namespace) {
                     if let Ok(declaration) = serde_json::from_str::<serde_json::Value>(source) {

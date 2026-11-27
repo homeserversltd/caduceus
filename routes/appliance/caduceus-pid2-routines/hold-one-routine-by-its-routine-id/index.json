@@ -1,0 +1,29 @@
+{
+  "namespace": "appliance/caduceus-pid2-routines/hold-one-routine-by-its-routine-id",
+  "admittance": "open",
+  "flags": {},
+  "needs": [],
+  "commands": [
+    "hold"
+  ],
+  "serve": [],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/caduceus-pid2-routines/hold-one-routine-by-its-routine-id",
+  "body": "optional",
+  "forward": {
+    "method": "POST",
+    "path": "/api/v1/pid2/hold",
+    "body": "envelope"
+  },
+  "profiles": [
+    "homeserver",
+    "homesi",
+    "hometv",
+    "specula"
+  ],
+  "ledger_deed": {
+    "organ": "pid2",
+    "verb": "command",
+    "target": "routine"
+  }
+}

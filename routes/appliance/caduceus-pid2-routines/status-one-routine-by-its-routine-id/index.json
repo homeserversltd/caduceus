@@ -1,0 +1,27 @@
+{
+  "namespace": "appliance/caduceus-pid2-routines/status-one-routine-by-its-routine-id",
+  "admittance": "open",
+  "flags": {},
+  "needs": [],
+  "commands": [
+    "status"
+  ],
+  "serve": [],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/caduceus-pid2-routines/status-one-routine-by-its-routine-id",
+  "body": "required",
+  "forward": {
+    "method": "GET",
+    "path": "/api/v1/pid2/status/:id",
+    "path_fields": {
+      "id": "id"
+    },
+    "body": "none"
+  },
+  "profiles": [
+    "homeserver",
+    "homesi",
+    "hometv",
+    "specula"
+  ]
+}

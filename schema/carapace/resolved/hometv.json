@@ -4,6 +4,10 @@
   "routes": [
     "access/gate",
     "access/pin/mode",
+    "appliance/appliance-stats-sampler/list-the-appliance-stats-history-samples-by-tier-and-time-window",
+    "appliance/caduceus-doors/read-the-door-route-list-of-the-active-profile",
+    "appliance/caduceus-pid2-routines/hold-one-routine-by-its-routine-id",
+    "appliance/caduceus-pid2-routines/status-one-routine-by-its-routine-id",
     "appliance/claim",
     "appliance/journal-vacuum/verify",
     "appliance/model-lanes/pulse",
