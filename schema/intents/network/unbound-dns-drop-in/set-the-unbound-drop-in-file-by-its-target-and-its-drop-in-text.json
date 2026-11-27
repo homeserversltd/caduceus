@@ -1,0 +1,110 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/unbound-dns-drop-in/set-the-unbound-drop-in-file-by-its-target-and-its-drop-in-text",
+  "payload": {
+    "fields": {
+      "target": {
+        "type": "string",
+        "meaning": "Absolute path equal to DnsManager’s selected laptop-home-arpa.conf under the managed drop-in directory (normally /etc/unbound/unbound.conf.d). The directory and file must not be symlinks."
+      },
+      "dropIn": {
+        "type": "string",
+        "meaning": "Nonempty UTF-8 Unbound text, at most 8192 bytes and without NUL. Starts with server: after trimming the first line. The following two indented local-data lines must each supply one laptop.home.arpa. IN A record, one for 192.168.123.19 and one for 192.168.123.20, without duplicates."
+      },
+      "dry-run": {
+        "type": "boolean",
+        "meaning": "Report the candidate hashes after input validation without staging, validating the configuration with Unbound, reloading or mutating.",
+        "default": false
+      }
+    },
+    "required": [
+      "target",
+      "dropIn"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "dry-run": true,
+  "returns": {
+    "action": {
+      "type": "string",
+      "meaning": "Apply or report a read-only plan.",
+      "enum": [
+        "apply-managed-drop-in",
+        "plan-managed-drop-in"
+      ]
+    },
+    "target": {
+      "type": "string",
+      "meaning": "Managed drop-in path."
+    },
+    "beforeHash": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "SHA-256 of prior bytes, or null for an absent file."
+    },
+    "afterHash": {
+      "type": "string",
+      "meaning": "SHA-256 of normalized candidate bytes."
+    },
+    "stagedValidation": {
+      "type": "boolean",
+      "meaning": "Whether the staged configuration passed validation."
+    },
+    "liveValidation": {
+      "type": "boolean",
+      "meaning": "Whether the installed configuration passed validation."
+    },
+    "reload": {
+      "type": "string",
+      "meaning": "Reload outcome.",
+      "enum": [
+        "not-run",
+        "reloaded",
+        "not-needed-idempotent"
+      ]
+    },
+    "rollback": {
+      "type": "string",
+      "meaning": "Compensation outcome.",
+      "enum": [
+        "not-needed",
+        "restored-and-revalidated",
+        "failed"
+      ]
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "Whether the stop reports a mutation."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class named by the front door when the stop raises instead of answering."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop outcome; none names an unblocked result. The envelope reader names missing kernel fields in seat order (the single missing timestamp is listed). Variable diagnostics include dns-root-config-unreadable:, command failed:, reload-command-failed:unbound:, OS errors, and an appended dns-rollback-failed: cause when restoration fails. An exception that escapes the stop is named by the front door, with its exception type.",
+      "enum": [
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: timestamp",
+        "dns-target-not-admitted",
+        "dns-target-symlink-refused",
+        "dns-payload-missing",
+        "dns-payload-invalid",
+        "dns-payload-not-unbound",
+        "dns-payload-not-admitted",
+        "dns-dry-run-invalid",
+        "dns-managed-include-missing",
+        "dns-neighbor-not-regular",
+        "identity-lock-unavailable:network-identity-claim",
+        "agathodaimon-dry-run-invalid",
+        "agathodaimon-stop-raised",
+        "none"
+      ]
+    }
+  }
+}

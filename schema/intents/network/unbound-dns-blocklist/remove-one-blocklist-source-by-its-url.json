@@ -1,0 +1,144 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/unbound-dns-blocklist/remove-one-blocklist-source-by-its-url",
+  "payload": {
+    "fields": {
+      "url": {
+        "type": "string",
+        "meaning": "Exact source URL. Must be HTTPS with a hostname, no username or password, and a port in 1–65535 if present. UTF-8 length at most 2048 bytes. Declared secret for the request echo."
+      }
+    },
+    "required": [
+      "url"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": true,
+  "returns": {
+    "outcome": {
+      "type": "string",
+      "meaning": "Blocklist result.",
+      "enum": [
+        "applied",
+        "unchanged",
+        "held",
+        "failed"
+      ]
+    },
+    "domainCount": {
+      "type": "integer",
+      "meaning": "Observed or built blocked-domain count.",
+      "minimum": 0
+    },
+    "sources": {
+      "type": "array",
+      "meaning": "Configured blocklist sources, or an empty list when none are returned.",
+      "items": {
+        "type": "object",
+        "meaning": "A source entry.",
+        "fields": {
+          "url": {
+            "type": "string",
+            "meaning": "Configured HTTPS URL."
+          }
+        }
+      },
+      "maxItems": 16
+    },
+    "firstFailingSource": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Hostname of the failing source if identified; otherwise null."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Whether configuration bytes changed; for source add/remove this specifically describes the stored source list."
+    },
+    "mutationPerformed": {
+      "type": "boolean",
+      "meaning": "Whether the list bytes or source selection changed. A timestamp-only refresh is not counted here."
+    },
+    "exceptionType": {
+      "type": "string",
+      "meaning": "Exception class named by the front door when the stop raises instead of answering."
+    },
+    "observed": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "meaning": "On a writer receipt, the observed file path and its before and after SHA-256 hashes (null hash for absent bytes); otherwise null.",
+      "items": {
+        "type": "object",
+        "meaning": "File observation.",
+        "fields": {
+          "path": {
+            "type": "string",
+            "meaning": "File path."
+          },
+          "before": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Hash before writing."
+          },
+          "after": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "meaning": "Hash after writing or restoration."
+          }
+        }
+      }
+    },
+    "could_change_to": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "meaning": "On a writer receipt, target file paths; otherwise null.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "attempt": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "The shared writer’s attempted flag and step outcomes, or null when the writer did not run."
+    },
+    "final_receipt": {
+      "type": "object",
+      "meaning": "The shared writer’s final result when it ran, otherwise the stamped stop outcome."
+    },
+    "restoreFailed": {
+      "type": "boolean",
+      "meaning": "Present and true if restoration after an installation fault failed.",
+      "const": true
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The stop outcome; none names an unblocked result. The envelope reader names missing kernel fields in seat order (the single missing timestamp is listed). A held refresh can return ok: true with the failing source signal and preserve the prior list bytes. An exception that escapes the stop is named by the front door, with its exception type.",
+      "enum": [
+        "invalid JSON",
+        "JSON object required",
+        "foreign envelope schema",
+        "missing envelope kernel keys: timestamp",
+        "blocklist-source-invalid",
+        "blocklist-source-credentials-refused",
+        "blocklist-source-unreachable",
+        "blocklist-source-empty",
+        "blocklist-config-write-failed",
+        "blocklist-checkconf-failed",
+        "blocklist-reload-failed",
+        "agathodaimon-stop-raised",
+        "none"
+      ]
+    }
+  }
+}
