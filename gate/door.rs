@@ -202,6 +202,21 @@ async fn handle_request(
         }
     };
 
+    let serve = declaration.get(ARPEGGIO_SERVE).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let finally = declaration.get(ARPEGGIO_FINALLY).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let plain_rust = serve.len() == 1 && serve[0].get("rust").and_then(Value::as_str).is_some()
+        && serve[0].get("snake").is_none() && serve[0].get("deadline_from_route").and_then(Value::as_bool) != Some(true)
+        && finally.is_empty() && declaration.get(ARPEGGIO_OUROBOROS).is_none()
+        && serve[0].get("settles_on").is_none()
+        && !["stage_id", "arguments", "required", "depends_on", "deadline_seconds"].iter().any(|field| serve[0].get(*field).is_some());
+    if plain_rust {
+        for field in crate::routes::leaf_schema::intent_required_payload(namespace).unwrap_or_default() {
+            if payload.get(&field).is_none_or(Value::is_null) {
+                return missing_field_response(namespace, method, &command, &field);
+            }
+        }
+    }
+
     // This independent task owns the complete invocation and deed. Dropping the
     // HTTP future after this spawn cannot cancel a running serve/finally chord.
     let task_declaration = Arc::clone(&declaration);
@@ -209,7 +224,8 @@ async fn handle_request(
     let task_namespace = namespace.to_owned();
     let task_request_id = request_id.clone();
     let task_method = method.clone();
-    let task = tokio::spawn(async move {
+    let context = crate::shared::load_trace::current();
+    let task = tokio::spawn(crate::shared::load_trace::scope_context(context, async move {
         let result = dispatch(&task_declaration, &task_namespace, &task_request_id, payload, receipt_schema.as_deref(), &mut deed).await;
         #[cfg(leaf_pid2)]
         let changed = result.as_ref().is_ok_and(|reply| reply.status.is_success() && reply.changed == Some(true) && reply.receipt.get("ok").and_then(Value::as_bool)==Some(true) && reply.receipt.get("converged").and_then(Value::as_bool)!=Some(false));
@@ -250,7 +266,7 @@ async fn handle_request(
         #[cfg(leaf_pid2)]
         if changed { crate::pid2::events::notify(); }
         response
-    });
+    }));
     match task.await {
         Ok(response) => response,
         Err(_) => {
@@ -551,6 +567,17 @@ fn error_response(
     receipt["stop"] = json!({"noun": noun, "verb": verb});
     receipt["command"] = json!(command);
     (status, Json(receipt)).into_response()
+}
+
+fn missing_field_response(namespace: &str, method: &Method, command: &str, field: &str) -> Response {
+    let signal = "caduceus-one-name-required-field-missing";
+    let (noun, verb) = namespace.rsplit_once('/').unwrap_or((namespace, ""));
+    let mut receipt = refusal_receipt(signal,
+        json!({"route": format!("/api/v1/{namespace}"), "method": method.as_str(), "missing_field": field}),
+        Value::Null, json!({"attempted": false, "step": "payload"}));
+    receipt["stop"] = json!({"noun": noun, "verb": verb});
+    receipt["command"] = json!(command);
+    (StatusCode::BAD_REQUEST, Json(receipt)).into_response()
 }
 
 fn finish_failure(

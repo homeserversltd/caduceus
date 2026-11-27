@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 
 type Response = Result<Json<Value>, (StatusCode, Json<Value>)>;
 const RECEIPT_SCHEMA: &str = "caduceus.staff.receipt.v1";
-fn refusal(signal: String, noun: &str, verb: &str, route: &str, attempted: Option<bool>) -> (StatusCode, Json<Value>) {
+pub(crate) fn refusal(signal: String, noun: &str, verb: &str, route: &str, attempted: Option<bool>) -> (StatusCode, Json<Value>) {
     // The semaphore refuses before the worker can run; other worker failures may be post-act.
     let attempted = if signal == "pid2-door-busy" { Some(false) } else { attempted };
     (StatusCode::SERVICE_UNAVAILABLE, Json(json!({
@@ -49,7 +49,10 @@ where F: FnOnce()->Result<Value,String> + Send + 'static {
     tokio::task::spawn_blocking(move || { let _permit=permit; run() }).await.map_err(|_|"pid2-door-task-failed".to_string())?
 }
 async fn list() -> Response { respond(work(crate::pid2::list).await,None,"pid2-list","pid2","list","GET /api/v1/pid2/list",None) }
-async fn status(Path(id): Path<String>) -> Response { respond(work(move || crate::pid2::status(&id)).await,None,"pid2-status","pid2","status","GET /api/v1/pid2/status/{id}",None) }
+pub(crate) async fn status_read(id: String, noun: &str, verb: &str, route: &str) -> Response {
+    respond(work(move || crate::pid2::status(&id)).await,None,"pid2-status",noun,verb,route,None)
+}
+async fn status(Path(id): Path<String>) -> Response { status_read(id,"pid2","status","GET /api/v1/pid2/status/{id}").await }
 async fn command(Path(verb): Path<String>, body: Bytes) -> Response {
     let stop_verb = match verb.as_str() {
         "enable" => "enable", "disable" => "disable", "hold" => "hold", "release" => "release",

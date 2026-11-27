@@ -375,6 +375,13 @@ pub fn current() -> Option<ContextHandle> {
         .or_else(|| BLOCKING_CONTEXT.with(|slot| slot.borrow().clone()))
 }
 
+pub(crate) async fn scope_context<F: std::future::Future>(context: Option<ContextHandle>, future: F) -> F::Output {
+    match context {
+        Some(context) => ACTIVE_CONTEXT.scope(context, future).await,
+        None => future.await,
+    }
+}
+
 pub fn with_blocking_context<T>(context: Option<ContextHandle>, run: impl FnOnce() -> T) -> T {
     let Some(context) = context else {
         return run();

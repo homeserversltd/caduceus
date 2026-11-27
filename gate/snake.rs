@@ -826,8 +826,11 @@ pub async fn execute_ordered_serve_with_timeout(
                     let command = primitive.clone();
                     let envelope = base_envelope.clone();
                     let runtime = tokio::runtime::Handle::current();
+                    let context = crate::shared::load_trace::current();
                     let task = tokio::task::spawn_blocking(move || {
-                        runtime.block_on(crate::shared::primitives::execute(&command, &envelope))
+                        crate::shared::load_trace::with_blocking_context(context, || {
+                            runtime.block_on(crate::shared::primitives::execute(&command, &envelope))
+                        })
                     });
                     tokio::time::timeout(timeout, task).await
                         .map_err(|_| "caduceus-rust-primitive-timeout".to_string())?

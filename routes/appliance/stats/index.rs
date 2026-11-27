@@ -141,6 +141,17 @@ async fn current_http(
         .map(json_response)
 }
 
+pub(crate) async fn history_read(query: crate::stats::HistoryQuery) -> Result<Result<String, String>, (axum::http::StatusCode, axum::Json<ApiErrorBody>)> {
+    let context = crate::shared::load_trace::current();
+    let invocation = context.as_ref().map(crate::shared::load_trace::begin_invocation);
+    let result = crate::gate::blocking_task("appliance stats history", move || crate::stats::history(query)).await;
+    if let (Some(context), Some(invocation)) = (context, invocation) {
+        let ok = result.as_ref().is_ok_and(|value| crate::shared::load_trace::outcome_for_result(value));
+        crate::shared::load_trace::record_native_completion(&context, "appliance stats history", invocation, ok);
+    }
+    result.map(|inner| inner.map(crate::shared::load_trace::enrich_json_text))
+}
+
 pub(super) async fn history_http(
     axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
 ) -> axum::response::Response {
@@ -153,27 +164,12 @@ pub(super) async fn history_http(
                         return axum::response::IntoResponse::into_response(rejection);
                     }
                 };
-            let context = crate::shared::load_trace::current();
-            let invocation = context
-                .as_ref()
-                .map(crate::shared::load_trace::begin_invocation);
-            let result = crate::gate::blocking_task("appliance stats history", move || {
-                crate::stats::history(query)
-            })
-            .await;
-            if let (Some(context), Some(invocation)) = (context, invocation) {
-                let ok = result
-                    .as_ref()
-                    .is_ok_and(|value| crate::shared::load_trace::outcome_for_result(value));
-                crate::shared::load_trace::record_native_completion(
-                    &context,
-                    "appliance stats history",
-                    invocation,
-                    ok,
-                );
-            }
+            let result = history_read(query).await;
             match result {
-                Ok(Ok(body)) => json_response(body),
+                Ok(Ok(body)) => axum::response::IntoResponse::into_response((
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    axum::body::Body::from(body),
+                )),
                 Ok(Err(error)) => {
                     axum::response::IntoResponse::into_response(crate::gate::service_unavailable(
                         STATS_COMMAND,

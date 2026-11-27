@@ -1,6 +1,8 @@
 //! Enumerable C2 Rust serve primitive registry.
 // Names are concrete leaf operations, never generic router façades.
 pub static RUST_PRIMITIVES: &[&str] = &[
+    "appliance/appliance-stats-sampler/list-the-appliance-stats-history-samples-by-tier-and-time-window",
+    "appliance/caduceus-pid2-routines/status-one-routine-by-its-routine-id",
     "appliance/caduceus-doors/read-the-door-route-list-of-the-active-profile",
     "face_meter_read",
     "health",
@@ -59,6 +61,9 @@ enum NativeCommand {
     #[cfg(leaf_face_meter)]
     FaceMeter,
     DoorsList,
+    StatsHistory,
+    #[cfg(leaf_pid2)]
+    RoutineStatus,
 }
 
 fn command(name: &str) -> Option<NativeCommand> {
@@ -66,6 +71,9 @@ fn command(name: &str) -> Option<NativeCommand> {
         #[cfg(leaf_face_meter)]
         "face_meter_read" => Some(NativeCommand::FaceMeter),
         "appliance/caduceus-doors/read-the-door-route-list-of-the-active-profile" => Some(NativeCommand::DoorsList),
+        "appliance/appliance-stats-sampler/list-the-appliance-stats-history-samples-by-tier-and-time-window" => Some(NativeCommand::StatsHistory),
+        #[cfg(leaf_pid2)]
+        "appliance/caduceus-pid2-routines/status-one-routine-by-its-routine-id" => Some(NativeCommand::RoutineStatus),
         _ => None,
     }
 }
@@ -79,6 +87,53 @@ pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_j
         #[cfg(leaf_face_meter)]
         Some(NativeCommand::FaceMeter) => Ok(crate::shared::face_meter_native::read_meter(envelope).await),
         Some(NativeCommand::DoorsList) => Ok(crate::gate::doors_readback()),
+        Some(NativeCommand::StatsHistory) => {
+            let payload = envelope.get("payload").cloned().unwrap_or_else(|| serde_json::json!({}));
+            let has_null_field = ["tier", "since", "until", "limit"].iter().any(|field| payload.get(*field).is_some_and(serde_json::Value::is_null));
+            let query = serde_json::from_value::<crate::stats::HistoryQuery>(payload);
+            let query = match query {
+                Ok(_) if has_null_field => {
+                    let mut value = serde_json::json!({"ok": false, "firstMissingSignal": "caduceus-request-query-invalid", "outcome": "request-invalid"});
+                    crate::shared::load_trace::enrich_json(&mut value);
+                    return Ok(value);
+                }
+                Ok(query) => query,
+                Err(_) => {
+                    let mut value = serde_json::json!({"ok": false, "firstMissingSignal": "caduceus-request-query-invalid", "outcome": "request-invalid"});
+                    crate::shared::load_trace::enrich_json(&mut value);
+                    return Ok(value);
+                }
+            };
+            match crate::routes::leaf_appliance_stats::history_read(query).await {
+                Ok(Ok(body)) => {
+                    let mut value: serde_json::Value = serde_json::from_str(&body).map_err(|_| "caduceus-stats-history-invalid-json".to_owned())?;
+                    if let Some(object) = value.as_object_mut() { object.entry("ok").or_insert(serde_json::Value::Bool(true)); }
+                    Ok(value)
+                }
+                Ok(Err(error)) => {
+                    let mut value = serde_json::json!({"ok": false, "firstMissingSignal": crate::gate::missing_signal(&error)});
+                    crate::shared::load_trace::enrich_json(&mut value);
+                    Ok(value)
+                }
+                Err(_) => Err("caduceus-blocking-task-join-failed".into()),
+            }
+        }
+        #[cfg(leaf_pid2)]
+        Some(NativeCommand::RoutineStatus) => {
+            let noun = "appliance/caduceus-pid2-routines";
+            let verb = "status-one-routine-by-its-routine-id";
+            let route = "POST /api/v1/appliance/caduceus-pid2-routines/status-one-routine-by-its-routine-id";
+            let id = envelope.get("payload").and_then(|payload| payload.get("id")).and_then(serde_json::Value::as_str).filter(|id| !id.is_empty());
+            let Some(id) = id else {
+                let (_, axum::Json(mut receipt)) = crate::routes::leaf_pid2::refusal("caduceus-one-name-path-field-missing".into(), noun, verb, route, Some(false));
+                receipt["outcome"] = serde_json::json!("request-invalid");
+                return Ok(receipt);
+            };
+            let receipt = match crate::routes::leaf_pid2::status_read(id.to_owned(), noun, verb, route).await {
+                Ok(axum::Json(receipt)) | Err((_, axum::Json(receipt))) => receipt,
+            };
+            Ok(receipt)
+        }
         None => Err("caduceus-serve-rust-primitive-unavailable".to_string()),
     }
 }

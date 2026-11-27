@@ -8,19 +8,9 @@
   "commands": [
     "appliance stats read"
   ],
-  "serve": [],
+  "serve": [{"rust": "appliance/appliance-stats-sampler/list-the-appliance-stats-history-samples-by-tier-and-time-window"}],
   "http_method": "POST",
   "http_path": "/api/v1/appliance/appliance-stats-sampler/list-the-appliance-stats-history-samples-by-tier-and-time-window",
   "body": "optional",
-  "forward": {
-    "method": "GET",
-    "path": "/api/v1/appliance/stats/history",
-    "query_fields": [
-      "tier",
-      "since",
-      "until",
-      "limit"
-    ],
-    "body": "none"
-  }
+  "status_table": {"request-invalid": 400}
 }
