@@ -15,6 +15,6 @@
     }},
     "rescan": {"type": ["boolean", "null"], "meaning": "Stored transmission rescan setting or its null default."},
     "command": {"type": "string", "meaning": "Command named on a handler refusal."},
-    "firstMissingSignal": {"type": "string", "meaning": "Literal handler outcomes, with none on success.", "enum": ["none", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-schema-desync", "caduceus-household-config-unavailable", "caduceus-household-config-invalid"]}
+    "firstMissingSignal": {"type": "string", "meaning": "Literal handler outcomes, with none on success.", "enum": ["none", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-schema-desync", "caduceus-administrative-config-unavailable", "caduceus-administrative-config-invalid", "caduceus-administrative-profile-invalid", "caduceus-administrative-routes-invalid", "caduceus-household-config-unavailable", "caduceus-household-config-invalid"]}
   }
 }
