@@ -30,7 +30,7 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "The enum lists fixed literal outcomes. Set can also pass through configuration-update error text from the config writer.",
+      "meaning": "The enum lists fixed literal outcomes of reading the log level.",
       "enum": [
         "caduceus-blocking-task-join-failed",
         "seat-unreadable",
