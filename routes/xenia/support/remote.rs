@@ -87,88 +87,103 @@ fn https(url: &str, token: &str) -> Result<HttpsResponse> {
         return Err(observation("F", "forge.credential", "forge-credential-unavailable"));
     }
     let escaped = token.replace('\\', "\\\\").replace('"', "\\\"");
-    let mut child = Command::new("/usr/bin/curl")
-        .args([
-            "--disable",
-            "--silent",
-            "--fail",
-            "--proto",
-            "=https",
-            "--proto-redir",
-            "=https",
-            "--max-time",
-            "15",
-            "--connect-timeout",
-            "5",
-            "--max-filesize",
-            "1048576",
-            "--write-out",
-            "%{http_code}",
-            "--cacert",
-            "/etc/ssl/certs/ca-certificates.crt",
-            "--config",
-            "-",
-            "--url",
-            url,
-        ])
-        .env_remove("CURL_CA_BUNDLE")
-        .env_remove("SSL_CERT_FILE")
-        .env_remove("SSL_CERT_DIR")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| observation("F", "source", format!("curl-launch: {e}")))?;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| observation("F", "forge.credential", "curl-auth-config-absent"))?
-        .write_all(format!("header = \"Authorization: token {escaped}\"\n").as_bytes())
-        .map_err(|_| observation("F", "forge.credential", "curl-auth-config-failed"))?;
-    let mut bytes = Vec::new();
-    let read = child
-        .stdout
-        .take()
-        .ok_or_else(|| observation("F", "source", "curl-pipe-absent"))?
-        .take((LIMIT + 4) as u64)
-        .read_to_end(&mut bytes);
-    if read.is_err() || bytes.len() > LIMIT + 3 {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(observation(
-            "F",
-            "source",
-            "release-response-size-or-read-failed",
-        ));
+    let mut loopback = true;
+    loop {
+        let mut command = Command::new("/usr/bin/curl");
+        command.arg("--disable");
+        if loopback {
+            // Force a direct connection even when a proxy is configured; keep the URL
+            // and its TLS name unchanged and use the same CA bundle on both attempts.
+            command.args(["--noproxy", "git.home.arpa", "--resolve", "git.home.arpa:443:127.0.0.1"]);
+        }
+        let mut child = command
+            .args([
+                "--silent",
+                "--fail",
+                "--proto",
+                "=https",
+                "--proto-redir",
+                "=https",
+                "--max-time",
+                "15",
+                "--connect-timeout",
+                "5",
+                "--max-filesize",
+                "1048576",
+                "--write-out",
+                "%{http_code}",
+                "--cacert",
+                "/etc/ssl/certs/ca-certificates.crt",
+                "--config",
+                "-",
+                "--url",
+                url,
+            ])
+            .env_remove("CURL_CA_BUNDLE")
+            .env_remove("SSL_CERT_FILE")
+            .env_remove("SSL_CERT_DIR")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| observation("F", "source", format!("curl-launch: {e}")))?;
+        child
+            .stdin
+            .take()
+            .ok_or_else(|| observation("F", "forge.credential", "curl-auth-config-absent"))?
+            .write_all(format!("header = \"Authorization: token {escaped}\"\n").as_bytes())
+            .map_err(|_| observation("F", "forge.credential", "curl-auth-config-failed"))?;
+        let mut bytes = Vec::new();
+        let read = child
+            .stdout
+            .take()
+            .ok_or_else(|| observation("F", "source", "curl-pipe-absent"))?
+            .take((LIMIT + 4) as u64)
+            .read_to_end(&mut bytes);
+        if read.is_err() || bytes.len() > LIMIT + 3 {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(observation(
+                "F",
+                "source",
+                "release-response-size-or-read-failed",
+            ));
+        }
+        // Drain the bounded output and reap curl before interpreting its trailer;
+        // malformed or missing status text must not leave the child unreaped.
+        let exit = child
+            .wait()
+            .map_err(|e| observation("F", "source", e.to_string()))?;
+        // curl 7: connect failure; 35: TLS handshake; 60: peer verification.
+        // Never retry once an HTTP status was received, even on a later failure.
+        if loopback && matches!(exit.code(), Some(7 | 35 | 60)) && bytes.ends_with(b"000") {
+            loopback = false;
+            continue;
+        }
+        if bytes.len() < 3 {
+            return Err(observation("F", "source", "release-http-status-absent"));
+        }
+        let status_start = bytes.len() - 3;
+        let status = std::str::from_utf8(&bytes[status_start..])
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok())
+            .ok_or_else(|| observation("F", "source", "release-http-status-absent"))?;
+        bytes.truncate(status_start);
+        if bytes.len() > LIMIT {
+            return Err(observation(
+                "F",
+                "source",
+                "release-response-size-or-read-failed",
+            ));
+        }
+        if !exit.success() && !(exit.code() == Some(22) && status == 404) {
+            return Err(observation("F", "source", format!("curl-failed: {exit}")));
+        }
+        return Ok(HttpsResponse {
+            status,
+            body: bytes,
+        });
     }
-    // Drain the bounded output and reap curl before interpreting its trailer;
-    // malformed or missing status text must not leave the child unreaped.
-    let exit = child
-        .wait()
-        .map_err(|e| observation("F", "source", e.to_string()))?;
-    if bytes.len() < 3 {
-        return Err(observation("F", "source", "release-http-status-absent"));
-    }
-    let status_start = bytes.len() - 3;
-    let status = std::str::from_utf8(&bytes[status_start..])
-        .ok()
-        .and_then(|value| value.parse::<u16>().ok())
-        .ok_or_else(|| observation("F", "source", "release-http-status-absent"))?;
-    bytes.truncate(status_start);
-    if bytes.len() > LIMIT {
-        return Err(observation(
-            "F",
-            "source",
-            "release-response-size-or-read-failed",
-        ));
-    }
-    if !exit.success() && !(exit.code() == Some(22) && status == 404) {
-        return Err(observation("F", "source", format!("curl-failed: {exit}")));
-    }
-    Ok(HttpsResponse {
-        status,
-        body: bytes,
-    })
 }
 
 /// Read public GitHub evidence without credentials. Redirects are inspected
