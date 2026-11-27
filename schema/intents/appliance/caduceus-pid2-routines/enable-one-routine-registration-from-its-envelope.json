@@ -23,6 +23,9 @@
       "routine": {
         "type": "object",
         "meaning": "Registration routine. routine_id must be a nonempty string. Stages are projected through caduceus.pid2.routine.v1; their content is not otherwise validated here.",
+        "required": [
+          "routine_id"
+        ],
         "fields": {
           "routine_id": {
             "type": "string",
