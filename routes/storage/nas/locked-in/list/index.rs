@@ -7,6 +7,9 @@ use std::{sync::Mutex, time::{Duration, Instant}};
 const STOP: &str = "storage/nas/setup/prefire";
 const UNAVAILABLE: &str = "nas-lock-in-unavailable";
 static ADOPTION: Mutex<()> = Mutex::new(());
+static DECLARATION: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+    serde_json::from_str(include_str!("index.json")).expect("nas lock-in list declaration")
+});
 
 #[derive(Clone, Serialize)]
 pub(crate) struct LockedInDrive {
@@ -94,8 +97,8 @@ async fn list() -> (StatusCode, Json<Value>) {
         read_all()
     }).await;
     match result {
-        Ok(Ok(drives)) => (StatusCode::OK, Json(json!({"ok":true,"firstMissingSignal":"none","drives":drives}))),
-        _ => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok":false,"firstMissingSignal":UNAVAILABLE,"drives":[]}))),
+        Ok(Ok(drives)) => (StatusCode::OK, Json(json!({"schema":DECLARATION["receipt"],"stop":{"noun":"storage/nas/locked-in","verb":"list"},"ok":true,"firstMissingSignal":"none","drives":drives,"observed":null,"could_change_to":null,"attempt":{"attempted":true},"final_receipt":{"ok":true,"firstMissingSignal":"none"}}))),
+        _ => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"schema":DECLARATION["receipt"],"stop":{"noun":"storage/nas/locked-in","verb":"list"},"ok":false,"firstMissingSignal":UNAVAILABLE,"drives":[],"observed":null,"could_change_to":null,"attempt":{"attempted":true},"final_receipt":{"ok":false,"firstMissingSignal":UNAVAILABLE}}))),
     }
 }
 
