@@ -12,6 +12,6 @@
     "ok": {"type": "boolean", "meaning": "True when the gateway updates the row, false on a local refusal."},
     "id": {"type": "string", "meaning": "The supplied notification identifier on gateway success."},
     "hidden": {"type": "boolean", "const": true, "meaning": "The fixed hidden value written on gateway success."},
-    "firstMissingSignal": {"type": "string", "meaning": "The enum lists locally generated literal refusals. A forwarded, bound gateway reply can carry arbitrary firstMissingSignal text and is passed through.", "enum": ["notification-gateway-unreachable", "notification-state-unavailable", "notification-absent"]}
+    "firstMissingSignal": {"type": ["string", "number", "boolean", "null", "array", "object"], "meaning": "The enum lists locally generated literal refusals. A forwarded, bound gateway reply is passed through and can carry firstMissingSignal of any JSON type.", "enum": ["notification-gateway-unreachable", "notification-state-unavailable", "notification-absent"]}
   }
 }

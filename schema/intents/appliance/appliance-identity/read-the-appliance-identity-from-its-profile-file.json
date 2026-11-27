@@ -5,6 +5,6 @@
   "exousia": false,
   "mutation_allowed": false,
   "returns": {
-    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed local gate and identity read refusals. The parsed profile JSON is returned directly and can itself contain arbitrary firstMissingSignal text.", "enum": ["caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-blocking-task-join-failed", "caduceus-identity-missing"]}
+    "firstMissingSignal": {"type": ["string", "number", "boolean", "null", "array", "object"], "meaning": "The enum lists fixed local gate and identity read refusals. The parsed profile JSON is returned directly and can itself contain firstMissingSignal of any JSON type.", "enum": ["caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-blocking-task-join-failed", "caduceus-identity-missing"]}
   }
 }
