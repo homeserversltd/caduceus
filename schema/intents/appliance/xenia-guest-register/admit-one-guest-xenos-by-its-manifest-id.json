@@ -19,7 +19,7 @@
     ]
   },
   "exousia": false,
-  "mutation_allowed": null,
+  "mutation_allowed": true,
   "returns": {
     "ok": {"type": "boolean", "meaning": "Whether admission succeeded."},
     "verdict": {"type": "string", "meaning": "admitted or refused."},

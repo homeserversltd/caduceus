@@ -3,7 +3,7 @@
   "intent": "appliance/xenia-guest-register/uninstall-one-guest-xenos-and-drop-its-register-and-tab-rows-by-its-id",
   "payload": {"fields": {"id": {"type": "string", "meaning": "Guest identity to remove.", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 64}}, "required": ["id"]},
   "exousia": false,
-  "mutation_allowed": null,
+  "mutation_allowed": true,
   "returns": {
     "ok": {"type": "boolean", "meaning": "Whether removal succeeded."},
     "verdict": {"type": "string", "meaning": "removed or refused."},

@@ -1,7 +1,7 @@
 {
   "schema": "caduceus.staff.v1",
   "intent": "appliance/caduceus-doors/read-the-door-route-list-of-the-active-profile",
-  "meaning": "GET /api/v1/doors reads the compiled active profile's discovery list (gate/index.rs:1098-1111; build.rs:1270).",
+  "meaning": "GET /api/v1/doors reads the compiled active profile's discovery list (doors_route, gate/index.rs:1148-1161; build.rs:1270).",
   "payload": {"fields": {}, "required": []},
   "exousia": false,
   "mutation_allowed": false,
