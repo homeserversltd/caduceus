@@ -15,7 +15,7 @@
       "lineCount": {"type": "integer", "meaning": "Number of retained entries, at most 256."},
       "entries": {"type": "array", "meaning": "Visible network rows, split on colon and trimmed; at most four fields per row.", "items": {"type": "array", "items": {"type": "string"}}}
     }},
-    "first_missing_signal": {"type": "string", "meaning": "Present on refusal or nmcli failure."},
-    "firstMissingSignal": {"type": "string", "meaning": "The refusal token when reported by the door.", "enum": ["caduceus-carapace-desync", "caduceus-command-not-allowed", "caduceus-blocking-task-join-failed", "wifi-nmcli-unavailable", "wifi-nmcli-wait-failed", "wifi-nmcli-output-failed", "wifi-nmcli-failed", "wifi-nmcli-timeout"]}
+    "first_missing_signal": {"type": "string", "meaning": "Present on handler refusal or nmcli failure.", "enum": ["caduceus-carapace-desync", "caduceus-command-not-allowed", "wifi-nmcli-unavailable", "wifi-nmcli-wait-failed", "wifi-nmcli-output-failed", "wifi-nmcli-failed", "wifi-nmcli-timeout"]},
+    "firstMissingSignal": {"type": "string", "meaning": "Present on an early refusal or blocking-task failure; nmcli failures are instead carried in first_missing_signal. The enum lists fixed tokens; gate admission can also forward protocol-kernel-definition-missing:<index> and protocol-kernel-field-missing:<field> when the loaded kernel declaration is invalid.", "enum": ["caduceus-carapace-desync", "caduceus-command-not-allowed", "caduceus-blocking-task-join-failed"]}
   }
 }
