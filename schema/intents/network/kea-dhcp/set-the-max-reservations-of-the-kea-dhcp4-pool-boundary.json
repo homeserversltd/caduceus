@@ -1,0 +1,48 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/kea-dhcp/set-the-max-reservations-of-the-kea-dhcp4-pool-boundary",
+  "payload": {
+    "fields": {
+      "max_reservations": {
+        "type": "integer",
+        "meaning": "Number of reservation slots. It must fit the current reservations and active non-reserved leases and keep existing reservations inside the new range. 249 removes the dynamic pool.",
+        "minimum": 0,
+        "maximum": 249
+      }
+    },
+    "required": ["max_reservations"]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "result": {"type": "boolean", "const": true, "meaning": "The boundary transaction returned successfully; this is not a change flag."},
+    "mutationPerformed": {"type": "boolean", "meaning": "On refusal, the manager's write observation, or false if it never ran."},
+    "exceptionType": {"type": "string", "meaning": "Exception class if the shared front door had to report an unhandled exception."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed outcomes are listed below; none means success. The stop also returns cannot set max reservations below current count (<count>); existing reservation <address> is outside new reserved range; failed to read config <path>: <error>; invalid JSON in DHCP config: <error>; caduceus-leases-unavailable:<transport, decoding, or upstream detail>; and writer or command errors with an optional restore failed suffix.",
+      "enum": [
+        "none",
+        "invalid-envelope",
+        "max_reservations must be an integer",
+        "identity-lock-unavailable:network-identity-claim",
+        "max reservations must be between 0 and 249",
+        "new boundary cannot accommodate active leases",
+        "no subnet4 configuration found",
+        "no JSON object found in DHCP config",
+        "invalid DHCP configuration structure",
+        "caduceus-leases-unavailable:door-reported-failure",
+        "caduceus-leases-malformed:envelope-must-be-object",
+        "caduceus-leases-malformed:payload-must-be-object",
+        "caduceus-leases-malformed:ok-signal-missing",
+        "caduceus-leases-malformed:result-must-be-list",
+        "caduceus-leases-malformed:row-must-be-object",
+        "caduceus-leases-malformed:missing-mac",
+        "caduceus-leases-malformed:missing-ip",
+        "target is not a regular file",
+        "dhcp-readback-mismatch",
+        "agathodaimon-stop-raised"
+      ]
+    }
+  }
+}

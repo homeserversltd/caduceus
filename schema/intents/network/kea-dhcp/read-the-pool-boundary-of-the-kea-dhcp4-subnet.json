@@ -1,0 +1,44 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/kea-dhcp/read-the-pool-boundary-of-the-kea-dhcp4-subnet",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "result": {
+      "type": "array",
+      "meaning": "Nonempty reservation ranges found before the earliest dynamic pool in each parseable subnet.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "subnet": {"type": "string", "meaning": "Canonical subnet in CIDR notation."},
+          "start": {"type": "string", "meaning": "First reserved address (network address plus two)."},
+          "end": {"type": "string", "meaning": "Last reserved address (one before the earliest pool start)."},
+          "discovery": {"type": "string", "const": "loaded-kea-pool-boundary", "meaning": "Source of the range."}
+        }
+      }
+    },
+    "active_leases_count": {"type": "integer", "meaning": "Number of lease rows returned by the native lease door, without filtering out reserved MACs."},
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Present on a stop refusal; no mutation occurred."},
+    "exceptionType": {"type": "string", "meaning": "Exception class if the shared front door had to report an unhandled exception."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed outcomes are listed below; none means success. The stop also returns failed to read config <path>: <error>, invalid JSON in DHCP config: <error> and caduceus-leases-unavailable:<transport, decoding, or upstream detail>.",
+      "enum": [
+        "none",
+        "invalid-envelope",
+        "no JSON object found in DHCP config",
+        "invalid DHCP configuration structure",
+        "caduceus-leases-unavailable:door-reported-failure",
+        "caduceus-leases-malformed:envelope-must-be-object",
+        "caduceus-leases-malformed:payload-must-be-object",
+        "caduceus-leases-malformed:ok-signal-missing",
+        "caduceus-leases-malformed:result-must-be-list",
+        "caduceus-leases-malformed:row-must-be-object",
+        "caduceus-leases-malformed:missing-mac",
+        "caduceus-leases-malformed:missing-ip",
+        "agathodaimon-stop-raised"
+      ]
+    }
+  }
+}

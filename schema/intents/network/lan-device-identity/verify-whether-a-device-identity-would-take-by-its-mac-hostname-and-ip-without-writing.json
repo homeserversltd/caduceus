@@ -1,0 +1,56 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/lan-device-identity/verify-whether-a-device-identity-would-take-by-its-mac-hostname-and-ip-without-writing",
+  "payload": {
+    "fields": {
+      "mac": {
+        "type": "string",
+        "meaning": "Device MAC address; surrounding whitespace is stripped, letters are lowercased and hyphens are converted to colons.",
+        "pattern": "^[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?![\\s\\S])"
+      },
+      "hostname": {
+        "type": "string",
+        "meaning": "Device label after trimming whitespace, lowercasing and removing trailing dots. The normalized label has 1–63 characters; home means the home.arpa apex.",
+        "pattern": "^[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*[A-Za-z0-9\\u212a](?:[A-Za-z0-9\\u212a-]{0,61}[A-Za-z0-9\\u212a])?\\.*[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?![\\s\\S])"
+      },
+      "ip": {"type": ["string", "null"], "meaning": "Requested IPv4 address, or explicit null to keep a standing reservation or find a free, silent address. For a new reservation an explicit address must be in reserved space, outside the dynamic pool, untaken and silent."},
+      "move": {"type": "boolean", "meaning": "Allow a plan that moves an owned DNS name to the selected address."},
+      "settle": {"type": "boolean", "meaning": "Require an empty diff on readback. A nonempty diff with no other refusal answers identity-did-not-take."}
+    },
+    "required": ["mac", "hostname", "ip", "move", "settle"]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "actuator": {"type": "string", "const": "network.identity.device_plan", "meaning": "Device identity planner, when it returned a projection."},
+    "action": {"type": "string", "const": "device_plan", "meaning": "Read-only plan operation."},
+    "result": {
+      "type": "object",
+      "meaning": "Observation, desired inputs, diff and planning verdict. It can be present on a policy refusal.",
+      "fields": {
+        "observed": {"type": "object", "meaning": "Reservation, lease, records, shipped_profile, shipped records and address probes."},
+        "wanted": {"type": "object", "meaning": "Normalized MAC and hostname, requested IP or null, and move permission."},
+        "diff": {"type": "object", "fields": {"empty": {"type": "boolean"}, "words": {"type": "array", "items": {"type": "string"}}}, "meaning": "Whether work is needed and the reservation or name discrepancies."},
+        "plan": {"type": "object", "fields": {"ip": {"type": ["string", "null"]}, "reason": {"type": ["string", "null"]}, "reservation": {"type": "string"}, "name": {"type": "string"}, "signal": {"type": ["string", "null"]}}, "meaning": "Selected address, reason, DHCP disposition, DNS disposition and first planning refusal or null."}
+      }
+    },
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Planning and settlement observation never write appliance state."},
+    "exceptionType": {"type": "string", "meaning": "Exception class when the front door reports an uncaught planner error."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "First refusal from intake, observation, planning or settlement, or none.",
+      "anyOf": [
+        {"enum": [
+          "none", "identity-plan-input-invalid", "identity-did-not-take", "invalid JSON", "JSON object required", "foreign envelope schema", "agathodaimon-stop-raised",
+          "missing envelope kernel keys: intent_id", "missing envelope kernel keys: transition", "missing envelope kernel keys: version", "missing envelope kernel keys: timestamp",
+          "missing envelope kernel keys: intent_id,transition", "missing envelope kernel keys: intent_id,version", "missing envelope kernel keys: intent_id,timestamp", "missing envelope kernel keys: transition,version", "missing envelope kernel keys: transition,timestamp", "missing envelope kernel keys: version,timestamp",
+          "missing envelope kernel keys: intent_id,transition,version", "missing envelope kernel keys: intent_id,transition,timestamp", "missing envelope kernel keys: intent_id,version,timestamp", "missing envelope kernel keys: transition,version,timestamp", "missing envelope kernel keys: intent_id,transition,version,timestamp",
+          "no JSON object found in DHCP config", "invalid DHCP configuration structure", "caduceus-leases-unavailable:door-reported-failure", "caduceus-leases-malformed:envelope-must-be-object", "caduceus-leases-malformed:payload-must-be-object", "caduceus-leases-malformed:ok-signal-missing", "caduceus-leases-malformed:result-must-be-list", "caduceus-leases-malformed:row-must-be-object", "caduceus-leases-malformed:missing-mac", "caduceus-leases-malformed:missing-ip",
+          "dhcp-neighbour-probe-failed", "dhcp-ping-probe-failed", "dhcp-reservation-held-elsewhere", "dhcp-ip-inside-pool", "dhcp-ip-outside-reserved-range", "dhcp-ip-taken", "dhcp-ip-answered-probe", "dhcp-no-silent-address",
+          "dns-hostname-malformed", "dns-ipv4-malformed", "dns-owned-record-malformed", "dns-alias-owner-conflict", "dns-device-projection-incomplete", "dns-name-owned-elsewhere", "dns-alias-target-unresolved", "dns-observed-record-collision", "dns-cname-a-owner-conflict", "dns-gateway-apex-address-mismatch"
+        ]},
+        {"type": "string", "meaning": "Open diagnostics: the planner passes raw exception messages through, including interpolated MACs, config or DNS paths, IP math and probe or OS failures, and upstream responses in caduceus-leases-unavailable:<detail>. The code does not bound these to a finite vocabulary."}
+      ]
+    }
+  }
+}

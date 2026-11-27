@@ -1,0 +1,36 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/kea-dhcp/set-the-hostname-of-one-reservation-by-its-identifier",
+  "payload": {
+    "fields": {
+      "identifier": {"type": "string", "minLength": 1, "meaning": "Match exactly one reservation by stored hardware address ignoring case, or by exact stored IP."},
+      "hostname": {
+        "type": "string",
+        "meaning": "Replacement hostname stored as supplied. For validation only, strip surrounding whitespace, lowercase, and remove trailing periods; the resulting label has 1 to 63 ASCII letters, digits or hyphens and cannot start or end with a hyphen.",
+        "pattern": "^[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*[A-Za-z0-9K](?:[A-Za-z0-9K-]{0,61}[A-Za-z0-9K])?\\.*[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?![\\s\\S])"
+      }
+    },
+    "required": ["identifier", "hostname"]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "result": {
+      "type": "object",
+      "meaning": "The matched reservation object; unrelated Kea keys are preserved and may be present.",
+      "fields": {
+        "hw-address": {"meaning": "Existing hardware address key, when present, carried unchanged."},
+        "ip-address": {"meaning": "Existing IP address key, when present, carried unchanged."},
+        "hostname": {"type": "string", "meaning": "The requested hostname, whether changed or already set."}
+      }
+    },
+    "changed": {"type": "boolean", "meaning": "Whether the Kea configuration was changed; false when the name already matches."},
+    "mutationPerformed": {"type": "boolean", "meaning": "The manager's write observation; false when no writer was reached."},
+    "exceptionType": {"type": "string", "meaning": "Exception class if the shared front door had to report an unhandled exception."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed outcomes are listed below; none means success. The stop also returns failed to read config <path>: <error>, invalid JSON in DHCP config: <error>, and writer or command errors with an optional restore failed suffix.",
+      "enum": ["none", "invalid-envelope", "identifier must be a string", "hostname must be a string", "identity-lock-unavailable:network-identity-claim", "dns-hostname-malformed", "reservation not found", "reservation identifier is ambiguous", "no JSON object found in DHCP config", "invalid DHCP configuration structure", "target is not a regular file", "dhcp-readback-mismatch", "agathodaimon-stop-raised"]
+    }
+  }
+}

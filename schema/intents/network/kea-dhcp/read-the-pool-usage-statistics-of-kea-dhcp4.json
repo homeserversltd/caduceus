@@ -1,0 +1,56 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/kea-dhcp/read-the-pool-usage-statistics-of-kea-dhcp4",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "result": {
+      "type": "object",
+      "meaning": "Reservation, lease, host and pool counts from Kea configuration and the native lease door.",
+      "fields": {
+        "homeserver_ip": {"meaning": "The routers option data from the first subnet, carried without type validation; falls back to 192.168.123.1 when there is no router data."},
+        "reservations_count": {"type": "integer", "meaning": "Number of projected reservation entries."},
+        "reservations_total": {"type": "integer", "meaning": "First pool start minus the first subnet's network address minus two, clamped to 0 through 249. Without a readable pool start, 249 for a subnet with no pools, otherwise 48."},
+        "leases_count": {"type": "integer", "meaning": "Number of returned lease rows whose MAC is not reserved."},
+        "leases_total": {"type": "integer", "meaning": "Inclusive size of the first dynamic pool, or zero when unavailable."},
+        "host_count": {"type": "integer", "meaning": "Number of distinct lowercased MACs across reservations and leases."},
+        "lease_ratio": {"type": "number", "meaning": "Non-reserved lease count divided by the first dynamic pool size, or zero when the size is zero."},
+        "pool_boundary": {
+          "type": "array",
+          "meaning": "Reservation ranges found before the earliest dynamic pool in each parseable subnet.",
+          "items": {
+            "type": "object",
+            "fields": {
+              "subnet": {"type": "string", "meaning": "Canonical subnet in CIDR notation."},
+              "start": {"type": "string", "meaning": "First reserved address (network address plus two)."},
+              "end": {"type": "string", "meaning": "Last reserved address (one before the earliest pool start)."},
+              "discovery": {"type": "string", "const": "loaded-kea-pool-boundary", "meaning": "Source of the range."}
+            }
+          }
+        }
+      }
+    },
+    "mutationPerformed": {"type": "boolean", "const": false, "meaning": "Present on a stop refusal; no mutation occurred."},
+    "exceptionType": {"type": "string", "meaning": "Exception class if the shared front door had to report an unhandled exception."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "Fixed outcomes are listed below; none means success. The stop also returns failed to read config <path>: <error>, invalid JSON in DHCP config: <error> and caduceus-leases-unavailable:<transport, decoding, or upstream detail>.",
+      "enum": [
+        "none",
+        "invalid-envelope",
+        "no JSON object found in DHCP config",
+        "invalid DHCP configuration structure",
+        "caduceus-leases-unavailable:door-reported-failure",
+        "caduceus-leases-malformed:envelope-must-be-object",
+        "caduceus-leases-malformed:payload-must-be-object",
+        "caduceus-leases-malformed:ok-signal-missing",
+        "caduceus-leases-malformed:result-must-be-list",
+        "caduceus-leases-malformed:row-must-be-object",
+        "caduceus-leases-malformed:missing-mac",
+        "caduceus-leases-malformed:missing-ip",
+        "agathodaimon-stop-raised"
+      ]
+    }
+  }
+}
