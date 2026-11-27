@@ -165,6 +165,13 @@ pub(crate) fn initialize() -> Result<&'static Value, &'static str> {
     registry().map(|registry| &registry.census)
 }
 
+/// A valid intent seat and its exousia, from the serve's registry.
+pub(crate) fn intent_exousia(intent: &str) -> Option<bool> {
+    let bytes = registry().ok()?.intents.get(&format!("intents/{intent}"))?;
+    let declaration: Value = serde_json::from_str(bytes).ok()?;
+    declaration.get("exousia")?.as_bool()
+}
+
 fn loaded_registry() -> &'static Registry {
     registry().expect("caduceus-seat-foreign: startup initialization failed")
 }

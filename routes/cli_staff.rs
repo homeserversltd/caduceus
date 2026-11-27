@@ -152,6 +152,47 @@ fn input_refusal(signal: &str, noun: &str, verb: &str, walked: &[&str], step: &s
     let stopped_at = if step == "envelope-parse" { "envelope-parse" } else { "input" };
     refusal(signal, noun, verb, walked, stopped_at, step, json!({"stdin": "one JSON object, the request payload"}))
 }
+/// Speak the universal door's request without altering the legacy clients.
+pub(crate) fn one_name(namespace: &str, path: &str, declaration: &Value, exousia: bool) -> i32 {
+    use std::io::IsTerminal;
+    let (noun, verb) = namespace.rsplit_once('/').unwrap_or((namespace, ""));
+    let walked: Vec<&str> = namespace.split('/').collect();
+    let no_body = matches!(declaration.get("body").and_then(Value::as_str), Some("none" | "forbidden"));
+    if exousia && pin_required() && no_body {
+        return refusal("caduceus-cli-pin-needs-body", noun, verb, &walked, "pin", "pin-prompt", Value::Null);
+    }
+    let mut raw = Vec::new();
+    if !io::stdin().is_terminal() {
+        if io::stdin().take(INPUT_LIMIT + 1).read_to_end(&mut raw).is_err() {
+            return input_refusal("caduceus-cli-stdin-unreadable", noun, verb, &walked, "input-read");
+        }
+        if raw.len() as u64 > INPUT_LIMIT {
+            return input_refusal("pid2-envelope-too-large", noun, verb, &walked, "input-read");
+        }
+    }
+    if !no_body {
+        let mut value = if raw.is_empty() { json!({}) } else {
+            match serde_json::from_slice::<Value>(&raw) {
+                Ok(value) if value.is_object() => value,
+                _ => return input_refusal("caduceus-cli-envelope-invalid", noun, verb, &walked, "envelope-parse"),
+            }
+        };
+        if exousia && pin_required() {
+            match attend(&mut value) {
+                Ok(true) => raw = value.to_string().into_bytes(),
+                Ok(false) => {},
+                Err(signal) => return refusal(&signal, noun, verb, &walked, "pin", "pin-prompt", Value::Null),
+            }
+        }
+    }
+    let mut seconds = declaration.get("deadline_seconds").and_then(Value::as_u64).unwrap_or(30).max(30);
+    if let Some(stages) = declaration.get("serve").and_then(Value::as_array) {
+        for stage in stages { seconds = seconds.max(stage.get("deadline_seconds").and_then(Value::as_u64).unwrap_or(0)); }
+    }
+    let method = declaration.get("http_method").and_then(Value::as_str).unwrap_or("POST").to_ascii_uppercase();
+    output(exchange(&method, path, &raw, Duration::from_secs(seconds.saturating_add(30))), noun, verb, &walked)
+}
+
 fn mutation(path: &str, mut value: Value, original: Option<Vec<u8>>, timeout: Duration, noun: &str, verb: &str, walked: &[&str]) -> i32 {
     let changed = match attend(&mut value) { Ok(changed) => changed, Err(signal) => {
         if signal == "caduceus-cli-envelope-invalid" {

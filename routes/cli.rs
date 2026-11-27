@@ -75,6 +75,30 @@ where
     if args.first().is_some_and(|v| ["enable", "disable", "start", "stop", "restart", "hold", "release", "status", "list", "pid2-observe-drm"].contains(&v.as_str())) {
         return crate::pid2::cli(&args);
     }
+    // Swap retains its standing client; only exact seated universal doors
+    // take the new road, before the handwritten legacy arms.
+    if args.as_slice() != ["storage", "nas", "role", "swap"]
+        && !args.is_empty() && args.iter().all(|word| !word.is_empty() && !word.contains('/'))
+    {
+        let namespace = args.join("/");
+        if crate::routes::SELECTED_UNIVERSAL_DOORS.contains(&namespace.as_str()) {
+            if let Some(exousia) = crate::routes::leaf_schema::intent_exousia(&namespace) {
+                if let Some(source) = crate::routes::selected_declaration(&namespace) {
+                    if let Ok(declaration) = serde_json::from_str::<serde_json::Value>(source) {
+                        let expected = format!("/api/v1/{namespace}");
+                        let path = declaration.get("http_path").and_then(serde_json::Value::as_str).unwrap_or(&expected);
+                        if path == expected {
+                            if let Some(command) = declaration.get("commands").and_then(serde_json::Value::as_array)
+                                .and_then(|commands| commands.first()).and_then(serde_json::Value::as_str) {
+                                if let Err(code) = require_policy(command, &[]) { return code; }
+                                return cli_staff::one_name(&namespace, path, &declaration, exousia);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     if let Some(namespace) = crate::routes::route_for_cli(&args) {
         let declaration_source = crate::routes::selected_declaration(namespace)
             .expect("selected CLI route must have a declaration");

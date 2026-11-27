@@ -1274,18 +1274,21 @@ fn main() {
             .collect::<Vec<_>>()
             .join(",")
     ));
+    let mut universal_door_leaves = Vec::new();
     modules.push_str("pub fn register_selected(mut router: axum::Router) -> axum::Router {\n");
     for namespace in &selected {
         let ident = module_ident(namespace);
         if Path::new(&format!("routes/{namespace}/index.rs")).is_file() {
             modules.push_str(&format!("    router = {ident}::register(router);\n"));
         } else {
+            universal_door_leaves.push(rust_string(namespace));
             modules.push_str(&format!("    router = crate::gate::door::register(router, selected_declaration({}).expect(\"selected declaration\"));\n", rust_string(namespace)));
         }
     }
     modules.push_str(
         "    router.fallback(crate::gate::door::route_not_found)\n        .method_not_allowed_fallback(crate::gate::door::method_not_allowed)\n}\n",
     );
+    modules.push_str(&format!("pub const SELECTED_UNIVERSAL_DOORS: &[&str] = &[{}];\n", universal_door_leaves.join(",")));
     fs::write(Path::new(&out_dir).join("selected_leaves.rs"), modules)
         .expect("generated selected leaves writable");
     // The enumerable registry is the sole source of valid Rust serve primitives.
