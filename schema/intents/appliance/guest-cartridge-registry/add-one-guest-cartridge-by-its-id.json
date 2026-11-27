@@ -14,6 +14,7 @@
   "exousia": false,
   "mutation_allowed": true,
   "returns": {
+    "schema": {"type": "string", "meaning": "Successful native mutation schema; the door's bounded JSON receipt stamp replaces it with caduceus.staff.receipt.v1 when applicable.", "enum": ["caduceus.cartridges.mutation.v1", "caduceus.staff.receipt.v1"]},
     "ok": {"type": "boolean", "meaning": "Whether the operation succeeded."},
     "operation": {"type": "string", "meaning": "Operation performed on success.", "enum": ["admit"]},
     "cartridge": {"type": "object", "meaning": "The admitted cartridge on success, containing id, title, url, guest_class and admin_only."},

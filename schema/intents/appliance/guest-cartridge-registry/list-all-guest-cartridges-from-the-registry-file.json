@@ -5,8 +5,8 @@
   "exousia": false,
   "mutation_allowed": false,
   "returns": {
-    "body": {"meaning": "The registry file's raw bytes as application/json, without parsing or validation; if absent, a serialized empty appliance.cartridges.v1 registry."},
-    "ok": {"type": "boolean", "meaning": "False in the handler's JSON error response."},
+    "body": {"meaning": "The handler reads the registry file's raw bytes without parsing or validation, or serializes an empty appliance.cartridges.v1 registry when absent. The door may transform a bounded JSON object or array into a staff receipt; other bodies pass through unchanged."},
+    "ok": {"type": "boolean", "meaning": "False in the handler's JSON error response; the door may add true to a successful JSON body when stamping it."},
     "command": {"type": "string", "meaning": "The command named in a handler error response."},
     "firstMissingSignal": {"type": "string", "meaning": "Handler error signal when the raw read or its blocking task fails; the raw successful body need not contain a signal.", "enum": ["caduceus-cartridge-registry-render-failed", "caduceus-cartridge-registry-read-failed", "caduceus-blocking-task-join-failed"]}
   }
