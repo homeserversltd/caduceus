@@ -1,0 +1,14 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/harmonia-update-engine/list-every-harmonia-update-history-entry",
+  "meaning": "GET /api/v1/update/history reads Hyalos directly, never appliance/harmonia-press. Today the reader returns at most the ten latest distinct Harmonia profile runs (src/lib/hyalos_store.rs:1164-1175), not an unbounded history.",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the history was read."},
+    "runs": {"type": "array", "meaning": "Projected run rows, empty on read failure.", "items": {"type": "object", "fields": {"run_id": {"type": ["string", "null"], "meaning": "Routine identifier."}, "profile": {"type": ["string", "null"], "meaning": "Harmonia profile."}, "finished_at": {"type": ["string", "null"], "meaning": "Finish time, falling back to deed time."}, "outcome": {"type": ["string", "null"], "meaning": "Normalized ok or failed outcome; null if unrecognized."}, "duration_ms": {"type": ["number", "null"], "meaning": "Run duration."}, "module_count": {"type": ["number", "null"], "meaning": "Module count."}, "updated_count": {"type": ["number", "null"], "meaning": "Updated module count."}, "failures": {"type": "array", "meaning": "Failure rows, or empty if absent."}}}},
+    "level": {"type": ["integer", "null"], "meaning": "Body log level, or null when unavailable."},
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists the history read's fixed failure signal; successful history JSON has no such field before the common door stamp.", "enum": ["caduceus-update-history-log-unreadable"]}
+  }
+}

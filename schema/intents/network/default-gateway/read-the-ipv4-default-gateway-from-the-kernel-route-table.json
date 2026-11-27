@@ -1,0 +1,12 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/default-gateway/read-the-ipv4-default-gateway-from-the-kernel-route-table",
+  "meaning": "The GTK notifications plug reads /proc/net/route in agathodaimon/gui/plugs/notifications.py:192-200. No Caduceus door serves this act yet.",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "gateway": {"type": "string", "meaning": "Dotted IPv4 gateway of the first row whose destination is zero, gateway is nonzero and flags contain UP and GATEWAY; no mask or metric test. Empty when no row matches."},
+    "firstMissingSignal": {"type": "string", "meaning": "No Caduceus door serves this act yet, so it answers no fixed signal today.", "enum": []}
+  }
+}

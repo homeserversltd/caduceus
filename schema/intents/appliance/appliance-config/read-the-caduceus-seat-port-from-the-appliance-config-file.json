@@ -1,0 +1,12 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/appliance-config/read-the-caduceus-seat-port-from-the-appliance-config-file",
+  "meaning": "The GTK notifications plug reads caduceus.seat_port in agathodaimon/gui/plugs/notifications.py:203-211. No Caduceus door serves this act yet; this read alone does not adopt other readers' rules.",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "seat_port": {"type": ["integer", "null"], "meaning": "The configured non-boolean integer from 1 through 65535; null if invalid or unavailable."},
+    "firstMissingSignal": {"type": "string", "meaning": "No Caduceus door serves this act yet, so it answers no fixed signal today.", "enum": []}
+  }
+}

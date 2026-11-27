@@ -1,0 +1,24 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/appliance-system-summary/read-the-software-and-hardware-facts-of-the-about-page-in-one-call",
+  "meaning": "The GTK about page reads these facts locally in agathodaimon/gui/plugs/about_system.py:20-189. No Caduceus door serves this act yet. Window Manager from the GTK session environment and Resolution from its Gdk monitors belong to the GTK session alone; the future door will not answer them.",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "product": {"type": "string", "meaning": "Product from the appliance profile."},
+    "born": {"type": "string", "meaning": "First ten characters of the recorded born_at date, or empty."},
+    "hostname": {"type": "string", "meaning": "Local hostname."},
+    "local_ip": {"type": "string", "meaning": "Local IPv4 address from the UDP routing probe, or empty."},
+    "operating_system": {"type": "string", "meaning": "Operating system pretty name and machine architecture."},
+    "kernel": {"type": "string", "meaning": "Kernel release."},
+    "packages": {"type": "string", "meaning": "Installed package count and manager, or empty."},
+    "uptime": {"type": "string", "meaning": "Formatted days, hours and minutes, or empty."},
+    "model": {"type": "string", "meaning": "DMI product name and meaningful version."},
+    "processor": {"type": "string", "meaning": "CPU model and logical count when found, otherwise platform processor."},
+    "graphics": {"type": "array", "meaning": "PCI display controllers as title and device pairs, ordered by PCI address; an empty Graphics row when none found."},
+    "memory": {"type": "string", "meaning": "Used and total memory in MiB, or empty."},
+    "disk": {"type": "string", "meaning": "Used and total root filesystem space in GiB, or empty."},
+    "firstMissingSignal": {"type": "string", "meaning": "No Caduceus door serves this act yet, so it answers no fixed signal today.", "enum": []}
+  }
+}

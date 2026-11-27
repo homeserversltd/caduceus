@@ -1,0 +1,12 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/installed-fonts/read-the-installed-font-families-with-their-styles-and-folders-by-fontconfig",
+  "meaning": "The GTK fonts plug groups fc-list output with fontconfig's configured directories in agathodaimon/gui/plugs/fonts.py:28-87,138-143. No Caduceus door serves this act yet; fontconfig's own cache is not this act's write.",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "groups": {"type": ["object", "null"], "meaning": "Groups by root, then primary family name, with distinct named styles and file-containing folders; null when fc-list cannot be read."},
+    "firstMissingSignal": {"type": "string", "meaning": "No Caduceus door serves this act yet, so it answers no fixed signal today.", "enum": []}
+  }
+}

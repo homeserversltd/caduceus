@@ -1,0 +1,23 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/exousia-attendance/open-one-attendance-for-one-document-by-its-pin-and-document-id",
+  "meaning": "POST /api/v1/exousia/open and its /api/v1/attendance/open alias open direct PIN attendance bound to a document and incarnation; the separate agent branch is not this act. Attendance lives in memory and lapses after 15 minutes of inactivity. No administrative list covers this act, and the old door leaf resolves to exousia/bind rather than this seat.",
+  "payload": {
+    "fields": {
+      "documentId": {"type": "string", "meaning": "Nonempty document identifier of at most 512 bytes."},
+      "documentIncarnation": {"type": "string", "meaning": "Nonempty incarnation identifier of at most 512 bytes."},
+      "pin": {"type": "string", "meaning": "PIN checked against the appliance config; never logged or placed on the command line."}
+    },
+    "required": ["documentId", "documentIncarnation", "pin"]
+  },
+  "exousia": false,
+  "mutation_allowed": true,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether attendance opened."},
+    "code": {"type": "string", "meaning": "Attendance outcome code."},
+    "attendance": {"type": "string", "meaning": "New in-memory attendance identifier on success."},
+    "documentId": {"type": "string", "meaning": "Document to which attendance is bound on success."},
+    "documentIncarnation": {"type": "string", "meaning": "Document incarnation to which attendance is bound on success."},
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed literal outcomes of the direct PIN act; common gate refusals may also appear.", "enum": ["none", "caduceus-attendance-documentId-missing", "caduceus-attendance-documentIncarnation-missing", "exousia-pin-required", "exousia-pin-not-yet-provisioned", "exousia-pin-wrong", "caduceus-attendance-unavailable"]}
+  }
+}

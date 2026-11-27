@@ -1,0 +1,15 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/harmonia-update-engine/read-the-harmonia-update-profile-state-and-route-presence",
+  "meaning": "GET /api/v1/update/status locally reads the profile, state file and update_now route presence; it does not cross appliance/harmonia-press (routes/update/status/index.rs:64-70; routes/update/now/support/update_appliance/index.rs:5-29).",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "True if profile and route are present, regardless of state file presence."},
+    "profilePresent": {"type": "boolean", "meaning": "Whether the resolved carapace is an object."},
+    "statePresent": {"type": "boolean", "meaning": "Whether the Harmonia profile index is a readable file."},
+    "routePresent": {"type": "boolean", "meaning": "Whether the update_now route resolves."},
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed literal outcomes of the status read.", "enum": ["none", "caduceus-carapace-desync", "caduceus-harmonia-route-missing:update_now"]}
+  }
+}

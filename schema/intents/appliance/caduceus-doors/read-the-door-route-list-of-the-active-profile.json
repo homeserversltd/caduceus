@@ -1,0 +1,14 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/caduceus-doors/read-the-door-route-list-of-the-active-profile",
+  "meaning": "GET /api/v1/doors reads the compiled active profile's discovery list (gate/index.rs:1098-1111; build.rs:1270).",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the door list was returned."},
+    "profile": {"type": "string", "meaning": "Compiled active profile."},
+    "routes": {"type": "array", "meaning": "Selected /api/v1/<namespace> discovery routes.", "items": {"type": "string"}},
+    "firstMissingSignal": {"type": "string", "meaning": "The act has no fixed outcome signal of its own; common gate refusals are not listed.", "enum": []}
+  }
+}
