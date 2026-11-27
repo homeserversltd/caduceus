@@ -1,0 +1,76 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/pjlink-projector-power/read-the-power-state-of-a-pjlink-projector-by-its-device-id",
+  "payload": {
+    "fields": {
+      "deviceId": {
+        "type": "string",
+        "meaning": "ID of a PJLink device declared in the carapace profile, supplied as a CLI argument; this act has no HTTP door."
+      }
+    },
+    "required": [
+      "deviceId"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the power reply matched the expected response."
+    },
+    "deviceId": {
+      "type": "string",
+      "meaning": "Device ID."
+    },
+    "host": {
+      "type": "string",
+      "meaning": "Configured projector host."
+    },
+    "port": {
+      "type": "integer",
+      "meaning": "Configured projector port."
+    },
+    "command": {
+      "type": "string",
+      "meaning": "PJLink command or validation failure command."
+    },
+    "requestedState": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Requested state, or null for a power query."
+    },
+    "mutation": {
+      "type": "boolean",
+      "meaning": "Whether a power mutation was sent, not a receipt-store write."
+    },
+    "dryRun": {
+      "type": "boolean",
+      "meaning": "Whether the operation was a dry run."
+    },
+    "response": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Projector response, or null."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: caduceus-pjlink-device-invalid:<serde error>, caduceus-pjlink-resolve-failed:<OS error>, caduceus-pjlink-connect-failed:<OS error>, caduceus-pjlink-read-timeout-set-failed:<OS error>, caduceus-pjlink-write-timeout-set-failed:<OS error>, caduceus-pjlink-stream-clone-failed:<OS error>, caduceus-pjlink-greeting-read-failed:<OS error>, caduceus-pjlink-write-failed:<OS error>, caduceus-pjlink-flush-failed:<OS error>, caduceus-pjlink-response-read-failed:<OS error> and caduceus-pjlink-receipt-invalid:<serialization error>.",
+      "enum": [
+        "none",
+        "caduceus-pjlink-devices-missing",
+        "caduceus-pjlink-device-missing",
+        "caduceus-pjlink-resolve-empty",
+        "caduceus-pjlink-password-required",
+        "caduceus-pjlink-greeting-invalid",
+        "caduceus-pjlink-unexpected-response",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync"
+      ]
+    }
+  }
+}

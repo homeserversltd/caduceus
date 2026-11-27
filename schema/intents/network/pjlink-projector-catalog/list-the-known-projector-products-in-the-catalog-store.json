@@ -1,0 +1,46 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/pjlink-projector-catalog/list-the-known-projector-products-in-the-catalog-store",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the catalog list succeeded."
+    },
+    "catalogPath": {
+      "type": "string",
+      "meaning": "Path of the catalog SQLite database."
+    },
+    "count": {
+      "type": "integer",
+      "meaning": "Number of entries."
+    },
+    "entries": {
+      "type": "array",
+      "meaning": "Known product entries ordered by id.",
+      "items": {
+        "type": "object",
+        "meaning": "Known product entry; fields include schema, id, deviceId, host, port, manufacturer, productName, otherInfo, class, source, firstSeenEpoch and lastSeenEpoch."
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. The CLI also prints <raw filesystem or SQLite error text> and caduceus-pjlink-catalog-schema-desync; the HTTP gated read maps errors to the listed tokens.",
+      "enum": [
+        "none",
+        "caduceus-pjlink-catalog-import-required",
+        "caduceus-identity-missing",
+        "caduceus-operation-failed",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-pjlink-catalog-schema-desync"
+      ]
+    }
+  }
+}

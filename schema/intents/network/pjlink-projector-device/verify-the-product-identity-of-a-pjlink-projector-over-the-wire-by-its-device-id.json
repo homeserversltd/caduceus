@@ -1,0 +1,101 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/pjlink-projector-device/verify-the-product-identity-of-a-pjlink-projector-over-the-wire-by-its-device-id",
+  "payload": {
+    "fields": {
+      "deviceId": {
+        "type": "string",
+        "meaning": "ID of a PJLink device declared in the carapace profile; HTTP defaults a missing or non-string value to the empty string."
+      },
+      "dryRun": {
+        "type": "boolean",
+        "meaning": "When true, use the profile-backed dry-run path instead of the operation; omitted or non-boolean HTTP values default to false.",
+        "default": false
+      }
+    },
+    "required": [
+      "deviceId"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "dry-run": true,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether product scanning succeeded."
+    },
+    "deviceId": {
+      "type": "string",
+      "meaning": "Device ID."
+    },
+    "host": {
+      "type": "string",
+      "meaning": "Configured projector host."
+    },
+    "port": {
+      "type": "integer",
+      "meaning": "Configured projector port."
+    },
+    "dryRun": {
+      "type": "boolean",
+      "meaning": "Whether the profile-backed scan was selected."
+    },
+    "product": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Profile or queried product identity, or null if unavailable.",
+      "fields": {
+        "manufacturer": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "PJLink manufacturer value, or null when absent."
+        },
+        "productName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "PJLink productName value, or null when absent."
+        },
+        "otherInfo": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "PJLink otherInfo value, or null when absent."
+        },
+        "class": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "meaning": "PJLink class value, or null when absent."
+        }
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. Open forms can also appear: caduceus-pjlink-device-invalid:<serde error>, caduceus-pjlink-resolve-failed:<OS error>, caduceus-pjlink-connect-failed:<OS error>, caduceus-pjlink-read-timeout-set-failed:<OS error>, caduceus-pjlink-write-timeout-set-failed:<OS error>, caduceus-pjlink-stream-clone-failed:<OS error>, caduceus-pjlink-greeting-read-failed:<OS error>, caduceus-pjlink-write-failed:<OS error>, caduceus-pjlink-flush-failed:<OS error>, caduceus-pjlink-response-read-failed:<OS error>. Also caduceus-pjlink-product-scan-invalid:<serialization error>.",
+      "enum": [
+        "none",
+        "caduceus-pjlink-devices-missing",
+        "caduceus-pjlink-device-missing",
+        "caduceus-pjlink-resolve-empty",
+        "caduceus-pjlink-password-required",
+        "caduceus-pjlink-greeting-invalid",
+        "caduceus-pjlink-manufacturer-unexpected-response",
+        "caduceus-pjlink-product_name-unexpected-response",
+        "caduceus-pjlink-other_info-unexpected-response",
+        "caduceus-pjlink-class-unexpected-response",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed"
+      ]
+    }
+  }
+}

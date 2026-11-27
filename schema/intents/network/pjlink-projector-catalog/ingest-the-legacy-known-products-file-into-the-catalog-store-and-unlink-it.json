@@ -1,0 +1,52 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/pjlink-projector-catalog/ingest-the-legacy-known-products-file-into-the-catalog-store-and-unlink-it",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "changed": {
+      "type": "boolean",
+      "meaning": "Whether a legacy file was imported and unlinked."
+    },
+    "ok": {
+      "type": "boolean",
+      "meaning": "Printed true on CLI success."
+    },
+    "outcome": {
+      "type": "string",
+      "meaning": "CLI success disposition.",
+      "enum": [
+        "applied",
+        "unchanged"
+      ]
+    },
+    "signal": {
+      "type": "string",
+      "meaning": "CLI success signal.",
+      "enum": [
+        "none"
+      ]
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. The CLI success uses signal rather than firstMissingSignal; failures print an error to stderr. Open forms include caduceus-pjlink-catalog-line-<line number>-invalid and <raw filesystem or SQLite error text>.",
+      "enum": [
+        "none",
+        "caduceus-pjlink-catalog-unreadable",
+        "caduceus-pjlink-catalog-lock-failed",
+        "caduceus-pjlink-catalog-changed",
+        "caduceus-pjlink-catalog-lock-poisoned",
+        "caduceus-pjlink-catalog-line-too-large",
+        "caduceus-pjlink-catalog-schema-desync",
+        "caduceus-pjlink-catalog-identity-missing",
+        "caduceus-pjlink-catalog-unlink-failed",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync"
+      ]
+    }
+  }
+}

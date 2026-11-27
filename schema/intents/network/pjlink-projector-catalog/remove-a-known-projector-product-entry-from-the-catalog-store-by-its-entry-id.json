@@ -1,0 +1,50 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/pjlink-projector-catalog/remove-a-known-projector-product-entry-from-the-catalog-store-by-its-entry-id",
+  "payload": {
+    "fields": {
+      "entry_id": {
+        "type": "string",
+        "meaning": "ID of the catalog entry to remove, supplied as the CLI argument."
+      }
+    },
+    "required": [
+      "entry_id"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether removal completed."
+    },
+    "mutation": {
+      "type": "boolean",
+      "meaning": "True if a row was removed."
+    },
+    "removed": {
+      "type": "integer",
+      "meaning": "Number of rows removed."
+    },
+    "id": {
+      "type": "string",
+      "meaning": "Requested entry ID."
+    },
+    "count": {
+      "type": "integer",
+      "meaning": "Remaining catalog entries."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. The CLI can print <raw filesystem or SQLite error text>.",
+      "enum": [
+        "none",
+        "caduceus-pjlink-catalog-import-required",
+        "caduceus-pjlink-catalog-lock-poisoned",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync"
+      ]
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "network/pjlink-projector-device/list-the-pjlink-projectors-declared-in-the-carapace-profile",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the devices list succeeded."
+    },
+    "count": {
+      "type": "integer",
+      "meaning": "Number of configured device entries."
+    },
+    "devices": {
+      "type": "array",
+      "meaning": "The profile pjlink.devices array or an empty array."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes. ",
+      "enum": [
+        "none",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed"
+      ]
+    }
+  }
+}
