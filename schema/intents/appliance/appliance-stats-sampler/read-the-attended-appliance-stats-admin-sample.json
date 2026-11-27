@@ -5,13 +5,15 @@
   "exousia": true,
   "mutation_allowed": false,
   "returns": {
+    "schema": {"type": "string", "meaning": "Admin sample schema identifier caduceus.appliance.stats.admin.v1."},
+    "load_context": {"type": "object", "meaning": "Optional load trace attached by the gate when context is present."},
     "ok": {"type": "boolean", "meaning": "Whether the admin indicator sample was produced."},
     "ts": {"type": "integer", "meaning": "Admin indicator sample timestamp."},
     "power": {"type": "object", "meaning": "Power watts, sources, time and source signal."},
     "tailscale": {"type": "object", "meaning": "Attended Tailscale indicator."},
     "internet": {"type": "object", "meaning": "Attended public IP indicator."},
-    "services": {"meaning": "Attended service indicator."},
-    "vpn": {"meaning": "Attended VPN indicator."},
+    "services": {"type": "object", "meaning": "Attended service indicator."},
+    "vpn": {"type": "object", "meaning": "Attended VPN indicator."},
     "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed literal gate and operation outcomes; the handler also requires document and attendance headers. Successful samples carry individual indicator signals inside their blocks.", "enum": ["exousia-pin-required", "exousia-pin-wrong", "exousia-pin-not-yet-provisioned", "caduceus-administrative-request-too-large", "caduceus-administrative-request-invalid", "caduceus-attendance-not-current", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-identity-missing", "caduceus-operation-failed", "caduceus-blocking-task-join-failed"]}
   }
 }

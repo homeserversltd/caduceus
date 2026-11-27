@@ -5,6 +5,6 @@
   "exousia": false,
   "mutation_allowed": false,
   "returns": {
-    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed literal outcomes of this CLI act; none are emitted as this field. An unknown profile exits 2 and prints the open form caduceus-profile-unknown:<profile> to stderr.", "enum": []}
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed literal outcomes of this CLI act; none are emitted as this field. On success the CLI prints the tree as plain stdout and exits 0, not as a named JSON field. An unknown profile exits 2 and prints the open form caduceus-profile-unknown:<profile> to stderr.", "enum": []}
   }
 }

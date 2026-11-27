@@ -13,6 +13,8 @@
   "exousia": false,
   "mutation_allowed": null,
   "returns": {
+    "schema": {"type": "string", "meaning": "History schema identifier caduceus.appliance.stats.history.v1."},
+    "load_context": {"type": "object", "meaning": "Optional load trace attached by the gate when context is present."},
     "retention": {"type": "object", "meaning": "Raw, minute and self retention seconds and maximum points."},
     "consolidation": {"type": "object", "meaning": "Description of the raw and minute sample consolidation."},
     "window": {"type": "object", "meaning": "Selected tier, since, until and effective per-tier limit."},
