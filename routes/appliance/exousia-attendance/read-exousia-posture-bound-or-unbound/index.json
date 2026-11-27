@@ -1,0 +1,20 @@
+{
+  "namespace": "appliance/exousia-attendance/read-exousia-posture-bound-or-unbound",
+  "admittance": "open",
+  "flags": {},
+  "needs": [
+    "all"
+  ],
+  "commands": [
+    "exousia posture read"
+  ],
+  "serve": [
+    {
+      "rust": "appliance/exousia-attendance/read-exousia-posture-bound-or-unbound"
+    }
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/exousia-attendance/read-exousia-posture-bound-or-unbound",
+  "body": "optional",
+  "mutation_allowed": false
+}

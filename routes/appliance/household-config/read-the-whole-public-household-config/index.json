@@ -1,0 +1,24 @@
+{
+  "namespace": "appliance/household-config/read-the-whole-public-household-config",
+  "admittance": "open",
+  "flags": {},
+  "needs": [
+    "all"
+  ],
+  "commands": [
+    "config show"
+  ],
+  "serve": [
+    {
+      "rust": "appliance/household-config/read-the-whole-public-household-config"
+    }
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/household-config/read-the-whole-public-household-config",
+  "body": "optional",
+  "mutation_allowed": false,
+  "status_table": {
+    "request-invalid": 400,
+    "refused": 403
+  }
+}

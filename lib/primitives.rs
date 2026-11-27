@@ -1,6 +1,10 @@
 //! Enumerable C2 Rust serve primitive registry.
 // Names are concrete leaf operations, never generic router façades.
 pub static RUST_PRIMITIVES: &[&str] = &[
+    "appliance/household-config/read-the-household-config-device-path-and-profile",
+    "appliance/household-config/read-the-whole-public-household-config",
+    "appliance/household-config/read-one-public-household-config-value-by-its-path",
+    "appliance/exousia-attendance/read-exousia-posture-bound-or-unbound",
     "appliance/appliance-stats-sampler/list-the-appliance-stats-history-samples-by-tier-and-time-window",
     "appliance/caduceus-pid2-routines/hold-one-routine-by-its-routine-id",
     "appliance/caduceus-pid2-routines/status-one-routine-by-its-routine-id",
@@ -59,6 +63,10 @@ pub fn contains(name: &str) -> bool {
 }
 
 enum NativeCommand {
+    ConfigPath,
+    ConfigShow,
+    ConfigGet,
+    ExousiaPosture,
     #[cfg(leaf_face_meter)]
     FaceMeter,
     DoorsList,
@@ -71,6 +79,10 @@ enum NativeCommand {
 
 fn command(name: &str) -> Option<NativeCommand> {
     match name {
+        "appliance/household-config/read-the-household-config-device-path-and-profile" => Some(NativeCommand::ConfigPath),
+        "appliance/household-config/read-the-whole-public-household-config" => Some(NativeCommand::ConfigShow),
+        "appliance/household-config/read-one-public-household-config-value-by-its-path" => Some(NativeCommand::ConfigGet),
+        "appliance/exousia-attendance/read-exousia-posture-bound-or-unbound" => Some(NativeCommand::ExousiaPosture),
         #[cfg(leaf_face_meter)]
         "face_meter_read" => Some(NativeCommand::FaceMeter),
         "appliance/caduceus-doors/read-the-door-route-list-of-the-active-profile" => Some(NativeCommand::DoorsList),
@@ -89,6 +101,32 @@ pub(crate) fn has_command(name: &str) -> bool {
 
 pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_json::Value, String> {
     match command(name) {
+        Some(NativeCommand::ConfigPath | NativeCommand::ConfigShow | NativeCommand::ConfigGet) => {
+            let result = match command(name) {
+                Some(NativeCommand::ConfigPath) => crate::shared::config::path_json(),
+                Some(NativeCommand::ConfigShow) => crate::shared::config::show_public_json(),
+                Some(NativeCommand::ConfigGet) => envelope.get("payload")
+                    .and_then(|payload| payload.get("path"))
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| "caduceus-household-config-path-invalid".to_string())
+                    .and_then(crate::shared::config::get_public_json),
+                _ => unreachable!(),
+            };
+            match result {
+                Ok(value) => Ok(value),
+                Err(signal) => {
+                    let outcome = if signal == "caduceus-household-config-path-invalid" { "request-invalid" } else { "refused" };
+                    let mut value = serde_json::json!({"ok": false, "firstMissingSignal": signal, "outcome": outcome});
+                    crate::shared::load_trace::enrich_json(&mut value);
+                    Ok(value)
+                }
+            }
+        }
+        Some(NativeCommand::ExousiaPosture) => {
+            let mut value = crate::shared::attendance::posture_json()?;
+            crate::shared::load_trace::enrich_json(&mut value);
+            Ok(value)
+        }
         #[cfg(leaf_face_meter)]
         Some(NativeCommand::FaceMeter) => Ok(crate::shared::face_meter_native::read_meter(envelope).await),
         Some(NativeCommand::DoorsList) => Ok(crate::gate::doors_readback()),

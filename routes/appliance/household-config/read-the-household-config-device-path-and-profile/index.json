@@ -1,0 +1,24 @@
+{
+  "namespace": "appliance/household-config/read-the-household-config-device-path-and-profile",
+  "admittance": "open",
+  "flags": {},
+  "needs": [
+    "all"
+  ],
+  "commands": [
+    "config path"
+  ],
+  "serve": [
+    {
+      "rust": "appliance/household-config/read-the-household-config-device-path-and-profile"
+    }
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/household-config/read-the-household-config-device-path-and-profile",
+  "body": "optional",
+  "mutation_allowed": false,
+  "status_table": {
+    "request-invalid": 400,
+    "refused": 403
+  }
+}
