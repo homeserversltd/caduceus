@@ -1,6 +1,7 @@
 {
   "namespace": "appliance/caduceus-pid2-routines/hold-one-routine-by-its-routine-id",
   "admittance": "open",
+  "administrative": true,
   "flags": {},
   "needs": [],
   "commands": [
