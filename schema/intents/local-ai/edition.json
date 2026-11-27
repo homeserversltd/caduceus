@@ -13,7 +13,7 @@
     },
     "required": ["args"]
   },
-  "exousia": false,
+  "exousia": true,
   "mutation_allowed": false,
   "returns": {
     "signal": {
