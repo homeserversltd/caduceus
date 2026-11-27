@@ -40,6 +40,9 @@
         },
         "role": {
           "$ref": "request.payload.role"
+        },
+        "flash": {
+          "$ref": "request.payload.flash"
         }
       }
     },
@@ -52,6 +55,9 @@
         },
         "role": {
           "$ref": "request.payload.role"
+        },
+        "flash": {
+          "$ref": "request.payload.flash"
         }
       }
     },
@@ -64,6 +70,9 @@
         },
         "role": {
           "$ref": "request.payload.role"
+        },
+        "flash": {
+          "$ref": "request.payload.flash"
         }
       }
     },

@@ -16,6 +16,11 @@
           "primary",
           "backup"
         ]
+      },
+      "flash": {
+        "type": "boolean",
+        "default": false,
+        "meaning": "The owner chose Flash it; the preflight allows the requested role's label when it stands only on this disk."
       }
     },
     "required": [
