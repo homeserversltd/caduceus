@@ -1,0 +1,39 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/transmission-vpn-settings/set-the-transmission-vpn-settings-in-the-appliance-config-atomically",
+  "payload": {
+    "fields": {
+      "vpn": {"type": ["object", "null"], "meaning": "Optional nested patch; null resets every declared VPN property to its null default. A known field cannot appear both nested and flat; vpn null cannot be combined with a flat known VPN field. Unknown fields are ignored.", "fields": {
+        "provider": {"type": ["string", "null"], "meaning": "VPN provider."},
+        "protocol": {"type": ["string", "null"], "meaning": "VPN protocol.", "enum": ["openvpn", "wireguard", null]},
+        "region": {"type": ["string", "null"], "meaning": "VPN region."},
+        "dip": {"type": ["boolean", "null"], "meaning": "Dedicated IP setting."},
+        "dns": {"type": ["string", "null"], "meaning": "VPN DNS setting.", "enum": ["provider", null]}
+      }},
+      "provider": {"type": ["string", "null"], "meaning": "Flat VPN provider patch."},
+      "protocol": {"type": ["string", "null"], "meaning": "Flat VPN protocol patch.", "enum": ["openvpn", "wireguard", null]},
+      "region": {"type": ["string", "null"], "meaning": "Flat VPN region patch."},
+      "dip": {"type": ["boolean", "null"], "meaning": "Flat dedicated IP patch."},
+      "dns": {"type": ["string", "null"], "meaning": "Flat VPN DNS patch.", "enum": ["provider", null]},
+      "rescan": {"type": ["boolean", "null"], "meaning": "Transmission rescan setting patch."}
+    },
+    "required": []
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the settings update succeeded."},
+    "vpn": {"type": "object", "meaning": "The resulting transmission.vpn object, with missing declared settings defaulted to null and other stored VPN properties preserved.", "fields": {
+      "provider": {"type": ["string", "null"], "meaning": "VPN provider."},
+      "protocol": {"type": ["string", "null"], "meaning": "VPN protocol.", "enum": ["openvpn", "wireguard", null]},
+      "region": {"type": ["string", "null"], "meaning": "VPN region."},
+      "dip": {"type": ["boolean", "null"], "meaning": "Dedicated IP setting."},
+      "dns": {"type": ["string", "null"], "meaning": "VPN DNS setting.", "enum": ["provider", null]}
+    }},
+    "rescan": {"type": ["boolean", "null"], "meaning": "Resulting transmission rescan setting or its null default."},
+    "changed": {"type": "boolean", "meaning": "Whether the patch changed the configuration."},
+    "appliesOnNextStart": {"type": "boolean", "meaning": "True on an update response; the settings apply on the next start."},
+    "command": {"type": "string", "meaning": "Command named on a handler refusal."},
+    "firstMissingSignal": {"type": "string", "meaning": "The enum lists literal handler outcomes; administrative attendance may also return its own signal, and a field name from the loaded declaration can appear in the open form caduceus-transmission-vpn-settings-invalid-<field>.", "enum": ["none", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-schema-desync", "caduceus-transmission-vpn-settings-invalid-request", "caduceus-transmission-vpn-settings-invalid-vpn", "caduceus-transmission-vpn-settings-invalid-rescan", "caduceus-transmission-vpn-settings-invalid-schema", "caduceus-transmission-vpn-settings-invalid-provider", "caduceus-transmission-vpn-settings-invalid-protocol", "caduceus-transmission-vpn-settings-invalid-region", "caduceus-transmission-vpn-settings-invalid-dip", "caduceus-transmission-vpn-settings-invalid-dns", "caduceus-household-config-lock-unavailable", "caduceus-household-config-unavailable", "caduceus-household-config-invalid", "caduceus-household-config-serialize-failed", "caduceus-config-target-symlink", "caduceus-household-config-write-failed", "caduceus-blocking-task-join-failed"]}
+  }
+}

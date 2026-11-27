@@ -1,0 +1,20 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "settings/transmission-vpn-settings/read-the-transmission-vpn-settings-from-the-appliance-config",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the settings read succeeded."},
+    "vpn": {"type": "object", "meaning": "The transmission.vpn object, with missing declared settings defaulted to null; other stored VPN properties are preserved.", "fields": {
+      "provider": {"type": ["string", "null"], "meaning": "VPN provider."},
+      "protocol": {"type": ["string", "null"], "meaning": "VPN protocol.", "enum": ["openvpn", "wireguard", null]},
+      "region": {"type": ["string", "null"], "meaning": "VPN region."},
+      "dip": {"type": ["boolean", "null"], "meaning": "Dedicated IP setting."},
+      "dns": {"type": ["string", "null"], "meaning": "VPN DNS setting.", "enum": ["provider", null]}
+    }},
+    "rescan": {"type": ["boolean", "null"], "meaning": "Stored transmission rescan setting or its null default."},
+    "command": {"type": "string", "meaning": "Command named on a handler refusal."},
+    "firstMissingSignal": {"type": "string", "meaning": "Literal handler outcomes, with none on success.", "enum": ["none", "caduceus-public-action-not-allowed", "caduceus-carapace-desync", "caduceus-schema-desync", "caduceus-household-config-unavailable", "caduceus-household-config-invalid"]}
+  }
+}
