@@ -9,6 +9,20 @@ use std::time::{Duration, Instant};
 
 pub const DEFAULT_HARMONIA_BIN: &str = "/usr/local/bin/harmonia";
 const HARMONIA_PRESS_BAND: &str = "appliance/harmonia-press";
+fn harmonia_band(argv: &[String]) -> &'static str {
+    let tail: Vec<&str> = argv.iter().skip(1).map(String::as_str).collect();
+    match tail.as_slice() {
+        ["update", "--check"] => "appliance/harmonia-update-engine/verify-whether-a-harmonia-update-is-available-and-record-the-check",
+        ["update", "--apply"] => "appliance/harmonia-update-engine/converge-this-appliance-to-the-latest-harmonia-sources-now",
+        ["update-module", _, "--module", _] => "appliance/harmonia-update-engine/verify-one-named-harmonia-module-on-this-appliance-without-applying",
+        ["update-module", _, "--module", _, "--apply"] => "appliance/harmonia-update-engine/converge-one-named-harmonia-module-on-this-appliance-now",
+        ["interactable", "list", "--json"] => "appliance/harmonia-pending-interactables/list-every-pending-harmonia-interactable",
+        ["interactable", "run", _] => "appliance/harmonia-pending-interactables/run-one-pending-harmonia-interactable-by-its-id",
+        ["interactable", "silence", _] => "appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-on-by-its-id",
+        ["interactable", "unsilence", _] => "appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-off-by-its-id",
+        _ => HARMONIA_PRESS_BAND,
+    }
+}
 const HARMONIA_PRESS_LONG_DEADLINE: std::time::Duration =
     std::time::Duration::from_secs(24 * 60 * 60);
 
@@ -146,7 +160,7 @@ fn invoke_harmonia_press_band(
         "invocation_id": invocation_id,
     });
     crate::gate::snake::crossing_path_with_streamed_output(
-        HARMONIA_PRESS_BAND,
+        harmonia_band(argv),
         &input,
         HARMONIA_PRESS_LONG_DEADLINE,
         stdout_file,
@@ -692,9 +706,10 @@ pub fn start_update_now_json() -> Value {
     }
 
     let invocation_id = uuid::Uuid::new_v4().to_string();
+    let band = harmonia_band(&argv);
     let payload = json!({"argv": argv, "invocation_id": invocation_id});
     let started_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let child = match crate::gate::snake::crossing_spawn(HARMONIA_PRESS_BAND, &payload) {
+    let child = match crate::gate::snake::crossing_spawn(band, &payload) {
         Ok(child) => child,
         Err(signal) => {
             return update_now_response(
