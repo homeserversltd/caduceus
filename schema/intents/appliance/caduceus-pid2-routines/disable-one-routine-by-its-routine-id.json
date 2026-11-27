@@ -15,11 +15,15 @@
     "required": []
   },
   "exousia": true,
-  "mutation_allowed": null,
+  "mutation_allowed": true,
   "returns": {
     "ok": {
       "type": "boolean",
       "meaning": "Whether the request succeeded."
+    },
+    "routine_id": {
+      "type": "string",
+      "meaning": "Routine identifier used by the operation."
     },
     "changed": {
       "type": "boolean",

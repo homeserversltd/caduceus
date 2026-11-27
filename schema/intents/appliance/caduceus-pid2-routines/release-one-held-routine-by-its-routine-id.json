@@ -15,7 +15,7 @@
     "required": []
   },
   "exousia": true,
-  "mutation_allowed": null,
+  "mutation_allowed": true,
   "returns": {
     "ok": {
       "type": "boolean",
