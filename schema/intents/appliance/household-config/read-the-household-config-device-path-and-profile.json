@@ -1,0 +1,35 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/household-config/read-the-household-config-device-path-and-profile",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the operation succeeded."
+    },
+    "profile": {
+      "type": "string",
+      "meaning": "Resolved appliance profile."
+    },
+    "path": {
+      "type": "string",
+      "meaning": "Logical device path, /etc/appliance/config.json."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes; ",
+      "enum": [
+        "none",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-household-config-profile-unknown: /etc/appliance/profile.json"
+      ]
+    }
+  }
+}

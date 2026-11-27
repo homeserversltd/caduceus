@@ -1,0 +1,80 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/household-config/set-many-household-config-values-by-merging-a-patch",
+  "payload": {
+    "fields": {
+      "merge": {
+        "type": "object",
+        "meaning": "Object recursively merged into the household document."
+      }
+    },
+    "required": [
+      "merge"
+    ]
+  },
+  "exousia": true,
+  "mutation_allowed": null,
+  "returns": {
+    "ok": {
+      "type": "boolean",
+      "meaning": "Whether the operation succeeded."
+    },
+    "profile": {
+      "type": "string",
+      "meaning": "Resolved appliance profile."
+    },
+    "op": {
+      "type": "string",
+      "meaning": "The requested operation."
+    },
+    "path": {
+      "type": "string",
+      "meaning": "Logical device path, /etc/appliance/config.json."
+    },
+    "changed": {
+      "type": "boolean",
+      "meaning": "Whether the household document changed."
+    },
+    "keysTouched": {
+      "type": "array",
+      "meaning": "Top-level merge keys or the requested dotted set path.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes; The enum lists fixed literals only; an operating-system error string from symlink metadata may also be forwarded.",
+      "enum": [
+        "none",
+        "caduceus-public-action-not-allowed",
+        "caduceus-carapace-desync",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-household-config-profile-unknown: /etc/appliance/profile.json",
+        "caduceus-household-config-missing",
+        "caduceus-household-config-invalid",
+        "exousia-pin-required",
+        "exousia-pin-wrong",
+        "exousia-pin-not-yet-provisioned",
+        "caduceus-household-config-lock-unavailable",
+        "caduceus-config-target-symlink",
+        "caduceus-household-config-installed-path-missing",
+        "caduceus-household-config-render-failed",
+        "caduceus-household-config-write-failed",
+        "caduceus-portals-native-entry",
+        "caduceus-portals-factory-unreadable",
+        "caduceus-portals-factory-invalid",
+        "caduceus-portals-registry-invalid",
+        "caduceus-portals-schema-desync",
+        "caduceus-portals-entry-invalid",
+        "caduceus-portals-entry-kernel-missing",
+        "caduceus-portals-name-invalid",
+        "caduceus-portals-services-invalid",
+        "caduceus-portals-url-invalid",
+        "caduceus-portals-port-invalid",
+        "caduceus-portals-slug-duplicate",
+        "caduceus-household-config-patch-object-required"
+      ]
+    }
+  }
+}

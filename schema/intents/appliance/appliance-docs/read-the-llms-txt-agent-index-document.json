@@ -1,0 +1,36 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/appliance-docs/read-the-llms-txt-agent-index-document",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "body": {
+      "meaning": "Document bytes returned directly, at most 4194304 bytes."
+    },
+    "content_type": {
+      "type": "string",
+      "meaning": "HTTP Content-Type selected from the file extension."
+    },
+    "x_content_type_options": {
+      "type": "string",
+      "meaning": "HTTP X-Content-Type-Options header, nosniff."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes; The fixed llms.txt response is raw bytes on success.",
+      "enum": [
+        "caduceus-docs-peer-not-allowed",
+        "caduceus-docs-root-unavailable",
+        "caduceus-docs-root-invalid",
+        "caduceus-docs-page-absent",
+        "caduceus-docs-page-unavailable",
+        "caduceus-docs-page-not-regular",
+        "caduceus-docs-page-too-large"
+      ]
+    }
+  }
+}

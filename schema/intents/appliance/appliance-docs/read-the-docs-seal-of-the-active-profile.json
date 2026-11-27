@@ -1,0 +1,56 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/appliance-docs/read-the-docs-seal-of-the-active-profile",
+  "payload": {
+    "fields": {},
+    "required": []
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "profile": {
+      "type": "string",
+      "meaning": "Compiled active appliance profile."
+    },
+    "stamp_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Optional 64-character lowercase hex stamp digest."
+    },
+    "fire_seal": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "meaning": "Optional fire seal from the Ruyi perspective."
+    },
+    "documentation_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "Optional 40-character lowercase hex documentation source digest."
+    },
+    "observed_at": {
+      "type": "string",
+      "meaning": "UTC observation time in RFC3339 seconds."
+    },
+    "signal": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "meaning": "ruyi-perspective-absent if the perspective cannot be read or validated, otherwise null."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes; The success body also has its separate signal field for an absent Ruyi perspective.",
+      "enum": [
+        "caduceus-docs-peer-not-allowed",
+        "caduceus-docs-seal-schema-desync"
+      ]
+    }
+  }
+}

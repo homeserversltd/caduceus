@@ -1,0 +1,45 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "appliance/appliance-docs/read-one-docs-page-by-its-path",
+  "payload": {
+    "fields": {
+      "page": {
+        "type": "string",
+        "meaning": "Relative document path of nonempty slash-separated segments. ASCII letters, digits, dot, underscore and hyphen only in each segment; segments . and .. are forbidden. The extension must be md, png, jpg, svg or txt."
+      }
+    },
+    "required": [
+      "page"
+    ]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "body": {
+      "meaning": "Document bytes returned directly, at most 4194304 bytes."
+    },
+    "content_type": {
+      "type": "string",
+      "meaning": "HTTP Content-Type selected from the file extension."
+    },
+    "x_content_type_options": {
+      "type": "string",
+      "meaning": "HTTP X-Content-Type-Options header, nosniff."
+    },
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "The enum lists fixed literal outcomes; The document response is raw bytes on success; peer denial and document failures carry these signals.",
+      "enum": [
+        "caduceus-docs-peer-not-allowed",
+        "caduceus-docs-path-invalid",
+        "caduceus-docs-extension-unsupported",
+        "caduceus-docs-root-unavailable",
+        "caduceus-docs-root-invalid",
+        "caduceus-docs-page-absent",
+        "caduceus-docs-page-unavailable",
+        "caduceus-docs-page-not-regular",
+        "caduceus-docs-page-too-large"
+      ]
+    }
+  }
+}
