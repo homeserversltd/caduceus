@@ -16,6 +16,11 @@
           "primary",
           "backup"
         ]
+      },
+      "flash": {
+        "type": "boolean",
+        "default": false,
+        "meaning": "Allow the stamp to overwrite a drive that is not blank."
       }
     },
     "required": [

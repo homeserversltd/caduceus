@@ -1,0 +1,25 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas/locked-in/list",
+  "payload": {"fields": {}, "required": []},
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the lock-in table was read successfully."},
+    "firstMissingSignal": {"type": "string", "meaning": "First blocking outcome; none means no missing signal."},
+    "drives": {
+      "type": "array",
+      "meaning": "Rows of drives locked in to this house.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "part_uuid": {"type": "string", "meaning": "GPT PARTUUID of the role-labelled NAS partition."},
+          "role": {"type": "string", "meaning": "NAS role of the partition.", "enum": ["primary", "backup"]},
+          "holder": {"type": "string", "meaning": "this for this HomeServer, otherwise the holder box's lower-case MAC.", "pattern": "^(this|[0-9a-f]{2}(:[0-9a-f]{2}){5})$"},
+          "size_bytes": {"type": "integer", "meaning": "Raw disk size in bytes."},
+          "locked_in_at": {"type": "string", "meaning": "UTC time when the row was locked in."}
+        }
+      }
+    }
+  }
+}

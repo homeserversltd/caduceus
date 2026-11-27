@@ -1,6 +1,6 @@
 {
   "schema": "caduceus.nas.setup.v1",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "role": "Caduceus NAS setup transaction receipt",
   "authority": {
     "owner": "caduceus",
@@ -34,7 +34,8 @@
       "type": "boolean"
     },
     "firstMissingSignal": {
-      "type": "string"
+      "type": "string",
+      "meaning": "First blocking signal; the door may answer nas-backup-too-small, nas-drive-not-blank, nas-main-size-unknown or nas-prefire-unavailable for a prefire refusal."
     },
     "role": {
       "type": "string",
@@ -74,6 +75,40 @@
     },
     "rolledBack": {
       "type": "boolean"
+    },
+    "lockedIn": {
+      "type": "boolean",
+      "meaning": "Whether the role-labelled partition has a lock-in table row."
+    },
+    "prefire": {
+      "type": "object",
+      "meaning": "Read-only door prefire answer for the candidate drive.",
+      "fields": {
+        "ok": {"type": "boolean", "meaning": "Whether prefire completed without a refusal."},
+        "lockedIn": {"type": "boolean", "meaning": "Whether the role-labelled partition has a lock-in table row."},
+        "sizeBytes": {"type": "integer", "meaning": "Candidate raw disk size in bytes."},
+        "mainSizeBytes": {"type": ["integer", "null"], "meaning": "Primary raw disk size in bytes, or null when unknown."},
+        "fits": {"type": ["boolean", "null"], "meaning": "A backup fits when sizeBytes >= mainSizeBytes * (1 - 0.0333); null for role primary."},
+        "blank": {"type": "boolean", "meaning": "True only when no partitions and no filesystem, partition-table or LUKS signature are present."},
+        "contents": {
+          "type": "array",
+          "meaning": "Observed partition and signature details, never file names.",
+          "items": {
+            "type": "object",
+            "fields": {
+              "partition": {"type": "string", "meaning": "Observed partition device."},
+              "partlabel": {"type": ["string", "null"], "meaning": "Partition label, or null when absent."},
+              "type": {"type": ["string", "null"], "meaning": "Filesystem, LUKS or partition-table type, never a file name; null when absent."},
+              "sizeBytes": {"type": "integer", "meaning": "Observed partition size in bytes."}
+            }
+          }
+        },
+        "firstMissingSignal": {
+          "type": "string",
+          "meaning": "none means no refusal; nas-main-size-unknown means no primary size is available, nas-backup-too-small means a backup fails sizeBytes >= mainSizeBytes * (1 - 0.0333), and nas-prefire-unavailable means the observation is unavailable.",
+          "enum": ["none", "nas-main-size-unknown", "nas-backup-too-small", "nas-prefire-unavailable"]
+        }
+      }
     }
   },
   "field_types": {
@@ -88,9 +123,11 @@
     "mountpoint": "string|null",
     "steps": "array",
     "servicesStarted": "array",
-    "rolledBack": "boolean"
+    "rolledBack": "boolean",
+    "lockedIn": "boolean",
+    "prefire": "object"
   },
-  "optional": [],
+  "optional": ["lockedIn", "prefire"],
   "additionalProperties": true,
   "canonical_bytes": "UTF-8 JSON, two-space indentation and one trailing LF. GET schema serves these exact file bytes."
 }

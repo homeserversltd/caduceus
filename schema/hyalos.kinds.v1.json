@@ -139,6 +139,18 @@
    }
   },
   {
+   "organ": "nas-lock-in",
+   "verb": [
+    "stamp",
+    "flash",
+    "adopt"
+   ],
+   "row": {
+    "kind": "run",
+    "level": 1
+   }
+  },
+  {
    "organ": "backup-pair",
    "verb": [
     "copy-now"

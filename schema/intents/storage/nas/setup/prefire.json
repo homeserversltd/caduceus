@@ -1,0 +1,46 @@
+{
+  "schema": "caduceus.staff.v1",
+  "intent": "storage/nas/setup/prefire",
+  "payload": {
+    "fields": {
+      "device": {
+        "type": "string",
+        "meaning": "Whole disk or loop device to set up, named by a single /dev basename; the device is reobserved before a mutation.",
+        "pattern": "^/dev/(?!\\.{1,2}$(?![\\s\\S]))[A-Za-z0-9._-]{1,128}$(?![\\s\\S])",
+        "maxLength": 133
+      },
+      "role": {
+        "type": "string",
+        "meaning": "NAS role whose partition label is sought.",
+        "enum": ["primary", "backup"]
+      }
+    },
+    "required": ["device", "role"]
+  },
+  "exousia": false,
+  "mutation_allowed": false,
+  "returns": {
+    "ok": {"type": "boolean", "meaning": "Whether the read-only observation succeeded."},
+    "sizeBytes": {"type": "integer", "meaning": "Raw disk size in bytes."},
+    "blank": {"type": "boolean", "meaning": "True only when no partitions and no filesystem, partition-table or LUKS signature are present."},
+    "contents": {
+      "type": "array",
+      "meaning": "Observed partition and signature details, never file names.",
+      "items": {
+        "type": "object",
+        "fields": {
+          "partition": {"type": "string", "meaning": "Observed partition device."},
+          "partlabel": {"type": ["string", "null"], "meaning": "Partition label, or null when absent."},
+          "type": {"type": ["string", "null"], "meaning": "Filesystem, LUKS or partition-table type, never a file name; null when absent."},
+          "sizeBytes": {"type": "integer", "meaning": "Observed partition size in bytes."}
+        }
+      }
+    },
+    "partUuid": {"type": ["string", "null"], "meaning": "PARTUUID of the role-labelled partition, or null when none stands."},
+    "firstMissingSignal": {
+      "type": "string",
+      "meaning": "none means no refusal; nas-prefire-device-invalid means the device is invalid, nas-prefire-device-unobservable means it cannot be observed, and nas-prefire-command-failed means an observation command failed.",
+      "enum": ["none", "nas-prefire-device-invalid", "nas-prefire-device-unobservable", "nas-prefire-command-failed"]
+    }
+  }
+}
