@@ -1146,10 +1146,14 @@ async fn health_route() -> Json<LivenessBody> {
         build_sha: CADUCEUS_BUILD_SHA,
     })
 }
+pub(crate) fn doors_readback() -> serde_json::Value {
+    serde_json::json!({"schema":"caduceus.doors.readback.v1","ok":true,"profile":crate::routes::profile_routes::ACTIVE_PROFILE,"routes":crate::routes::SELECTED_DISCOVERY})
+}
+
 async fn doors_route() -> Result<Response, (StatusCode, Json<ApiErrorBody>)> {
     match policy::allows_command("doors read") {
         Ok(true) => {
-            let body = serde_json::json!({"schema":"caduceus.doors.readback.v1","ok":true,"profile":crate::routes::profile_routes::ACTIVE_PROFILE,"routes":crate::routes::SELECTED_DISCOVERY});
+            let body = doors_readback();
             Ok((
                 [(CONTENT_TYPE, "application/json")],
                 Body::from(body.to_string()),
@@ -1160,6 +1164,27 @@ async fn doors_route() -> Result<Response, (StatusCode, Json<ApiErrorBody>)> {
         Err(_) => Err(api_error_signal("doors read", "caduceus-carapace-desync")),
     }
 }
+fn audit_native_commands() -> Result<(), String> {
+    for namespace in crate::routes::SELECTED_UNIVERSAL_DOORS {
+        let source = crate::routes::selected_declaration(namespace)
+            .ok_or_else(|| format!("{namespace}: declaration missing"))?;
+        let declaration: serde_json::Value = serde_json::from_str(source)
+            .map_err(|error| format!("{namespace}: declaration invalid: {error}"))?;
+        for group in ["serve", "rescue", "finally"] {
+            if let Some(steps) = declaration.get(group).and_then(serde_json::Value::as_array) {
+                for step in steps {
+                    if let Some(name) = step.get("rust").and_then(serde_json::Value::as_str) {
+                        if !crate::shared::primitives::has_command(name) {
+                            return Err(format!("{namespace}: native command unavailable: {name}"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn audit_doors() -> Result<(), String> {
     if crate::routes::SELECTED_DISCOVERY
         .iter()
@@ -1620,6 +1645,10 @@ async fn wait_for_shutdown(mut stop: watch::Receiver<bool>) {
 }
 
 pub async fn run_async() -> i32 {
+    if let Err(error) = audit_native_commands() {
+        eprintln!("caduceus-native-audit-failed: {error}");
+        return 1;
+    }
     match crate::routes::leaf_schema::initialize() {
         Ok(census) => eprintln!("caduceus-seats: {census}"),
         Err(error) => { eprintln!("{error}"); return 1; }

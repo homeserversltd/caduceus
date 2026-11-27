@@ -8,13 +8,8 @@
   "commands": [
     "doors read"
   ],
-  "serve": [],
+  "serve": [{"rust": "appliance/caduceus-doors/read-the-door-route-list-of-the-active-profile"}],
   "http_method": "POST",
   "http_path": "/api/v1/appliance/caduceus-doors/read-the-door-route-list-of-the-active-profile",
-  "body": "optional",
-  "forward": {
-    "method": "GET",
-    "path": "/api/v1/doors",
-    "body": "none"
-  }
+  "body": "optional"
 }

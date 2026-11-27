@@ -821,7 +821,12 @@ pub async fn execute_ordered_serve_with_timeout(
             let stop = Some(band.clone());
             (band, stamp, payload, stop)
         } else if let Some(primitive) = step.rust {
-            let payload = crate::shared::primitives::execute(&primitive, base_envelope).await?;
+            let execution = crate::shared::primitives::execute(&primitive, base_envelope);
+            let payload = match timeout {
+                Some(timeout) => tokio::time::timeout(timeout, execution).await
+                    .map_err(|_| "caduceus-rust-primitive-timeout".to_string())??,
+                None => execution.await?,
+            };
             let stamp = rust_step_stamp(base_envelope, &primitive, &payload)?;
             (primitive, stamp, payload, None)
         } else {

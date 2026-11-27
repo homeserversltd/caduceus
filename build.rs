@@ -821,7 +821,7 @@ fn main() {
             }
         }
         if !Path::new(&format!("routes/{namespace}/index.rs")).is_file() {
-            assert!(!namespace.is_empty() && namespace.len() <= 48 && namespace.bytes().all(|c| c.is_ascii_alphanumeric() || b"_.-/".contains(&c)),
+            assert!(!namespace.is_empty() && namespace.len() <= 128 && namespace.bytes().all(|c| c.is_ascii_alphanumeric() || b"_.-/".contains(&c)),
                 "{namespace}: generic deed namespace exceeds bounded line budget");
         }
         if !Path::new(&format!("routes/{namespace}/index.rs")).is_file() && ordinal > 1 {

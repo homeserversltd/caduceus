@@ -1,6 +1,7 @@
 //! Enumerable C2 Rust serve primitive registry.
 // Names are concrete leaf operations, never generic router façades.
 pub static RUST_PRIMITIVES: &[&str] = &[
+    "appliance/caduceus-doors/read-the-door-route-list-of-the-active-profile",
     "face_meter_read",
     "health",
     "identity",
@@ -54,10 +55,30 @@ pub fn contains(name: &str) -> bool {
     RUST_PRIMITIVES.contains(&name)
 }
 
-pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_json::Value, String> {
+enum NativeCommand {
+    #[cfg(leaf_face_meter)]
+    FaceMeter,
+    DoorsList,
+}
+
+fn command(name: &str) -> Option<NativeCommand> {
     match name {
         #[cfg(leaf_face_meter)]
-        "face_meter_read" => Ok(crate::shared::face_meter_native::read_meter(envelope).await),
-        _ => Err("caduceus-serve-rust-primitive-unavailable".to_string()),
+        "face_meter_read" => Some(NativeCommand::FaceMeter),
+        "appliance/caduceus-doors/read-the-door-route-list-of-the-active-profile" => Some(NativeCommand::DoorsList),
+        _ => None,
+    }
+}
+
+pub(crate) fn has_command(name: &str) -> bool {
+    command(name).is_some()
+}
+
+pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_json::Value, String> {
+    match command(name) {
+        #[cfg(leaf_face_meter)]
+        Some(NativeCommand::FaceMeter) => Ok(crate::shared::face_meter_native::read_meter(envelope).await),
+        Some(NativeCommand::DoorsList) => Ok(crate::gate::doors_readback()),
+        None => Err("caduceus-serve-rust-primitive-unavailable".to_string()),
     }
 }
