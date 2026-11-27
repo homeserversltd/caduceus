@@ -6,7 +6,7 @@
   "mutation_allowed": false,
   "returns": {
     "ok": {"type": "boolean", "meaning": "The status result reports true even when the shelf index is unavailable."},
-    "profile": {"type": "string", "meaning": "Active build profile."},
+    "profile": {"type": "string", "meaning": "Active build profile.", "enum": ["homeserver", "homeconsole", "hometv", "homesi", "specula"]},
     "shelfRoot": {"type": "string", "meaning": "Staff library root."},
     "shelfPresent": {"type": "boolean", "meaning": "Whether the shelf root is a directory."},
     "cliEntry": {"type": "string", "meaning": "Selected staff CLI path."},

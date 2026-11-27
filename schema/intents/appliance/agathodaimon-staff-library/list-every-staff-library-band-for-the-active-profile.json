@@ -6,7 +6,7 @@
   "mutation_allowed": false,
   "returns": {
     "ok": {"type": "boolean", "meaning": "Whether the shelf index was read."},
-    "profile": {"type": "string", "meaning": "The active build profile."},
+    "profile": {"type": "string", "meaning": "The active build profile.", "enum": ["homeserver", "homeconsole", "hometv", "homesi", "specula"]},
     "bands": {"type": "array", "meaning": "Shelf index entries allowed for the active profile."},
     "count": {"type": "integer", "meaning": "The number of returned bands."},
     "firstMissingSignal": {"type": "string", "meaning": "none on success; index read or blocking-task failure. Child failures can append the child name to caduceus-index-child-missing: or caduceus-index-child-invalid:.", "examples": ["none", "caduceus-agathodaimon-index-missing", "caduceus-agathodaimon-index-invalid", "caduceus-agathodaimon-index-children-invalid", "caduceus-agathodaimon-index-children-missing", "caduceus-index-child-invalid", "caduceus-blocking-task-join-failed"]}
