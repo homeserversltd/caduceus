@@ -8,6 +8,6 @@
     "body": {"meaning": "The handler reads the registry file's raw bytes without parsing or validation, or serializes an empty appliance.cartridges.v1 registry when absent. The door may transform a bounded JSON object or array into a staff receipt; other bodies pass through unchanged."},
     "ok": {"type": "boolean", "meaning": "False in the handler's JSON error response; the door may add true to a successful JSON body when stamping it."},
     "command": {"type": "string", "meaning": "The command named in a handler error response."},
-    "firstMissingSignal": {"type": "string", "meaning": "The enum lists fixed handler-error tokens. A successful raw registry file may instead contain its own arbitrary firstMissingSignal value, including non-string values, or no such field; it is not validated by this read.", "enum": ["caduceus-cartridge-registry-render-failed", "caduceus-cartridge-registry-read-failed", "caduceus-blocking-task-join-failed"]}
+    "firstMissingSignal": {"type": ["string", "number", "boolean", "object", "array", "null"], "meaning": "The enum lists fixed handler-error tokens. A successful raw registry file may instead contain its own arbitrary firstMissingSignal value, including non-string JSON values, or no such field; it is not validated by this read.", "enum": ["caduceus-cartridge-registry-render-failed", "caduceus-cartridge-registry-read-failed", "caduceus-blocking-task-join-failed"]}
   }
 }
