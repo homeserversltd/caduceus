@@ -49,7 +49,7 @@
     },
     "first_missing_signal": {
       "type": "string",
-      "meaning": "Outer route signal; the enum lists fixed literal outcomes. The nested harmoniaReceipt.firstMissingSignal can carry open module-unregistered-<id>, module-invalid <detail>, <module_id>-<operation_id>-failed, caduceus-harmonia-route-missing:<route>, or caduceus-harmonia-command-failed:<error text>. On homeserver and hometv update_module is absent and the child body carries caduceus-harmonia-route-missing:update_module.",
+      "meaning": "Outer route signal: a JSON child first_missing_signal is copied here as well as into harmoniaReceipt. Its open forms may include module-unregistered-<id>, module-invalid <detail>, or <module_id>-<operation_id>-failed. For non-JSON key=value child output the outer signal is none or caduceus-harmonia-command-failed; harmoniaReceipt.firstMissingSignal parses the child and can include caduceus-harmonia-command-failed:<error text> or another child signal.",
       "enum": [
         "none",
         "caduceus-harmonia-command-failed"
@@ -57,12 +57,15 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "Fixed gate or request refusal signals; success ordinarily answers first_missing_signal instead.",
+      "meaning": "Fixed gate or request refusal signals; success ordinarily answers first_missing_signal instead. A gate refusal is a caduceus.staff.receipt.v1, not the successful leaf response; admission configuration errors are also fixed literals. The HTTP leaf is selected on homeconsole and specula; homeserver, homesi and hometv return caduceus-http-route-not-found instead of invoking the child.",
       "enum": [
         "caduceus-update-module-target-missing",
-        "caduceus-update-module-declaration-missing",
-        "caduceus-update-module-declaration-invalid",
-        "caduceus-update-module-serve-missing"
+        "caduceus-blocking-task-join-failed",
+        "caduceus-http-route-not-found",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid"
       ]
     }
   }

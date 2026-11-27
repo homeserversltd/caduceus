@@ -18,9 +18,14 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "Fixed refusal from the list handler; a successful raw feed supplies no signal field.",
+      "meaning": "Fixed refusal from the list handler; a successful raw feed supplies no signal field. A gate refusal is a caduceus.staff.receipt.v1, not the successful leaf response; admission configuration errors are also fixed literals.",
       "enum": [
-        "caduceus-harmonia-command-failed"
+        "caduceus-harmonia-command-failed",
+        "caduceus-blocking-task-join-failed",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid"
       ]
     }
   }

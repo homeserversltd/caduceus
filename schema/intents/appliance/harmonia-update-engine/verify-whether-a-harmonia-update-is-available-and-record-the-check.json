@@ -21,7 +21,7 @@
     },
     "first_missing_signal": {
       "type": "string",
-      "meaning": "Fixed literals from the JSON child and stats store; absent on some gate refusals. The child can also pass through open error or tool text when the non-JSON fallback is used.",
+      "meaning": "Fixed literals from the JSON child and the stats store; a non-JSON fallback returns the separate camel-case firstMissingSignal wrapper instead.",
       "enum": [
         "none",
         "update-check-profile-unavailable",
@@ -108,10 +108,32 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "Gate-stamped refusal field when present. The non-JSON fallback may additionally carry caduceus-harmonia-command-failed:<error text> or another passed-through child signal.",
+      "meaning": "Gate-stamped refusal field when present. The non-JSON fallback may additionally carry caduceus-harmonia-command-failed:<error text> or another passed-through child signal. A gate refusal is a caduceus.staff.receipt.v1, not the successful leaf response; admission configuration errors are also fixed literals. On a non-JSON child response the wrapper contains schema, route, ok, exitCode, body and firstMissingSignal; the latter may be an open child first_missing_signal or caduceus-harmonia-command-failed:<error text>.",
       "enum": [
-        "caduceus-harmonia-command-failed"
+        "caduceus-harmonia-command-failed",
+        "caduceus-blocking-task-join-failed",
+        "none",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid"
       ]
+    },
+    "route": {
+      "type": "string",
+      "meaning": "Route key in the non-JSON invocation wrapper."
+    },
+    "exitCode": {
+      "type": "integer",
+      "meaning": "Child exit status in the non-JSON invocation wrapper."
+    },
+    "body": {
+      "type": "string",
+      "meaning": "Child body in the non-JSON invocation wrapper."
+    },
+    "error": {
+      "type": "string",
+      "meaning": "Stats-store error detail, when hydration fails."
     }
   }
 }

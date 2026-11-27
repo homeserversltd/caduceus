@@ -33,10 +33,20 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "Fixed literal outcomes are enumerated; child first_missing_signal may pass through as <child signal text> and invocation errors as caduceus-harmonia-command-failed:<error text>. Child error text such as interactable-unknown-id <id> may instead be in body.",
+      "meaning": "Fixed literal outcomes are enumerated; child first_missing_signal may pass through as <child signal text> and invocation errors as caduceus-harmonia-command-failed:<error text>. Child error text such as interactable-unknown-id <id> may instead be in body. A gate refusal is a caduceus.staff.receipt.v1, not the successful leaf response; admission configuration errors are also fixed literals.",
       "enum": [
         "none",
-        "caduceus-harmonia-command-failed"
+        "caduceus-harmonia-command-failed",
+        "caduceus-blocking-task-join-failed",
+        "exousia-pin-required",
+        "exousia-pin-wrong",
+        "exousia-pin-not-yet-provisioned",
+        "caduceus-administrative-request-too-large",
+        "caduceus-administrative-request-invalid",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid"
       ]
     }
   }

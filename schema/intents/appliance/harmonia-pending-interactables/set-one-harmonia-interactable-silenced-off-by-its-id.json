@@ -44,9 +44,19 @@
     },
     "firstMissingSignal": {
       "type": "string",
-      "meaning": "The handler maps nonzero child and invalid JSON to this fixed literal; successful child JSON has no signal field.",
+      "meaning": "The handler maps nonzero child and invalid JSON to this fixed literal; successful child JSON has no signal field. A gate refusal is a caduceus.staff.receipt.v1, not the successful leaf response; admission configuration errors are also fixed literals.",
       "enum": [
-        "caduceus-harmonia-command-failed"
+        "caduceus-harmonia-command-failed",
+        "caduceus-blocking-task-join-failed",
+        "exousia-pin-required",
+        "exousia-pin-wrong",
+        "exousia-pin-not-yet-provisioned",
+        "caduceus-administrative-request-too-large",
+        "caduceus-administrative-request-invalid",
+        "caduceus-administrative-config-unavailable",
+        "caduceus-administrative-config-invalid",
+        "caduceus-administrative-profile-invalid",
+        "caduceus-administrative-routes-invalid"
       ]
     }
   }
