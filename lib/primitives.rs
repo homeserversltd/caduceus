@@ -1,6 +1,12 @@
 //! Enumerable C2 Rust serve primitive registry.
 // Names are concrete leaf operations, never generic router façades.
 pub static RUST_PRIMITIVES: &[&str] = &[
+    "appliance/appliance-stats-sampler/ask-the-stats-sampler-to-verify-model-lanes-on-its-next-tick",
+    "appliance/appliance-identity/read-the-appliance-identity-from-its-profile-file",
+    "appliance/appliance-health-report/read-the-appliance-health-report-of-profile-presence",
+    "appliance/agathodaimon-staff-library/list-every-staff-library-band-for-the-active-profile",
+    "appliance/agathodaimon-staff-library/read-the-staff-library-status-and-one-band-by-its-band-path",
+    "appliance/local-ai-runtime/status-the-llama-binaries-route-and-receipt",
     "network/networkmanager-wifi/list-the-saved-wifi-connections-by-name-uuid-and-type",
     "network/networkmanager-wifi/list-the-visible-wifi-networks-from-a-radio-scan",
     "network/networkmanager-wifi/status-the-wifi-link-of-this-seat",
@@ -76,6 +82,12 @@ pub fn contains(name: &str) -> bool {
 }
 
 enum NativeCommand {
+    ModelLanePulse,
+    ApplianceIdentity,
+    ApplianceHealth,
+    StaffLibraryList,
+    StaffLibraryStatus,
+    LlamaRuntimeStatus,
     #[cfg(leaf_network_device_wifi_saved)]
     WifiSaved,
     #[cfg(leaf_network_device_wifi_scan)]
@@ -108,6 +120,12 @@ enum NativeCommand {
 
 fn command(name: &str) -> Option<NativeCommand> {
     match name {
+        "appliance/appliance-stats-sampler/ask-the-stats-sampler-to-verify-model-lanes-on-its-next-tick" => Some(NativeCommand::ModelLanePulse),
+        "appliance/appliance-identity/read-the-appliance-identity-from-its-profile-file" => Some(NativeCommand::ApplianceIdentity),
+        "appliance/appliance-health-report/read-the-appliance-health-report-of-profile-presence" => Some(NativeCommand::ApplianceHealth),
+        "appliance/agathodaimon-staff-library/list-every-staff-library-band-for-the-active-profile" => Some(NativeCommand::StaffLibraryList),
+        "appliance/agathodaimon-staff-library/read-the-staff-library-status-and-one-band-by-its-band-path" => Some(NativeCommand::StaffLibraryStatus),
+        "appliance/local-ai-runtime/status-the-llama-binaries-route-and-receipt" => Some(NativeCommand::LlamaRuntimeStatus),
         #[cfg(leaf_network_device_wifi_saved)]
         "network/networkmanager-wifi/list-the-saved-wifi-connections-by-name-uuid-and-type" => Some(NativeCommand::WifiSaved),
         #[cfg(leaf_network_device_wifi_scan)]
@@ -162,6 +180,65 @@ fn kea_read_answer(mut value: serde_json::Value) -> Result<serde_json::Value, St
 
 pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_json::Value, String> {
     match command(name) {
+        Some(NativeCommand::ModelLanePulse) => {
+            let mut value = match crate::stats::request_model_lane_pulse() {
+                Ok(result) => serde_json::json!({"ok": true, "result": result}),
+                Err(error) => native_read_failure(&error),
+            };
+            crate::shared::load_trace::enrich_json(&mut value);
+            Ok(value)
+        }
+        Some(NativeCommand::ApplianceIdentity) => {
+            let mut value = match crate::routes::report_identity::read_json() {
+                Ok(serde_json::Value::Object(mut object)) => {
+                    if object.get("ok").and_then(serde_json::Value::as_bool).is_none() {
+                        object.insert("ok".into(), serde_json::Value::Bool(true));
+                    }
+                    if object.get("ok").and_then(serde_json::Value::as_bool) == Some(false) {
+                        object.insert("outcome".into(), serde_json::json!("identity-says-not-ok"));
+                    }
+                    serde_json::Value::Object(object)
+                }
+                Ok(_) => native_read_failure("caduceus-identity-profile-invalid"),
+                Err(error) => native_read_failure(&error),
+            };
+            crate::shared::load_trace::enrich_json(&mut value);
+            Ok(value)
+        }
+        Some(NativeCommand::ApplianceHealth) => {
+            let mut value = match crate::routes::leaf_appliance_report::read_json() {
+                Ok(mut value) => {
+                    if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                        value["outcome"] = serde_json::json!("profile-absent");
+                    }
+                    value
+                }
+                Err(error) => native_read_failure(&error),
+            };
+            crate::shared::load_trace::enrich_json(&mut value);
+            Ok(value)
+        }
+        Some(NativeCommand::StaffLibraryList) => match crate::gate::snake::list() {
+            Ok(value) => Ok(value),
+            Err(signal) => Ok(serde_json::json!({"ok": false, "firstMissingSignal": signal, "outcome": "failed"})),
+        },
+        Some(NativeCommand::StaffLibraryStatus) => {
+            let band = envelope.get("payload").and_then(|payload| payload.get("bandPath")).and_then(serde_json::Value::as_str);
+            Ok(crate::gate::snake::status(band))
+        }
+        Some(NativeCommand::LlamaRuntimeStatus) => {
+            let mut value = match crate::routes::leaf_local_ai_query::runtime_status_json() {
+                Ok(mut value) => {
+                    if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                        value["outcome"] = serde_json::json!("runtime-not-ready");
+                    }
+                    value
+                }
+                Err(error) => native_read_failure(&error),
+            };
+            crate::shared::load_trace::enrich_json(&mut value);
+            Ok(value)
+        }
         #[cfg(leaf_network_device_wifi_saved)]
         Some(NativeCommand::WifiSaved) => {
             let (status, axum::Json(mut value)) = match crate::routes::leaf_network_device_wifi_saved::route().await { Ok(answer) | Err(answer) => answer };

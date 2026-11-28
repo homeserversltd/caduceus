@@ -1,0 +1,20 @@
+{
+  "namespace": "appliance/agathodaimon-staff-library/list-every-staff-library-band-for-the-active-profile",
+  "admittance": "open",
+  "flags": {},
+  "needs": [
+    "all"
+  ],
+  "commands": [
+    "python list"
+  ],
+  "serve": [
+    {
+      "rust": "appliance/agathodaimon-staff-library/list-every-staff-library-band-for-the-active-profile"
+    }
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/agathodaimon-staff-library/list-every-staff-library-band-for-the-active-profile",
+  "body": "optional",
+  "mutation_allowed": false
+}

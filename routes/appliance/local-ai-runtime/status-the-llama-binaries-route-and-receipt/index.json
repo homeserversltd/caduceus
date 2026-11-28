@@ -1,0 +1,21 @@
+{
+  "namespace": "appliance/local-ai-runtime/status-the-llama-binaries-route-and-receipt",
+  "admittance": "open",
+  "flags": {},
+  "needs": [],
+  "commands": [
+    "local-ai runtime status"
+  ],
+  "serve": [
+    {
+      "rust": "appliance/local-ai-runtime/status-the-llama-binaries-route-and-receipt"
+    }
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/local-ai-runtime/status-the-llama-binaries-route-and-receipt",
+  "body": "optional",
+  "mutation_allowed": false,
+  "status_table": {
+    "runtime-not-ready": 200
+  }
+}

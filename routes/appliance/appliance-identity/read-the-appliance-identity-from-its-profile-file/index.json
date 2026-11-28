@@ -1,0 +1,23 @@
+{
+  "namespace": "appliance/appliance-identity/read-the-appliance-identity-from-its-profile-file",
+  "admittance": "open",
+  "flags": {},
+  "needs": [
+    "all"
+  ],
+  "commands": [
+    "identity show"
+  ],
+  "serve": [
+    {
+      "rust": "appliance/appliance-identity/read-the-appliance-identity-from-its-profile-file"
+    }
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/appliance-identity/read-the-appliance-identity-from-its-profile-file",
+  "body": "optional",
+  "mutation_allowed": false,
+  "status_table": {
+    "identity-says-not-ok": 200
+  }
+}

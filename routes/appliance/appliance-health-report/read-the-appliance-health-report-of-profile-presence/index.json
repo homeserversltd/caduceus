@@ -1,0 +1,23 @@
+{
+  "namespace": "appliance/appliance-health-report/read-the-appliance-health-report-of-profile-presence",
+  "admittance": "open",
+  "flags": {},
+  "needs": [
+    "all"
+  ],
+  "commands": [
+    "health"
+  ],
+  "serve": [
+    {
+      "rust": "appliance/appliance-health-report/read-the-appliance-health-report-of-profile-presence"
+    }
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/appliance-health-report/read-the-appliance-health-report-of-profile-presence",
+  "body": "optional",
+  "mutation_allowed": false,
+  "status_table": {
+    "profile-absent": 200
+  }
+}

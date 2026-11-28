@@ -1,0 +1,20 @@
+{
+  "namespace": "appliance/agathodaimon-staff-library/read-the-staff-library-status-and-one-band-by-its-band-path",
+  "admittance": "open",
+  "flags": {},
+  "needs": [
+    "all"
+  ],
+  "commands": [
+    "python status"
+  ],
+  "serve": [
+    {
+      "rust": "appliance/agathodaimon-staff-library/read-the-staff-library-status-and-one-band-by-its-band-path"
+    }
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/agathodaimon-staff-library/read-the-staff-library-status-and-one-band-by-its-band-path",
+  "body": "optional",
+  "mutation_allowed": false
+}

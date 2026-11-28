@@ -1,0 +1,20 @@
+{
+  "namespace": "appliance/appliance-stats-sampler/ask-the-stats-sampler-to-verify-model-lanes-on-its-next-tick",
+  "admittance": "open",
+  "flags": {},
+  "needs": [
+    "all"
+  ],
+  "commands": [
+    "appliance stats read"
+  ],
+  "serve": [
+    {
+      "rust": "appliance/appliance-stats-sampler/ask-the-stats-sampler-to-verify-model-lanes-on-its-next-tick"
+    }
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/appliance-stats-sampler/ask-the-stats-sampler-to-verify-model-lanes-on-its-next-tick",
+  "body": "optional",
+  "mutation_allowed": true
+}
