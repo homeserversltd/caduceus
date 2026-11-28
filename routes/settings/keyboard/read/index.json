@@ -2,6 +2,7 @@
   "namespace": "settings/keyboard/read",
   "admittance": "open",
   "flags": {},
+  "deadline_seconds": 180,
   "serve": [
     {
       "snake": "settings/keyboard/read"

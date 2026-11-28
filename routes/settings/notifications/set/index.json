@@ -2,6 +2,7 @@
   "namespace": "settings/notifications/set",
   "admittance": "open",
   "flags": {},
+  "deadline_seconds": 180,
   "serve": [
     {
       "snake": "settings/notifications/set"

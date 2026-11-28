@@ -2,6 +2,7 @@
   "namespace": "settings/input/set",
   "admittance": "open",
   "flags": {},
+  "deadline_seconds": 180,
   "serve": [
     {
       "snake": "settings/input/set"

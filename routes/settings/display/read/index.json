@@ -2,6 +2,7 @@
   "namespace": "settings/display/read",
   "admittance": "open",
   "flags": {},
+  "deadline_seconds": 180,
   "serve": [
     {
       "snake": "settings/display/read"

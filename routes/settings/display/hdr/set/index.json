@@ -2,6 +2,7 @@
   "namespace": "settings/display/hdr/set",
   "admittance": "open",
   "flags": {},
+  "deadline_seconds": 180,
   "serve": [
     {
       "snake": "settings/display/hdr/set"

@@ -2,6 +2,7 @@
   "namespace": "settings/sound/test-tone/play",
   "admittance": "open",
   "flags": {},
+  "deadline_seconds": 180,
   "serve": [
     {
       "snake": "settings/sound/test-tone/play"

@@ -2,6 +2,7 @@
   "namespace": "settings/default-apps/read",
   "admittance": "open",
   "flags": {},
+  "deadline_seconds": 180,
   "serve": [
     {
       "snake": "settings/default-apps/read"
