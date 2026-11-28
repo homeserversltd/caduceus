@@ -15,6 +15,11 @@ pub static RUST_PRIMITIVES: &[&str] = &[
     "network/kea-dhcp/list-the-dhcp-doorways-from-the-kea-configuration",
     "network/kea-dhcp/list-the-dhcp-leases-from-the-kea-lease-file",
     "network/kea-dhcp/list-the-dhcp-reservations-from-the-kea-configuration",
+    "appliance/harmonia-update-engine/verify-whether-a-harmonia-update-is-available-and-record-the-check",
+    "appliance/harmonia-pending-interactables/list-every-pending-harmonia-interactable",
+    "appliance/harmonia-pending-interactables/run-one-pending-harmonia-interactable-by-its-id",
+    "appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-on-by-its-id",
+    "appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-off-by-its-id",
     "appliance/harmonia-update-engine/list-every-harmonia-update-history-entry",
     "appliance/harmonia-module-profile/list-all-modules-with-enabled-state-and-metadata",
     "appliance/household-config/read-the-household-config-device-path-and-profile",
@@ -99,6 +104,11 @@ enum NativeCommand {
     KeaDoorways,
     KeaLeases,
     KeaReservations,
+    UpdateCheck,
+    InteractableList,
+    InteractableRun,
+    InteractableSilence,
+    InteractableUnsilence,
     UpdateHistory,
     ModulesList,
     ConfigPath,
@@ -137,6 +147,11 @@ fn command(name: &str) -> Option<NativeCommand> {
         "network/kea-dhcp/list-the-dhcp-doorways-from-the-kea-configuration" => Some(NativeCommand::KeaDoorways),
         "network/kea-dhcp/list-the-dhcp-leases-from-the-kea-lease-file" => Some(NativeCommand::KeaLeases),
         "network/kea-dhcp/list-the-dhcp-reservations-from-the-kea-configuration" => Some(NativeCommand::KeaReservations),
+        "appliance/harmonia-update-engine/verify-whether-a-harmonia-update-is-available-and-record-the-check" => Some(NativeCommand::UpdateCheck),
+        "appliance/harmonia-pending-interactables/list-every-pending-harmonia-interactable" => Some(NativeCommand::InteractableList),
+        "appliance/harmonia-pending-interactables/run-one-pending-harmonia-interactable-by-its-id" => Some(NativeCommand::InteractableRun),
+        "appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-on-by-its-id" => Some(NativeCommand::InteractableSilence),
+        "appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-off-by-its-id" => Some(NativeCommand::InteractableUnsilence),
         "appliance/harmonia-update-engine/list-every-harmonia-update-history-entry" => Some(NativeCommand::UpdateHistory),
         "appliance/harmonia-module-profile/list-all-modules-with-enabled-state-and-metadata" => Some(NativeCommand::ModulesList),
         "appliance/household-config/read-the-household-config-device-path-and-profile" => Some(NativeCommand::ConfigPath),
@@ -287,6 +302,59 @@ pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_j
         Some(NativeCommand::KeaDoorways) => kea_read_answer(crate::routes::native_kea_read::response(crate::routes::native_kea_read::DOORWAYS_COMMAND)),
         Some(NativeCommand::KeaLeases) => kea_read_answer(crate::routes::native_kea_read::response(crate::routes::native_kea_read::LEASE_COMMAND)),
         Some(NativeCommand::KeaReservations) => kea_read_answer(crate::routes::native_kea_read::response(crate::routes::native_kea_read::RESERVATION_COMMAND)),
+        Some(NativeCommand::UpdateCheck) => {
+            let mut value = crate::stats::run_update_check();
+            if let Some(object) = value.as_object_mut() {
+                if object.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                    object.insert("outcome".into(), serde_json::json!("failed"));
+                }
+            }
+            Ok(value)
+        }
+        Some(NativeCommand::InteractableList) => {
+            let (code, body) = crate::shared::harmonia::invoke("interactable_list", &[], false);
+            let parsed = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&body);
+            match (code, parsed) {
+                (0, Ok(mut object)) => {
+                    object.entry("ok").or_insert(serde_json::Value::Bool(true));
+                    if object.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                        object.insert("outcome".into(), serde_json::json!("answered"));
+                    }
+                    Ok(serde_json::Value::Object(object))
+                }
+                _ => Ok(serde_json::json!({"ok": false, "firstMissingSignal": "caduceus-harmonia-command-failed", "outcome": "refused"})),
+            }
+        }
+        Some(act @ (NativeCommand::InteractableRun | NativeCommand::InteractableSilence | NativeCommand::InteractableUnsilence)) => {
+            let Some(id) = envelope.get("payload").and_then(|payload| payload.get("id")).and_then(serde_json::Value::as_str) else {
+                return Ok(serde_json::json!({"ok": false, "firstMissingSignal": "caduceus-request-payload-invalid", "outcome": "request-invalid"}));
+            };
+            let route = match act {
+                NativeCommand::InteractableRun => "interactable_run",
+                NativeCommand::InteractableSilence => "interactable_silence",
+                NativeCommand::InteractableUnsilence => "interactable_unsilence",
+                _ => unreachable!(),
+            };
+            let (code, body) = crate::shared::harmonia::invoke(route, &[id.to_owned()], false);
+            if matches!(act, NativeCommand::InteractableRun) {
+                let mut value = crate::shared::harmonia::invoke_body_to_json(route, code, &body);
+                if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                    value["outcome"] = serde_json::json!("failed");
+                }
+                Ok(value)
+            } else {
+                let parsed = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&body);
+                match (code, parsed) {
+                    (0, Ok(mut object)) => {
+                        if object.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                            object.insert("outcome".into(), serde_json::json!("answered"));
+                        }
+                        Ok(serde_json::Value::Object(object))
+                    }
+                    _ => Ok(serde_json::json!({"ok": false, "firstMissingSignal": "caduceus-harmonia-command-failed", "outcome": "refused"})),
+                }
+            }
+        }
         Some(NativeCommand::UpdateState) => {
             let mut value = match crate::routes::update_appliance::read_json() {
                 Ok(mut value) => {

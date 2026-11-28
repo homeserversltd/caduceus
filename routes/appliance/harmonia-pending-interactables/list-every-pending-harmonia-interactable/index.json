@@ -1,0 +1,25 @@
+{
+  "namespace": "appliance/harmonia-pending-interactables/list-every-pending-harmonia-interactable",
+  "admittance": "open",
+  "flags": {},
+  "needs": [
+    "all"
+  ],
+  "commands": [
+    "interactable list"
+  ],
+  "serve": [
+    {
+      "rust": "appliance/harmonia-pending-interactables/list-every-pending-harmonia-interactable"
+    }
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/harmonia-pending-interactables/list-every-pending-harmonia-interactable",
+  "deadline_seconds": 600,
+  "body": "optional",
+  "mutation_allowed": false,
+  "status_table": {
+    "refused": 403,
+    "answered": 200
+  }
+}

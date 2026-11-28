@@ -1,0 +1,27 @@
+{
+  "namespace": "appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-on-by-its-id",
+  "admittance": "open",
+  "flags": {},
+  "needs": [
+    "all"
+  ],
+  "commands": [
+    "interactable silence"
+  ],
+  "serve": [
+    {
+      "rust": "appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-on-by-its-id"
+    }
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-on-by-its-id",
+  "deadline_seconds": 600,
+  "body": "required",
+  "mutation_allowed": true,
+  "administrative": true,
+  "status_table": {
+    "refused": 403,
+    "answered": 200,
+    "request-invalid": 400
+  }
+}

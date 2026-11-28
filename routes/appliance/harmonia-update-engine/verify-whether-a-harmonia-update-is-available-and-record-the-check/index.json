@@ -1,0 +1,21 @@
+{
+  "namespace": "appliance/harmonia-update-engine/verify-whether-a-harmonia-update-is-available-and-record-the-check",
+  "admittance": "open",
+  "flags": {},
+  "needs": [
+    "all"
+  ],
+  "commands": [
+    "update check"
+  ],
+  "serve": [
+    {
+      "rust": "appliance/harmonia-update-engine/verify-whether-a-harmonia-update-is-available-and-record-the-check"
+    }
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/harmonia-update-engine/verify-whether-a-harmonia-update-is-available-and-record-the-check",
+  "deadline_seconds": 600,
+  "body": "optional",
+  "mutation_allowed": true
+}
