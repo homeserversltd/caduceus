@@ -1,0 +1,26 @@
+{
+  "namespace": "appliance/restartable-services/restart-one-listed-face-or-guest-service-by-its-restartable-name",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "appliance/restartable-services/restart-one-listed-face-or-guest-service-by-its-restartable-name"
+    }
+  ],
+  "commands": [
+    "staff intent"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "homesi"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/restartable-services/restart-one-listed-face-or-guest-service-by-its-restartable-name",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true
+}

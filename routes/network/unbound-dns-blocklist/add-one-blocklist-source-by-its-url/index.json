@@ -1,0 +1,23 @@
+{
+  "namespace": "network/unbound-dns-blocklist/add-one-blocklist-source-by-its-url",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/unbound-dns-blocklist/add-one-blocklist-source-by-its-url"
+    }
+  ],
+  "commands": [
+    "network dns blocklist source add"
+  ],
+  "needs": [
+    "unbound"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/unbound-dns-blocklist/add-one-blocklist-source-by-its-url",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true,
+  "deadline_seconds": 300
+}

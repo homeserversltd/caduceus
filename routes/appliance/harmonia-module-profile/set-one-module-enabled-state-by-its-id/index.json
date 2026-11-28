@@ -1,0 +1,21 @@
+{
+  "namespace": "appliance/harmonia-module-profile/set-one-module-enabled-state-by-its-id",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "appliance/harmonia-module-profile/set-one-module-enabled-state-by-its-id"
+    }
+  ],
+  "commands": [
+    "update module-toggle"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/harmonia-module-profile/set-one-module-enabled-state-by-its-id",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

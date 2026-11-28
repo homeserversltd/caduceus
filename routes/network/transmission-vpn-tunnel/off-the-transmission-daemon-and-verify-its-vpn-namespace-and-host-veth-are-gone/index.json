@@ -1,0 +1,26 @@
+{
+  "namespace": "network/transmission-vpn-tunnel/off-the-transmission-daemon-and-verify-its-vpn-namespace-and-host-veth-are-gone",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/transmission-vpn-tunnel/off-the-transmission-daemon-and-verify-its-vpn-namespace-and-host-veth-are-gone"
+    }
+  ],
+  "commands": [
+    "transmission down"
+  ],
+  "needs": [
+    "transmission"
+  ],
+  "profiles": [
+    "homeserver"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/transmission-vpn-tunnel/off-the-transmission-daemon-and-verify-its-vpn-namespace-and-host-veth-are-gone",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true,
+  "deadline_seconds": 180
+}

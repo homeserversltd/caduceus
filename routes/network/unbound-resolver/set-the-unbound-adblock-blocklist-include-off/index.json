@@ -1,0 +1,25 @@
+{
+  "namespace": "network/unbound-resolver/set-the-unbound-adblock-blocklist-include-off",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/unbound-resolver/set-the-unbound-adblock-blocklist-include-off"
+    }
+  ],
+  "commands": [
+    "network dns resolver adblock"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/unbound-resolver/set-the-unbound-adblock-blocklist-include-off",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

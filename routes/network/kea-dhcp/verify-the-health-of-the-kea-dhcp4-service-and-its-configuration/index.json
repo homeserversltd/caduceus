@@ -1,0 +1,21 @@
+{
+  "namespace": "network/kea-dhcp/verify-the-health-of-the-kea-dhcp4-service-and-its-configuration",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/kea-dhcp/verify-the-health-of-the-kea-dhcp4-service-and-its-configuration"
+    }
+  ],
+  "commands": [
+    "network dhcp health"
+  ],
+  "needs": [
+    "kea"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/kea-dhcp/verify-the-health-of-the-kea-dhcp4-service-and-its-configuration",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "mutation_allowed": false
+}

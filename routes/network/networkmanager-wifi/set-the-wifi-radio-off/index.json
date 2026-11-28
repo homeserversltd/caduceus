@@ -1,0 +1,25 @@
+{
+  "namespace": "network/networkmanager-wifi/set-the-wifi-radio-off",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/networkmanager-wifi/set-the-wifi-radio-off"
+    }
+  ],
+  "commands": [
+    "network wifi radio set"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/networkmanager-wifi/set-the-wifi-radio-off",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true
+}

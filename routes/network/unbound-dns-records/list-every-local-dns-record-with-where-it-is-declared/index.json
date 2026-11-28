@@ -1,0 +1,21 @@
+{
+  "namespace": "network/unbound-dns-records/list-every-local-dns-record-with-where-it-is-declared",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/unbound-dns-records/list-every-local-dns-record-with-where-it-is-declared"
+    }
+  ],
+  "commands": [
+    "network dns read"
+  ],
+  "needs": [
+    "unbound"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/unbound-dns-records/list-every-local-dns-record-with-where-it-is-declared",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "mutation_allowed": false
+}

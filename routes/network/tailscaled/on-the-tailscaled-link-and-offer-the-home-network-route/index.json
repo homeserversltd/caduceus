@@ -1,0 +1,25 @@
+{
+  "namespace": "network/tailscaled/on-the-tailscaled-link-and-offer-the-home-network-route",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/tailscaled/on-the-tailscaled-link-and-offer-the-home-network-route"
+    }
+  ],
+  "commands": [
+    "network tailscale up"
+  ],
+  "needs": [
+    "tailscale"
+  ],
+  "profiles": [
+    "homeserver"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/tailscaled/on-the-tailscaled-link-and-offer-the-home-network-route",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "deadline_seconds": 35
+}

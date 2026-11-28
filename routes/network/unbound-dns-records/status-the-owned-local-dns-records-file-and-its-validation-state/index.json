@@ -1,0 +1,21 @@
+{
+  "namespace": "network/unbound-dns-records/status-the-owned-local-dns-records-file-and-its-validation-state",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/unbound-dns-records/status-the-owned-local-dns-records-file-and-its-validation-state"
+    }
+  ],
+  "commands": [
+    "network dns status"
+  ],
+  "needs": [
+    "unbound"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/unbound-dns-records/status-the-owned-local-dns-records-file-and-its-validation-state",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "mutation_allowed": false
+}

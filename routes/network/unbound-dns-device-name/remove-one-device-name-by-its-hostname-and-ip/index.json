@@ -1,0 +1,21 @@
+{
+  "namespace": "network/unbound-dns-device-name/remove-one-device-name-by-its-hostname-and-ip",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/unbound-dns-device-name/remove-one-device-name-by-its-hostname-and-ip"
+    }
+  ],
+  "commands": [
+    "network dns device-name remove"
+  ],
+  "needs": [
+    "unbound"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/unbound-dns-device-name/remove-one-device-name-by-its-hostname-and-ip",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

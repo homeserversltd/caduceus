@@ -1,0 +1,26 @@
+{
+  "namespace": "network/tailscaled/off-the-tailscaled-link",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/tailscaled/off-the-tailscaled-link"
+    }
+  ],
+  "commands": [
+    "network tailscale down"
+  ],
+  "needs": [
+    "tailscale"
+  ],
+  "profiles": [
+    "homeserver"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/tailscaled/off-the-tailscaled-link",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true,
+  "deadline_seconds": 35
+}

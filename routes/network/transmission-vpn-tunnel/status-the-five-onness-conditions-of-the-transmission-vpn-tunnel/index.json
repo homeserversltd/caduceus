@@ -1,0 +1,25 @@
+{
+  "namespace": "network/transmission-vpn-tunnel/status-the-five-onness-conditions-of-the-transmission-vpn-tunnel",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/transmission-vpn-tunnel/status-the-five-onness-conditions-of-the-transmission-vpn-tunnel"
+    }
+  ],
+  "commands": [
+    "transmission status"
+  ],
+  "needs": [
+    "transmission"
+  ],
+  "profiles": [
+    "homeserver"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/transmission-vpn-tunnel/status-the-five-onness-conditions-of-the-transmission-vpn-tunnel",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "mutation_allowed": false,
+  "deadline_seconds": 180
+}

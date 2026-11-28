@@ -1,0 +1,21 @@
+{
+  "namespace": "network/kea-dhcp/status-the-kea-dhcp4-server-unit-and-its-configuration-validity",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/kea-dhcp/status-the-kea-dhcp4-server-unit-and-its-configuration-validity"
+    }
+  ],
+  "commands": [
+    "network dhcp status"
+  ],
+  "needs": [
+    "kea"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/kea-dhcp/status-the-kea-dhcp4-server-unit-and-its-configuration-validity",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "mutation_allowed": false
+}

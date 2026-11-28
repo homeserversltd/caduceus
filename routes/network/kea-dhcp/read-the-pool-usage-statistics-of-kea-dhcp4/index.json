@@ -1,0 +1,21 @@
+{
+  "namespace": "network/kea-dhcp/read-the-pool-usage-statistics-of-kea-dhcp4",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/kea-dhcp/read-the-pool-usage-statistics-of-kea-dhcp4"
+    }
+  ],
+  "commands": [
+    "network dhcp statistics"
+  ],
+  "needs": [
+    "kea"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/kea-dhcp/read-the-pool-usage-statistics-of-kea-dhcp4",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "mutation_allowed": false
+}

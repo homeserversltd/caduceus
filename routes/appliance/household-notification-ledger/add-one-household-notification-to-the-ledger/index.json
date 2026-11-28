@@ -1,0 +1,22 @@
+{
+  "namespace": "appliance/household-notification-ledger/add-one-household-notification-to-the-ledger",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "appliance/household-notification-ledger/add-one-household-notification-to-the-ledger"
+    }
+  ],
+  "commands": [
+    "notify post"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/household-notification-ledger/add-one-household-notification-to-the-ledger",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true
+}

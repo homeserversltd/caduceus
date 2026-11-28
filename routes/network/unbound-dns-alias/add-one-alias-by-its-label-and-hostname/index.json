@@ -1,0 +1,21 @@
+{
+  "namespace": "network/unbound-dns-alias/add-one-alias-by-its-label-and-hostname",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/unbound-dns-alias/add-one-alias-by-its-label-and-hostname"
+    }
+  ],
+  "commands": [
+    "network dns alias create"
+  ],
+  "needs": [
+    "unbound"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/unbound-dns-alias/add-one-alias-by-its-label-and-hostname",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}
