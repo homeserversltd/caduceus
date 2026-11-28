@@ -1,0 +1,13 @@
+{
+  "namespace": "network/kea-dhcp/list-the-dhcp-leases-from-the-kea-lease-file",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["kea"],
+  "commands": ["network dhcp leases"],
+  "serve": [{"rust": "network/kea-dhcp/list-the-dhcp-leases-from-the-kea-lease-file"}],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/kea-dhcp/list-the-dhcp-leases-from-the-kea-lease-file",
+  "body": "optional",
+  "mutation_allowed": false,
+  "status_table": {"not-the-gateway": 404}
+}

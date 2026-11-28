@@ -1,0 +1,14 @@
+{
+  "namespace": "network/kea-dhcp/list-the-dhcp-reservations-from-the-kea-configuration",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["kea"],
+  "commands": ["network dhcp reservations list"],
+  "serve": [{"rust": "network/kea-dhcp/list-the-dhcp-reservations-from-the-kea-configuration"}],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/kea-dhcp/list-the-dhcp-reservations-from-the-kea-configuration",
+  "body": "optional",
+  "mutation_allowed": false,
+  "status_table": {"not-the-gateway": 404},
+  "administrative": true
+}

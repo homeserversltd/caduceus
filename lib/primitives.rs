@@ -1,6 +1,9 @@
 //! Enumerable C2 Rust serve primitive registry.
 // Names are concrete leaf operations, never generic router façades.
 pub static RUST_PRIMITIVES: &[&str] = &[
+    "network/kea-dhcp/list-the-dhcp-doorways-from-the-kea-configuration",
+    "network/kea-dhcp/list-the-dhcp-leases-from-the-kea-lease-file",
+    "network/kea-dhcp/list-the-dhcp-reservations-from-the-kea-configuration",
     "appliance/harmonia-update-engine/list-every-harmonia-update-history-entry",
     "appliance/harmonia-module-profile/list-all-modules-with-enabled-state-and-metadata",
     "appliance/household-config/read-the-household-config-device-path-and-profile",
@@ -68,6 +71,9 @@ pub fn contains(name: &str) -> bool {
 }
 
 enum NativeCommand {
+    KeaDoorways,
+    KeaLeases,
+    KeaReservations,
     UpdateHistory,
     ModulesList,
     ConfigPath,
@@ -89,6 +95,9 @@ enum NativeCommand {
 
 fn command(name: &str) -> Option<NativeCommand> {
     match name {
+        "network/kea-dhcp/list-the-dhcp-doorways-from-the-kea-configuration" => Some(NativeCommand::KeaDoorways),
+        "network/kea-dhcp/list-the-dhcp-leases-from-the-kea-lease-file" => Some(NativeCommand::KeaLeases),
+        "network/kea-dhcp/list-the-dhcp-reservations-from-the-kea-configuration" => Some(NativeCommand::KeaReservations),
         "appliance/harmonia-update-engine/list-every-harmonia-update-history-entry" => Some(NativeCommand::UpdateHistory),
         "appliance/harmonia-module-profile/list-all-modules-with-enabled-state-and-metadata" => Some(NativeCommand::ModulesList),
         "appliance/household-config/read-the-household-config-device-path-and-profile" => Some(NativeCommand::ConfigPath),
@@ -118,8 +127,23 @@ fn native_read_failure(error: &str) -> serde_json::Value {
     serde_json::json!({"ok": false, "firstMissingSignal": crate::gate::missing_signal(error), "outcome": "failed"})
 }
 
+fn kea_read_answer(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
+    if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+        value["outcome"] = serde_json::json!(if crate::routes::network_read::is_not_the_gateway_refusal(&value) {
+            "not-the-gateway"
+        } else {
+            "failed"
+        });
+    }
+    crate::shared::load_trace::enrich_json(&mut value);
+    Ok(value)
+}
+
 pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_json::Value, String> {
     match command(name) {
+        Some(NativeCommand::KeaDoorways) => kea_read_answer(crate::routes::native_kea_read::response(crate::routes::native_kea_read::DOORWAYS_COMMAND)),
+        Some(NativeCommand::KeaLeases) => kea_read_answer(crate::routes::native_kea_read::response(crate::routes::native_kea_read::LEASE_COMMAND)),
+        Some(NativeCommand::KeaReservations) => kea_read_answer(crate::routes::native_kea_read::response(crate::routes::native_kea_read::RESERVATION_COMMAND)),
         Some(NativeCommand::UpdateState) => {
             let mut value = match crate::routes::update_appliance::read_json() {
                 Ok(mut value) => {
