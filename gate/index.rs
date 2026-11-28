@@ -749,6 +749,12 @@ fn administrative_routes_match(method: Option<&str>, path: &str) -> Result<bool,
     }) {
         return Ok(true);
     }
+    // Device notes writes remain attended even when the deployed shelf omits them.
+    if method.is_some_and(|method| {
+        method.eq_ignore_ascii_case("PUT") && path == "/api/v1/network/notes"
+    }) {
+        return Ok(true);
+    }
     if method.is_some_and(|method| {
         method.eq_ignore_ascii_case("GET") && path == "/api/v1/access/pin/mode"
     }) {
