@@ -1,0 +1,13 @@
+{
+  "namespace": "network/transmission-vpn-tunnel/status-the-openvpn-and-transmission-processes-and-the-vpn-unit-enabled-flag",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["all"],
+  "commands": ["vpn status"],
+  "serve": [{"rust": "network/transmission-vpn-tunnel/status-the-openvpn-and-transmission-processes-and-the-vpn-unit-enabled-flag"}],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/transmission-vpn-tunnel/status-the-openvpn-and-transmission-processes-and-the-vpn-unit-enabled-flag",
+  "body": "optional",
+  "mutation_allowed": false,
+  "status_table": {"stopped": 200}
+}

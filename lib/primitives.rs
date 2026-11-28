@@ -1,6 +1,8 @@
 //! Enumerable C2 Rust serve primitive registry.
 // Names are concrete leaf operations, never generic router façades.
 pub static RUST_PRIMITIVES: &[&str] = &[
+    "network/transmission-vpn-tunnel/status-the-openvpn-and-transmission-processes-and-the-vpn-unit-enabled-flag",
+    "network/lan-device-notes/read-the-free-text-notes-of-network-devices-from-the-state-file",
     "network/kea-dhcp/list-the-dhcp-doorways-from-the-kea-configuration",
     "network/kea-dhcp/list-the-dhcp-leases-from-the-kea-lease-file",
     "network/kea-dhcp/list-the-dhcp-reservations-from-the-kea-configuration",
@@ -71,6 +73,8 @@ pub fn contains(name: &str) -> bool {
 }
 
 enum NativeCommand {
+    TransmissionVpnStatus,
+    NetworkNotesRead,
     KeaDoorways,
     KeaLeases,
     KeaReservations,
@@ -95,6 +99,8 @@ enum NativeCommand {
 
 fn command(name: &str) -> Option<NativeCommand> {
     match name {
+        "network/transmission-vpn-tunnel/status-the-openvpn-and-transmission-processes-and-the-vpn-unit-enabled-flag" => Some(NativeCommand::TransmissionVpnStatus),
+        "network/lan-device-notes/read-the-free-text-notes-of-network-devices-from-the-state-file" => Some(NativeCommand::NetworkNotesRead),
         "network/kea-dhcp/list-the-dhcp-doorways-from-the-kea-configuration" => Some(NativeCommand::KeaDoorways),
         "network/kea-dhcp/list-the-dhcp-leases-from-the-kea-lease-file" => Some(NativeCommand::KeaLeases),
         "network/kea-dhcp/list-the-dhcp-reservations-from-the-kea-configuration" => Some(NativeCommand::KeaReservations),
@@ -141,6 +147,27 @@ fn kea_read_answer(mut value: serde_json::Value) -> Result<serde_json::Value, St
 
 pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_json::Value, String> {
     match command(name) {
+        Some(NativeCommand::TransmissionVpnStatus) => {
+            let mut value = match crate::routes::leaf_network_vpn::status_json() {
+                Ok(mut value) => {
+                    if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                        value["outcome"] = serde_json::json!("stopped");
+                    }
+                    value
+                }
+                Err(error) => native_read_failure(&error),
+            };
+            crate::shared::load_trace::enrich_json(&mut value);
+            Ok(value)
+        }
+        Some(NativeCommand::NetworkNotesRead) => {
+            let mut value = match crate::routes::leaf_network_device_annotate::read_json() {
+                Ok(value) => value,
+                Err(error) => native_read_failure(&error),
+            };
+            crate::shared::load_trace::enrich_json(&mut value);
+            Ok(value)
+        }
         Some(NativeCommand::KeaDoorways) => kea_read_answer(crate::routes::native_kea_read::response(crate::routes::native_kea_read::DOORWAYS_COMMAND)),
         Some(NativeCommand::KeaLeases) => kea_read_answer(crate::routes::native_kea_read::response(crate::routes::native_kea_read::LEASE_COMMAND)),
         Some(NativeCommand::KeaReservations) => kea_read_answer(crate::routes::native_kea_read::response(crate::routes::native_kea_read::RESERVATION_COMMAND)),

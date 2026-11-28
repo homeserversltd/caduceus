@@ -1,0 +1,13 @@
+{
+  "namespace": "network/lan-device-notes/read-the-free-text-notes-of-network-devices-from-the-state-file",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["all"],
+  "commands": ["network notes"],
+  "serve": [{"rust": "network/lan-device-notes/read-the-free-text-notes-of-network-devices-from-the-state-file"}],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/lan-device-notes/read-the-free-text-notes-of-network-devices-from-the-state-file",
+  "body": "optional",
+  "mutation_allowed": false,
+  "administrative": true
+}
