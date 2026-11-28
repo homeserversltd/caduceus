@@ -3,7 +3,7 @@ use serde_json::Value;
 #[path = "../support.rs"]
 mod support;
 const DECLARATION: &str = include_str!("index.json");
-async fn route(
+pub(crate) async fn route(
 ) -> Result<(axum::http::StatusCode, Json<Value>), (axum::http::StatusCode, Json<Value>)> {
     support::execute(
         "network device wifi status",

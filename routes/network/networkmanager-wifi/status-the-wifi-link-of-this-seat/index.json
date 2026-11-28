@@ -1,0 +1,13 @@
+{
+  "namespace": "network/networkmanager-wifi/status-the-wifi-link-of-this-seat",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["nmcli"],
+  "commands": ["network device wifi status"],
+  "serve": [{"rust": "network/networkmanager-wifi/status-the-wifi-link-of-this-seat"}],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/networkmanager-wifi/status-the-wifi-link-of-this-seat",
+  "body": "optional",
+  "status_table": {"refused": 403, "failed": 503},
+  "mutation_allowed": false
+}

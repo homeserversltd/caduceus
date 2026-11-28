@@ -1,0 +1,13 @@
+{
+  "namespace": "network/networkmanager-wifi/list-the-saved-wifi-connections-by-name-uuid-and-type",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["nmcli"],
+  "commands": ["network device wifi saved"],
+  "serve": [{"rust": "network/networkmanager-wifi/list-the-saved-wifi-connections-by-name-uuid-and-type"}],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/networkmanager-wifi/list-the-saved-wifi-connections-by-name-uuid-and-type",
+  "body": "optional",
+  "status_table": {"refused": 403, "failed": 503},
+  "mutation_allowed": false
+}

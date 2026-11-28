@@ -1,6 +1,9 @@
 //! Enumerable C2 Rust serve primitive registry.
 // Names are concrete leaf operations, never generic router façades.
 pub static RUST_PRIMITIVES: &[&str] = &[
+    "network/networkmanager-wifi/list-the-saved-wifi-connections-by-name-uuid-and-type",
+    "network/networkmanager-wifi/list-the-visible-wifi-networks-from-a-radio-scan",
+    "network/networkmanager-wifi/status-the-wifi-link-of-this-seat",
     "network/transmission-vpn-tunnel/status-the-openvpn-and-transmission-processes-and-the-vpn-unit-enabled-flag",
     "network/lan-device-notes/read-the-free-text-notes-of-network-devices-from-the-state-file",
     "network/kea-dhcp/list-the-dhcp-doorways-from-the-kea-configuration",
@@ -73,6 +76,12 @@ pub fn contains(name: &str) -> bool {
 }
 
 enum NativeCommand {
+    #[cfg(leaf_network_device_wifi_saved)]
+    WifiSaved,
+    #[cfg(leaf_network_device_wifi_scan)]
+    WifiScan,
+    #[cfg(leaf_network_device_wifi_status)]
+    WifiStatus,
     TransmissionVpnStatus,
     NetworkNotesRead,
     KeaDoorways,
@@ -99,6 +108,12 @@ enum NativeCommand {
 
 fn command(name: &str) -> Option<NativeCommand> {
     match name {
+        #[cfg(leaf_network_device_wifi_saved)]
+        "network/networkmanager-wifi/list-the-saved-wifi-connections-by-name-uuid-and-type" => Some(NativeCommand::WifiSaved),
+        #[cfg(leaf_network_device_wifi_scan)]
+        "network/networkmanager-wifi/list-the-visible-wifi-networks-from-a-radio-scan" => Some(NativeCommand::WifiScan),
+        #[cfg(leaf_network_device_wifi_status)]
+        "network/networkmanager-wifi/status-the-wifi-link-of-this-seat" => Some(NativeCommand::WifiStatus),
         "network/transmission-vpn-tunnel/status-the-openvpn-and-transmission-processes-and-the-vpn-unit-enabled-flag" => Some(NativeCommand::TransmissionVpnStatus),
         "network/lan-device-notes/read-the-free-text-notes-of-network-devices-from-the-state-file" => Some(NativeCommand::NetworkNotesRead),
         "network/kea-dhcp/list-the-dhcp-doorways-from-the-kea-configuration" => Some(NativeCommand::KeaDoorways),
@@ -147,6 +162,30 @@ fn kea_read_answer(mut value: serde_json::Value) -> Result<serde_json::Value, St
 
 pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_json::Value, String> {
     match command(name) {
+        #[cfg(leaf_network_device_wifi_saved)]
+        Some(NativeCommand::WifiSaved) => {
+            let (status, axum::Json(mut value)) = match crate::routes::leaf_network_device_wifi_saved::route().await { Ok(answer) | Err(answer) => answer };
+            if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                value["outcome"] = serde_json::json!(if status == axum::http::StatusCode::FORBIDDEN { "refused" } else { "failed" });
+            }
+            Ok(value)
+        }
+        #[cfg(leaf_network_device_wifi_scan)]
+        Some(NativeCommand::WifiScan) => {
+            let (status, axum::Json(mut value)) = match crate::routes::leaf_network_device_wifi_scan::route().await { Ok(answer) | Err(answer) => answer };
+            if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                value["outcome"] = serde_json::json!(if status == axum::http::StatusCode::FORBIDDEN { "refused" } else { "failed" });
+            }
+            Ok(value)
+        }
+        #[cfg(leaf_network_device_wifi_status)]
+        Some(NativeCommand::WifiStatus) => {
+            let (status, axum::Json(mut value)) = match crate::routes::leaf_network_device_wifi_status::route().await { Ok(answer) | Err(answer) => answer };
+            if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                value["outcome"] = serde_json::json!(if status == axum::http::StatusCode::FORBIDDEN { "refused" } else { "failed" });
+            }
+            Ok(value)
+        }
         Some(NativeCommand::TransmissionVpnStatus) => {
             let mut value = match crate::routes::leaf_network_vpn::status_json() {
                 Ok(mut value) => {

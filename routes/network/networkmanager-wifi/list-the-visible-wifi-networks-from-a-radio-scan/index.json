@@ -1,0 +1,12 @@
+{
+  "namespace": "network/networkmanager-wifi/list-the-visible-wifi-networks-from-a-radio-scan",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["nmcli"],
+  "commands": ["network device wifi scan"],
+  "serve": [{"rust": "network/networkmanager-wifi/list-the-visible-wifi-networks-from-a-radio-scan"}],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/networkmanager-wifi/list-the-visible-wifi-networks-from-a-radio-scan",
+  "body": "optional",
+  "status_table": {"refused": 403, "failed": 503}
+}
