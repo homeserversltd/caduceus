@@ -1,0 +1,24 @@
+{
+  "namespace": "network/kea-dhcp/set-the-ip-of-one-reservation-by-its-identifier",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/kea-dhcp/set-the-ip-of-one-reservation-by-its-identifier"
+    }
+  ],
+  "commands": [
+    "network dhcp update-reservation-ip"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/kea-dhcp/set-the-ip-of-one-reservation-by-its-identifier",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

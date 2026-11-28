@@ -1,0 +1,25 @@
+{
+  "namespace": "network/house-ca/hold-the-house-ca-constituent-lock-for-one-portal-by-its-name-and-lan-ip",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/house-ca/hold-the-house-ca-constituent-lock-for-one-portal-by-its-name-and-lan-ip"
+    }
+  ],
+  "commands": [
+    "network cert house-ca constituent-lock"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/house-ca/hold-the-house-ca-constituent-lock-for-one-portal-by-its-name-and-lan-ip",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

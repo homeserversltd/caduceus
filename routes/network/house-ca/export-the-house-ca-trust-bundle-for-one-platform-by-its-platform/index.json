@@ -1,0 +1,25 @@
+{
+  "namespace": "network/house-ca/export-the-house-ca-trust-bundle-for-one-platform-by-its-platform",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/house-ca/export-the-house-ca-trust-bundle-for-one-platform-by-its-platform"
+    }
+  ],
+  "commands": [
+    "network cert house-ca bundle-export"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/house-ca/export-the-house-ca-trust-bundle-for-one-platform-by-its-platform",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

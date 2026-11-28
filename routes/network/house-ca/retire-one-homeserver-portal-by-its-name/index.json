@@ -1,0 +1,24 @@
+{
+  "namespace": "network/house-ca/retire-one-homeserver-portal-by-its-name",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/house-ca/retire-one-homeserver-portal-by-its-name"
+    }
+  ],
+  "commands": [
+    "network cert house-ca portal-retire"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/house-ca/retire-one-homeserver-portal-by-its-name",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

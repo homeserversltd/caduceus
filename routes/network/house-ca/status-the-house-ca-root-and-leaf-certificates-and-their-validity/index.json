@@ -1,0 +1,20 @@
+{
+  "namespace": "network/house-ca/status-the-house-ca-root-and-leaf-certificates-and-their-validity",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/house-ca/status-the-house-ca-root-and-leaf-certificates-and-their-validity"
+    }
+  ],
+  "commands": [
+    "network cert house-ca status"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/house-ca/status-the-house-ca-root-and-leaf-certificates-and-their-validity",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

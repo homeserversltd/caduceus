@@ -1,0 +1,21 @@
+{
+  "namespace": "network/house-ca/install-the-house-ca-trust-bundle-into-this-seats-trust-store-by-its-platform",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/house-ca/install-the-house-ca-trust-bundle-into-this-seats-trust-store-by-its-platform"
+    }
+  ],
+  "commands": [
+    "network cert house-ca trust-install"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/house-ca/install-the-house-ca-trust-bundle-into-this-seats-trust-store-by-its-platform",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

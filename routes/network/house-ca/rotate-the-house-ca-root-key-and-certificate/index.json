@@ -1,0 +1,24 @@
+{
+  "namespace": "network/house-ca/rotate-the-house-ca-root-key-and-certificate",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/house-ca/rotate-the-house-ca-root-key-and-certificate"
+    }
+  ],
+  "commands": [
+    "network cert house-ca rotate-ca"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/house-ca/rotate-the-house-ca-root-key-and-certificate",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

@@ -1,0 +1,24 @@
+{
+  "namespace": "network/kea-dhcp/add-one-reservation-by-its-mac-with-its-ip-and-hostname",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/kea-dhcp/add-one-reservation-by-its-mac-with-its-ip-and-hostname"
+    }
+  ],
+  "commands": [
+    "network dhcp add-reservation"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/kea-dhcp/add-one-reservation-by-its-mac-with-its-ip-and-hostname",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

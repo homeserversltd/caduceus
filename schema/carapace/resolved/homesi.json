@@ -96,6 +96,8 @@
     "network/device/wifi/saved",
     "network/device/wifi/scan",
     "network/device/wifi/status",
+    "network/house-ca/install-the-house-ca-trust-bundle-into-this-seats-trust-store-by-its-platform",
+    "network/house-ca/status-the-house-ca-root-and-leaf-certificates-and-their-validity",
     "network/networkmanager-device/connect-one-network-device-by-its-interface-name",
     "network/networkmanager-device/disconnect-one-network-device-by-its-interface-name",
     "network/networkmanager-device/set-the-ipv4-method-of-one-network-device-by-its-interface-name",

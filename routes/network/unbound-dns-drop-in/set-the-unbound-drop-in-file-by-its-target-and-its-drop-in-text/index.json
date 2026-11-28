@@ -1,0 +1,24 @@
+{
+  "namespace": "network/unbound-dns-drop-in/set-the-unbound-drop-in-file-by-its-target-and-its-drop-in-text",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/unbound-dns-drop-in/set-the-unbound-drop-in-file-by-its-target-and-its-drop-in-text"
+    }
+  ],
+  "commands": [
+    "network dns drop-in apply"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/unbound-dns-drop-in/set-the-unbound-drop-in-file-by-its-target-and-its-drop-in-text",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

@@ -1,0 +1,25 @@
+{
+  "namespace": "network/house-ca/converge-the-house-ca-root-to-present-and-valid",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/house-ca/converge-the-house-ca-root-to-present-and-valid"
+    }
+  ],
+  "commands": [
+    "network cert house-ca ensure-root"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/house-ca/converge-the-house-ca-root-to-present-and-valid",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

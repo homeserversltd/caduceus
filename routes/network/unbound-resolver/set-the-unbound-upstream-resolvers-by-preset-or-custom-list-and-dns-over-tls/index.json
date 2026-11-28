@@ -1,0 +1,24 @@
+{
+  "namespace": "network/unbound-resolver/set-the-unbound-upstream-resolvers-by-preset-or-custom-list-and-dns-over-tls",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/unbound-resolver/set-the-unbound-upstream-resolvers-by-preset-or-custom-list-and-dns-over-tls"
+    }
+  ],
+  "commands": [
+    "network dns resolver upstream"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/unbound-resolver/set-the-unbound-upstream-resolvers-by-preset-or-custom-list-and-dns-over-tls",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

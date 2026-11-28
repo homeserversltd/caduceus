@@ -1,0 +1,24 @@
+{
+  "namespace": "network/house-ca/sign-one-certificate-signing-request-by-its-pem",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/house-ca/sign-one-certificate-signing-request-by-its-pem"
+    }
+  ],
+  "commands": [
+    "network cert house-ca sign-csr"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/house-ca/sign-one-certificate-signing-request-by-its-pem",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

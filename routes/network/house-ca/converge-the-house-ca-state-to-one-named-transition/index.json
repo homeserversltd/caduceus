@@ -1,0 +1,24 @@
+{
+  "namespace": "network/house-ca/converge-the-house-ca-state-to-one-named-transition",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/house-ca/converge-the-house-ca-state-to-one-named-transition"
+    }
+  ],
+  "commands": [
+    "network cert house-ca state-commit"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/house-ca/converge-the-house-ca-state-to-one-named-transition",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

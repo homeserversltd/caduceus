@@ -1,0 +1,25 @@
+{
+  "namespace": "network/house-ca/issue-one-leaf-certificate-for-named-subject-alternative-names",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/house-ca/issue-one-leaf-certificate-for-named-subject-alternative-names"
+    }
+  ],
+  "commands": [
+    "network cert house-ca issue-leaf"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/house-ca/issue-one-leaf-certificate-for-named-subject-alternative-names",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

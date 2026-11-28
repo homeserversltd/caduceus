@@ -1,0 +1,25 @@
+{
+  "namespace": "network/house-ca/admit-one-homeserver-portal-by-its-name-and-address",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/house-ca/admit-one-homeserver-portal-by-its-name-and-address"
+    }
+  ],
+  "commands": [
+    "network cert house-ca portal-admit"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/house-ca/admit-one-homeserver-portal-by-its-name-and-address",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}

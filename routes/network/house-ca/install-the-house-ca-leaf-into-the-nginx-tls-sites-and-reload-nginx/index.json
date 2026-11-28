@@ -1,0 +1,25 @@
+{
+  "namespace": "network/house-ca/install-the-house-ca-leaf-into-the-nginx-tls-sites-and-reload-nginx",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/house-ca/install-the-house-ca-leaf-into-the-nginx-tls-sites-and-reload-nginx"
+    }
+  ],
+  "commands": [
+    "network cert house-ca apply-nginx"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/house-ca/install-the-house-ca-leaf-into-the-nginx-tls-sites-and-reload-nginx",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true
+}
