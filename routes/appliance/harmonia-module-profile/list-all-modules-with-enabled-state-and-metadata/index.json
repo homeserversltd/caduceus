@@ -1,0 +1,14 @@
+{
+  "namespace": "appliance/harmonia-module-profile/list-all-modules-with-enabled-state-and-metadata",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["all"],
+  "commands": ["update modules list"],
+  "serve": [{"rust": "appliance/harmonia-module-profile/list-all-modules-with-enabled-state-and-metadata"}],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/harmonia-module-profile/list-all-modules-with-enabled-state-and-metadata",
+  "body": "optional",
+  "mutation_allowed": false,
+  "status_table": {"refused": 403},
+  "deadline_seconds": 60
+}

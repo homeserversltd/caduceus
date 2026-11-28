@@ -1,0 +1,13 @@
+{
+  "namespace": "appliance/harmonia-update-engine/list-every-harmonia-update-history-entry",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["all"],
+  "commands": ["update history"],
+  "serve": [{"rust": "appliance/harmonia-update-engine/list-every-harmonia-update-history-entry"}],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/harmonia-update-engine/list-every-harmonia-update-history-entry",
+  "body": "optional",
+  "mutation_allowed": false,
+  "status_table": {"log-unreadable": 200}
+}

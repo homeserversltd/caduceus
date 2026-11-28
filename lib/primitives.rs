@@ -1,6 +1,8 @@
 //! Enumerable C2 Rust serve primitive registry.
 // Names are concrete leaf operations, never generic router façades.
 pub static RUST_PRIMITIVES: &[&str] = &[
+    "appliance/harmonia-update-engine/list-every-harmonia-update-history-entry",
+    "appliance/harmonia-module-profile/list-all-modules-with-enabled-state-and-metadata",
     "appliance/household-config/read-the-household-config-device-path-and-profile",
     "appliance/household-config/read-the-whole-public-household-config",
     "appliance/household-config/read-one-public-household-config-value-by-its-path",
@@ -66,6 +68,8 @@ pub fn contains(name: &str) -> bool {
 }
 
 enum NativeCommand {
+    UpdateHistory,
+    ModulesList,
     ConfigPath,
     ConfigShow,
     ConfigGet,
@@ -85,6 +89,8 @@ enum NativeCommand {
 
 fn command(name: &str) -> Option<NativeCommand> {
     match name {
+        "appliance/harmonia-update-engine/list-every-harmonia-update-history-entry" => Some(NativeCommand::UpdateHistory),
+        "appliance/harmonia-module-profile/list-all-modules-with-enabled-state-and-metadata" => Some(NativeCommand::ModulesList),
         "appliance/household-config/read-the-household-config-device-path-and-profile" => Some(NativeCommand::ConfigPath),
         "appliance/household-config/read-the-whole-public-household-config" => Some(NativeCommand::ConfigShow),
         "appliance/household-config/read-one-public-household-config-value-by-its-path" => Some(NativeCommand::ConfigGet),
@@ -155,6 +161,21 @@ pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_j
             crate::shared::load_trace::enrich_json(&mut value);
             Ok(value)
         }
+        Some(NativeCommand::UpdateHistory) => {
+            let mut value = crate::routes::leaf_update_history::history_json();
+            if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                value["outcome"] = serde_json::json!("log-unreadable");
+            }
+            Ok(value)
+        }
+        Some(NativeCommand::ModulesList) => match crate::routes::leaf_update_modules::modules_json() {
+            Ok(value) => Ok(value),
+            Err(signal) => {
+                let mut value = serde_json::json!({"ok": false, "firstMissingSignal": signal, "outcome": "refused"});
+                crate::shared::load_trace::enrich_json(&mut value);
+                Ok(value)
+            }
+        },
         Some(NativeCommand::ConfigPath | NativeCommand::ConfigShow | NativeCommand::ConfigGet) => {
             let result = match command(name) {
                 Some(NativeCommand::ConfigPath) => crate::shared::config::path_json(),

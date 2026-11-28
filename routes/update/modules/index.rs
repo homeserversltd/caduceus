@@ -18,7 +18,7 @@ fn valid_module_id(id: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-fn modules_json() -> Result<Value, String> {
+pub(crate) fn modules_json() -> Result<Value, String> {
     let profile_path = config::path(&config::harmonia_profile_index_path()?);
     let text = fs::read_to_string(&profile_path)
         .map_err(|_| "caduceus-harmonia-profile-unreadable".to_string())?;

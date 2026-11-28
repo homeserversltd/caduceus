@@ -28,7 +28,7 @@ fn project_run(row: &Value) -> Value {
     })
 }
 
-fn history_json() -> Value {
+pub(crate) fn history_json() -> Value {
     let level = hyalos::body_level().ok();
     match hyalos::read_harmonia_runs() {
         Ok(rows) => {
