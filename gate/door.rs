@@ -475,7 +475,8 @@ fn status_from_declaration(declaration: &Value, receipt: &Value) -> Option<Statu
         .or_else(|| declaration.get("status"))?
         .as_object()?;
     let ok = receipt.get("ok").and_then(Value::as_bool) == Some(true);
-    let outcome = receipt.get("outcome").and_then(Value::as_str);
+    let status_field = declaration.get("status_field").and_then(Value::as_str).unwrap_or("outcome");
+    let outcome = receipt.get(status_field).and_then(Value::as_str);
     let aliases: &[&str] = if ok { &["success", "ok", "true", "2xx"] } else { &["failure", "failed", "refused", "error", "false", "5xx"] };
     let mapped = outcome.and_then(|outcome| table.get(outcome))
         .or_else(|| aliases.iter().find_map(|key| table.get(*key)))?;

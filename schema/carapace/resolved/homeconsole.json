@@ -20,6 +20,7 @@
     "appliance/harmonia-pending-interactables/run-one-pending-harmonia-interactable-by-its-id",
     "appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-off-by-its-id",
     "appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-on-by-its-id",
+    "appliance/harmonia-update-engine/converge-this-appliance-to-the-latest-harmonia-sources-now",
     "appliance/harmonia-update-engine/list-every-harmonia-update-history-entry",
     "appliance/harmonia-update-engine/read-the-harmonia-update-profile-state-and-route-presence",
     "appliance/harmonia-update-engine/verify-whether-a-harmonia-update-is-available-and-record-the-check",

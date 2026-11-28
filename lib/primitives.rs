@@ -16,6 +16,7 @@ pub static RUST_PRIMITIVES: &[&str] = &[
     "network/kea-dhcp/list-the-dhcp-leases-from-the-kea-lease-file",
     "network/kea-dhcp/list-the-dhcp-reservations-from-the-kea-configuration",
     "appliance/harmonia-update-engine/verify-whether-a-harmonia-update-is-available-and-record-the-check",
+    "appliance/harmonia-update-engine/converge-this-appliance-to-the-latest-harmonia-sources-now",
     "appliance/harmonia-pending-interactables/list-every-pending-harmonia-interactable",
     "appliance/harmonia-pending-interactables/run-one-pending-harmonia-interactable-by-its-id",
     "appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-on-by-its-id",
@@ -105,6 +106,7 @@ enum NativeCommand {
     KeaLeases,
     KeaReservations,
     UpdateCheck,
+    UpdateNow,
     InteractableList,
     InteractableRun,
     InteractableSilence,
@@ -148,6 +150,7 @@ fn command(name: &str) -> Option<NativeCommand> {
         "network/kea-dhcp/list-the-dhcp-leases-from-the-kea-lease-file" => Some(NativeCommand::KeaLeases),
         "network/kea-dhcp/list-the-dhcp-reservations-from-the-kea-configuration" => Some(NativeCommand::KeaReservations),
         "appliance/harmonia-update-engine/verify-whether-a-harmonia-update-is-available-and-record-the-check" => Some(NativeCommand::UpdateCheck),
+        "appliance/harmonia-update-engine/converge-this-appliance-to-the-latest-harmonia-sources-now" => Some(NativeCommand::UpdateNow),
         "appliance/harmonia-pending-interactables/list-every-pending-harmonia-interactable" => Some(NativeCommand::InteractableList),
         "appliance/harmonia-pending-interactables/run-one-pending-harmonia-interactable-by-its-id" => Some(NativeCommand::InteractableRun),
         "appliance/harmonia-pending-interactables/set-one-harmonia-interactable-silenced-on-by-its-id" => Some(NativeCommand::InteractableSilence),
@@ -302,6 +305,7 @@ pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_j
         Some(NativeCommand::KeaDoorways) => kea_read_answer(crate::routes::native_kea_read::response(crate::routes::native_kea_read::DOORWAYS_COMMAND)),
         Some(NativeCommand::KeaLeases) => kea_read_answer(crate::routes::native_kea_read::response(crate::routes::native_kea_read::LEASE_COMMAND)),
         Some(NativeCommand::KeaReservations) => kea_read_answer(crate::routes::native_kea_read::response(crate::routes::native_kea_read::RESERVATION_COMMAND)),
+        Some(NativeCommand::UpdateNow) => Ok(crate::routes::update_appliance::invoke_now_json(&[])),
         Some(NativeCommand::UpdateCheck) => {
             let mut value = crate::stats::run_update_check();
             if let Some(object) = value.as_object_mut() {

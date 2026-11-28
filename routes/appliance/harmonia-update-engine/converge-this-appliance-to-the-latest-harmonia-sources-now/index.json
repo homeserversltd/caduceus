@@ -1,0 +1,14 @@
+{
+  "namespace": "appliance/harmonia-update-engine/converge-this-appliance-to-the-latest-harmonia-sources-now",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["all"],
+  "commands": ["update now"],
+  "serve": [{"rust": "appliance/harmonia-update-engine/converge-this-appliance-to-the-latest-harmonia-sources-now"}],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/harmonia-update-engine/converge-this-appliance-to-the-latest-harmonia-sources-now",
+  "body": "optional",
+  "mutation_allowed": true,
+  "status_field": "state",
+  "status_table": {"started": 202, "busy": 409, "failed": 503, "ok": 202}
+}
