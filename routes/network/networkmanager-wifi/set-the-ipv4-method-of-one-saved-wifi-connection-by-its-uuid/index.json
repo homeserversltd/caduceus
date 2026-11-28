@@ -1,0 +1,23 @@
+{
+  "namespace": "network/networkmanager-wifi/set-the-ipv4-method-of-one-saved-wifi-connection-by-its-uuid",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/networkmanager-wifi/set-the-ipv4-method-of-one-saved-wifi-connection-by-its-uuid"
+    }
+  ],
+  "commands": [
+    "network wifi connection ipv4 set"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/networkmanager-wifi/set-the-ipv4-method-of-one-saved-wifi-connection-by-its-uuid",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

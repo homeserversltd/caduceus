@@ -1,0 +1,24 @@
+{
+  "namespace": "network/nftables-child-filter/remove-one-filtered-child-device-by-its-mac",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/nftables-child-filter/remove-one-filtered-child-device-by-its-mac"
+    }
+  ],
+  "commands": [
+    "network firewall unregister"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/nftables-child-filter/remove-one-filtered-child-device-by-its-mac",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

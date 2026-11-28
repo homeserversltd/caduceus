@@ -1,0 +1,24 @@
+{
+  "namespace": "network/nftables-child-filter/list-the-devices-observed-on-the-lan-with-their-child-filter-policy",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/nftables-child-filter/list-the-devices-observed-on-the-lan-with-their-child-filter-policy"
+    }
+  ],
+  "commands": [
+    "network firewall observed"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/nftables-child-filter/list-the-devices-observed-on-the-lan-with-their-child-filter-policy",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

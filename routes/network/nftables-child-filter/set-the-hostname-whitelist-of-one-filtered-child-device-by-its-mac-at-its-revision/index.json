@@ -1,0 +1,24 @@
+{
+  "namespace": "network/nftables-child-filter/set-the-hostname-whitelist-of-one-filtered-child-device-by-its-mac-at-its-revision",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/nftables-child-filter/set-the-hostname-whitelist-of-one-filtered-child-device-by-its-mac-at-its-revision"
+    }
+  ],
+  "commands": [
+    "network firewall whitelist set"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/nftables-child-filter/set-the-hostname-whitelist-of-one-filtered-child-device-by-its-mac-at-its-revision",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

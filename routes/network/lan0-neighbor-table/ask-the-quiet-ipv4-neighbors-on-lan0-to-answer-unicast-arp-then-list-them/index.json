@@ -1,0 +1,24 @@
+{
+  "namespace": "network/lan0-neighbor-table/ask-the-quiet-ipv4-neighbors-on-lan0-to-answer-unicast-arp-then-list-them",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/lan0-neighbor-table/ask-the-quiet-ipv4-neighbors-on-lan0-to-answer-unicast-arp-then-list-them"
+    }
+  ],
+  "commands": [
+    "network neighbor probe"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/lan0-neighbor-table/ask-the-quiet-ipv4-neighbors-on-lan0-to-answer-unicast-arp-then-list-them",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

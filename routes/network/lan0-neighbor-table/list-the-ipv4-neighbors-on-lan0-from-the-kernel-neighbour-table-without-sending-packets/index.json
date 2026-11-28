@@ -1,0 +1,24 @@
+{
+  "namespace": "network/lan0-neighbor-table/list-the-ipv4-neighbors-on-lan0-from-the-kernel-neighbour-table-without-sending-packets",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/lan0-neighbor-table/list-the-ipv4-neighbors-on-lan0-from-the-kernel-neighbour-table-without-sending-packets"
+    }
+  ],
+  "commands": [
+    "network neighbor read"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/lan0-neighbor-table/list-the-ipv4-neighbors-on-lan0-from-the-kernel-neighbour-table-without-sending-packets",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

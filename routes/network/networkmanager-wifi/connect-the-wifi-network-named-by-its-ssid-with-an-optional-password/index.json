@@ -1,0 +1,23 @@
+{
+  "namespace": "network/networkmanager-wifi/connect-the-wifi-network-named-by-its-ssid-with-an-optional-password",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/networkmanager-wifi/connect-the-wifi-network-named-by-its-ssid-with-an-optional-password"
+    }
+  ],
+  "commands": [
+    "network wifi network connect"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/networkmanager-wifi/connect-the-wifi-network-named-by-its-ssid-with-an-optional-password",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

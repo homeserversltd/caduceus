@@ -1,0 +1,20 @@
+{
+  "namespace": "network/wake-on-lan/send-a-wake-on-lan-magic-packet-to-one-lan-device-by-its-mac-and-broadcast",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/wake-on-lan/send-a-wake-on-lan-magic-packet-to-one-lan-device-by-its-mac-and-broadcast"
+    }
+  ],
+  "commands": [
+    "network wake-on-lan send"
+  ],
+  "needs": [
+    "all"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/wake-on-lan/send-a-wake-on-lan-magic-packet-to-one-lan-device-by-its-mac-and-broadcast",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

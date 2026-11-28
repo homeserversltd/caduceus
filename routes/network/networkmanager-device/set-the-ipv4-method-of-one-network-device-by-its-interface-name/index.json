@@ -1,0 +1,23 @@
+{
+  "namespace": "network/networkmanager-device/set-the-ipv4-method-of-one-network-device-by-its-interface-name",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/networkmanager-device/set-the-ipv4-method-of-one-network-device-by-its-interface-name"
+    }
+  ],
+  "commands": [
+    "network wifi device ipv4 set"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/networkmanager-device/set-the-ipv4-method-of-one-network-device-by-its-interface-name",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

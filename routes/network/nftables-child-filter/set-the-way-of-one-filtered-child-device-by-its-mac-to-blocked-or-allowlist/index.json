@@ -1,0 +1,14 @@
+{
+  "namespace": "network/nftables-child-filter/set-the-way-of-one-filtered-child-device-by-its-mac-to-blocked-or-allowlist",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "network/nftables-child-filter/set-the-way-of-one-filtered-child-device-by-its-mac-to-blocked-or-allowlist"}],
+  "commands": ["caduceus.network.firewall.put"],
+  "needs": ["firewall"],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/nftables-child-filter/set-the-way-of-one-filtered-child-device-by-its-mac-to-blocked-or-allowlist",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true
+}

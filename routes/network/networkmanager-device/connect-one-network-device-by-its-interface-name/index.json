@@ -1,0 +1,23 @@
+{
+  "namespace": "network/networkmanager-device/connect-one-network-device-by-its-interface-name",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/networkmanager-device/connect-one-network-device-by-its-interface-name"
+    }
+  ],
+  "commands": [
+    "network wifi device connect"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homesi"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/networkmanager-device/connect-one-network-device-by-its-interface-name",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1"
+}

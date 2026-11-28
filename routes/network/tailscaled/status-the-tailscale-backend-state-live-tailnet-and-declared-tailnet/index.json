@@ -1,0 +1,24 @@
+{
+  "namespace": "network/tailscaled/status-the-tailscale-backend-state-live-tailnet-and-declared-tailnet",
+  "admittance": "open",
+  "flags": {},
+  "serve": [
+    {
+      "snake": "network/tailscaled/status-the-tailscale-backend-state-live-tailnet-and-declared-tailnet"
+    }
+  ],
+  "commands": [
+    "network tailscale status"
+  ],
+  "needs": [
+    "all"
+  ],
+  "profiles": [
+    "homeserver",
+    "specula"
+  ],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/tailscaled/status-the-tailscale-backend-state-live-tailnet-and-declared-tailnet",
+  "body": "optional",
+  "receipt": "caduceus.staff.receipt.v1"
+}

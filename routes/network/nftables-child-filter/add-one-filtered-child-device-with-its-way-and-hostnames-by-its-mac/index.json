@@ -1,0 +1,14 @@
+{
+  "namespace": "network/nftables-child-filter/add-one-filtered-child-device-with-its-way-and-hostnames-by-its-mac",
+  "admittance": "open",
+  "flags": {},
+  "serve": [{"snake": "network/nftables-child-filter/add-one-filtered-child-device-with-its-way-and-hostnames-by-its-mac"}],
+  "commands": ["caduceus.network.firewall.put"],
+  "needs": ["firewall"],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/nftables-child-filter/add-one-filtered-child-device-with-its-way-and-hostnames-by-its-mac",
+  "body": "required",
+  "receipt": "caduceus.staff.receipt.v1",
+  "administrative": true,
+  "mutation_allowed": true
+}
