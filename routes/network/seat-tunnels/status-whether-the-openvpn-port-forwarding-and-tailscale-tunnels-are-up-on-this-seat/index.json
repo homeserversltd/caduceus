@@ -1,0 +1,13 @@
+{
+  "namespace": "network/seat-tunnels/status-whether-the-openvpn-port-forwarding-and-tailscale-tunnels-are-up-on-this-seat",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["all"],
+  "commands": ["network status"],
+  "serve": [{"rust": "network/seat-tunnels/status-whether-the-openvpn-port-forwarding-and-tailscale-tunnels-are-up-on-this-seat"}],
+  "http_method": "POST",
+  "http_path": "/api/v1/network/seat-tunnels/status-whether-the-openvpn-port-forwarding-and-tailscale-tunnels-are-up-on-this-seat",
+  "body": "optional",
+  "mutation_allowed": false,
+  "status_table": {"tunnel-down": 200}
+}

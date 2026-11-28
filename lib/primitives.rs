@@ -6,6 +6,9 @@ pub static RUST_PRIMITIVES: &[&str] = &[
     "appliance/household-config/read-one-public-household-config-value-by-its-path",
     "appliance/exousia-attendance/read-exousia-posture-bound-or-unbound",
     "appliance/appliance-stats-sampler/list-the-appliance-stats-history-samples-by-tier-and-time-window",
+    "appliance/harmonia-update-engine/read-the-harmonia-update-profile-state-and-route-presence",
+    "appliance/appliance-stats-sampler/read-the-latest-appliance-stats-sample-with-model-lanes-and-last-update-check",
+    "network/seat-tunnels/status-whether-the-openvpn-port-forwarding-and-tailscale-tunnels-are-up-on-this-seat",
     "appliance/caduceus-pid2-routines/hold-one-routine-by-its-routine-id",
     "appliance/caduceus-pid2-routines/status-one-routine-by-its-routine-id",
     "appliance/caduceus-doors/read-the-door-route-list-of-the-active-profile",
@@ -71,6 +74,9 @@ enum NativeCommand {
     FaceMeter,
     DoorsList,
     StatsHistory,
+    UpdateState,
+    StatsLatest,
+    SeatTunnels,
     #[cfg(leaf_pid2)]
     RoutineStatus,
     #[cfg(leaf_pid2)]
@@ -87,6 +93,9 @@ fn command(name: &str) -> Option<NativeCommand> {
         "face_meter_read" => Some(NativeCommand::FaceMeter),
         "appliance/caduceus-doors/read-the-door-route-list-of-the-active-profile" => Some(NativeCommand::DoorsList),
         "appliance/appliance-stats-sampler/list-the-appliance-stats-history-samples-by-tier-and-time-window" => Some(NativeCommand::StatsHistory),
+        "appliance/harmonia-update-engine/read-the-harmonia-update-profile-state-and-route-presence" => Some(NativeCommand::UpdateState),
+        "appliance/appliance-stats-sampler/read-the-latest-appliance-stats-sample-with-model-lanes-and-last-update-check" => Some(NativeCommand::StatsLatest),
+        "network/seat-tunnels/status-whether-the-openvpn-port-forwarding-and-tailscale-tunnels-are-up-on-this-seat" => Some(NativeCommand::SeatTunnels),
         #[cfg(leaf_pid2)]
         "appliance/caduceus-pid2-routines/status-one-routine-by-its-routine-id" => Some(NativeCommand::RoutineStatus),
         #[cfg(leaf_pid2)]
@@ -99,8 +108,53 @@ pub(crate) fn has_command(name: &str) -> bool {
     command(name).is_some()
 }
 
+fn native_read_failure(error: &str) -> serde_json::Value {
+    serde_json::json!({"ok": false, "firstMissingSignal": crate::gate::missing_signal(error), "outcome": "failed"})
+}
+
 pub async fn execute(name: &str, envelope: &serde_json::Value) -> Result<serde_json::Value, String> {
     match command(name) {
+        Some(NativeCommand::UpdateState) => {
+            let mut value = match crate::routes::update_appliance::read_json() {
+                Ok(mut value) => {
+                    if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                        value["outcome"] = serde_json::json!("not-ready");
+                    }
+                    value
+                }
+                Err(error) => native_read_failure(&error),
+            };
+            crate::shared::load_trace::enrich_json(&mut value);
+            Ok(value)
+        }
+        Some(NativeCommand::SeatTunnels) => {
+            let mut value = match crate::routes::network::status_json() {
+                Ok(mut value) => {
+                    if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                        value["outcome"] = serde_json::json!("tunnel-down");
+                    }
+                    value
+                }
+                Err(error) => native_read_failure(&error),
+            };
+            crate::shared::load_trace::enrich_json(&mut value);
+            Ok(value)
+        }
+        Some(NativeCommand::StatsLatest) => {
+            let result = crate::stats::current().and_then(|body| {
+                serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&body)
+                    .map_err(|error| error.to_string())
+            });
+            let mut value = match result {
+                Ok(mut object) => {
+                    object.entry("ok").or_insert(serde_json::Value::Bool(true));
+                    serde_json::Value::Object(object)
+                }
+                Err(error) => native_read_failure(&error),
+            };
+            crate::shared::load_trace::enrich_json(&mut value);
+            Ok(value)
+        }
         Some(NativeCommand::ConfigPath | NativeCommand::ConfigShow | NativeCommand::ConfigGet) => {
             let result = match command(name) {
                 Some(NativeCommand::ConfigPath) => crate::shared::config::path_json(),

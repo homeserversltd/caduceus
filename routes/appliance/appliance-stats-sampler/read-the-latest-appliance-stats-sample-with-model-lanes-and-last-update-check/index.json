@@ -1,0 +1,12 @@
+{
+  "namespace": "appliance/appliance-stats-sampler/read-the-latest-appliance-stats-sample-with-model-lanes-and-last-update-check",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["all"],
+  "commands": ["appliance stats read"],
+  "serve": [{"rust": "appliance/appliance-stats-sampler/read-the-latest-appliance-stats-sample-with-model-lanes-and-last-update-check"}],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/appliance-stats-sampler/read-the-latest-appliance-stats-sample-with-model-lanes-and-last-update-check",
+  "body": "optional",
+  "mutation_allowed": false
+}

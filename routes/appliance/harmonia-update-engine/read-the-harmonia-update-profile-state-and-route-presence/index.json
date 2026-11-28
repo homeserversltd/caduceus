@@ -1,0 +1,13 @@
+{
+  "namespace": "appliance/harmonia-update-engine/read-the-harmonia-update-profile-state-and-route-presence",
+  "admittance": "open",
+  "flags": {},
+  "needs": ["all"],
+  "commands": ["update status"],
+  "serve": [{"rust": "appliance/harmonia-update-engine/read-the-harmonia-update-profile-state-and-route-presence"}],
+  "http_method": "POST",
+  "http_path": "/api/v1/appliance/harmonia-update-engine/read-the-harmonia-update-profile-state-and-route-presence",
+  "body": "optional",
+  "mutation_allowed": false,
+  "status_table": {"not-ready": 200}
+}
